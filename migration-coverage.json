@@ -13,9 +13,9 @@
     "note": "failas persikelia į vq/state/ E7 self-hosting metu"
   },
   "modules": [
-    { "module": "core (flat)", "target": "shared + infrastructure + domain + interfaces (skaidoma)", "wave": "E1/E2/E4", "status": "pending" },
-    { "module": "shared/*", "target": "shared", "wave": "E1", "status": "pending" },
-    { "module": "domain/*", "target": "domain", "wave": "E2", "status": "pending" },
+    { "module": "core (flat)", "target": "shared + infrastructure + domain + interfaces (skaidoma)", "wave": "E1/E2/E4", "status": "pending", "note": "E1 migruota shared dalis: exit-codes.ts (pilnas, commit 43fb8217) ir paths.ts grynos funkcijos (be resolveExistingDispatchTaskFile/projectRootFromEnv/taskIdFromFile — WBR pataisa: task-flavored → E2 domain, IO → E4, env → E5); likusi core dalis (fs/process/git/claude-headless/schema/decision/task-ledger/changes/cli) — vėlesnės bangos" },
+    { "module": "shared/*", "target": "shared", "wave": "E1", "status": "migrated", "evidence": "VERQESTRA commit 43fb8217 — src/shared/{result,errors,json,markdown,ids}.ts pagal WBR VQ-101; parity per shared-primitives fixture + suite testus (45/45)" },
+    { "module": "domain/*", "target": "domain", "wave": "E2", "status": "pending", "note": "canonicalJsonStringify iš domain/metrics/accepted-change.ts jau ištrauktas į VERQESTRA shared/json.ts (E1, commit 43fb8217) — E2 bangoje domain/metrics migruoja BE jo (FQC-12: vienam sprendimui viena vieta)" },
     { "module": "application/analytics", "target": "application", "wave": "E3", "status": "pending" },
     { "module": "application/benchmark", "target": "application (+infrastructure I/O dalis)", "wave": "E3", "status": "pending" },
     { "module": "application/context-pack", "target": "application", "wave": "E3", "status": "pending" },

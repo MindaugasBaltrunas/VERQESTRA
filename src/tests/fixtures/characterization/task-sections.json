@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "Task sekcijų enumeravimo kontraktai (E2 pre-work, VQ-201): enumerateTaskSections (preamble level:0, dekoruotos antraštės, gylio ribos), normalizeTaskHeading (NFD/diakritikų foldingas) ir taskBulletItems. Reikšmės užfiksuotos 2026-08-19 record režimu; VERQESTRA jo neturi (PAR-1).",
+  "cases": [
+    {
+      "id": "sections-canonical-with-preamble",
+      "kind": "sections",
+      "lines": [
+        "Laisvas preamble tekstas be antraštės.",
+        "",
+        "## Žingsnis 0 — ar jau įgyvendinta?",
+        "Patikrink prieš keisdamas.",
+        "",
+        "# Task",
+        "",
+        "## Tikslas",
+        "Vienas tikslas.",
+        "",
+        "## Failai",
+        "Leidžiama:",
+        "- `src/a.ts`",
+        "",
+        "### Po-sekcija gilesniu lygiu",
+        "gilus tekstas",
+        "",
+        "## Stop",
+        "Sustok."
+      ],
+      "expect": {
+        "sections": [
+          { "heading": "", "level": 0, "key": "", "body": "Laisvas preamble tekstas be antraštės." },
+          { "heading": "## Žingsnis 0 — ar jau įgyvendinta?", "level": 2, "key": "zingsnis 0 — ar jau igyvendinta?", "body": "Patikrink prieš keisdamas." },
+          { "heading": "# Task", "level": 1, "key": "task", "body": "" },
+          { "heading": "## Tikslas", "level": 2, "key": "tikslas", "body": "Vienas tikslas." },
+          { "heading": "## Failai", "level": 2, "key": "failai", "body": "Leidžiama:\n- `src/a.ts`" },
+          { "heading": "### Po-sekcija gilesniu lygiu", "level": 3, "key": "po-sekcija gilesniu lygiu", "body": "gilus tekstas" },
+          { "heading": "## Stop", "level": 2, "key": "stop", "body": "Sustok." }
+        ]
+      }
+    },
+    {
+      "id": "sections-decorated-status-heading",
+      "kind": "sections",
+      "lines": [
+        "# Task",
+        "",
+        "## Būsena — DARBAS PADARYTAS (2026-08-05)",
+        "Padaryta.",
+        "",
+        "## Tikslas",
+        "T."
+      ],
+      "expect": {
+        "sections": [
+          { "heading": "# Task", "level": 1, "key": "task", "body": "" },
+          { "heading": "## Būsena — DARBAS PADARYTAS (2026-08-05)", "level": 2, "key": "busena — darbas padarytas (2026-08-05)", "body": "Padaryta." },
+          { "heading": "## Tikslas", "level": 2, "key": "tikslas", "body": "T." }
+        ]
+      }
+    },
+    { "id": "sections-empty-document", "kind": "sections", "lines": [""], "expect": { "sections": [] } },
+    {
+      "id": "normalize-heading-diacritics-and-case",
+      "kind": "normalize",
+      "headings": ["## Tikslas", "## TIKSLAS", "##  Tikslas ", "## Žingsnis 0", "## Zingsnis 0", "## Patikra:", "## Human review block"],
+      "expect": { "normalized": ["tikslas", "tikslas", "tikslas", "zingsnis 0", "zingsnis 0", "patikra:", "human review block"] }
+    },
+    {
+      "id": "bullets-markers-and-residue",
+      "kind": "bullets",
+      "body": "- pirmas\n* antras su žvaigžde\n  - įtrauktas\nne bullet eilutė\n- `kelias.ts` — su uodega\n\n- po tuščios",
+      "expect": { "items": ["pirmas", "antras su žvaigžde", "įtrauktas", "`kelias.ts` — su uodega", "po tuščios"] }
+    },
+    { "id": "bullets-empty-body", "kind": "bullets", "body": "", "expect": { "items": [] } }
+  ]
+}

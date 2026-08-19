@@ -16,3 +16,5 @@ neturi ir negali turėti.
 | `benchmark-verdicts.json` | compareBenchmarkRuns verdiktų matrica + canDeclareOptimizationSuccess (BENCH-2, per-task normalizacija) | E2 (VQ-204) |
 | `bash-digest-contracts.json` | digestBashOutput byte-tikslūs kontraktai: test/tsc/eslint/build klasės, silent success, unsupported šakos | E2 (VQ-204) |
 | `code-index-queries.json` | CodeIndex: inline workspace → build, graph/impact/semantic/boundary užklausos, manifest + JSONL byte kontraktas | E3 (VQ-301) |
+| `worker-task-ir.json` | task Markdown → WorkerTaskIR: canonical/decorated/residue atvejai + fail-closed klaidų kodai, pinned source_sha256 | E3 (VQ-302) |
+| `compact-worker-dsl.json` | WorkerTaskIR → compact DSL: byte-tikslūs render'iai (alias/dedup/block formos) + parse klaidos; ir_chars pin'ina IR raktų tvarką | E3 (VQ-302) |

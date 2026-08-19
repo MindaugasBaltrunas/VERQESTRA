@@ -11,3 +11,4 @@ export * from "./markdown.js";
 export * from "./paths.js";
 export * from "./ids.js";
 export * from "./numbers.js";
+export * from "./schema.js";

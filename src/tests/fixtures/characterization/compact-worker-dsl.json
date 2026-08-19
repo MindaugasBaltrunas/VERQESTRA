@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "WorkerTaskIR → Compact Worker DSL kontraktai (VQ-003c b). Render atvejai: IR konstruojamas runner'yje per workerTaskIrSchema.parse iš fixture ir_base + overrides (source_sha256 = contextArtifactSha256(\"fixture\")); DSL tekstas fiksuojamas byte-tiksliai kaip eilučių masyvas. Parse atvejai: rankinės DSL įvestys → klaidos kodas ir eilutė. Kiekvienam render atvejui runner'is papildomai tvirtina parity (lossless) ir parse round-trip invariantus. Reikšmės užfiksuotos 2026-08-19 record režimu; VERQESTRA jo neturi (PAR-1). PASTABA: stats.ir_chars priklauso nuo IR JSON raktų tvarkos (workerTaskIrSchema laukų tvarka) — VERQESTRA privalo ją išlaikyti.",
+  "ir_base": {
+    "version": 1,
+    "task_id": "0024-x",
+    "goal": "Tikslas.",
+    "allowed_paths": ["AG/orchestrator/src/tests/*"],
+    "checks": ["pnpm --dir AG/orchestrator test"]
+  },
+  "cases": [
+    {
+      "id": "render-minimal",
+      "kind": "render",
+      "ir": {},
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "G Tikslas.", "E AG/orchestrator/src/tests/*", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [],
+        "removed_duplicates": [],
+        "stats": { "ir_chars": 351, "dsl_chars": 162, "dsl_chars_without_aliases": 162, "alias_count": 0, "alias_saved_chars": 0, "duplicates_removed": 0 }
+      }
+    },
+    {
+      "id": "render-no-profitable-alias",
+      "kind": "render",
+      "ir": { "allowed_paths": ["AG/orchestrator/src/application/context-pack/vienkartinis-ilgas-kelias.ts"] },
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "G Tikslas.", "E AG/orchestrator/src/application/context-pack/vienkartinis-ilgas-kelias.ts", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [],
+        "removed_duplicates": [],
+        "stats": { "ir_chars": 397, "dsl_chars": 208, "dsl_chars_without_aliases": 208, "alias_count": 0, "alias_saved_chars": 0, "duplicates_removed": 0 }
+      }
+    },
+    {
+      "id": "render-profitable-path-alias",
+      "kind": "render",
+      "ir": {
+        "allowed_paths": ["AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts"],
+        "forbidden_paths": ["AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts.bak"],
+        "acceptance_criteria": [
+          "Pakeisti AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts eksportą.",
+          "Padengti AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts testu."
+        ]
+      },
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "{F1}=AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts", "G Tikslas.", "E {F1}", "X {F1}.bak", "A Pakeisti AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts eksportą.", "A Padengti AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts testu.", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [{ "name": "F1", "value": "AG/orchestrator/src/application/context-pack/labai-ilgas-bendras-kelias.ts", "uses": 2, "saved_chars": 60 }],
+        "removed_duplicates": [],
+        "stats": { "ir_chars": 666, "dsl_chars": 419, "dsl_chars_without_aliases": 479, "alias_count": 1, "alias_saved_chars": 60, "duplicates_removed": 0 }
+      }
+    },
+    {
+      "id": "render-dedup-within-field",
+      "kind": "render",
+      "ir": { "allowed_paths": ["AG/orchestrator/src/tests/*", "AG/orchestrator/src/tests/*", "AG/orchestrator/src/core/schema.ts"] },
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "{F1}=AG/orchestrator/src/", "G Tikslas.", "E {F1}tests/*", "E {F1}core/schema.ts", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [{ "name": "F1", "value": "AG/orchestrator/src/", "uses": 2, "saved_chars": 6 }],
+        "removed_duplicates": [{ "field": "allowed_paths", "value": "AG/orchestrator/src/tests/*", "duplicate_of": "AG/orchestrator/src/tests/*" }],
+        "stats": { "ir_chars": 418, "dsl_chars": 193, "dsl_chars_without_aliases": 199, "alias_count": 1, "alias_saved_chars": 6, "duplicates_removed": 1 }
+      }
+    },
+    {
+      "id": "render-no-cross-field-dedup",
+      "kind": "render",
+      "ir": { "allowed_paths": ["AG/orchestrator/src/core/schema.ts"], "forbidden_paths": ["AG/orchestrator/src/core/schema.ts"] },
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "{F1}=AG/orchestrator/src/core/schema.ts", "G Tikslas.", "E {F1}", "X {F1}", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [{ "name": "F1", "value": "AG/orchestrator/src/core/schema.ts", "uses": 2, "saved_chars": 20 }],
+        "removed_duplicates": [],
+        "stats": { "ir_chars": 394, "dsl_chars": 186, "dsl_chars_without_aliases": 206, "alias_count": 1, "alias_saved_chars": 20, "duplicates_removed": 0 }
+      }
+    },
+    {
+      "id": "render-multiline-goal-block",
+      "kind": "render",
+      "ir": { "goal": "Pirma tikslo eilutė.\nAntra tikslo eilutė su detale." },
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "G#2", "Pirma tikslo eilutė.", "Antra tikslo eilutė su detale.", "E AG/orchestrator/src/tests/*", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [],
+        "removed_duplicates": [],
+        "stats": { "ir_chars": 395, "dsl_chars": 207, "dsl_chars_without_aliases": 207, "alias_count": 0, "alias_saved_chars": 0, "duplicates_removed": 0 }
+      }
+    },
+    {
+      "id": "render-leading-brace-escaped",
+      "kind": "render",
+      "ir": { "acceptance_criteria": ["{ne alias} — riestinis skliaustas reikšmės pradžioje."] },
+      "expect": {
+        "text": ["WTD1", "IRV 1", "T 0024-x", "H f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d", "G Tikslas.", "E AG/orchestrator/src/tests/*", "A {ne alias} — riestinis skliaustas reikšmės pradžioje.", "V pnpm --dir AG/orchestrator test", ""],
+        "aliases": [],
+        "removed_duplicates": [],
+        "stats": { "ir_chars": 406, "dsl_chars": 218, "dsl_chars_without_aliases": 218, "alias_count": 0, "alias_saved_chars": 0, "duplicates_removed": 0 }
+      }
+    },
+    { "id": "parse-bad-magic", "kind": "parse", "text": ["WTD9"], "expect": { "ok": false, "code": "bad_magic", "line": 1 } },
+    { "id": "parse-empty-document", "kind": "parse", "text": [""], "expect": { "ok": false, "code": "bad_magic", "line": 1 } }
+  ]
+}

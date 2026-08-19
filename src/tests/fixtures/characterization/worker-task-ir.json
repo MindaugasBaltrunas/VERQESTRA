@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "Task Markdown → WorkerTaskIR kompiliacijos kontraktai (VQ-003c a). Task tekstai laikomi eilučių masyvais (runner'is jungia \"\\n\" — CRLF/BOM negali patekti į source_sha256; tekstas privalo būti NFC). Variantai išvedami iš bazės deterministinėmis replace/append operacijomis su drift apsauga. Reikšmės užfiksuotos 2026-08-19 record režimu; VERQESTRA jo neturi (PAR-1).",
+  "tasks": {
+    "canonical": {
+      "lines": [
+        "## Žingsnis 0 — ar jau įgyvendinta?",
+        "Prieš keisdamas kodą patikrink, ar ## Tikslas jau tenkinamas.",
+        "",
+        "## Sandbox taisyklės (privaloma — taupo turns)",
+        "- Naudok TIKSLIA forma: `npm run build --prefix AG/orchestrator`",
+        "",
+        "# Task",
+        "",
+        "## Spec source",
+        "AG/project/token-optimization-2026-08-06.md",
+        "AG/openspec/changes/ag-loop-optimization-v1/spec.md",
+        "",
+        "## Tikslas",
+        "Sukompiliuoti canonical task Markdown į deterministinį WorkerTaskIR.",
+        "",
+        "## Dependencies",
+        "- depends_on: 0020-context-compression-rollout-foundation",
+        "",
+        "## Agentai",
+        "readme-guard -> coder -> reviewer -> tester",
+        "",
+        "## Failai",
+        "Leidžiama:",
+        "- `AG/orchestrator/src/domain/tasks/*`",
+        "- `AG/orchestrator/src/core/schema.ts`",
+        "Draudžiama:",
+        "- `AG/orchestrator/src/interfaces/cli/claude-dispatch/index.ts`",
+        "- `.env*`",
+        "",
+        "## Veiksmas",
+        "- Apibrėžti pure WorkerTaskIR kontraktą.",
+        "- Naudoti esamus kanoninius parserius.",
+        "",
+        "## Patikra",
+        "- `pnpm --dir AG/orchestrator typecheck`",
+        "- `pnpm --dir AG/orchestrator test`",
+        "",
+        "## Stop",
+        "Sustoti, kai formatai kompiliuojami be praradimo.",
+        "",
+        "## Neįtraukta",
+        "- Compact DSL renderinimas.",
+        "",
+        "## Human review block",
+        "- blocked_by: 0020-context-compression-rollout-foundation",
+        ""
+      ]
+    },
+    "decorated-status": {
+      "base": "canonical",
+      "append": ["## Būsena — DARBAS PADARYTAS (2026-08-05)", "Padaryta.", ""]
+    },
+    "residue-on-path": {
+      "base": "canonical",
+      "replace": [{ "find": "- `AG/orchestrator/src/core/schema.ts`", "with": "- `AG/orchestrator/src/core/schema.ts` — keisti tik schemą" }]
+    },
+    "no-goal": {
+      "base": "canonical",
+      "replace": [{ "find": "## Tikslas\nSukompiliuoti canonical task Markdown į deterministinį WorkerTaskIR.", "with": "## Tikslas (perkeltas)\nSukompiliuoti canonical task Markdown į deterministinį WorkerTaskIR." }]
+    },
+    "no-allowed-paths": {
+      "base": "canonical",
+      "replace": [{ "find": "- `AG/orchestrator/src/domain/tasks/*`\n- `AG/orchestrator/src/core/schema.ts`\nDraudžiama:", "with": "Draudžiama:" }]
+    },
+    "no-checks": {
+      "base": "canonical",
+      "replace": [{ "find": "## Patikra", "with": "## Patikra vėliau" }]
+    },
+    "duplicate-stop": {
+      "base": "canonical",
+      "append": ["## Stop", "Antras stop blokas.", ""]
+    }
+  },
+  "cases": [
+    {
+      "id": "canonical-full",
+      "task": "canonical",
+      "task_id": "0021-compile-canonical-worker-task-ir",
+      "expect": {
+        "ok": true,
+        "ir": {
+          "version": 1,
+          "task_id": "0021-compile-canonical-worker-task-ir",
+          "goal": "Sukompiliuoti canonical task Markdown į deterministinį WorkerTaskIR.",
+          "allowed_paths": ["AG/orchestrator/src/domain/tasks/*", "AG/orchestrator/src/core/schema.ts"],
+          "forbidden_paths": ["AG/orchestrator/src/interfaces/cli/claude-dispatch/index.ts", ".env*"],
+          "acceptance_criteria": ["Apibrėžti pure WorkerTaskIR kontraktą.", "Naudoti esamus kanoninius parserius."],
+          "checks": ["pnpm --dir AG/orchestrator typecheck", "pnpm --dir AG/orchestrator test"],
+          "stop": "Sustoti, kai formatai kompiliuojami be praradimo.",
+          "spec_refs": ["AG/project/token-optimization-2026-08-06.md", "AG/openspec/changes/ag-loop-optimization-v1/spec.md"],
+          "out_of_scope": ["Compact DSL renderinimas."],
+          "elements": [
+            { "heading": "## Žingsnis 0 — ar jau įgyvendinta?", "kind": "directive", "body": "Prieš keisdamas kodą patikrink, ar ## Tikslas jau tenkinamas." },
+            { "heading": "## Sandbox taisyklės (privaloma — taupo turns)", "kind": "directive", "body": "- Naudok TIKSLIA forma: `npm run build --prefix AG/orchestrator`" }
+          ],
+          "omitted_sections": ["## Dependencies", "## Agentai", "## Human review block"],
+          "source_sha256": "d45a782f6932be4454df6334d0d2c64f7a39827c2313fbe22361b406cd7b7adf"
+        }
+      }
+    },
+    {
+      "id": "decorated-status-heading-preserved",
+      "task": "decorated-status",
+      "task_id": "0021-compile-canonical-worker-task-ir",
+      "expect": {
+        "ok": true,
+        "ir": {
+          "version": 1,
+          "task_id": "0021-compile-canonical-worker-task-ir",
+          "goal": "Sukompiliuoti canonical task Markdown į deterministinį WorkerTaskIR.",
+          "allowed_paths": ["AG/orchestrator/src/domain/tasks/*", "AG/orchestrator/src/core/schema.ts"],
+          "forbidden_paths": ["AG/orchestrator/src/interfaces/cli/claude-dispatch/index.ts", ".env*"],
+          "acceptance_criteria": ["Apibrėžti pure WorkerTaskIR kontraktą.", "Naudoti esamus kanoninius parserius."],
+          "checks": ["pnpm --dir AG/orchestrator typecheck", "pnpm --dir AG/orchestrator test"],
+          "stop": "Sustoti, kai formatai kompiliuojami be praradimo.",
+          "spec_refs": ["AG/project/token-optimization-2026-08-06.md", "AG/openspec/changes/ag-loop-optimization-v1/spec.md"],
+          "out_of_scope": ["Compact DSL renderinimas."],
+          "elements": [
+            { "heading": "## Žingsnis 0 — ar jau įgyvendinta?", "kind": "directive", "body": "Prieš keisdamas kodą patikrink, ar ## Tikslas jau tenkinamas." },
+            { "heading": "## Sandbox taisyklės (privaloma — taupo turns)", "kind": "directive", "body": "- Naudok TIKSLIA forma: `npm run build --prefix AG/orchestrator`" },
+            { "heading": "## Būsena — DARBAS PADARYTAS (2026-08-05)", "kind": "raw", "body": "Padaryta." }
+          ],
+          "omitted_sections": ["## Dependencies", "## Agentai", "## Human review block"],
+          "source_sha256": "5991413251490cf62ff4de2069f56af55c45dac96177ba3b0281ba4544639b4e"
+        }
+      }
+    },
+    {
+      "id": "residue-on-path-line",
+      "task": "residue-on-path",
+      "task_id": "0021-compile-canonical-worker-task-ir",
+      "expect": {
+        "ok": true,
+        "ir": {
+          "version": 1,
+          "task_id": "0021-compile-canonical-worker-task-ir",
+          "goal": "Sukompiliuoti canonical task Markdown į deterministinį WorkerTaskIR.",
+          "allowed_paths": ["AG/orchestrator/src/domain/tasks/*", "AG/orchestrator/src/core/schema.ts"],
+          "forbidden_paths": ["AG/orchestrator/src/interfaces/cli/claude-dispatch/index.ts", ".env*"],
+          "acceptance_criteria": ["Apibrėžti pure WorkerTaskIR kontraktą.", "Naudoti esamus kanoninius parserius."],
+          "checks": ["pnpm --dir AG/orchestrator typecheck", "pnpm --dir AG/orchestrator test"],
+          "stop": "Sustoti, kai formatai kompiliuojami be praradimo.",
+          "spec_refs": ["AG/project/token-optimization-2026-08-06.md", "AG/openspec/changes/ag-loop-optimization-v1/spec.md"],
+          "out_of_scope": ["Compact DSL renderinimas."],
+          "elements": [
+            { "heading": "## Žingsnis 0 — ar jau įgyvendinta?", "kind": "directive", "body": "Prieš keisdamas kodą patikrink, ar ## Tikslas jau tenkinamas." },
+            { "heading": "## Sandbox taisyklės (privaloma — taupo turns)", "kind": "directive", "body": "- Naudok TIKSLIA forma: `npm run build --prefix AG/orchestrator`" },
+            { "heading": "## Failai", "kind": "raw", "body": "Leidžiama:\n- `AG/orchestrator/src/domain/tasks/*`\n- `AG/orchestrator/src/core/schema.ts` — keisti tik schemą\nDraudžiama:\n- `AG/orchestrator/src/interfaces/cli/claude-dispatch/index.ts`\n- `.env*`" }
+          ],
+          "omitted_sections": ["## Dependencies", "## Agentai", "## Human review block"],
+          "source_sha256": "a7db9d0c1acd2a453cda9bc563b2230441804c6881c6d6537119c256cb348876"
+        }
+      }
+    },
+    { "id": "missing-goal-fails-closed", "task": "no-goal", "task_id": "0021-compile-canonical-worker-task-ir", "expect": { "ok": false, "code": "missing_goal" } },
+    { "id": "missing-allowed-paths-fails-closed", "task": "no-allowed-paths", "task_id": "0021-compile-canonical-worker-task-ir", "expect": { "ok": false, "code": "missing_allowed_paths" } },
+    { "id": "missing-checks-fails-closed", "task": "no-checks", "task_id": "0021-compile-canonical-worker-task-ir", "expect": { "ok": false, "code": "missing_checks" } },
+    { "id": "duplicate-section-fails-closed", "task": "duplicate-stop", "task_id": "0021-compile-canonical-worker-task-ir", "expect": { "ok": false, "code": "duplicate_section" } },
+    { "id": "missing-task-id-fails-closed", "task": "canonical", "task_id": "", "expect": { "ok": false, "code": "missing_task_id" } }
+  ]
+}

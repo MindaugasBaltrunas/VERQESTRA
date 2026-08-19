@@ -1,0 +1,115 @@
+// Kalbų registras code-index'ui. Behaviour etalon: AG_loop code-index/language-capabilities.ts.
+import type { CodeIndexLanguage } from "./types.js";
+
+export type CodeIndexLanguageSupportStatus = "active" | "scanned" | "planned";
+
+export type CodeIndexLanguageCapability = {
+  language: CodeIndexLanguage;
+  status: CodeIndexLanguageSupportStatus;
+  extensions: string[];
+  parser: string;
+  extracts_files: boolean;
+  extracts_imports: boolean;
+  extracts_symbols: boolean;
+  extracts_tests: boolean;
+  priority: number;
+};
+
+export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
+  {
+    language: "typescript",
+    status: "active",
+    extensions: [".ts", ".tsx", ".mts", ".cts"],
+    parser: "regex-ts-indexer",
+    extracts_files: true,
+    extracts_imports: true,
+    extracts_symbols: true,
+    extracts_tests: true,
+    priority: 1,
+  },
+  {
+    language: "javascript",
+    status: "active",
+    extensions: [".js", ".jsx", ".mjs", ".cjs"],
+    parser: "regex-js-scan",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: true,
+    priority: 1,
+  },
+  {
+    language: "python",
+    status: "scanned",
+    extensions: [".py"],
+    parser: "planned-python-ast",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: true,
+    priority: 2,
+  },
+  {
+    language: "php",
+    status: "scanned",
+    extensions: [".php"],
+    parser: "planned-php-parser",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: true,
+    priority: 3,
+  },
+  {
+    language: "csharp",
+    status: "scanned",
+    extensions: [".cs"],
+    parser: "planned-roslyn",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: true,
+    priority: 4,
+  },
+  {
+    language: "dotnet",
+    status: "scanned",
+    extensions: [".csproj", ".sln", ".props", ".targets"],
+    parser: "planned-msbuild-graph",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: false,
+    priority: 4,
+  },
+  {
+    language: "json",
+    status: "active",
+    extensions: [".json"],
+    parser: "json-config-scan",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: false,
+    priority: 5,
+  },
+];
+
+export function languageForExtension(extension: string): CodeIndexLanguage {
+  const normalized = extension.toLowerCase();
+  return (
+    codeIndexLanguageCapabilities.find((capability) => capability.extensions.includes(normalized))?.language ?? "text"
+  );
+}
+
+export function indexedCodeExtensions(): Set<string> {
+  return new Set(codeIndexLanguageCapabilities.flatMap((capability) => capability.extensions));
+}
+
+export function sourceHashLanguages(): Set<CodeIndexLanguage> {
+  return new Set(
+    codeIndexLanguageCapabilities
+      .filter((capability) => capability.extracts_files && capability.language !== "json")
+      .map((capability) => capability.language),
+  );
+}

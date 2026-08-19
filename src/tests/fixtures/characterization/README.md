@@ -15,3 +15,4 @@ neturi ir negali turėti.
 | `diagnosis-dispositions.json` | diagnozės dispozicijos: deterministinis done greitkelis, no-commit dispozicija, lokali diagnozė, stop kilmės F7 vartai, nonce atgavimas | E2 (VQ-204) |
 | `benchmark-verdicts.json` | compareBenchmarkRuns verdiktų matrica + canDeclareOptimizationSuccess (BENCH-2, per-task normalizacija) | E2 (VQ-204) |
 | `bash-digest-contracts.json` | digestBashOutput byte-tikslūs kontraktai: test/tsc/eslint/build klasės, silent success, unsupported šakos | E2 (VQ-204) |
+| `code-index-queries.json` | CodeIndex: inline workspace → build, graph/impact/semantic/boundary užklausos, manifest + JSONL byte kontraktas | E3 (VQ-301) |

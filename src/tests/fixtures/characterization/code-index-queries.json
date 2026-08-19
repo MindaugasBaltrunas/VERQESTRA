@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "CodeIndex užklausų kontraktai (VQ-003b). Workspace failai materializuojami VERBATIM į tmpdir (tik LF, UTF-8 be BOM) — inline forma, kad repo savo paties code-index liktų nepaliestas. Reikšmės užfiksuotos 2026-08-19 iš AG_loop @ 9027d627 (record režimas); VERQESTRA runner'is record režimo NETURI (PAR-1).",
+  "workspace": {
+    "files": {
+      "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"baseUrl\": \".\",\n    \"paths\": { \"@lib/*\": [\"src/lib/*\"] }\n  }\n}\n",
+      "src/lib/format.ts": "export interface Formatter {\n  render(value: string): string;\n}\n\nexport class UpperFormatter implements Formatter {\n  render(value: string): string {\n    return value.toUpperCase();\n  }\n}\n",
+      "src/lib/helpers.ts": "export function helperFormat(value: string): string {\n  return `[${value}]`;\n}\n",
+      "src/lib/index.ts": "export { helperFormat } from \"./helpers.js\";\nexport * from \"./format.js\";\n",
+      "src/consumer.ts": "import path from \"node:path\";\nimport { helperFormat } from \"@lib/index.js\";\nimport { UpperFormatter } from \"./lib/format.js\";\n\nexport function describeFormatter(value: string): string {\n  const formatter = new UpperFormatter();\n  return path.basename(helperFormat(formatter.render(value)));\n}\n",
+      "src/tests/consumer.test.ts": "import { describeFormatter } from \"../consumer.js\";\n\nexport const checked = describeFormatter(\"x\").length > 0;\n",
+      "src/domain/rules.ts": "import { runLoop } from \"../application/loop.js\";\n\nexport function decide(): string {\n  return runLoop();\n}\n",
+      "src/application/loop.ts": "export function runLoop(): string {\n  return \"ok\";\n}\n"
+    }
+  },
+  "expected_manifest": {
+    "version": "2.1.0",
+    "file_count": 8,
+    "symbol_count": 8,
+    "edge_count": 32,
+    "source_hash": "df59671c00297fb7ab55cdc770e5893ee8a26c174ae107bdabb2d54a5ef46539"
+  },
+  "expected_storage": {
+    "dir": "AG/state/code-index",
+    "files": ["files.jsonl", "symbols.jsonl", "edges.jsonl", "manifest.json"],
+    "key_order": {
+      "file": ["path", "hash", "size", "language", "kind", "imports", "exports", "symbols", "isTest"],
+      "symbol": ["id", "file", "name", "kind", "exported", "line", "endLine", "signature"],
+      "edge": ["from", "to", "type", "detail"],
+      "manifest": ["version", "generated_at", "project_root", "file_count", "symbol_count", "edge_count", "source_hash"]
+    }
+  },
+  "cases": [
+    {
+      "id": "graph-file-exact",
+      "kind": "graph",
+      "target": "src/consumer.ts",
+      "options": { "fuzzy": false },
+      "expect": {
+        "target": "src/consumer.ts",
+        "matched_files": ["src/consumer.ts"],
+        "matched_symbols": [],
+        "imports": ["src/lib/format.ts", "src/lib/index.ts"],
+        "importers": ["src/tests/consumer.test.ts"],
+        "exported_symbols": ["src/consumer.ts#describeFormatter"],
+        "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts", "src/tests/consumer.test.ts"],
+        "impacted_tests": ["src/tests/consumer.test.ts"]
+      }
+    },
+    {
+      "id": "graph-symbol-bare-name",
+      "kind": "graph",
+      "target": "helperFormat",
+      "options": { "fuzzy": false },
+      "expect": {
+        "target": "helperFormat",
+        "matched_files": [],
+        "matched_symbols": ["src/lib/helpers.ts#helperFormat"],
+        "imports": [],
+        "importers": ["src/lib/index.ts"],
+        "exported_symbols": ["src/lib/helpers.ts#helperFormat"],
+        "related_files": ["src/lib/helpers.ts", "src/lib/index.ts"],
+        "impacted_tests": []
+      }
+    },
+    {
+      "id": "graph-fuzzy-match",
+      "kind": "graph",
+      "target": "Formatter",
+      "options": { "fuzzy": true },
+      "expect": {
+        "target": "Formatter",
+        "matched_files": [],
+        "matched_symbols": [
+          "src/consumer.ts#describeFormatter",
+          "src/lib/format.ts#Formatter",
+          "src/lib/format.ts#UpperFormatter",
+          "src/lib/format.ts#UpperFormatter.render"
+        ],
+        "imports": ["src/lib/format.ts", "src/lib/index.ts"],
+        "importers": ["src/consumer.ts", "src/lib/index.ts", "src/tests/consumer.test.ts"],
+        "exported_symbols": [
+          "src/consumer.ts#describeFormatter",
+          "src/lib/format.ts#Formatter",
+          "src/lib/format.ts#UpperFormatter",
+          "src/lib/format.ts#UpperFormatter.render"
+        ],
+        "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts", "src/tests/consumer.test.ts"],
+        "impacted_tests": ["src/tests/consumer.test.ts"]
+      }
+    },
+    {
+      "id": "graph-no-match",
+      "kind": "graph",
+      "target": "src/ghost.ts",
+      "options": { "fuzzy": false },
+      "expect": {
+        "target": "src/ghost.ts",
+        "matched_files": [],
+        "matched_symbols": [],
+        "imports": [],
+        "importers": [],
+        "exported_symbols": [],
+        "related_files": [],
+        "impacted_tests": []
+      }
+    },
+    {
+      "id": "impact-single-target",
+      "kind": "impact",
+      "targets": ["src/lib/format.ts"],
+      "expect": {
+        "targets": ["src/lib/format.ts"],
+        "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts"],
+        "impacted_tests": [],
+        "notes": []
+      }
+    },
+    {
+      "id": "impact-missing-target",
+      "kind": "impact",
+      "targets": ["src/ghost.ts"],
+      "expect": {
+        "targets": ["src/ghost.ts"],
+        "related_files": [],
+        "impacted_tests": [],
+        "notes": ["no graph match for src/ghost.ts"]
+      }
+    },
+    {
+      "id": "semantic-targets-only",
+      "kind": "semantic",
+      "targets": ["src/consumer.ts"],
+      "limits": { "maxSymbols": 5 },
+      "expect": {
+        "targets": ["src/consumer.ts"],
+        "symbols": [
+          {
+            "id": "src/consumer.ts#describeFormatter",
+            "name": "describeFormatter",
+            "line": 5,
+            "endLine": 8,
+            "exported": true,
+            "reason": "tested",
+            "role": "target"
+          }
+        ],
+        "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts", "src/tests/consumer.test.ts"],
+        "impacted_tests": ["src/tests/consumer.test.ts"],
+        "summary": ["target: src/consumer.ts", "symbols: consumer.describeFormatter:5-8 (tested)"],
+        "notes": []
+      }
+    },
+    {
+      "id": "boundary-violation-domain-to-application",
+      "kind": "boundary",
+      "policy": {
+        "style": "clean_architecture",
+        "layers": ["domain", "application", "infrastructure", "interfaces", "shared"],
+        "forbidden_dependencies": ["domain -> application"]
+      },
+      "expect": {
+        "violations": [
+          {
+            "from": "src/domain/rules.ts",
+            "to": "src/application/loop.ts",
+            "fromLayer": "domain",
+            "toLayer": "application",
+            "dependency": "domain -> application"
+          }
+        ]
+      }
+    },
+    {
+      "id": "boundary-clean-policy",
+      "kind": "boundary",
+      "policy": {
+        "style": "clean_architecture",
+        "layers": ["domain", "application", "infrastructure", "interfaces", "shared"],
+        "forbidden_dependencies": ["interfaces -> domain"]
+      },
+      "expect": { "violations": [] }
+    }
+  ]
+}

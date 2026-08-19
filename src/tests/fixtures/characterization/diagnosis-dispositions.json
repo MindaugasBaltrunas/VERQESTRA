@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "description": "AG_loop diagnozės dispozicijų kontraktai (VQ-003e). Grynos funkcijos iš orchestrator/quality/deterministic-diagnose: kiekvienas atvejis — įvestis ir tikslus laukiamas rezultatas (deepEqual).",
+  "cases": [
+    {
+      "id": "fastpath-all-green-new-commit",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": false, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": true, "reason": "gates passed, stop done, new commit present" }
+    },
+    {
+      "id": "fastpath-marker-instead-of-commit",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": false, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": false, "alreadyImplementedMarker": true, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": true, "reason": "gates passed, stop done, ALREADY_IMPLEMENTED marker" }
+    },
+    {
+      "id": "fastpath-rejects-nonzero-exit",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 1, "stopStatus": "done", "stopStatusCorrupted": false, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": false, "reason": "claude exit 1 != 0" }
+    },
+    {
+      "id": "fastpath-rejects-corrupted-stop",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": true, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": false, "reason": "stop status evidence corrupted" }
+    },
+    {
+      "id": "fastpath-rejects-missing-stop-status",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatusCorrupted": false, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": false, "reason": "stop status '<missing>' != done" }
+    },
+    {
+      "id": "fastpath-rejects-missing-gates-file",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": false, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": false, "reason": "quality-gates-status.json missing" }
+    },
+    {
+      "id": "fastpath-rejects-red-gates",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": false, "qualityGates": { "passed": false }, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": false, "reason": "quality gates failed" }
+    },
+    {
+      "id": "fastpath-rejects-dirty-tree",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": false, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": true, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 2 },
+      "expect": { "fastPath": false, "reason": "2 uncommitted product file(s)" }
+    },
+    {
+      "id": "fastpath-rejects-no-commit-no-marker",
+      "fn": "evaluateDeterministicDone",
+      "input": { "claudeExitCode": 0, "stopStatus": "done", "stopStatusCorrupted": false, "qualityGates": { "passed": true }, "hasNewCommitSinceStart": false, "alreadyImplementedMarker": false, "nonRuntimeDirtyCount": 0 },
+      "expect": { "fastPath": false, "reason": "no new commit and no ALREADY_IMPLEMENTED marker" }
+    },
+    {
+      "id": "nocommit-marker-with-evidence-done",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": true, "productDirtyCount": 0, "hasWorkEvidence": true },
+      "expect": "done"
+    },
+    {
+      "id": "nocommit-marker-without-evidence-human-review",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": true, "productDirtyCount": 0, "hasWorkEvidence": false },
+      "expect": "human-review"
+    },
+    {
+      "id": "nocommit-dirty-without-marker-rollback",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 3, "hasWorkEvidence": false },
+      "expect": "rollback"
+    },
+    {
+      "id": "nocommit-clean-with-evidence-done",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": true },
+      "expect": "done"
+    },
+    {
+      "id": "nocommit-clean-without-evidence-human-review",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false },
+      "expect": "human-review"
+    },
+    {
+      "id": "local-readonly-clean-checks-pass-done",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "checksPassed": true, "changedFiles": [], "allowedPaths": [] },
+      "expect": { "verdict": "done", "reason": "no changes and checks passed (read-only/already implemented)", "requiresModel": false }
+    },
+    {
+      "id": "local-changes-without-allowed-paths-human-review",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "checksPassed": true, "changedFiles": ["a.ts"], "allowedPaths": [] },
+      "expect": { "verdict": "human-review", "reason": "allowed paths missing", "requiresModel": false }
+    },
+    {
+      "id": "local-outside-allowed-human-review",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "checksPassed": true, "exitCode": 0, "changedFiles": ["doc/out.md", "src/in.ts"], "allowedPaths": ["src/**"] },
+      "expect": { "verdict": "human-review", "reason": "changed files outside allowed paths: doc/out.md", "requiresModel": false }
+    },
+    {
+      "id": "local-inside-allowed-checks-pass-done",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "checksPassed": true, "exitCode": 0, "changedFiles": ["src/in.ts"], "allowedPaths": ["src/**"] },
+      "expect": { "verdict": "done", "reason": "checks passed and changed files are inside allowed paths", "requiresModel": false }
+    },
+    {
+      "id": "local-checks-failed-repair",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "checksPassed": false, "exitCode": 1, "changedFiles": ["src/in.ts"], "allowedPaths": ["src/**"], "stderr": "error TS2304: Cannot find name", "stdout": "" },
+      "expect": { "verdict": "repair", "reason": "clear local issue: error TS2304: Cannot find name", "requiresModel": false }
+    },
+    {
+      "id": "local-unknown-stop-status-human-review",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "changedFiles": ["src/in.ts"], "allowedPaths": ["src/**"], "stopStatus": "weird" },
+      "expect": { "verdict": "human-review", "reason": "unknown stop status 'weird'", "requiresModel": false }
+    },
+    {
+      "id": "local-ambiguous-human-review",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "changedFiles": ["src/in.ts"], "allowedPaths": ["src/**"] },
+      "expect": { "verdict": "human-review", "reason": "local signals are ambiguous", "requiresModel": false }
+    },
+    {
+      "id": "stop-evidence-attempt-origin-trusted",
+      "fn": "resolveEffectiveStopStatus",
+      "input": { "evidence": { "origin": "attempt", "status": "done", "taskId": "kitas" }, "taskId": "mano" },
+      "expect": { "status": "done", "foreign": false }
+    },
+    {
+      "id": "stop-evidence-legacy-matching-task-kept",
+      "fn": "resolveEffectiveStopStatus",
+      "input": { "evidence": { "origin": "legacy", "status": "done", "taskId": "mano" }, "taskId": "mano" },
+      "expect": { "status": "done", "foreign": false }
+    },
+    {
+      "id": "stop-evidence-legacy-foreign-task-dropped",
+      "fn": "resolveEffectiveStopStatus",
+      "input": { "evidence": { "origin": "legacy", "status": "done", "taskId": "kitas" }, "taskId": "mano" },
+      "expect": { "foreign": true }
+    },
+    {
+      "id": "stop-evidence-legacy-pre-hardening-kept",
+      "fn": "resolveEffectiveStopStatus",
+      "input": { "evidence": { "origin": "legacy", "status": "done" }, "taskId": "mano" },
+      "expect": { "status": "done", "foreign": false }
+    },
+    {
+      "id": "nonce-env-wins",
+      "fn": "resolveDispatchSessionNonce",
+      "input": { "envNonce": " live ", "origin": "none", "recordNonce": "rec", "recordTaskId": "", "taskId": "t" },
+      "expect": "live"
+    },
+    {
+      "id": "nonce-attempt-origin-trusted",
+      "fn": "resolveDispatchSessionNonce",
+      "input": { "envNonce": "", "origin": "attempt", "recordNonce": "rec", "recordTaskId": "", "taskId": "t" },
+      "expect": "rec"
+    },
+    {
+      "id": "nonce-legacy-requires-task-match",
+      "fn": "resolveDispatchSessionNonce",
+      "input": { "envNonce": "", "origin": "legacy", "recordNonce": "rec", "recordTaskId": "kitas", "taskId": "t" },
+      "expect": ""
+    }
+  ]
+}

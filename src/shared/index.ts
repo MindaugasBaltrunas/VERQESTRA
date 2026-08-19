@@ -10,3 +10,4 @@ export * from "./hash.js";
 export * from "./markdown.js";
 export * from "./paths.js";
 export * from "./ids.js";
+export * from "./numbers.js";

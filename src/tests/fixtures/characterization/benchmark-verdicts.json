@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "compareBenchmarkRuns verdiktų matrica + canDeclareOptimizationSuccess (E2 pre-work, VQ-204). Comparable įvestys: runner'is scalar overrides deda ant emptyUsageTotals()-pagrįsto skeleto (buildComparable) — fixture pin'ina TIK laukus, kurie keičia verdiktą. BENCH-2: „improved\" reikalauja comparable + be kokybės regresijos + be accepted praradimo. Reikšmės užfiksuotos 2026-08-19 record režimu; VERQESTRA jo neturi (PAR-1).",
+  "regression_limit_pct": 10,
+  "baseline_defaults": {
+    "config_hash": "cfg-1",
+    "case_ids": ["case-a"],
+    "integrity_ok": true,
+    "task_count": 10,
+    "measured_tasks": 10,
+    "total_tokens": 1000000,
+    "accepted_changes": 10,
+    "tokens_status": "computed",
+    "first_pass_tasks": 8,
+    "human_review_total": 2,
+    "out_of_scope_file_total": 1
+  },
+  "cases": [
+    {
+      "id": "improved-cheaper-same-quality",
+      "current": { "total_tokens": 800000 },
+      "expect": {
+        "comparison": { "verdict": "improved", "comparable": true, "reasons": [], "regression_limit_pct": 10, "token_delta_pct": -20, "token_per_task_delta_pct": -20, "tokens_per_accepted_delta_pct": -20, "accepted_change_delta": 0, "first_pass_rate_delta_pp": 0, "human_review_delta": 0, "human_review_per_task_delta": 0, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": 0, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": true, "reason": "tokens per verified accepted change improved without a quality regression" }
+      }
+    },
+    {
+      "id": "neutral-within-limit",
+      "current": { "total_tokens": 1050000 },
+      "expect": {
+        "comparison": { "verdict": "neutral", "comparable": true, "reasons": [], "regression_limit_pct": 10, "token_delta_pct": 5, "token_per_task_delta_pct": 5, "tokens_per_accepted_delta_pct": 5, "accepted_change_delta": 0, "first_pass_rate_delta_pp": 0, "human_review_delta": 0, "human_review_per_task_delta": 0, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": 0, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=neutral" }
+      }
+    },
+    {
+      "id": "regressed-over-token-limit",
+      "current": { "total_tokens": 1200000 },
+      "expect": {
+        "comparison": { "verdict": "regressed", "comparable": true, "reasons": ["token usage per task grew 20% (> 10%) without first-pass or risk improvement"], "regression_limit_pct": 10, "token_delta_pct": 20, "token_per_task_delta_pct": 20, "tokens_per_accepted_delta_pct": 20, "accepted_change_delta": 0, "first_pass_rate_delta_pp": 0, "human_review_delta": 0, "human_review_per_task_delta": 0, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": 0, "exceeds_token_regression_limit": true },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=regressed; token usage per task grew 20% (> 10%) without first-pass or risk improvement" }
+      }
+    },
+    {
+      "id": "improvement-blocked-by-human-review-regression",
+      "current": { "total_tokens": 800000, "human_review_total": 5 },
+      "expect": {
+        "comparison": { "verdict": "regressed", "comparable": true, "reasons": ["human-review events per task rose by 0.3 (absolute delta 3)"], "regression_limit_pct": 10, "token_delta_pct": -20, "token_per_task_delta_pct": -20, "tokens_per_accepted_delta_pct": -20, "accepted_change_delta": 0, "first_pass_rate_delta_pp": 0, "human_review_delta": 3, "human_review_per_task_delta": 0.3, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": 0, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=regressed; human-review events per task rose by 0.3 (absolute delta 3)" }
+      }
+    },
+    {
+      "id": "improvement-blocked-by-lost-accepted-changes",
+      "current": { "total_tokens": 800000, "accepted_changes": 8 },
+      "expect": {
+        "comparison": { "verdict": "neutral", "comparable": true, "reasons": ["fewer verified accepted changes than baseline"], "regression_limit_pct": 10, "token_delta_pct": -20, "token_per_task_delta_pct": -20, "tokens_per_accepted_delta_pct": 0, "accepted_change_delta": -2, "first_pass_rate_delta_pp": 0, "human_review_delta": 0, "human_review_per_task_delta": 0, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": 0, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=neutral; fewer verified accepted changes than baseline" }
+      }
+    },
+    {
+      "id": "not-comparable-config-hash-mismatch",
+      "current": { "config_hash": "cfg-2", "total_tokens": 800000 },
+      "expect": {
+        "comparison": { "verdict": "not_comparable", "comparable": false, "reasons": ["config hash mismatch: baseline cfg-1, current cfg-2"], "regression_limit_pct": 10, "token_delta_pct": null, "token_per_task_delta_pct": null, "tokens_per_accepted_delta_pct": null, "accepted_change_delta": 0, "first_pass_rate_delta_pp": null, "human_review_delta": 0, "human_review_per_task_delta": null, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": null, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=not_comparable; config hash mismatch: baseline cfg-1, current cfg-2" }
+      }
+    },
+    {
+      "id": "not-comparable-integrity-broken",
+      "current": { "integrity_ok": false, "total_tokens": 800000 },
+      "expect": {
+        "comparison": { "verdict": "not_comparable", "comparable": false, "reasons": ["current integrity is not clean"], "regression_limit_pct": 10, "token_delta_pct": null, "token_per_task_delta_pct": null, "tokens_per_accepted_delta_pct": null, "accepted_change_delta": 0, "first_pass_rate_delta_pp": null, "human_review_delta": 0, "human_review_per_task_delta": null, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": null, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=not_comparable; current integrity is not clean" }
+      }
+    },
+    {
+      "id": "not-comparable-no-usage",
+      "current": { "total_tokens": 0, "tokens_status": "no_usage", "accepted_changes": 10 },
+      "expect": {
+        "comparison": { "verdict": "not_comparable", "comparable": false, "reasons": ["current metric unavailable: no_usage"], "regression_limit_pct": 10, "token_delta_pct": null, "token_per_task_delta_pct": null, "tokens_per_accepted_delta_pct": null, "accepted_change_delta": 0, "first_pass_rate_delta_pp": null, "human_review_delta": 0, "human_review_per_task_delta": null, "out_of_scope_delta": 0, "out_of_scope_per_task_delta": null, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": false, "reason": "optimization success cannot be declared: verdict=not_comparable; current metric unavailable: no_usage" }
+      }
+    },
+    {
+      "id": "sample-size-normalization-more-tasks-not-regression",
+      "current": { "task_count": 20, "measured_tasks": 20, "total_tokens": 1900000, "accepted_changes": 20, "first_pass_tasks": 16, "human_review_total": 4, "out_of_scope_file_total": 2 },
+      "expect": {
+        "comparison": { "verdict": "improved", "comparable": true, "reasons": [], "regression_limit_pct": 10, "token_delta_pct": 90, "token_per_task_delta_pct": -5, "tokens_per_accepted_delta_pct": -5, "accepted_change_delta": 10, "first_pass_rate_delta_pp": 0, "human_review_delta": 2, "human_review_per_task_delta": 0, "out_of_scope_delta": 1, "out_of_scope_per_task_delta": 0, "exceeds_token_regression_limit": false },
+        "declaration": { "allowed": true, "reason": "tokens per verified accepted change improved without a quality regression" }
+      }
+    }
+  ]
+}

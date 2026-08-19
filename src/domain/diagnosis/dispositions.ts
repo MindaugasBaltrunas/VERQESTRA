@@ -1,0 +1,329 @@
+// Grynos diagnozės dispozicijų taisyklės — deterministinis "done" greitkelis, no-commit
+// dispozicija, lokali diagnozė be LLM, stop įrodymo kilmės vartai (F7), dispatch tapatybės
+// atgavimas ir pending/settled siaurinimas. Jokio IO, env ar log skaitymo — skaitytojai
+// (E3/E5) paduoda jau surinktus signalus. Behaviour etalon: AG_loop orchestrator/quality/
+// deterministic-diagnose.ts (grynoji pusė; WBR VQ-204 — taisyklės keliamos į domain, kad
+// VQ-003e fixture gautų namus). Stream-json markerio skaitymas
+// (logHasAlreadyImplementedMarker) lieka adapterio pusėje — jis parsina log formatą.
+
+// ---------------------------------------------------------------------------
+// Stop įrodymo kilmė (task 0042)
+// ---------------------------------------------------------------------------
+//
+// Stop įvykis rašomas į attempt namespace'ą (`<attempt>/stop-state.json`), o globalus
+// veidrodis lieka last-writer-wins failu. Tai keičia F7 vartų prasmę:
+//
+//   - `attempt` kilmė: tapatybę jau ĮRODĖ manifestas — saugykla svetimą attempt'ą grąžina kaip
+//     `identity-mismatch` ir nieko neatiduoda, tad perskaitytas artefaktas pagal konstrukciją
+//     priklauso ŠIAM task'ui. `task_id` palyginimas čia nieko nebeprideda.
+//   - `legacy` kilmė: failas yra vienas visam repo (last-writer-wins), tad F7 vartai LIEKA —
+//     svetimu `task_id` pažymėtas įrašas ignoruojamas.
+//   - `none`: įrodymo nėra niekur — nėra ko lyginti, tad vartai netaikomi (statusas ir taip
+//     `undefined`).
+//
+// Taisyklė laikoma čia (o ne skaitytojuose), kad ji būtų viena, gryna ir testuojama.
+
+export type StopEvidenceOrigin = "attempt" | "legacy" | "none";
+
+export type StopEvidence = {
+  /** `attempt` = manifestu įrodytas šio bandymo artefaktas; `legacy` = globalus veidrodis. */
+  origin: StopEvidenceOrigin;
+  /** Stop hook'o machine-readable statusas; `undefined`, kai įrodymo nėra. */
+  status?: string;
+  /** Įraše užfiksuotas task id; `undefined` pre-hardening legacy faile. */
+  taskId?: string;
+};
+
+export type EffectiveStopStatus = {
+  /** Statusas, kuriuo galima remtis; `undefined`, kai įrodymas atmestas kaip svetimas. */
+  status: string | undefined;
+  /** True tik legacy šakoje, kai `task_id` priklauso kitam task'ui (F7). */
+  foreign: boolean;
+};
+
+/**
+ * F7 vartai, taikomi TIK legacy šakai. Trūkstamas `task_id` (pre-hardening failas) svetimu
+ * nelaikomas dėl backward compatibility — lygiai kaip iki šios migracijos.
+ */
+export function resolveEffectiveStopStatus(evidence: StopEvidence, taskId: string): EffectiveStopStatus {
+  if (evidence.origin !== "legacy") {
+    return { status: evidence.status, foreign: false };
+  }
+  const foreign = evidence.taskId !== undefined && evidence.taskId !== taskId;
+  return { status: foreign ? undefined : evidence.status, foreign };
+}
+
+/**
+ * Task 0049: diagnozės procesas yra sibling, kurio env `AG_DISPATCH_NONCE` jau ištrintas
+ * (dispatch `finally`; Windows'e jo ten nė nebuvo — nonce gyvena tik launcher skripte),
+ * todėl gyvo env nesant tapatybė atgaunama iš stop įrodymo `dispatch_nonce`.
+ * Fail-closed pagal kilmę:
+ *   - `attempt`: artefakto tapatybę įrodė manifestas, o stop įrašo schema garantuoja ne tuščią
+ *     `dispatch_nonce` — nonce patikimas pagal konstrukciją;
+ *   - `legacy`: globalus veidrodis yra last-writer-wins, tad nonce imamas TIK kai įrašo
+ *     `task_id` tiksliai sutampa su mūsų (trūkstamas ar svetimas task_id = svetima tapatybė —
+ *     jos prisiėmimas leistų be įrodymo mesti operatoriaus kelius kaip „įrodytai svetimus");
+ *   - kitaip — tuščia tapatybė: nuosavybės filtras lieka no-op, elgesys kaip iki 0049.
+ */
+export function resolveDispatchSessionNonce(evidence: {
+  envNonce: string;
+  origin: StopEvidenceOrigin;
+  recordNonce: string;
+  recordTaskId: string;
+  taskId: string;
+}): string {
+  const envNonce = evidence.envNonce.trim();
+  if (envNonce) return envNonce;
+  const recordNonce = evidence.recordNonce.trim();
+  if (!recordNonce) return "";
+  if (evidence.origin === "attempt") return recordNonce;
+  if (evidence.origin === "legacy" && evidence.recordTaskId.trim() === evidence.taskId) return recordNonce;
+  return "";
+}
+
+/**
+ * Task 0049 (3): ledger'io kelias, kurio nėra nei dirty git būsenoje, nei task'o lango
+ * produkto diff'e (base_head..HEAD), sutampa su HEAD — jis negali būti ŠIO bandymo pending
+ * rašymas (tipiškai ankstesnio commit'o / operatoriaus failas) ir nekelia scope pažeidimo.
+ * Fail-closed: kai langas nežinomas (`windowKnown=false`, pvz. task-start-status trūksta),
+ * siaurinimas NEVYKDOMAS ir rinkinys grąžinamas nepakitęs — scope apsauga nesusilpnėja.
+ */
+export function pendingAttemptChangedFiles(input: {
+  changedFiles: readonly string[];
+  dirtyPaths: readonly string[];
+  windowProductPaths: readonly string[];
+  windowKnown: boolean;
+}): { pending: string[]; settled: string[] } {
+  if (!input.windowKnown) return { pending: [...input.changedFiles], settled: [] };
+  const live = new Set([...input.dirtyPaths, ...input.windowProductPaths].map(normalizePath));
+  const pending: string[] = [];
+  const settled: string[] = [];
+  for (const file of input.changedFiles) {
+    (live.has(normalizePath(file)) ? pending : settled).push(file);
+  }
+  return { pending, settled };
+}
+
+export type DeterministicDoneInputs = {
+  /** Vykdytojo CLI exit code. */
+  claudeExitCode: number;
+  /** Stop machine-readable statusas: "done" | "error" | undefined. */
+  stopStatus: string | undefined;
+  /** True jei stop įrodymas (attempt `stop-state.json` ar legacy veidrodis) neparsinamas. */
+  stopStatusCorrupted: boolean;
+  /** Quality gates rezultatas; undefined jei nėra. */
+  qualityGates: { passed: boolean } | undefined;
+  /** Yra naujas commit base_head..HEAD (Stop hook jau užcommitino darbą). */
+  hasNewCommitSinceStart: boolean;
+  /** Vykdytojo log'e yra ALREADY_IMPLEMENTED markeris (darbas jau buvo padarytas). */
+  alreadyImplementedMarker: boolean;
+  /** Non-runtime (produkto) neištrackintų/pakeistų failų skaičius darbiniame medyje. */
+  nonRuntimeDirtyCount: number;
+};
+
+export type DeterministicDoneResult = {
+  /** True = saugu žymėti done be LLM diagnose; False = kreiptis į LLM. */
+  fastPath: boolean;
+  /** Trumpas paaiškinimas (telemetrijai/log'ui). */
+  reason: string;
+};
+
+export type LocalDiagnosisVerdict = "done" | "repair" | "human-review";
+
+export type LocalResultSignals = {
+  taskId: string;
+  checksPassed?: boolean;
+  exitCode?: number;
+  stopStatus?: string;
+  changedFiles: string[];
+  allowedPaths: string[];
+  stderr?: string;
+  stdout?: string;
+};
+
+export type LocalDiagnosisResult = {
+  verdict: LocalDiagnosisVerdict;
+  reason: string;
+  requiresModel: boolean;
+};
+
+/**
+ * Deterministinis diagnose "done" greitkelis. Grąžina fastPath=true tik kai VISI
+ * sėkmės signalai galioja — tada diagnozė gali parašyti verdict=done be LLM iškvietimo.
+ * Konservatyvus pagal dizainą: bet koks abejotinas signalas grąžina fastPath=false ir
+ * kreipiamasi į LLM (būtent ten LLM uždirba savo kaštą).
+ *
+ * Saugiklis: net jei šis greitkelis suklystų, workflow `done` handleris vis tiek
+ * pertikrina gates/stop/commit, todėl klaidingas done negali būti galutinai uždarytas.
+ */
+export function evaluateDeterministicDone(inputs: DeterministicDoneInputs): DeterministicDoneResult {
+  const no = (reason: string): DeterministicDoneResult => ({ fastPath: false, reason });
+
+  if (inputs.claudeExitCode !== 0) {
+    return no(`claude exit ${inputs.claudeExitCode} != 0`);
+  }
+  if (inputs.stopStatusCorrupted) {
+    return no("stop status evidence corrupted");
+  }
+  if (inputs.stopStatus !== "done") {
+    return no(`stop status '${inputs.stopStatus ?? "<missing>"}' != done`);
+  }
+  if (!inputs.qualityGates) {
+    return no("quality-gates-status.json missing");
+  }
+  if (!inputs.qualityGates.passed) {
+    return no("quality gates failed");
+  }
+  if (inputs.nonRuntimeDirtyCount > 0) {
+    return no(`${inputs.nonRuntimeDirtyCount} uncommitted product file(s)`);
+  }
+  if (!inputs.hasNewCommitSinceStart && !inputs.alreadyImplementedMarker) {
+    return no("no new commit and no ALREADY_IMPLEMENTED marker");
+  }
+
+  const evidence = inputs.hasNewCommitSinceStart ? "new commit present" : "ALREADY_IMPLEMENTED marker";
+  return { fastPath: true, reason: `gates passed, stop done, ${evidence}` };
+}
+
+export type NoCommitDoneInputs = {
+  /** Vykdytojo log'as turi eilutę, prasidedančią ALREADY_IMPLEMENTED. */
+  hasAlreadyImplementedMarker: boolean;
+  /** Ne-runtime (produkto) dirty git įrašų skaičius darbiniame medyje. */
+  productDirtyCount: number;
+  /**
+   * Darbo įrodymas istorijoje: šio task'o deliverable yra užcommitintas (task'o commit'as
+   * git log'e arba deliverable patikra). Task 890: be įrodymo švarus medis negali uždaryti
+   * task'o kaip "done", nes po task-scoped rollback (ar svetimo reset) medis būna švarus
+   * BE jokio realiai atlikto darbo — toks task'as turi keliauti į human-review, ne done.
+   */
+  hasWorkEvidence: boolean;
+};
+
+export type NoCommitDisposition = "done" | "rollback" | "human-review";
+
+/**
+ * "done" diagnozė galioja (gates žali, stop != error), bet naujo commit'o nėra.
+ * Nusprendžia, ar tai "jau įgyvendinta" (uždaryti done), "vykdytojas neužcommitino darbo"
+ * (rollback) ar "švarus medis be darbo įrodymo" (human-review).
+ *
+ * done kai:
+ *   - yra ALREADY_IMPLEMENTED markeris IR darbo įrodymas istorijoje, ARBA
+ *   - working tree švarus nuo PRODUKTO pakeitimų (productDirtyCount === 0) IR yra darbo
+ *     įrodymas istorijoje (`hasWorkEvidence`) — deliverable jau užcommitintas ankstesnio
+ *     bandymo, tad naujo commit'o nėra ko kurti.
+ *
+ * rollback kai produkto dirty įrašų yra be markerio: vykdytojas atliko darbą, bet
+ * neužcommitino — to prarasti negalima, todėl griežtoji šaka išlieka.
+ *
+ * human-review kai medis švarus, markerio nėra IR darbo įrodymo nėra: task'o darbas dingo
+ * (pvz. po rollback), todėl tylus "done" be deliverable draudžiamas (task 890 regresija
+ * 884–893).
+ */
+export function resolveNoCommitDisposition(inputs: NoCommitDoneInputs): NoCommitDisposition {
+  // 2026-08-14 false-done epidemija (0000-1 07:47, 0000-loop 08:03 — abu be jokio Edit/Write):
+  // ALREADY_IMPLEMENTED markeris yra VYKDYTOJO ŽODIS, ne įrodymas — sesijos jį spausdina
+  // per lengvai (Žingsnio 0 tekstas neverčia pateikti patikrinamų nuorodų). Žodis be darbo
+  // įrodymo istorijoje (`hasWorkEvidence` — task'o commit'as su produkto keliais) nebeuždaro
+  // task'o: jis keliauja į human-review, kur operatorius patvirtina per task-move į done.
+  // Tikrai anksčiau įgyvendintiems task'ams evidence egzistuoja, tad jų kaštas nepakinta.
+  if (inputs.hasAlreadyImplementedMarker) return inputs.hasWorkEvidence ? "done" : "human-review";
+  if (inputs.productDirtyCount > 0) return "rollback";
+  return inputs.hasWorkEvidence ? "done" : "human-review";
+}
+
+export function evaluateLocalDiagnosis(signals: LocalResultSignals): LocalDiagnosisResult {
+  if (signals.allowedPaths.length === 0) {
+    // Read-only / "jau įgyvendinta" task'as (pvz. preflight perreformulavo į "Tik
+    // skaitymui" patikrą) neturi Leidžiama kelių. Jei nieko nepakeista IR patikros
+    // praėjo — tai done (ALREADY_IMPLEMENTED), ne human-review. Jei pakeitimų yra,
+    // bet allowed paths nėra — vis tiek human-review (scope nepatikrinamas).
+    if (signals.changedFiles.length === 0 && signals.checksPassed === true) {
+      return {
+        verdict: "done",
+        reason: "no changes and checks passed (read-only/already implemented)",
+        requiresModel: false,
+      };
+    }
+    return { verdict: "human-review", reason: "allowed paths missing", requiresModel: false };
+  }
+
+  const outsideAllowed = signals.changedFiles.filter((file) => !isPathAllowed(file, signals.allowedPaths));
+  if (outsideAllowed.length > 0) {
+    return {
+      verdict: "human-review",
+      reason: `changed files outside allowed paths: ${outsideAllowed.join(", ")}`,
+      requiresModel: false,
+    };
+  }
+
+  if (signals.checksPassed === true && (signals.exitCode === undefined || signals.exitCode === 0)) {
+    return { verdict: "done", reason: "checks passed and changed files are inside allowed paths", requiresModel: false };
+  }
+
+  if (signals.checksPassed === false || (signals.exitCode !== undefined && signals.exitCode !== 0)) {
+    const output = `${signals.stderr ?? ""}\n${signals.stdout ?? ""}`;
+    if (isClearLocalIssue(output) || signals.checksPassed === false) {
+      return { verdict: "repair", reason: localIssueReason(output), requiresModel: false };
+    }
+  }
+
+  if (signals.stopStatus && signals.stopStatus !== "done" && signals.stopStatus !== "error") {
+    return { verdict: "human-review", reason: `unknown stop status '${signals.stopStatus}'`, requiresModel: false };
+  }
+
+  return { verdict: "human-review", reason: "local signals are ambiguous", requiresModel: false };
+}
+
+function isClearLocalIssue(output: string): boolean {
+  return /\b(error TS\d+|AssertionError|ERR_ASSERTION|SyntaxError|TypeError|ReferenceError|lint|test failed|build failed|exit_code:\s*[1-9])/i.test(
+    output,
+  );
+}
+
+function localIssueReason(output: string): string {
+  const firstSignal = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => isClearLocalIssue(line));
+  return firstSignal ? `clear local issue: ${firstSignal.slice(0, 160)}` : "checks failed";
+}
+
+function isPathAllowed(filePath: string, allowedPaths: string[]): boolean {
+  const file = normalizePath(filePath);
+  return allowedPaths.some((allowed) => matchesAllowedPath(file, normalizePath(allowed)));
+}
+
+function matchesAllowedPath(file: string, allowed: string): boolean {
+  if (allowed === "**" || allowed === "*") return true;
+  if (allowed.endsWith("/**")) {
+    const prefix = allowed.slice(0, -3);
+    return file === prefix || file.startsWith(`${prefix}/`);
+  }
+  if (allowed.endsWith("/*")) {
+    const prefix = allowed.slice(0, -2);
+    return file.startsWith(`${prefix}/`) && !file.slice(prefix.length + 1).includes("/");
+  }
+  if (allowed.includes("*")) return wildcardPatternMatches(file, allowed);
+  return file === allowed || file.startsWith(`${allowed.replace(/\/$/, "")}/`);
+}
+
+/**
+ * Bendrinis wildcard glob'as kelio VIDURYJE ar SUFIKSE: `*` = vienas segmentas (be `/`),
+ * `**` = bet koks gylis. Iki 2026-08-07 tokie šablonai (pvz. `src/infrastructure/*.ts` —
+ * įprasta task'ų `## Failai` forma) nebuvo interpretuojami visai ir lygiuoti kaip
+ * pažodiniai keliai, todėl VISI pakeitimai atrodydavo „outside allowed paths": task 1134
+ * darbas buvo klaidingai rollback'intas, o 15 eilės task'ų laukė ta pati lemtis.
+ */
+function wildcardPatternMatches(file: string, pattern: string): boolean {
+  const source = pattern
+    .split(/(\*\*|\*)/)
+    .map((part) => (part === "**" ? ".*" : part === "*" ? "[^/]*" : part.replace(/[$()+.?[\\\]^{|}]/g, "\\$&")))
+    .join("");
+  return new RegExp(`^${source}$`).test(file);
+}
+
+// NE `shared/paths.toComparablePosixPath` (task 0064): backtick'ai kerpami PRIEŠ `trim` (markdown
+// iš log'ų), tad `` "`a` " `` čia duoda `` "a`" ``, o bendras helper'is duotų `"a"`.
+function normalizePath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^`|`$/g, "").trim();
+}

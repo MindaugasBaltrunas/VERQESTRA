@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "digestBashOutput byte-tikslūs kontraktai (E2 pre-work, VQ-204; BASH_DIGEST_VERSION=1). Įvestis: komanda + tool_response reikšmė (per readBashToolResponse); išvestis: pilnas digest'as su signals ir renderintu tekstu (text — eilučių masyvas). stdout tekstai laikomi eilučių masyvais (LF). Reikšmės užfiksuotos 2026-08-19 record režimu; VERQESTRA jo neturi (PAR-1).",
+  "cases": [
+    {
+      "id": "node-test-failures",
+      "command": "pnpm --dir AG/orchestrator test",
+      "response": {
+        "stdout_lines": [
+          "✔ pirmas testas praeina (2.1ms)",
+          "✖ antras testas lūžta (5.0ms)",
+          "  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+          "  2 !== 3",
+          "      at TestContext.<anonymous> (file:///D:/repo/dist/tests/x.test.js:42:11)",
+          "not ok 2 - antras testas lūžta",
+          "ℹ tests 2",
+          "ℹ pass 1",
+          "ℹ fail 1"
+        ],
+        "stderr_lines": [],
+        "exit_code": 1
+      },
+      "expect": {
+        "status": "digested",
+        "commandClass": "test",
+        "rawChars": 280,
+        "digestChars": 318,
+        "text": [
+          "bash-digest v1 class=test outcome=failure exit=1",
+          "counts: pass=1 fail=1",
+          "failed:",
+          "- antras testas lūžta",
+          "codes: ERR_ASSERTION",
+          "at:",
+          "- D:/repo/dist/tests/x.test.js:42:11",
+          "lines:",
+          "- ✖ antras testas lūžta (5.0ms)",
+          "- AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+          "- not ok 2 - antras testas lūžta",
+          "- ℹ fail 1",
+          ""
+        ],
+        "signals": {
+          "outcome": "failure",
+          "exitCode": 1,
+          "failedNames": ["antras testas lūžta"],
+          "errorCodes": ["ERR_ASSERTION"],
+          "locations": ["D:/repo/dist/tests/x.test.js:42:11"],
+          "expectations": [],
+          "counts": { "pass": 1, "fail": 1 },
+          "notableLines": [
+            "✖ antras testas lūžta (5.0ms)",
+            "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+            "not ok 2 - antras testas lūžta",
+            "ℹ fail 1"
+          ],
+          "truncated": false
+        },
+        "safeToReplace": false,
+        "unsafeReason": "outcome=failure: a non-successful run keeps its raw output"
+      }
+    },
+    {
+      "id": "tsc-errors",
+      "command": "pnpm --dir AG/orchestrator typecheck",
+      "response": {
+        "stdout_lines": [
+          "src/core/x.ts:10:5 - error TS2307: Cannot find module './y.js' or its corresponding type declarations.",
+          "src/core/z.ts:4:1 - error TS18046: 'value' is of type 'unknown'.",
+          "",
+          "Found 2 errors in 2 files."
+        ],
+        "stderr_lines": [],
+        "exit_code": 2
+      },
+      "expect": {
+        "status": "digested",
+        "commandClass": "typecheck",
+        "rawChars": 195,
+        "digestChars": 347,
+        "text": [
+          "bash-digest v1 class=typecheck outcome=failure exit=2",
+          "counts: errors=2",
+          "codes: TS2307, TS18046",
+          "at:",
+          "- src/core/x.ts:10:5",
+          "- src/core/z.ts:4:1",
+          "lines:",
+          "- src/core/x.ts:10:5 - error TS2307: Cannot find module './y.js' or its corresponding type declarations.",
+          "- src/core/z.ts:4:1 - error TS18046: 'value' is of type 'unknown'.",
+          "- Found 2 errors in 2 files.",
+          ""
+        ],
+        "signals": {
+          "outcome": "failure",
+          "exitCode": 2,
+          "failedNames": [],
+          "errorCodes": ["TS2307", "TS18046"],
+          "locations": ["src/core/x.ts:10:5", "src/core/z.ts:4:1"],
+          "expectations": [],
+          "counts": { "errors": 2 },
+          "notableLines": [
+            "src/core/x.ts:10:5 - error TS2307: Cannot find module './y.js' or its corresponding type declarations.",
+            "src/core/z.ts:4:1 - error TS18046: 'value' is of type 'unknown'.",
+            "Found 2 errors in 2 files."
+          ],
+          "truncated": false
+        },
+        "safeToReplace": false,
+        "unsafeReason": "outcome=failure: a non-successful run keeps its raw output"
+      }
+    },
+    {
+      "id": "eslint-warnings",
+      "command": "pnpm --dir AG/orchestrator lint",
+      "response": {
+        "stdout_lines": [
+          "D:\\repo\\src\\a.ts",
+          "  12:3  warning  Unexpected console statement  no-console",
+          "  20:1  error    'x' is assigned a value but never used  @typescript-eslint/no-unused-vars",
+          "",
+          "✖ 2 problems (1 error, 1 warning)"
+        ],
+        "stderr_lines": [],
+        "exit_code": 1
+      },
+      "expect": {
+        "status": "digested",
+        "commandClass": "lint",
+        "rawChars": 200,
+        "digestChars": 443,
+        "text": [
+          "bash-digest v1 class=lint outcome=failure exit=1",
+          "counts: errors=1 warnings=1",
+          "failed:",
+          "- D:\\repo\\src\\a.ts:20 'x' is assigned a value but never used",
+          "codes: no-console, @typescript-eslint/no-unused-vars",
+          "at:",
+          "- D:\\repo\\src\\a.ts:12:3",
+          "- D:\\repo\\src\\a.ts:20:1",
+          "lines:",
+          "- 12:3  warning  Unexpected console statement  no-console",
+          "- 20:1  error    'x' is assigned a value but never used  @typescript-eslint/no-unused-vars",
+          "- ✖ 2 problems (1 error, 1 warning)",
+          ""
+        ],
+        "signals": {
+          "outcome": "failure",
+          "exitCode": 1,
+          "failedNames": ["D:\\repo\\src\\a.ts:20 'x' is assigned a value but never used"],
+          "errorCodes": ["no-console", "@typescript-eslint/no-unused-vars"],
+          "locations": ["D:\\repo\\src\\a.ts:12:3", "D:\\repo\\src\\a.ts:20:1"],
+          "expectations": [],
+          "counts": { "errors": 1, "warnings": 1 },
+          "notableLines": [
+            "12:3  warning  Unexpected console statement  no-console",
+            "20:1  error    'x' is assigned a value but never used  @typescript-eslint/no-unused-vars",
+            "✖ 2 problems (1 error, 1 warning)"
+          ],
+          "truncated": false
+        },
+        "safeToReplace": false,
+        "unsafeReason": "outcome=failure: a non-successful run keeps its raw output"
+      }
+    },
+    {
+      "id": "build-success-with-tail",
+      "command": "npm run build --prefix AG/orchestrator",
+      "response": {
+        "stdout_lines": [
+          "> claude-codex-orchestrator@0.2.0 build",
+          "> node scripts/clean-dist.mjs && tsc -p tsconfig.json && node scripts/write-build-stamp.mjs",
+          "",
+          "build stamp written"
+        ],
+        "stderr_lines": [],
+        "exit_code": 0
+      },
+      "expect": {
+        "status": "digested",
+        "commandClass": "build",
+        "rawChars": 152,
+        "digestChars": 76,
+        "text": ["bash-digest v1 class=build outcome=success exit=0", "tail: build stamp written", ""],
+        "signals": {
+          "outcome": "success",
+          "exitCode": 0,
+          "failedNames": [],
+          "errorCodes": [],
+          "locations": [],
+          "expectations": [],
+          "counts": {},
+          "notableLines": [],
+          "tail": "build stamp written",
+          "truncated": false
+        },
+        "safeToReplace": true
+      }
+    },
+    {
+      "id": "silent-success",
+      "command": "pnpm --dir AG/orchestrator test",
+      "response": { "stdout_lines": [""], "stderr_lines": [], "exit_code": 0 },
+      "expect": {
+        "status": "digested",
+        "commandClass": "test",
+        "rawChars": 0,
+        "digestChars": 49,
+        "text": ["bash-digest v1 class=test outcome=success exit=0", ""],
+        "signals": {
+          "outcome": "success",
+          "exitCode": 0,
+          "failedNames": [],
+          "errorCodes": [],
+          "locations": [],
+          "expectations": [],
+          "counts": {},
+          "notableLines": [],
+          "truncated": false
+        },
+        "safeToReplace": false,
+        "unsafeReason": "digest is not shorter than the raw output"
+      }
+    },
+    {
+      "id": "unknown-command-class-unsupported",
+      "command": "kazkoks-neatpazintas-irankis --flag",
+      "response": { "stdout_lines": ["bet koks tekstas"], "stderr_lines": [], "exit_code": 0 },
+      "expect": { "status": "unsupported", "commandClass": "unknown", "reason": "command class not recognized", "rawChars": 16 }
+    },
+    {
+      "id": "unrecognized-format-unsupported",
+      "command": "pnpm --dir AG/orchestrator test",
+      "response": { "stdout_lines": ["visiškai laisvas tekstas be jokio testų formato"], "stderr_lines": [], "exit_code": 1 },
+      "expect": { "status": "unsupported", "commandClass": "test", "reason": "output does not match a known test format", "rawChars": 47 }
+    },
+    {
+      "id": "no-exit-status-bare-text",
+      "command": "pnpm --dir AG/orchestrator test",
+      "response_text_lines": ["✔ vienintelis testas (1ms)", "ℹ tests 1", "ℹ pass 1", "ℹ fail 0"],
+      "expect": {
+        "status": "digested",
+        "commandClass": "test",
+        "rawChars": 54,
+        "digestChars": 97,
+        "text": ["bash-digest v1 class=test outcome=success", "counts: pass=1 fail=0", "lines:", "- ℹ fail 0", "tail: ℹ fail 0", ""],
+        "signals": {
+          "outcome": "success",
+          "failedNames": [],
+          "errorCodes": [],
+          "locations": [],
+          "expectations": [],
+          "counts": { "pass": 1, "fail": 0 },
+          "notableLines": ["ℹ fail 0"],
+          "tail": "ℹ fail 0",
+          "truncated": false
+        },
+        "safeToReplace": false,
+        "unsafeReason": "digest is not shorter than the raw output"
+      }
+    }
+  ]
+}

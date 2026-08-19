@@ -1,0 +1,16 @@
+// domain/policies barrel — re-exports only (MOD-1).
+export * from "./enforcement-level.js";
+export * from "./file-length.js";
+export * from "./architecture-style.js";
+export * from "./agent-selection.js";
+export * from "./agent-policy-defaults.js";
+export * from "./task-classification.js";
+export * from "./task-classification-defaults.js";
+export * from "./stack-decision.js";
+export * from "./stack-decision-matrix.js";
+export * from "./commit-message.js";
+export * from "./model-policy-rules.js";
+export * from "./compression/features.js";
+export * from "./compression/canary.js";
+export * from "./compression/arrest.js";
+export * from "./compression/dependencies.js";

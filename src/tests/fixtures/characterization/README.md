@@ -11,3 +11,4 @@ neturi ir negali turėti.
 | `shared-primitives.json` | canonical JSON, normalizuotas sha256, shortDigest erdvė | E1 (VQ-101) |
 | `task-sections.json` | task sekcijų enumeravimas, heading foldingas, bullets | E2 (VQ-201) |
 | `scheduling-verdicts.json` | lease/scope-lock verdiktai: claim/fencing/TTL/dead-owner, carve-out, glob aprėptys, fail-closed | E2 (VQ-202) |
+| `compression-policy-verdicts.json` | kompresijos branduolys: parse, arrest (įsk. unreadable), deps disabled/arrested, canary kohortos + sha256 bucket lentelė | E2 (VQ-203) |

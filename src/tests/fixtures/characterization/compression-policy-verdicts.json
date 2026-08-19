@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "Kompresijos politikos grynojo branduolio kontraktai (VQ-003c c): parseContextCompressionConfig → applyContextCompressionArrest → resolveCompressionFeatureDependencies → canary (ta pati normatyvinė tvarka kaip loadEffectiveCompressionPolicy, be FS/log). Bucket lentelė pin'ina sha256 kohortos kontraktą — vienintelį hash'ą, kurį VERQESTRA galėtų „perrašyti kitaip\" ir tyliai perkelti task'us į kitą arm'ą. Record — vienkartinis; VERQESTRA jo neturi (PAR-1).",
+  "cases": [
+    { "id": "version-only-defaults", "kind": "pipeline", "config": { "version": 1 }, "expect": { "features": { "worker_task_ir": false, "compact_dsl": false, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": null } },
+    {
+      "id": "all-true-no-arrest",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": true, "compact_dsl": true } },
+      "expect": { "features": { "worker_task_ir": true, "compact_dsl": true, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": null }
+    },
+    {
+      "id": "compact-dsl-without-ir-forced-off",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": false, "compact_dsl": true } },
+      "expect": { "features": { "worker_task_ir": false, "compact_dsl": false, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": ["COMPRESSION CONFIG DEPENDENCY: compact_dsl inactive — requires worker_task_ir (declared compact_dsl=true, worker_task_ir is disabled)"], "arrest_decision": null }
+    },
+    {
+      "id": "compact-dsl-arrested-dependency",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": true, "compact_dsl": true } },
+      "arrestState": { "version": 1, "arrests": [{ "feature": "worker_task_ir", "trigger": "fallback-streak", "reason": "fixture", "observed": 3, "threshold": 3, "arrested_at": "2026-01-01T00:00:00.000Z", "last_task_id": "001-demo" }] },
+      "expect": { "features": { "worker_task_ir": false, "compact_dsl": false, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": ["COMPRESSION CONFIG DEPENDENCY: compact_dsl inactive — requires worker_task_ir (declared compact_dsl=true, worker_task_ir is arrested)"], "arrest_decision": "{\"unreadable\":false,\"arrested\":[\"worker_task_ir\"]}" }
+    },
+    {
+      "id": "both-arrested-no-notice",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": true, "compact_dsl": true } },
+      "arrestState": { "version": 1, "arrests": [
+        { "feature": "worker_task_ir", "trigger": "fallback-streak", "reason": "fixture", "observed": 3, "threshold": 3, "arrested_at": "2026-01-01T00:00:00.000Z", "last_task_id": "001-demo" },
+        { "feature": "compact_dsl", "trigger": "fallback-streak", "reason": "fixture", "observed": 3, "threshold": 3, "arrested_at": "2026-01-01T00:00:00.000Z", "last_task_id": "001-demo" }
+      ] },
+      "expect": { "features": { "worker_task_ir": false, "compact_dsl": false, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": "{\"unreadable\":false,\"arrested\":[\"worker_task_ir\",\"compact_dsl\"]}" }
+    },
+    {
+      "id": "arrest-unreadable-arrests-everything",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": true, "compact_dsl": true } },
+      "arrestState": { "version": 999, "netikėta": true },
+      "expect": { "features": { "worker_task_ir": false, "compact_dsl": false, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": "{\"unreadable\":true,\"arrested\":[\"worker_task_ir\",\"compact_dsl\",\"symbol_slices\",\"bash_output_digest\",\"dispatch_tool_schema\"]}" }
+    },
+    {
+      "id": "canary-task-alpha",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": "canary", "compact_dsl": "canary" }, "canary": { "percent": 50, "salt": "s1" } },
+      "taskId": "task-alpha",
+      "expect": { "features": { "worker_task_ir": "canary", "compact_dsl": "canary", "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": null, "canary_cohort": false, "canary_features": [] }
+    },
+    {
+      "id": "canary-task-beta",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": "canary", "compact_dsl": "canary" }, "canary": { "percent": 50, "salt": "s1" } },
+      "taskId": "task-beta",
+      "expect": { "features": { "worker_task_ir": "canary", "compact_dsl": "canary", "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": null, "canary_cohort": true, "canary_features": ["worker_task_ir", "compact_dsl"] }
+    },
+    {
+      "id": "canary-task-gamma",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": "canary", "compact_dsl": "canary" }, "canary": { "percent": 50, "salt": "s1" } },
+      "taskId": "task-gamma",
+      "expect": { "features": { "worker_task_ir": "canary", "compact_dsl": "canary", "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": null, "canary_cohort": false, "canary_features": [] }
+    },
+    {
+      "id": "canary-percent-zero-short-circuit",
+      "kind": "pipeline",
+      "config": { "version": 1, "features": { "worker_task_ir": "canary" }, "canary": { "percent": 0, "salt": "s1" } },
+      "taskId": "task-alpha",
+      "expect": { "features": { "worker_task_ir": "canary", "compact_dsl": false, "symbol_slices": false, "bash_output_digest": false, "dispatch_tool_schema": false }, "notices": [], "arrest_decision": null, "canary_cohort": false, "canary_features": [] }
+    },
+    {
+      "id": "invalid-config-unknown-key-throws",
+      "kind": "pipeline",
+      "config": { "version": 1, "netikėtas_raktas": true },
+      "expect": { "throws": "context compression config validation failed: <root>: Unrecognized key: \"netikėtas_raktas\"" }
+    },
+    {
+      "id": "bucket-table",
+      "kind": "bucket",
+      "pairs": [
+        ["task-alpha", "s1"],
+        ["task-beta", "s1"],
+        ["task-gamma", "s1"],
+        ["task-alpha", ""],
+        ["TASK-ALPHA", "s1"],
+        ["  task-alpha  ", "s1"]
+      ],
+      "expect": { "buckets": [91, 15, 60, 58, 91, 91] }
+    }
+  ]
+}

@@ -6,6 +6,8 @@
 // VQ-003e fixture gautų namus). Stream-json markerio skaitymas
 // (logHasAlreadyImplementedMarker) lieka adapterio pusėje — jis parsina log formatą.
 
+import { matchesAllowedPath } from "../tasks/allowed-paths.js";
+
 // ---------------------------------------------------------------------------
 // Stop įrodymo kilmė (task 0042)
 // ---------------------------------------------------------------------------
@@ -288,38 +290,11 @@ function localIssueReason(output: string): string {
   return firstSignal ? `clear local issue: ${firstSignal.slice(0, 160)}` : "checks failed";
 }
 
+// Glob semantika — kanoninis `domain/tasks/allowed-paths.ts#matchesAllowedPath` (FQC-12):
+// „ar kelias telpa į scope" privalo reikšti tą patį diagnozėje ir integracijoje.
 function isPathAllowed(filePath: string, allowedPaths: string[]): boolean {
   const file = normalizePath(filePath);
   return allowedPaths.some((allowed) => matchesAllowedPath(file, normalizePath(allowed)));
-}
-
-function matchesAllowedPath(file: string, allowed: string): boolean {
-  if (allowed === "**" || allowed === "*") return true;
-  if (allowed.endsWith("/**")) {
-    const prefix = allowed.slice(0, -3);
-    return file === prefix || file.startsWith(`${prefix}/`);
-  }
-  if (allowed.endsWith("/*")) {
-    const prefix = allowed.slice(0, -2);
-    return file.startsWith(`${prefix}/`) && !file.slice(prefix.length + 1).includes("/");
-  }
-  if (allowed.includes("*")) return wildcardPatternMatches(file, allowed);
-  return file === allowed || file.startsWith(`${allowed.replace(/\/$/, "")}/`);
-}
-
-/**
- * Bendrinis wildcard glob'as kelio VIDURYJE ar SUFIKSE: `*` = vienas segmentas (be `/`),
- * `**` = bet koks gylis. Iki 2026-08-07 tokie šablonai (pvz. `src/infrastructure/*.ts` —
- * įprasta task'ų `## Failai` forma) nebuvo interpretuojami visai ir lygiuoti kaip
- * pažodiniai keliai, todėl VISI pakeitimai atrodydavo „outside allowed paths": task 1134
- * darbas buvo klaidingai rollback'intas, o 15 eilės task'ų laukė ta pati lemtis.
- */
-function wildcardPatternMatches(file: string, pattern: string): boolean {
-  const source = pattern
-    .split(/(\*\*|\*)/)
-    .map((part) => (part === "**" ? ".*" : part === "*" ? "[^/]*" : part.replace(/[$()+.?[\\\]^{|}]/g, "\\$&")))
-    .join("");
-  return new RegExp(`^${source}$`).test(file);
 }
 
 // NE `shared/paths.toComparablePosixPath` (task 0064): backtick'ai kerpami PRIEŠ `trim` (markdown

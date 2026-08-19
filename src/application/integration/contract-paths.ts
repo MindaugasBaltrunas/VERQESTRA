@@ -14,6 +14,23 @@ const SQL_EXTENSION = /\.sql$/i;
 const PRISMA_EXTENSION = /\.prisma$/i;
 const MIGRATION_PATH = /(^|\/)(?:migrations?|migrate)(?:\/|$)/i;
 
+/** TS/JS šeimos failas — kontraktų ekstrakcijai (`extractContracts`) ta pati aibė kaip čia. */
+export function isTsContractPath(filePath: string): boolean {
+  return TS_EXTENSIONS.test(toPosix(filePath));
+}
+
+export function isJsonContractPath(filePath: string): boolean {
+  return JSON_EXTENSION.test(toPosix(filePath));
+}
+
+export function isSqlContractPath(filePath: string): boolean {
+  return SQL_EXTENSION.test(toPosix(filePath));
+}
+
+export function isPrismaContractPath(filePath: string): boolean {
+  return PRISMA_EXTENSION.test(toPosix(filePath));
+}
+
 /**
  * Keliai, kurie GALI nešti public kontraktą. Sąrašas sąmoningai platus: klaidingai įtrauktas
  * failas kainuoja vieną nereikalingą `unverified` įrašą, kurį pataiso turinio pateikimas, o

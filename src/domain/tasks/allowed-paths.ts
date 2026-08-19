@@ -129,6 +129,41 @@ export function allowedPaths(taskMarkdown: string): string[] {
 }
 
 /**
+ * Kanoninis leistino kelio glob matcher'is: `**` = bet koks gylis, `/*` = vienas lygis,
+ * `*` kelio viduryje = vienas segmentas, be wildcard'o — prefikso containment.
+ * Case-SENSITIVE (skirtingai nuo scheduling scope-lock, kuris lygina case-insensitive
+ * failų sistemos semantika) — „ar kelias telpa į task'o scope" reiškia tą patį diagnozėje
+ * (domain/diagnosis/dispositions) ir integracijoje (application/integration). Etalone tai
+ * buvo trys pažodinės kopijos su „privalo keistis kartu" komentaru; čia kopija yra VIENA.
+ */
+export function matchesAllowedPath(file: string, allowed: string): boolean {
+  if (allowed === "**" || allowed === "*") return true;
+  if (allowed.endsWith("/**")) {
+    const prefix = allowed.slice(0, -3);
+    return file === prefix || file.startsWith(`${prefix}/`);
+  }
+  if (allowed.endsWith("/*")) {
+    const prefix = allowed.slice(0, -2);
+    return file.startsWith(`${prefix}/`) && !file.slice(prefix.length + 1).includes("/");
+  }
+  if (allowed.includes("*")) return wildcardPatternMatches(file, allowed);
+  return file === allowed || file.startsWith(`${allowed.replace(/\/$/, "")}/`);
+}
+
+/**
+ * Bendrinis wildcard glob'as kelio VIDURYJE ar SUFIKSE: `*` = vienas segmentas (be `/`),
+ * `**` = bet koks gylis. Etalono 2026-08-07 regresija (task 1134): neinterpretuoti tokie
+ * šablonai paversdavo VISUS pakeitimus „outside allowed paths".
+ */
+function wildcardPatternMatches(file: string, pattern: string): boolean {
+  const source = pattern
+    .split(/(\*\*|\*)/)
+    .map((part) => (part === "**" ? ".*" : part === "*" ? "[^/]*" : part.replace(/[$()+.?[\\\]^{|}]/g, "\\$&")))
+    .join("");
+  return new RegExp(`^${source}$`).test(file);
+}
+
+/**
  * `## Failai` → `Draudžiama:` keliai, surinkti TA PAČIA token taisykle kaip leidžiami.
  * Tuščias rezultatas = „draudžiamų kelių nenurodyta" — draudimai yra papildomas signalas,
  * leidžiami keliai lieka vienintelis kietas redagavimo vartas.

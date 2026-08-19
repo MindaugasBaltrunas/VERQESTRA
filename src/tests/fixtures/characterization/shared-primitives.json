@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "Shared primityvų hash/canonical-JSON kontraktai (E1 VQ-101 pre-work). Nuo šių reikšmių priklauso 10+ išsaugotų *_hash artefaktų (scheduling/integration/context fingerprints). Kind sha256/normalized abu eina per normalizuotą sha256 (CRLF→LF + uodegos trim; sha256-empty/abc atvejais normalizacija — tapatybė, tad tai kartu ir žinomi raw sha256 vektoriai). JSON-neišreiškiami invariantai (undefined/NaN/function/bigint throw, undefined-prop drop) gyvena runner'yje — VERQESTRA runner'is privalo juos atkartoti. Reikšmės užfiksuotos 2026-08-19 record režimu; VERQESTRA jo neturi (PAR-1).",
+  "cases": [
+    { "id": "canonical-nested-key-sort", "kind": "canonical", "value": { "b": 1, "a": { "d": 2, "c": [3, 1] } }, "expect": { "result": "{\"a\":{\"c\":[3,1],\"d\":2},\"b\":1}" } },
+    { "id": "canonical-null-kept-arrays-preserved", "kind": "canonical", "value": { "z": null, "arr": [2, 1, null] }, "expect": { "result": "{\"arr\":[2,1,null],\"z\":null}" } },
+    { "id": "canonical-unicode-keys", "kind": "canonical", "value": { "ž": 1, "a": 2, "Ž": 3, "0": 4 }, "expect": { "result": "{\"0\":4,\"a\":2,\"Ž\":3,\"ž\":1}" } },
+    { "id": "canonical-empty-shapes", "kind": "canonical", "value": { "obj": {}, "arr": [] }, "expect": { "result": "{\"arr\":[],\"obj\":{}}" } },
+    { "id": "canonical-number-forms", "kind": "canonical", "value": { "big": 1e21, "neg": -0, "frac": 0.1 }, "expect": { "result": "{\"big\":1e+21,\"frac\":0.1,\"neg\":0}" } },
+    { "id": "sha256-empty", "kind": "sha256", "text": "", "expect": { "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" } },
+    { "id": "sha256-abc", "kind": "sha256", "text": "abc", "expect": { "digest": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" } },
+    { "id": "sha256-lietuviskai-lf", "kind": "sha256", "text": "ąčęėįšųū žalias\n", "expect": { "digest": "4861f59b1c839634aab627e61df792437a81c463395aeb921a1ae6a741935261" } },
+    { "id": "normalized-crlf-equals-lf", "kind": "normalized", "text": "eilutė\r\nantra\r\n", "expect": { "digest": "ab3cdc5f12704db1bf6ae942cd1b1ada55cf4b6a41f014f9e2c8977573e15e05" } },
+    { "id": "normalized-lf-reference", "kind": "normalized", "text": "eilutė\nantra", "expect": { "digest": "ab3cdc5f12704db1bf6ae942cd1b1ada55cf4b6a41f014f9e2c8977573e15e05" } },
+    { "id": "normalized-trailing-whitespace-trimmed", "kind": "normalized", "text": "eilutė\nantra   \n\n\t ", "expect": { "digest": "ab3cdc5f12704db1bf6ae942cd1b1ada55cf4b6a41f014f9e2c8977573e15e05" } },
+    { "id": "normalized-leading-space-distinct", "kind": "normalized", "text": "  eilutė\nantra", "expect": { "digest": "176f3460a9d218fd82fc89b76ca47cca3d0d64c3b36118cdb74bd1073c928004" } },
+    { "id": "short-digest-wp1", "kind": "short-digest", "prefix": "wp1", "payload": { "b": 1, "a": 2 }, "expect": { "digest": "wp1:d3626ac30a87e6f7" } },
+    { "id": "short-digest-key-order-invariant", "kind": "short-digest", "prefix": "wp1", "payload": { "a": 2, "b": 1 }, "expect": { "digest": "wp1:d3626ac30a87e6f7" } },
+    { "id": "short-digest-different-payload", "kind": "short-digest", "prefix": "wp1", "payload": { "a": 2, "b": 2 }, "expect": { "digest": "wp1:4c7aa83dd9f6db52" } },
+    { "id": "short-digest-different-prefix", "kind": "short-digest", "prefix": "sr1", "payload": { "b": 1, "a": 2 }, "expect": { "digest": "sr1:d3626ac30a87e6f7" } }
+  ]
+}

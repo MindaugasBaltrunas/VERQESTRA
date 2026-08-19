@@ -9,6 +9,42 @@ export type ContextPackFileSystemPort = {
   exists(absolutePath: string): Promise<boolean>;
   /** Best-effort log append; klaidą meta — kvietėjas sprendžia, ar ją nutylėti. */
   appendTextFile(absolutePath: string, text: string): Promise<void>;
+  /** Artefakto įrašymas (context-pack.json / execution-context.md persist kelias). */
+  writeTextFile(absolutePath: string, content: string): Promise<void>;
+  makeDirectory(absoluteDir: string): Promise<void>;
+};
+
+/**
+ * Deterministinio context-cache saugyklos portas (spec RAG-2; E4 implementacija).
+ * Grynoji rakto pusė gyvena context-cache-key.ts — portas gauna jau suskaičiuotą raktą.
+ * Elgesio kontraktas (etalonas: AG_loop orchestrator/runtime/context-cache.ts):
+ *  - collectSources: task/source/spec/architecture/policy įrodymai su sha256 (arba
+ *    `absent` sentinelis) — best-effort, niekada nemeta;
+ *  - lookup: `verifyCodeIndex` kviečiamas LAZY, tik kai įrašas egzistuoja ir naudojo
+ *    indeksą; drift/versijos neatitikimas evict'ina ir grąžina miss;
+ *  - save: `stale` code-index deskriptoriaus įrašas NESAUGOMAS (ne turinio identitetas);
+ *    talpa ribojama seniausius išmetant.
+ */
+export type ContextCachePort = {
+  collectSources(input: {
+    taskPath: string;
+    taskText: string;
+    targets: string[];
+    specSources: string[];
+  }): Promise<import("./context-cache-model.js").ContextCacheSource[]>;
+  lookup(
+    key: import("./context-cache-key.js").ContextCacheKey,
+    verifyCodeIndex: () => Promise<string>,
+  ): Promise<import("./context-cache-key.js").ContextCacheLookup>;
+  save(input: {
+    key: import("./context-cache-key.js").ContextCacheKey;
+    taskId: string;
+    contextPackJson: string;
+    codeIndexDescriptor: string;
+    selectedChars: number;
+    selectedTokenEstimate: number;
+    droppedItemCount: number;
+  }): Promise<{ stored: boolean; reason?: "code_index_stale" }>;
 };
 
 export type ClockPort = {

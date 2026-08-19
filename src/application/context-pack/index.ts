@@ -9,9 +9,14 @@
 // dalyje kartu su policy loader'iais.
 //
 // PASTABA: effective-compression-policy ir mcp-capability-registry produkcijoje deep-import'
-// inami (barrel'io svoris hook procesuose) — barrel juos vis tiek re-eksportuoja testų ir
-// kompozicijos patogumui, nes VERQESTRA barrel'is dar neneša assemble grafo.
+// inami (barrel'io svoris hook procesuose) — hook keliai importuoja failą, ne barrel'į.
 export * from "./ports.js";
+export * from "./context-cache-key.js";
+export * from "./assemble/parse-task.js";
+export * from "./assemble/gather.js";
+export * from "./assemble/tiers.js";
+export * from "./assemble/persist.js";
+export * from "./assemble/assemble.js";
 export * from "./arrest-attribution.js";
 export * from "./compact-dsl/model.js";
 export * from "./compact-dsl/parse.js";

@@ -14,9 +14,11 @@ export type AgentRoleConfig = {
   allowed_adapters: AgentAdapterKind[];
   default_model_hint: AgentModelHint;
   can_write_code: boolean;
-  enabled?: boolean;
-  max_attempts?: number;
-  requires_human_review_for_global_changes?: boolean;
+  // `| undefined` eksplicitiškai: zod optional() inferuoja būtent šią formą, o su
+  // exactOptionalPropertyTypes siauresnis tipas neleistų schema rezultato (E3 loader).
+  enabled?: boolean | undefined;
+  max_attempts?: number | undefined;
+  requires_human_review_for_global_changes?: boolean | undefined;
 };
 
 export type AgentPolicy = {

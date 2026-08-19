@@ -8,4 +8,5 @@ export * from "./dependencies.js";
 export * from "./human-review/gates.js";
 export * from "./retry.js";
 export * from "./dispatch-paths.js";
+export * from "./size.js";
 export * from "./graph/index.js";

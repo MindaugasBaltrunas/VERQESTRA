@@ -58,6 +58,12 @@ function memoryFs(files: Record<string, string>): ContextPackFileSystemPort & { 
       const key = path.resolve(absolutePath);
       appended.set(key, (appended.get(key) ?? "") + text);
     },
+    async writeTextFile(absolutePath, content) {
+      normalized.set(path.resolve(absolutePath), content);
+    },
+    async makeDirectory() {
+      // in-memory — katalogų kurti nereikia
+    },
   };
 }
 
@@ -239,6 +245,12 @@ test("mcp capability registry: precedence registry > environment > fail-open; di
       throw new Error("no");
     },
     appendTextFile: () => {
+      throw new Error("no");
+    },
+    writeTextFile: () => {
+      throw new Error("no");
+    },
+    makeDirectory: () => {
       throw new Error("no");
     },
   };

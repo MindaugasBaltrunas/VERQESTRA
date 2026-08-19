@@ -1,0 +1,25 @@
+{
+  "name": "verqestra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Spec-first orchestration framework for bounded AI coding agents — the canonical rebuild of AG Loop.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "main": "./dist/cli.js",
+  "bin": {
+    "verqestra": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test \"dist/tests/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "typescript": "^5.8.3"
+  }
+}

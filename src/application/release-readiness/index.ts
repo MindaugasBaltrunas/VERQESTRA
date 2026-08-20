@@ -5,11 +5,12 @@
 // docs/package-layout runner'iai — E5 repo politika), architecture-boundary-check,
 // final-audit kompozicija per FinalAuditPorts (converge/readiness/backlog/benchmark/
 // compression patikras paduoda composition), release-notes ir release-proof.
-// benchmark-evidence-check atvyks su benchmark klasteriu (VQ-305 3/3-c) — final-audit jį
-// gauna per portą jau dabar.
+// benchmark-evidence-check (BENCH-12 vartai virš benchmark klasterio) — VQ-305 3/3-c;
+// final-audit jį gauna per portą, tad kompozicija laisva rinktis wiring'ą.
 export * from "./milestone-check.js";
 export * from "./release-check.js";
 export * from "./architecture-boundary-check.js";
+export * from "./benchmark-evidence-check.js";
 export * from "./final-audit.js";
 export * from "./release-notes.js";
 export * from "./release-proof.js";

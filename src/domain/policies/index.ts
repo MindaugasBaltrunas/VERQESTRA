@@ -14,3 +14,6 @@ export * from "./compression/features.js";
 export * from "./compression/canary.js";
 export * from "./compression/arrest.js";
 export * from "./compression/dependencies.js";
+export * from "./check-command-allowlist.js";
+export * from "./bash-command-policy.js";
+export * from "./quality-command-policy.js";

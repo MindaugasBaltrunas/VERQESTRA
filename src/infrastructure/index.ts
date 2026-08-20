@@ -56,3 +56,8 @@ export * from "./state/attempt-resolution.js";
 export * from "./state/token-usage-log.js";
 export * from "./state/stop-bridge.js";
 export * from "./state/session-activity.js";
+// E4 VQ-404 (1/2): domain ExecutionAdapter porto implementacijos + Claude headless
+// klasteris (etalono claude-headless 782 eil. skaidymas: decision/usage/tool-schema/
+// headless; result envelope paieška — domain/diagnosis/stream-log, ClaudeUsage —
+// state/token-usage-log, FQC-12) + integration reviewer tiltas (IVER-3).
+export * from "./adapters/index.js";

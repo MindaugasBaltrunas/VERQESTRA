@@ -61,3 +61,18 @@ export * from "./state/session-activity.js";
 // headless; result envelope paieška — domain/diagnosis/stream-log, ClaudeUsage —
 // state/token-usage-log, FQC-12) + integration reviewer tiltas (IVER-3).
 export * from "./adapters/index.js";
+// E4 VQ-404 (2/2): repair prompt saugykla (vq/state/repair) ir realūs TokenBudgetGatePorts
+// (integration-review-adapter numatytieji efektai); GitHub integracijos (client-injected,
+// be tiesioginio HTTP); bootstrap tiekėjai — README intencija, bootstrap detekcija,
+// architektūros grafo/progreso saugykla, .mmd -> grafas importas, openspec autogen su
+// deterministiniu template fallback'u ir realios BootstrapSpecPorts implementacijos.
+export * from "./state/task-repair-store.js";
+export * from "./state/token-budget-gate-ports.js";
+export * from "./integrations/github-issues.js";
+export * from "./integrations/github-pr.js";
+export * from "./bootstrap/readme-intent.js";
+export * from "./bootstrap/bootstrap-detector.js";
+export * from "./bootstrap/architecture-graph-store.js";
+export * from "./bootstrap/bootstrap-architecture.js";
+export * from "./bootstrap/openspec-autogen.js";
+export * from "./bootstrap/bootstrap-spec-ports.js";

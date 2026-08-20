@@ -17,6 +17,13 @@ export * from "./claude-decision.js";
 export * from "./claude-usage.js";
 export * from "./claude-tool-schema.js";
 export * from "./claude-headless.js";
+// E4 VQ-404 (2/2): provider tier -> modelio ID mapping'as (claude-model-env), matomas
+// PowerShell dispatch paleidiklis su nonce watchdog'u (claude-launcher), adapterių
+// galimybių deklaracijos ir realus IntegrationPort (IVER-3 pilnoji pusė).
+export * from "./claude-model-env.js";
+export * from "./claude-launcher.js";
+export * from "./adapter-capabilities.js";
+export * from "./integration-review-adapter.js";
 
 export function createExecutionAdapter(kind: ExecutionAdapterKind): ExecutionAdapter {
   if (kind === "dry-run") return new DryRunAdapter();

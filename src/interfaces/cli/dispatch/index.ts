@@ -24,3 +24,5 @@ export * from "./claude-diagnose/diagnose-ports.js";
 export * from "./claude-diagnose/diagnose-evidence.js";
 export * from "./claude-diagnose/diagnose-prompt.js";
 export * from "./claude-diagnose/index.js";
+// E5 VQ-501 (2/5-d): claude-dispatch sprendimų pusė (timeout/routing/budget planai).
+export * from "./claude-dispatch/index.js";

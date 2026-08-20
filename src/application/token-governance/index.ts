@@ -9,3 +9,6 @@ export * from "./cheap-finish.js";
 export * from "./route-model.js";
 export * from "./tool-budget-rules.js";
 export * from "./tool-budget-gates.js";
+// E5 VQ-501 (2/5-d): turn/wall-clock biudžeto konfigo sluoksnis (0033-03) su stebimu
+// per-rakto pirmumu ir mid-dispatch billable riba (1215).
+export * from "./token-budget-config.js";

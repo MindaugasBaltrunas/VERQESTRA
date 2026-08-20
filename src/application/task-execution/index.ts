@@ -78,6 +78,9 @@ export { nonRuntimeDirtyEntriesFromStatus, sessionScopedChangedFiles } from "../
 // E5 VQ-501 (2/5-c): session-write nuosavybės taisyklė (etalono hooks/session-staging
 // ownership pusė) — IO adapteriai VQ-502.
 export * from "./session-write-owners.js";
+// E5 VQ-501 (2/5-d): execution context vartai + kanoninio worker prompt'o gamyba (CTX-2;
+// bendra CLI dispatch ir adapterio keliui — negali išsiskirti tarp paviršių).
+export * from "./execution-context-gate.js";
 
 // Pre-dispatch work-evidence vartai (etalono task 1187) — grynoji taisyklė eksportuojama
 // atskirai (per `export *` aukščiau), kad jos deterministiškumą būtų galima tikrinti be viso

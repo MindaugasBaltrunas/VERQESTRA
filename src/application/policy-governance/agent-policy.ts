@@ -14,6 +14,12 @@ import {
 import { defaultAgentPolicy } from "../../domain/policies/agent-policy-defaults.js";
 import type { PolicyConfigFileSystemPort } from "./ports.js";
 
+// E5 VQ-501 (2/5-d): dispatch tool profilio GRINDYS virš DISPATCH_BASELINE_TOOLS —
+// agentų maršrutizavimo įrankiai niekada nepatenka į `--disallowed-tools` kandidatus
+// (etalono policy/agent-policy.ts konstanta 1:1; be jų grandinės vykdytojas negalėtų
+// paleisti sub-agentų).
+export const AGENT_ROUTING_TOOLS: readonly string[] = ["Task", "Skill", "SlashCommand", "TodoWrite"];
+
 // Built-in roles remain a documented compatibility vocabulary. Project-local agents are
 // intentionally dynamic and use the same safe identifier format as their
 // `.claude/agents/<role>.md` file name.

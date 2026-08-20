@@ -24,6 +24,10 @@ export * from "./claude-model-env.js";
 export * from "./claude-launcher.js";
 export * from "./adapter-capabilities.js";
 export * from "./integration-review-adapter.js";
+// E5 VQ-501 (2/5-d): dispatch pristatymo pusė (POSIX CLI argumentai + prompt delivery +
+// 0028 tool schemų profilis) ir dviejų kanalų sesijos log rašytojas (2026-08-09 EBUSY).
+export * from "./claude-dispatch-delivery.js";
+export * from "./claude-last-log.js";
 
 export function createExecutionAdapter(kind: ExecutionAdapterKind): ExecutionAdapter {
   if (kind === "dry-run") return new DryRunAdapter();

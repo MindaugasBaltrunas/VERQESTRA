@@ -8,6 +8,14 @@
 /** Hard ceiling on worker ids. The wave scheduler runs one worker today; a second is gated. */
 export const RUNTIME_MAX_WORKERS = 2;
 
+/**
+ * Runtime namespace segmento (`runs/<run>/workers/<w>/tasks/<taskId>/attempts/<a>`) ilgio
+ * riba. Vartotojai: E4 runtime kelių validacija IR task-execution `childTaskId` (vaiko id
+ * KARTU yra runtime kelio segmentas, tad privalo tilpti pagal konstrukciją — etalono
+ * 2026-08-12 audito radinys #6: per ilgas vaiko id palikdavo bandymus be attempt namespace).
+ */
+export const RUNTIME_SEGMENT_MAX_LENGTH = 64;
+
 export type AttemptRef = {
   readonly runId: string;
   readonly workerId: string;

@@ -31,6 +31,16 @@ export * from "./openspec-archive.js";
 export { createRunCoordinator } from "./run-coordinator.js";
 export type { RunCoordinator, RunCoordinatorOptions } from "./run-coordinator-model.js";
 
+// VQ-304 (3/3) — etalono orchestrator/tasks likutis: skaidymo planas, vaikų enqueue,
+// TaskGraph importas + blocked maršrutizavimas, repair prompt scope taisyklės, ledger'io
+// sprendimo taisyklės ir task-events kontraktas. Dydžio matavimas — domain/tasks/size (FQC-12).
+export * from "./task-splitting.js";
+export * from "./enqueue-child-tasks.js";
+export * from "./task-graph-import.js";
+export * from "./repair-prompt.js";
+export * from "./task-ledger-rules.js";
+export * from "./task-events-model.js";
+
 // Sankcionuotas interfaces → application → domain tiltas (tas pats šablonas kaip
 // evaluateRepeatedErrorEscalation šiame klasteryje): interfaces sluoksnis kanoninį bucket
 // rinkinį ima per šį barrel'į, o ne tiesiogiai iš domain/tasks/buckets.ts.

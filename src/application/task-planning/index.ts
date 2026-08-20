@@ -14,3 +14,6 @@ export * from "./openspec-context.js";
 // E5 VQ-501 (3/5-a): api-contract-export — API kontrakto juodraštis iš aktyvios spec
 // (etalono spec/api-contract-export.ts) per ApiContractExportPorts.
 export * from "./api-contract-export.js";
+// E5 VQ-501 (3/5-b): plan — aktyvios spec validacija + architektūros kontrakto
+// generavimas/validacija (etalono plan() pusė) per PlanPorts.
+export * from "./plan.js";

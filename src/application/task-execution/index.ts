@@ -85,6 +85,9 @@ export * from "./execution-context-gate.js";
 // DispatchUsageView struktūrine forma) ir execution-result įrašo statyba (1117a).
 export * from "./stop-bridge-wait.js";
 export * from "./dispatch-execution-record.js";
+// E5 VQ-501 (3/5-b): openspec-reconcile — 0030 batch suderinimas virš openspec-archive
+// taisyklių (OpenSpecReconcileFsPort = archyvavimo portas + katalogų enumeracija).
+export * from "./openspec-reconcile.js";
 
 // Pre-dispatch work-evidence vartai (etalono task 1187) — grynoji taisyklė eksportuojama
 // atskirai (per `export *` aukščiau), kad jos deterministiškumą būtų galima tikrinti be viso

@@ -40,6 +40,23 @@ export function canonicalTaskPhase(phase: string): TaskPhase {
   return "other";
 }
 
+const CANONICAL_MODEL_TIERS = ["haiku", "sonnet", "opus", "fable"] as const;
+
+/**
+ * Ataskaitinė konkretaus Claude modelio ID tapatybė (etalonas: runtime/token-usage.ts).
+ * Vykdymas gali įrašyti pilną provider ID, o policy keliai — trumpą tier vardą; analitika
+ * abu privalo laikyti tuo pačiu modeliu. Ne-Claude adapteriai ir `none` lieka atskiri.
+ */
+export function canonicalTokenUsageModel(model: string): string {
+  const normalized = model.trim().toLowerCase();
+  for (const tier of CANONICAL_MODEL_TIERS) {
+    if (normalized === tier || normalized === `claude-${tier}` || normalized.startsWith(`claude-${tier}-`)) {
+      return tier;
+    }
+  }
+  return normalized || "unknown";
+}
+
 /**
  * Struktūrinis vienos `token-usage.jsonl` eilutės atitikmuo. Visi laukai yra `unknown`,
  * nes žurnalas kaupiamas per kelias formato kartas ir jo eilutės negali būti laikomos

@@ -7,6 +7,10 @@
 // compression patikras paduoda composition), release-notes ir release-proof.
 // benchmark-evidence-check (BENCH-12 vartai virš benchmark klasterio) — VQ-305 3/3-c;
 // final-audit jį gauna per portą, tad kompozicija laisva rinktis wiring'ą.
+// VQ-305 (3/3-e): compression rollout vartai (task 1206 + 0008) — config-digest
+// (kanoninė forma transkribuota iš benchmark paketo), model (kontraktai/portas),
+// evidence (raporto sekcija, run-identity sidecar'ai, canary telemetrija) ir
+// compression-quality-check kompozicija; final-audit ją gauna per compressionQuality portą.
 export * from "./milestone-check.js";
 export * from "./release-check.js";
 export * from "./architecture-boundary-check.js";
@@ -14,3 +18,7 @@ export * from "./benchmark-evidence-check.js";
 export * from "./final-audit.js";
 export * from "./release-notes.js";
 export * from "./release-proof.js";
+export * from "./compression-config-digest.js";
+export * from "./compression-quality-model.js";
+export * from "./compression-quality-evidence.js";
+export * from "./compression-quality-check.js";

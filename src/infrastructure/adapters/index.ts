@@ -2,11 +2,6 @@
 // Domain ExecutionAdapter porto implementacijos: procesų egzekucija, fs prielaidų
 // validacija ir išvesties normalizacija gyvena čia, kad pats portas liktų grynas.
 
-import type { ExecutionAdapter, ExecutionAdapterKind } from "../../domain/agents/execution-port.js";
-import { DryRunAdapter } from "./dry-run-adapter.js";
-import { CodexAdapter } from "./codex-adapter.js";
-import { ClaudeAdapter } from "./claude-adapter.js";
-
 export * from "./adapter-runtime.js";
 export * from "./process-runner.js";
 export * from "./dry-run-adapter.js";
@@ -31,11 +26,15 @@ export * from "./claude-last-log.js";
 // E5 VQ-501 (2/5-e): mid-dispatch token biudžeto watchdog'as (1203/1215/1222) — gyvas
 // stream meter'is + Windows log tailer'is; billable formulė — domain/tokens (FQC-12).
 export * from "./mid-dispatch-budget.js";
+// E5 VQ-501 (2/5-f): dispatch proceso paleidimas (Windows launcher + POSIX stdin su
+// nonce langu ir CLI fallback'u), baigties normalizavimas (1213 stop-wait + 1203 budget
+// verdiktai), terminaliniai artefaktai/matavimai ir CTX-2 adapterio kelias.
+export * from "./execution-adapter-factory.js";
+export * from "./claude-dispatch-process.js";
+export * from "./claude-dispatch-outcome.js";
+export * from "./claude-dispatch-finalize.js";
+export * from "./adapter-dispatch.js";
 
-export function createExecutionAdapter(kind: ExecutionAdapterKind): ExecutionAdapter {
-  if (kind === "dry-run") return new DryRunAdapter();
-  if (kind === "codex") return new CodexAdapter();
-  if (kind === "claude") return new ClaudeAdapter();
-  const exhaustive: never = kind;
-  throw new Error("Unknown execution adapter: " + String(exhaustive));
-}
+// Fabrikas gyvena execution-adapter-factory.ts (iškeltas dėl acyclic gate — E5 VQ-501
+// 2/5-f adapter-dispatch jį importuoja be barrel'io); čia lieka tik re-eksportas.
+export { createExecutionAdapter } from "./execution-adapter-factory.js";

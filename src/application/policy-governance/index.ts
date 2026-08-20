@@ -12,3 +12,4 @@ export * from "./task-classification-policy.js";
 export * from "./preflight-limits-policy.js";
 export * from "./security-spec-policies.js";
 export * from "./model-policy.js";
+export * from "./git-automation-policy.js";

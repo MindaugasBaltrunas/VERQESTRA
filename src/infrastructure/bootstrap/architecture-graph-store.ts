@@ -79,11 +79,16 @@ export async function updateNodeProgress(
   statePath: string,
   nodeId: string,
   update: Partial<ArchitectureNodeProgress>,
+  clearFields: readonly ("interface_contract" | "verified_at" | "human_review_reason")[] = [],
 ): Promise<void> {
   const progress = await readProgress(statePath);
   if (!progress) throw new Error(`Progress ledger not found at: ${statePath}`);
   const existing = progress.nodes[nodeId];
   if (!existing) throw new Error(`Node "${nodeId}" not found in progress at: ${statePath}`);
-  progress.nodes[nodeId] = { ...existing, ...update };
+  const merged = { ...existing, ...update };
+  // Etalonas laukus išvalydavo per `laukas: undefined` (JSON.stringify juos numeta);
+  // su exactOptionalPropertyTypes tas pats efektas išreiškiamas aiškiu clearFields sąrašu.
+  for (const field of clearFields) delete merged[field];
+  progress.nodes[nodeId] = merged;
   await writeProgress(statePath, progress);
 }

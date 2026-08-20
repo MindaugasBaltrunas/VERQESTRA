@@ -10,3 +10,10 @@ export * from "./codex-dispatch.js";
 export * from "./on-stop-bridge.js";
 export * from "./loop-guard.js";
 export * from "./retry-guard.js";
+// E5 VQ-501 (2/5-b): claude-preflight (etalono 1004 eil. skaidymas: ports/spec-source/llm/
+// orkestratorius; fast-path taisyklė — application/quality-gates/preflight-fastpath).
+export * from "./claude-preflight/preflight-ports.js";
+export * from "./claude-preflight/spec-source.js";
+export * from "./claude-preflight/preflight-llm.js";
+export * from "./claude-preflight/preflight-validate.js";
+export * from "./claude-preflight/index.js";

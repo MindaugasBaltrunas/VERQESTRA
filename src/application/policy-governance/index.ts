@@ -18,3 +18,6 @@ export * from "./git-automation-policy.js";
 export * from "./policy-proposals-log.js";
 export * from "./policy-file-registry.js";
 export * from "./policy-proposal-service.js";
+// E5 VQ-501 (3/5-a): json-schema-export — konfigų kontraktų JSON schemos (etalono
+// core/schema-export.ts; turinys 1:1) per JsonSchemaExportPorts.
+export * from "./json-schema-export.js";

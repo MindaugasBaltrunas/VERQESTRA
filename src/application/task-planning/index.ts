@@ -11,3 +11,6 @@ export * from "./spec-source.js";
 export * from "./queue-task.js";
 export * from "./generate.js";
 export * from "./openspec-context.js";
+// E5 VQ-501 (3/5-a): api-contract-export — API kontrakto juodraštis iš aktyvios spec
+// (etalono spec/api-contract-export.ts) per ApiContractExportPorts.
+export * from "./api-contract-export.js";

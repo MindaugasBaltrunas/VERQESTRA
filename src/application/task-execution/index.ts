@@ -39,6 +39,8 @@ export * from "./enqueue-child-tasks.js";
 export * from "./task-graph-import.js";
 export * from "./repair-prompt.js";
 export * from "./task-ledger-rules.js";
+// E5 VQ-501: ledger operacijos virš store porto (clear + sync taisyklės iš CLI į application).
+export * from "./task-ledger-service.js";
 export * from "./task-events-model.js";
 // E4 VQ-402 (1/2): Stop staging'o grynos taisyklės (task 890/1100/0016) — vykdymas E5 hooks.
 export * from "./session-staging.js";

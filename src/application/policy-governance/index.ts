@@ -7,3 +7,6 @@ export * from "./context-selection-policy.js";
 export * from "./tool-budget-config.js";
 export * from "./agent-policy.js";
 export * from "./quality-policy.js";
+export * from "./architecture-policies.js";
+export * from "./task-classification-policy.js";
+export * from "./preflight-limits-policy.js";

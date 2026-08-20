@@ -1,12 +1,19 @@
 // Preflight taisyklių GRYNOJI pusė: claude_task sekcijų taksonomija, source-change
-// šablonas, backtick patikrų parseris, verdiktų/normalizavimo taisyklės. Behaviour
-// etalon: AG_loop application/quality-gates/preflight-rules.ts. IO pusė
-// (evaluateArchitectureAndPolicyGates su policy loader'iais per portus) atvyksta su
-// VQ-305 — šis failas atkeliauja anksčiau, nes parseBacktickChecks yra worker-task-ir
-// kompiliatoriaus kanoninis parseris (FQC-12: vienas parseris visame repo).
+// šablonas, backtick patikrų parseris, verdiktų/normalizavimo taisyklės ir architektūros/
+// enforcement vartai. Behaviour etalon: AG_loop application/quality-gates/preflight-rules.ts.
+// Etalone `evaluateArchitectureAndPolicyGates` pats skaitė policy failus; VERQESTRA jis yra
+// GRYNAS — politikas paduoda kvietėjas (loaderiai — policy-governance), tad vartus galima
+// varyti testais be FS. parseBacktickChecks yra worker-task-ir kompiliatoriaus kanoninis
+// parseris (FQC-12: vienas parseris visame repo).
 
 import { extractSection } from "../../shared/markdown.js";
 import { serializeAgentChain } from "../../domain/policies/agent-selection.js";
+import {
+  detectForbiddenDependencyViolations,
+  type ArchitectureStylePolicy,
+} from "../../domain/policies/architecture-style.js";
+import { decideEnforcement, type EnforcementLevel } from "../../domain/policies/enforcement-level.js";
+import type { TaskClassification } from "../../domain/policies/task-classification.js";
 
 // Single source of truth for the `claude_task` section taxonomy, shared by the manual
 // preflight validator and the production-loop preflight normalizer. The taxonomy below and
@@ -297,4 +304,101 @@ export function syncAgentsSection(claudeTask: string, chain: string[]): string {
     return claudeTask;
   }
   return claudeTask.replace(sectionRe, `$1${joined}\n`);
+}
+
+// --- Architektūros stiliaus ir enforcement politikos vartai ------------------------------
+
+/** Politikos vaizdas, kurio reikia vartams; loaderių schemos (policy-governance) jį TENKINA. */
+export type ArchitectureGatePolicyView = ArchitectureStylePolicy & { strictness: EnforcementLevel };
+
+export type EnforcementGatePolicyView = {
+  require_tests_for_code_changes: boolean;
+  max_files_per_task: number;
+  broad_scope_requires_human_review: boolean;
+  require_interface_contract_for_public_changes: boolean;
+};
+
+export type PolicyGateInput = {
+  taskText: string;
+  allowedFiles: string[];
+  checks: string[];
+  specSources: string[];
+  classification: TaskClassification;
+  architectureStylePolicy: ArchitectureGatePolicyView;
+  enforcementPolicy: EnforcementGatePolicyView;
+};
+
+export type PolicyGateResult = {
+  /** Fatal: the same task must be blocked (manual) or routed to human review (loop). */
+  invalidReasons: string[];
+  /** Advisory: flagged for review but never blocks dispatch on its own. */
+  reviewReasons: string[];
+};
+
+/**
+ * Architecture-style and enforcement-policy gates, extracted from `evaluatePreflight` so the
+ * production loop preflight can run the exact same rules instead of skipping them entirely
+ * (etalono task 873: `block`-strictness pažeidimas buvo `invalid` rankiniame preflight'e, bet
+ * loop'as tą patį task'ą tyliai dispatch'indavo).
+ */
+export function evaluateArchitectureAndPolicyGates(input: PolicyGateInput): PolicyGateResult {
+  const { architectureStylePolicy, enforcementPolicy } = input;
+  const invalidReasons: string[] = [];
+  const reviewReasons: string[] = [];
+
+  if (
+    enforcementPolicy.require_tests_for_code_changes &&
+    input.classification.categories.some((category) => category !== "routine") &&
+    !input.checks.some((check) => /\btest\b|jest|vitest|mocha|spec/i.test(check))
+  ) {
+    invalidReasons.push("require_tests_for_code_changes: no test command found in checks");
+  }
+
+  // Trijų pakopų įrodymų modelis (žr. domain/policies/architecture-style.ts):
+  // evidence=confirmed seka sukonfigūruotą griežtumą kaip yra (warn→review, block→block);
+  // evidence=possible visada nužeminamas iki review, net esant block griežtumui — dalinis
+  // tekstinis signalas neturi kietai numušti task'o.
+  if (architectureStylePolicy.strictness !== "advisory") {
+    for (const violation of detectForbiddenDependencyViolations(architectureStylePolicy, input.allowedFiles, {
+      taskText: input.taskText,
+    })) {
+      const verdict = decideEnforcement(architectureStylePolicy.strictness, violation.evidence);
+      if (verdict.reason_kind === "confirmed") {
+        const where = violation.file ?? violation.endpoint;
+        const message = `architecture ${architectureStylePolicy.strictness}: forbidden dependency "${violation.dependency}" touched by scope "${where}" (evidence: confirmed)`;
+        if (verdict.effect === "block") invalidReasons.push(message);
+        else reviewReasons.push(message);
+      } else {
+        const detail = violation.sources[0] ?? `endpoint "${violation.endpoint}"`;
+        reviewReasons.push(
+          `architecture possible: forbidden dependency "${violation.dependency}" (evidence: possible; ${detail})`,
+        );
+      }
+    }
+  }
+
+  if (input.allowedFiles.length > enforcementPolicy.max_files_per_task) {
+    reviewReasons.push(`policy max_files_per_task: ${input.allowedFiles.length} > ${enforcementPolicy.max_files_per_task}`);
+  }
+
+  if (enforcementPolicy.broad_scope_requires_human_review) {
+    for (const file of input.allowedFiles) {
+      if (/^(\*\*|.+\/\*\*)$/.test(file)) {
+        reviewReasons.push(`policy broad_scope_requires_human_review: broad path "${file}"`);
+      }
+    }
+  }
+
+  if (enforcementPolicy.require_interface_contract_for_public_changes) {
+    const isPublicChange = input.classification.categories.some(
+      (category) => category === "architecture" || category === "policy-sensitive" || category === "release",
+    );
+    if (isPublicChange && !input.specSources.some((source) => /contract|interface|openapi|api[-_]spec/i.test(source))) {
+      reviewReasons.push(
+        `policy require_interface_contract_for_public_changes: no interface-contract spec source found (sources: ${input.specSources.join(", ")})`,
+      );
+    }
+  }
+
+  return { invalidReasons, reviewReasons };
 }

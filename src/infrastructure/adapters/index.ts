@@ -28,6 +28,9 @@ export * from "./integration-review-adapter.js";
 // 0028 tool schemų profilis) ir dviejų kanalų sesijos log rašytojas (2026-08-09 EBUSY).
 export * from "./claude-dispatch-delivery.js";
 export * from "./claude-last-log.js";
+// E5 VQ-501 (2/5-e): mid-dispatch token biudžeto watchdog'as (1203/1215/1222) — gyvas
+// stream meter'is + Windows log tailer'is; billable formulė — domain/tokens (FQC-12).
+export * from "./mid-dispatch-budget.js";
 
 export function createExecutionAdapter(kind: ExecutionAdapterKind): ExecutionAdapter {
   if (kind === "dry-run") return new DryRunAdapter();

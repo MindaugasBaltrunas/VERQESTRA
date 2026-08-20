@@ -81,6 +81,10 @@ export * from "./session-write-owners.js";
 // E5 VQ-501 (2/5-d): execution context vartai + kanoninio worker prompt'o gamyba (CTX-2;
 // bendra CLI dispatch ir adapterio keliui — negali išsiskirti tarp paviršių).
 export * from "./execution-context-gate.js";
+// E5 VQ-501 (2/5-e): stop-bridge laukimo/zero-usage grynos taisyklės (1213/1218 su
+// DispatchUsageView struktūrine forma) ir execution-result įrašo statyba (1117a).
+export * from "./stop-bridge-wait.js";
+export * from "./dispatch-execution-record.js";
 
 // Pre-dispatch work-evidence vartai (etalono task 1187) — grynoji taisyklė eksportuojama
 // atskirai (per `export *` aukščiau), kad jos deterministiškumą būtų galima tikrinti be viso

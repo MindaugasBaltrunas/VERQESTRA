@@ -9,3 +9,6 @@
 export * from "./dispatch-timeout.js";
 export * from "./dispatch-routing-plan.js";
 export * from "./dispatch-budget-plan.js";
+// E5 VQ-501 (2/5-e): worker prompt'o paruošimas su canary/arrest apskaita (0025/0008;
+// kompresijos politika ir arrest stebėjimas — application context-pack per portus).
+export * from "./worker-prompt-preparation.js";

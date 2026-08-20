@@ -46,3 +46,13 @@ export * from "./persistence/runtime-artifact-store.js";
 export * from "./persistence/task-graph-store.js";
 export * from "./persistence/code-index-store.js";
 export * from "./state/state-history.js";
+// E4 VQ-403 (2/2): context-cache saugykla (RAG-2 ContextCachePort impl su lazy code-index
+// patikra ir talpos ribojimu), attempt rezoliucijos portas + AttemptIdentityPort tiekėjas
+// (pilnas resolveris — loop E5), token-usage.jsonl rašytojas su dual-write attempt kopija,
+// stop-bridge (no-clobber vartai, attempt-first tvarka) ir session evidencijos tiekėjai
+// (ReliabilityPorts sessionWrites/sessionFileKinds).
+export * from "./persistence/context-cache-store.js";
+export * from "./state/attempt-resolution.js";
+export * from "./state/token-usage-log.js";
+export * from "./state/stop-bridge.js";
+export * from "./state/session-activity.js";

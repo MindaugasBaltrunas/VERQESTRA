@@ -10,3 +10,5 @@ export * from "./quality-policy.js";
 export * from "./architecture-policies.js";
 export * from "./task-classification-policy.js";
 export * from "./preflight-limits-policy.js";
+export * from "./security-spec-policies.js";
+export * from "./model-policy.js";

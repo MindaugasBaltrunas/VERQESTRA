@@ -19,3 +19,17 @@ export * from "./git/git-client.js";
 export * from "./git/git-automation.js";
 export * from "./git/stable-ref.js";
 export * from "./git/rollback-scope.js";
+// E4 VQ-402 (2/2): worktrees (etalono lifecycle 695 eil. skaidymas: layout, classifier,
+// owner/karantinas, provision, removal su Windows ilgo kelio fallback'ais, reaper) +
+// branch-integration (vienintelis pirminę šaką stumiantis kelias) + integration-branch
+// (plumbing grandinė su laikinu indeksu, CAS update-ref) + build-impact.
+export * from "./git/integration-branch.js";
+export * from "./git/integration-build-impact.js";
+export * from "./git/worktrees/worktree-layout.js";
+export * from "./git/worktrees/worktree-state-classifier.js";
+export * from "./git/worktrees/worktree-git-util.js";
+export * from "./git/worktrees/worktree-owner.js";
+export * from "./git/worktrees/worktree-provision.js";
+export * from "./git/worktrees/worktree-removal.js";
+export * from "./git/worktrees/worktree-reaper.js";
+export * from "./git/worktrees/worktree-branch-integration.js";

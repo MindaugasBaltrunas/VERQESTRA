@@ -2,9 +2,11 @@
 //
 // Klasterio sudėtis (WBR VQ-304): queue task selection, bucket state-transition helpers,
 // retry-cap + repair-routing decision, human-review escalation decision, dispatch adapter
-// routing, pre-dispatch work-evidence gate, dispatch/verify/repair use case'ai ir
-// auto-OpenSpec archyvavimas. Kanoninis koordinatorius (`run-coordinator.ts`) atkeliauja
-// VQ-304 (2/3) — jo paviršius bus eksportuotas eksplicitiškai čia.
+// routing, pre-dispatch work-evidence gate, dispatch/verify/repair use case'ai,
+// auto-OpenSpec archyvavimas ir kanoninis koordinatorius (`run-coordinator.ts`, skaidytas į
+// model/terminal/cheap-finish/integration modulius pagal 500 eil. gate). Koordinatoriaus
+// vidiniai moduliai (terminal/cheap-finish/integration) per barrel'į NEeksportuojami —
+// composition root'ui (E5) reikia tik `createRunCoordinator` paviršiaus, kaip etalone.
 //
 // Wiring pastaba (perkelta iš etalono): retry-repair ir human-review-escalation yra CLI-free
 // MODELIAI sprendimų, kuriuos kanoninis loop'as daro per savo subprocess vartus — jie
@@ -23,6 +25,11 @@ export * from "./dispatch-task.js";
 export * from "./verify-task.js";
 export * from "./repair-task.js";
 export * from "./openspec-archive.js";
+
+// Kanoninis koordinatorius — eksplicitus paviršius (ports/guards/state jau eksportuoti
+// aukščiau, tad iš `run-coordinator.ts` imamas tik jo paties indėlis).
+export { createRunCoordinator } from "./run-coordinator.js";
+export type { RunCoordinator, RunCoordinatorOptions } from "./run-coordinator-model.js";
 
 // Sankcionuotas interfaces → application → domain tiltas (tas pats šablonas kaip
 // evaluateRepeatedErrorEscalation šiame klasteryje): interfaces sluoksnis kanoninį bucket

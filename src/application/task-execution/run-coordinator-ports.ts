@@ -12,9 +12,13 @@ export type TerminalTaskBucket = Extract<TaskBucket, "done" | "human-review">;
 export type InterruptedTaskBucket = "active" | "delegated" | "error";
 
 /**
- * Kuriuo įrodymu „done" suteiktas be naujo commit'o. Kontrakto savininkas — koordinatorius
- * (`run-coordinator.ts`, VQ-304 2/3); deklaruojama čia, kad `verify-task.ts` ir `skip-dispatch.ts`
- * nepriklausytų nuo dar nemigravusio failo.
+ * Kuriuo įrodymu „done" suteiktas be naujo commit'o. Trys kilmės, viena semantika (nieko naujo
+ * necommit'inta, tad `markStable` nekviečiamas), bet skirtingas pėdsakas loge ir žurnale:
+ *   `marker`        — vykdytojas parašė `ALREADY_IMPLEMENTED`;
+ *   `clean-tree`    — švarus medis + darbo įrodymas po dispatch'o (`verify-task.ts`);
+ *   `skip-dispatch` — darbo įrodymas rastas PRIEŠ dispatch'ą, LLM sesijos apskritai nebuvo.
+ * Kanoninis namas — čia (etalone gyveno run-coordinator.ts; VERQESTRA koordinatorius
+ * re-eksportuoja per savo `export * from ports`).
  */
 export type AlreadyImplementedVia = "marker" | "clean-tree" | "skip-dispatch";
 

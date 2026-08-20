@@ -9,3 +9,6 @@ export * from "./compression-cohorts.js";
 export * from "./attempt-identity-join.js";
 export * from "./tokenizer-unfriendly-signal.js";
 export * from "./post-run-truth-join.js";
+// E5 VQ-501 (4/5-b): token-usage-summary — report komandos santraukos (etalono
+// orchestrator/runtime/token-usage.ts summarize pusė; griežtas JSONL parseris).
+export * from "./token-usage-summary.js";

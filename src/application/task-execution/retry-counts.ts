@@ -6,7 +6,7 @@
 // Sankcionuotas interfaces → application → domain tiltas (tas pats šablonas kaip
 // evaluateRepeatedErrorEscalation retry-repair.ts): retry-guard CLI limito taisyklę ima
 // per šį modulį, ne tiesiogiai iš domain/tasks.
-export { evaluateRetryLimit, normalizeMaxRetryAttempts } from "../../domain/tasks/index.js";
+export { DEFAULT_MAX_RETRY_ATTEMPTS, evaluateRetryLimit, normalizeMaxRetryAttempts } from "../../domain/tasks/index.js";
 
 export type RetryCountUpdate = {
   taskKey: string;

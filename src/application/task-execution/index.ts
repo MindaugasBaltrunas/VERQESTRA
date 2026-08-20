@@ -61,6 +61,24 @@ export {
   retryCountsForTask,
 } from "../../domain/diagnosis/log-digest.js";
 
+// E5 VQ-501 (2/5-c): tie patys sankcionuoti tiltai diagnozės CLI adapteriui — grynos
+// domain/diagnosis dispozicijos ir git changes taisyklės per šį barrel'į.
+export {
+  evaluateDeterministicDone,
+  evaluateLocalDiagnosis,
+  pendingAttemptChangedFiles,
+  resolveDispatchSessionNonce,
+  resolveEffectiveStopStatus,
+  type EffectiveStopStatus,
+  type StopEvidence,
+  type StopEvidenceOrigin,
+} from "../../domain/diagnosis/dispositions.js";
+export { logHasAlreadyImplementedMarker } from "../../domain/diagnosis/stream-log.js";
+export { nonRuntimeDirtyEntriesFromStatus, sessionScopedChangedFiles } from "../../domain/git/changes.js";
+// E5 VQ-501 (2/5-c): session-write nuosavybės taisyklė (etalono hooks/session-staging
+// ownership pusė) — IO adapteriai VQ-502.
+export * from "./session-write-owners.js";
+
 // Pre-dispatch work-evidence vartai (etalono task 1187) — grynoji taisyklė eksportuojama
 // atskirai (per `export *` aukščiau), kad jos deterministiškumą būtų galima tikrinti be viso
 // port'ų rinkinio.

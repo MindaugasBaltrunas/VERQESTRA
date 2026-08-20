@@ -17,3 +17,10 @@ export * from "./claude-preflight/spec-source.js";
 export * from "./claude-preflight/preflight-llm.js";
 export * from "./claude-preflight/preflight-validate.js";
 export * from "./claude-preflight/index.js";
+// E5 VQ-501 (2/5-c): claude-diagnose (etalono 710 eil. skaidymas: ports/evidence/prompt/
+// orkestratorius; dispozicijos — domain/diagnosis per task-execution barrel tiltus,
+// ownership taisyklė — NAUJAS application session-write-owners).
+export * from "./claude-diagnose/diagnose-ports.js";
+export * from "./claude-diagnose/diagnose-evidence.js";
+export * from "./claude-diagnose/diagnose-prompt.js";
+export * from "./claude-diagnose/index.js";

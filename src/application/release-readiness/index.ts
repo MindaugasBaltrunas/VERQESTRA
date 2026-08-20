@@ -22,3 +22,8 @@ export * from "./compression-config-digest.js";
 export * from "./compression-quality-model.js";
 export * from "./compression-quality-evidence.js";
 export * from "./compression-quality-check.js";
+// VQ-305 (3/3-g): converge/readiness/backlog — FinalAuditPorts patikrų tiekėjai
+// (kompozicija adapteriu suploja jų rezultatus į FinalAuditCheck formą).
+export * from "./converge-check.js";
+export * from "./readiness-audit.js";
+export * from "./backlog-audit.js";

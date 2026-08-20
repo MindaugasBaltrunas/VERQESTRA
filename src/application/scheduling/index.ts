@@ -18,3 +18,6 @@ export * from "./worker-pool-admission.js";
 export * from "./worker-pool-plan.js";
 export * from "./slot-refill.js";
 export * from "./worker-integration.js";
+// E4 VQ-402 (1/2): worktree policy + izoliuotos kopijos planas (GitCommandPlan sudaromas
+// čia, vykdo infrastructure/git runGitPlan).
+export * from "./worktree-policy.js";

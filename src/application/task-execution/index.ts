@@ -40,6 +40,8 @@ export * from "./task-graph-import.js";
 export * from "./repair-prompt.js";
 export * from "./task-ledger-rules.js";
 export * from "./task-events-model.js";
+// E4 VQ-402 (1/2): Stop staging'o grynos taisyklės (task 890/1100/0016) — vykdymas E5 hooks.
+export * from "./session-staging.js";
 
 // Sankcionuotas interfaces → application → domain tiltas (tas pats šablonas kaip
 // evaluateRepeatedErrorEscalation šiame klasteryje): interfaces sluoksnis kanoninį bucket

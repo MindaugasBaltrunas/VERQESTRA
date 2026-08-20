@@ -12,3 +12,11 @@ export * from "./dispatch-budget-plan.js";
 // E5 VQ-501 (2/5-e): worker prompt'o paruošimas su canary/arrest apskaita (0025/0008;
 // kompresijos politika ir arrest stebėjimas — application context-pack per portus).
 export * from "./worker-prompt-preparation.js";
+// E5 VQ-501 (2/5-g): dispatch klasterio uždarymas — portų kontraktas (struktūrinės infra
+// view formos + DispatchAttemptPort), invocation/artifacts/prelaunch ir claudeDispatch
+// orkestratorius (etalono seka 1:1; suriša VQ-504 kompozicija).
+export * from "./dispatch-ports.js";
+export * from "./dispatch-invocation.js";
+export * from "./dispatch-artifacts.js";
+export * from "./dispatch-prelaunch.js";
+export * from "./command.js";

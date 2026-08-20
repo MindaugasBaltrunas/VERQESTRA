@@ -22,6 +22,7 @@ export {
   selectCanaryHumanReviewTaskIds,
 } from "../../domain/policies/compression/arrest.js";
 export type { ContextCompressionConfig } from "../../domain/policies/compression/features.js";
+export { isContextCompressionFeatureEnabledForTask } from "../../domain/policies/compression/canary.js";
 import {
   contextCompressionArrestStatePath,
   readContextCompressionArrestState,

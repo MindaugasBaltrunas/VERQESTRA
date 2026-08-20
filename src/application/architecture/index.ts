@@ -11,8 +11,10 @@ export * from "./node-verifier.js";
 // heuristikos per portą), wave-reclaim (895 external/evidence-less atstatymas),
 // task-sync (done taskas → mazgo implemented_files + verify + bounded repair),
 // wave (markAlreadyImplementedNodes + synthesizeReadyArchitectureWave).
-// Governance ir architecture CLI komanda — 3/5-e.
 export * from "./implementation-detector.js";
 export * from "./wave-reclaim.js";
 export * from "./task-sync.js";
 export * from "./wave.js";
+// E5 VQ-501 (3/5-e): governance — konfigo schema/init/check + stack decision persist/load
+// (etalono orchestrator/architecture/architecture-governance.ts; keliai vq/architecture).
+export * from "./governance.js";

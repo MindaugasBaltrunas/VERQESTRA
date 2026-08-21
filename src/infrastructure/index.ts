@@ -58,6 +58,8 @@ export * from "./state/attempt-resolution.js";
 export * from "./state/token-usage-log.js";
 export * from "./state/stop-bridge.js";
 export * from "./state/session-activity.js";
+// E5 VQ-504: task failų perkėlimai po katalogo lock'u (etalono loop/task-state perkėlimų pusė).
+export * from "./state/task-state-store.js";
 // E4 VQ-404 (1/2): domain ExecutionAdapter porto implementacijos + Claude headless
 // klasteris (etalono claude-headless 782 eil. skaidymas: decision/usage/tool-schema/
 // headless; result envelope paieška — domain/diagnosis/stream-log, ClaudeUsage —

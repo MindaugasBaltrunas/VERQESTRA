@@ -74,7 +74,7 @@ export function emptyQueuePorts(deps: EmptyQueueAdapterDeps): EmptyQueuePorts {
         no_evidence: wave.no_evidence,
       };
     },
-    runQualityGates: async () => (await runQualityGates(qualityGatesPorts(runtimeRoot), [], { projectRoot })).exit_code,
+    runQualityGates: async () => (await runQualityGates(qualityGatesPorts(runtimeRoot, projectRoot), [], { projectRoot })).exit_code,
     // Remonto ciklas yra atskiras use case: čia tik jo portų suvedimas.
     dispatchAuditRepair: async (content) => {
       await processFinalAuditRepairTask(finalAuditRepairPorts(deps), content);

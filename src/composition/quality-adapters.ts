@@ -37,6 +37,8 @@ import { runClaudeHeadless } from "../infrastructure/adapters/claude-headless.js
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { resolveExistingDispatchTaskFile } from "../infrastructure/state/dispatch-task-file.js";
 import { runQualityCheck } from "../infrastructure/process/quality-check-runner.js";
+import { createGatesMemoPort } from "../infrastructure/process/gates-memo-store.js";
+import { packageRoot } from "./runtime-context.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
 import { appendLogLine } from "./loop-adapters.js";
 import { codeIntelligenceFs, policyConfigFs } from "./node-adapters.js";
@@ -111,11 +113,11 @@ export function auditDirectorPorts(projectRoot: string, runtimeRoot: string, agR
  * Ta pati komandų politika ir tas pats vykdytojas kaip audito direktoriaus kelyje — vartai,
  * kurie leistų kitokias komandas nei auditas, būtų du skirtingi „praėjo".
  *
- * MEMO SĄMONINGAI NEPADUODAMAS: jo adapteris (git medžio tapatybė per laikiną indeksą + dist
- * turinio hash) dar nemigruotas, o memo be tapatybės būtų arba tylus praleidimas, arba melagingas
- * „hit". Be jo vartai tiesiog visada bėga — konservatyvi pusė.
+ * MEMO paduodamas (63/N): identiško medžio pertikrinimas neduoda informacijos, tad suite
+ * praleidžiamas. Tapatybė apima medį, `dist` turinį IR vartų politiką — neapskaičiuota tapatybė
+ * (`null`) reiškia „nežinome", ir tada suite bėga. Nežinia niekada nevirsta praleidimu.
  */
-export function qualityGatesPorts(runtimeRoot: string): QualityGatesPorts {
+export function qualityGatesPorts(runtimeRoot: string, projectRoot: string = process.cwd()): QualityGatesPorts {
   return {
     loadPolicy: () => loadQualityPolicy(policyConfigFs, runtimeRoot),
     commandContext: (policy) => checkCommandContext(runtimeRoot, policy),
@@ -128,6 +130,8 @@ export function qualityGatesPorts(runtimeRoot: string): QualityGatesPorts {
       const raw = await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "config", "local.env"));
       return raw === undefined ? {} : parseEnvFile(raw);
     },
+    // `dist` imamas iš ŠIO paketo, o ne iš taikinio medžio: vartai vykdo būtent jį.
+    memoPort: createGatesMemoPort({ projectRoot, runtimeRoot, distDir: path.join(packageRoot(), "dist") }),
   };
 }
 

@@ -83,7 +83,7 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
       run: (args) =>
         qualityGatesCommand(
           {
-            ports: qualityGatesPorts(deps.roots.runtimeRoot),
+            ports: qualityGatesPorts(deps.roots.runtimeRoot, deps.roots.projectRoot),
             projectRoot: deps.roots.projectRoot,
             ...(io === undefined ? {} : { io }),
           },

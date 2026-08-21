@@ -12,6 +12,7 @@ import { hookPostBash, hookPostBashSync, hookPostRead } from "../interfaces/hook
 import { hookPostWrite } from "../interfaces/hooks/post-write.js";
 import { renderCliCommandList, type CliCommand } from "../interfaces/cli/registry.js";
 import { auditCommands } from "./cli-commands-audit.js";
+import { integrationsCommands } from "./cli-commands-integrations.js";
 import { opsCommands } from "./cli-commands-ops.js";
 import { specCommands } from "./cli-commands-spec.js";
 import { tasksCommands } from "./cli-commands-tasks.js";
@@ -31,6 +32,7 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
     ...tasksCommands(deps),
     ...auditCommands(deps),
     ...opsCommands(deps),
+    ...integrationsCommands(deps),
     // --- PostToolUse hook'ai (VQ-502) --------------------------------------------------
     // Jie NIEKADA neblokuoja: handler'iai grąžina 0, o dispatch'as tą kodą tik perduoda.
     ...postToolUseCommands(deps),

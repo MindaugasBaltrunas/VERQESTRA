@@ -1,6 +1,8 @@
 // VQ-501 (4/5-a) testai — auditų klasterio CLI handleriai per fake portus: exit
 // kontraktai (converged/ok/complete → 0, likutis → 1, klaida/unknown-arg → 2), etalono
 // console eilutės, readiness writeResult persist, learning record/summary/approve kelias.
+// VQ-501 (4/5-c) papildymas — audit-director: iteracijų ciklas (žalia/raudona/limitas),
+// raporto turinys, agento promptas iš įrašyto raporto ir komandų politikos 126 kelias.
 
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -24,6 +26,13 @@ import { finalAuditCommand, renderFinalAudit } from "../interfaces/cli/audit/fin
 import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.js";
 import { releaseNotesCommand } from "../interfaces/cli/audit/release-notes.js";
 import { learningCommand } from "../interfaces/cli/audit/learning.js";
+import { EMPTY_CHECK_COMMAND_CONTEXT } from "../domain/policies/check-command-allowlist.js";
+import { qualityPolicySchema, type QualityPolicy } from "../application/policy-governance/quality-policy.js";
+import {
+  auditDirectorCommand,
+  auditReportPath,
+  type AuditDirectorPorts,
+} from "../interfaces/cli/audit/audit-director.js";
 
 const ROOT = path.resolve("/repo");
 const norm = (p: string): string => p.replace(/\\/g, "/");
@@ -307,4 +316,132 @@ test("learningCommand: query filtruoja pagal task-id, klaidų keliai → 2", asy
   const { io: ioApp, err: errApp } = captureIo();
   assert.equal(await learningCommand({ ...deps, io: ioApp }, ["approve"]), 2);
   assert.match(errApp[0] ?? "", /^Usage: ag learning approve /);
+});
+
+// ---------------------------------------------------------------------------
+// audit-director (VQ-501 4/5-c)
+// ---------------------------------------------------------------------------
+
+const AUDIT_POLICY = qualityPolicySchema.parse({
+  task: { checks: ["pnpm typecheck", { cmd: "pnpm", args: ["test"] }] },
+  feature: { checks: [] },
+  milestone: { checks: [] },
+});
+
+type AuditWorld = {
+  ports: AuditDirectorPorts;
+  files: Map<string, string>;
+  logs: string[];
+  prompts: { prompt: string; model: string }[];
+};
+
+function auditWorld(options: {
+  codes: number[][];
+  auditExit?: number;
+  policy?: QualityPolicy;
+}): AuditWorld {
+  const files = new Map<string, string>();
+  const logs: string[] = [];
+  const prompts: { prompt: string; model: string }[] = [];
+  let iteration = 0;
+
+  const ports: AuditDirectorPorts = {
+    ensureDirs: async () => {},
+    loadPolicy: async () => options.policy ?? AUDIT_POLICY,
+    commandContext: async () => EMPTY_CHECK_COMMAND_CONTEXT,
+    runner: async (check) => {
+      const round = options.codes[Math.min(iteration, options.codes.length - 1)] ?? [];
+      const index = check.display === "pnpm typecheck" ? 0 : 1;
+      return { code: round[index] ?? 0, stdout: `${check.display} išvestis`, stderr: "" };
+    },
+    writeTextFile: async (p, content) => {
+      files.set(norm(p), content);
+    },
+    readTextFileIfExists: async (p) => files.get(norm(p)),
+    resolveModel: async (tier) => `claude-${tier}-5`,
+    runAudit: async (prompt, model) => {
+      prompts.push({ prompt, model });
+      iteration += 1;
+      return options.auditExit ?? 0;
+    },
+    agLog: async (line) => {
+      logs.push(line);
+    },
+    now: () => new Date("2026-08-21T00:00:00.000Z"),
+  };
+
+  return { ports, files, logs, prompts };
+}
+
+test("auditDirectorCommand: žalios patikros pirmoje iteracijoje — 0, raportas įrašytas, agentas nekviestas", async () => {
+  const world = auditWorld({ codes: [[0, 0]] });
+  const { io, out } = captureIo();
+  const exit = await auditDirectorCommand({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io });
+
+  assert.equal(exit, 0);
+  assert.equal(world.prompts.length, 0);
+  assert.ok(out.includes("AUDIT ✅ — visos patikros praeina"));
+  assert.ok(world.logs.includes("AUDIT PASSED"));
+
+  const report = world.files.get(norm(auditReportPath(RUNTIME_ROOT))) ?? "";
+  assert.ok(report.startsWith("# Audit Report — iteracija 1"));
+  assert.ok(report.includes("- praeina: task-1, task-2"));
+  assert.ok(report.includes("- nepraėjo: nė vienas"));
+});
+
+test("auditDirectorCommand: raudona pirma iteracija, žalia antra — agentas kviestas su raporto tekstu", async () => {
+  const world = auditWorld({ codes: [[1, 0], [0, 0]] });
+  const { io, out } = captureIo();
+  const exit = await auditDirectorCommand({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io });
+
+  assert.equal(exit, 0);
+  assert.equal(world.prompts.length, 1);
+  assert.equal(world.prompts[0]?.model, "claude-sonnet-5");
+  assert.ok(world.prompts[0]?.prompt.startsWith("# Audit Director — iteracija 1"));
+  // Agentas gauna TĄ raportą, kuris ką tik įrašytas — ne tuščią promptą.
+  assert.ok(world.prompts[0]?.prompt.includes("❌ NEPRAĖJO (exit 1)"));
+  assert.ok(out.some((line) => line.startsWith("Nepraėjo: task-1 — raportas: ")));
+});
+
+test("auditDirectorCommand: nuolat raudona — iteracijų limitas, exit 1", async () => {
+  const world = auditWorld({ codes: [[1, 1]] });
+  const { io, out } = captureIo();
+  const exit = await auditDirectorCommand({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io });
+
+  assert.equal(exit, 1);
+  assert.equal(world.prompts.length, 2);
+  assert.ok(out.includes("AUDIT ❌ — iteracijų limitas (3) pasiektas"));
+  assert.ok(world.logs.includes("AUDIT FAILED: max iterations reached"));
+});
+
+test("auditDirectorCommand: agento paleidimo klaida propaguojama, o politikos atmesta patikra — 126 raporte", async () => {
+  const launchFailure = auditWorld({ codes: [[1, 1]], auditExit: 127 });
+  const { io } = captureIo();
+  const exit = await auditDirectorCommand({
+    ports: launchFailure.ports,
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME_ROOT,
+    io,
+  });
+  assert.equal(exit, 127);
+  assert.equal(launchFailure.prompts.length, 1);
+
+  // Ta pati komandų politika kaip quality-gates: `rm -rf` neprasprūsta antru vykdymo keliu.
+  const blockedPolicy = qualityPolicySchema.parse({
+    task: { checks: ["rm -rf dist"] },
+    feature: { checks: [] },
+    milestone: { checks: [] },
+  });
+  const blocked = auditWorld({ codes: [[0]], policy: blockedPolicy });
+  const { io: blockedIo } = captureIo();
+  const blockedExit = await auditDirectorCommand({
+    ports: blocked.ports,
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME_ROOT,
+    io: blockedIo,
+  });
+  assert.equal(blockedExit, 1);
+  const report = blocked.files.get(norm(auditReportPath(RUNTIME_ROOT))) ?? "";
+  assert.ok(report.includes("exit 126"));
+  assert.ok(report.includes("Audit check blocked by shell policy"));
 });

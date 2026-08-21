@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { readTailLines } from "../infrastructure/fs/tail-lines.js";
-import { readWaveSnapshot, waveSnapshotExists } from "../infrastructure/state/wave-snapshot-store.js";
+import { readWaveSnapshot, waveSnapshotExists, writeWaveSnapshot } from "../infrastructure/state/wave-snapshot-store.js";
 
 async function sandbox(): Promise<{ dir: string; cleanup(): Promise<void> }> {
   const dir = await mkdtemp(path.join(tmpdir(), "vq-tail-"));
@@ -99,6 +99,39 @@ test("wave snapshot: nesamas, sugadintas ir galiojantis skiriami", async () => {
     await writeFile(path.join(stateDir, "wave-snapshot.json"), '{"refill":{"decisions":[]}}', "utf8");
     const snapshot = await readWaveSnapshot<{ refill?: { decisions?: unknown[] } }>(stateDir);
     assert.deepEqual(snapshot?.refill?.decisions, []);
+  } finally {
+    await world.cleanup();
+  }
+});
+
+test("wave snapshot: rašymas ATOMINIS ir validuojamas PRIEŠ rašymą", async () => {
+  const world = await sandbox();
+  try {
+    const stateDir = path.join(world.dir, "state");
+
+    // Negaliojantis snapshot'as (paralelizmas virš kietos ribos) į diską NEPATENKA: tai
+    // programavimo klaida planuotojuje, ir ją reikia pamatyti iš karto.
+    await assert.rejects(() =>
+      writeWaveSnapshot(stateDir, {
+        run_id: "r1",
+        wave_id: "w1",
+        graph_hash: "abc",
+        max_workers: 5,
+        created_at: "t",
+        updated_at: "t",
+      } as never),
+    );
+    assert.equal(await waveSnapshotExists(stateDir), false, "atmestas įrašas nepalieka pėdsako");
+
+    const written = await writeWaveSnapshot(stateDir, {
+      run_id: "r1",
+      wave_id: "w1",
+      graph_hash: "abc",
+      created_at: "t",
+      updated_at: "t",
+    } as never);
+    assert.equal(written.max_workers, 1);
+    assert.deepEqual((await readWaveSnapshot<{ run_id: string }>(stateDir))?.run_id, "r1");
   } finally {
     await world.cleanup();
   }

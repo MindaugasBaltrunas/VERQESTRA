@@ -30,3 +30,7 @@ export * from "./readme-guard.js";
 export * from "./foreign-lease-scope.js";
 // VQ-502 (4/6-a): produkto formos guard'ų eilučių taisyklės (backend/frontend/mobile).
 export * from "./scope-guard-rules.js";
+// VQ-502 (4/6-b): package/lockfile ir DB migracijų guard'ų GRYNI sprendimai (etalone jie
+// buvo įausti į hook'ų kūnus kartu su IO).
+export * from "./package-guard.js";
+export * from "./migration-guard.js";

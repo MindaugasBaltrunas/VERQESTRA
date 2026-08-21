@@ -15,3 +15,6 @@ export * from "./file-line-guard.js";
 // fan-out, kuris NIEKADA neblokuoja — blokavimas paliktas Stop hook'ui.
 export * from "./scope-guards.js";
 export * from "./post-write-guards.js";
+// E5 VQ-502 (4/6-b): package/lockfile ir migracijų guard'ų adapteriai virš grynų sprendimų.
+export * from "./package-guard.js";
+export * from "./migration-guard.js";

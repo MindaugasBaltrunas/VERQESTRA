@@ -20,6 +20,10 @@ import { agentCommand } from "../interfaces/cli/admin/agent.js";
 import { policyCommand } from "../interfaces/cli/admin/policy.js";
 import { statusCommand } from "../interfaces/cli/admin/status.js";
 import { convergeCommand } from "../interfaces/cli/audit/converge.js";
+import { installCommand } from "../interfaces/cli/bootstrap/install.js";
+import { projectModeCommand } from "../interfaces/cli/bootstrap/project-mode.js";
+import { restoreStableCommand } from "../interfaces/cli/bootstrap/restore-stable.js";
+import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
 import { projectStatusCommand } from "../interfaces/cli/reports/project-status.js";
 import { reportCommand } from "../interfaces/cli/reports/report.js";
 import { printTaskDependencies } from "../interfaces/cli/task-queue/task-dependencies.js";
@@ -62,9 +66,10 @@ import {
   securityVerifyPorts,
   writeReadinessResult,
 } from "./readiness-adapters.js";
+import { installPorts, projectModePorts, restoreStablePorts, smokePorts } from "./bootstrap-adapters.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { postHookPorts } from "./hook-adapters.js";
-import type { RuntimeRoots } from "./runtime-context.js";
+import { cliEntryPath, templatesRoot, type RuntimeRoots } from "./runtime-context.js";
 
 const nodeListFiles = (absoluteDir: string): Promise<string[]> => nodeFsAdapter.listFiles(absoluteDir);
 
@@ -326,6 +331,59 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           ports: blockedTaskRoutingPorts(deps.roots.projectRoot, deps.roots.agRoot, deps.roots.runtimeRoot),
           ...(io === undefined ? {} : { io }),
         }),
+    },
+    {
+      name: "project-mode",
+      usage: "[--json]",
+      description: "Nustato projekto režimą (naujas, tęsiamas, nutrūkęs)",
+      run: (args) =>
+        projectModeCommand(
+          {
+            ports: projectModePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "install",
+      usage: "[--dry-run]",
+      description: "Įdiegia šablonus į projektą (esamų failų neperrašo)",
+      run: (args) =>
+        installCommand(
+          { ports: installPorts, templatesRoot: templatesRoot(), ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "smoke",
+      usage: "",
+      description: "Aplinkos ir eilės smoke patikra (nieko nekeičia)",
+      run: () =>
+        smokeCommand({
+          ports: smokePorts(deps.roots.agRoot, deps.roots.runtimeRoot),
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          cliEntry: cliEntryPath(),
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "restore-stable",
+      usage: "[--execute]",
+      description: "Atkuria medį iš stable-ref (be --execute tik parodo planą)",
+      run: (args) =>
+        restoreStableCommand(
+          {
+            ports: restoreStablePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
     },
     // --- PostToolUse hook'ai (VQ-502) --------------------------------------------------
     // Jie NIEKADA neblokuoja: handler'iai grąžina 0, o dispatch'as tą kodą tik perduoda.

@@ -9,6 +9,7 @@
 // aplinka: hook'as vykdomas iš nenuspėjamo katalogo, tad `cwd` ten nėra įrodymas.
 
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const PROJECT_DIR_ENV = "CLAUDE_PROJECT_DIR";
 
@@ -40,4 +41,25 @@ export function resolveRuntimeRoots(input: ResolveRootsInput = {}): RuntimeRoots
     runtimeRoot: path.join(projectRoot, RUNTIME_DIR),
     agRoot: path.join(projectRoot, TASKS_DIR),
   };
+}
+
+/**
+ * Šio DIEGIMO šaknis (paketo katalogas), o ne vartotojo projekto šaknis.
+ *
+ * Skirtumas esminis: `install` kopijuoja šablonus IŠ paketo Į svetimą projektą, tad šablonų
+ * kelio negalima vesti iš `projectRoot` — kitaip diegimas ieškotų savo šablonų taikinyje.
+ * Vedama iš šio modulio vietos: `<paketas>/dist/composition/runtime-context.js` → du lygiai aukštyn.
+ */
+export function packageRoot(moduleUrl: string = import.meta.url): string {
+  return path.resolve(path.dirname(fileURLToPath(moduleUrl)), "..", "..");
+}
+
+/** Šablonų medis, kurį diegia `install`. */
+export function templatesRoot(moduleUrl?: string): string {
+  return path.join(moduleUrl === undefined ? packageRoot() : packageRoot(moduleUrl), "templates");
+}
+
+/** Šio diegimo CLI įėjimas — `smoke` tikrina ir jo buvimą. */
+export function cliEntryPath(moduleUrl?: string): string {
+  return path.join(moduleUrl === undefined ? packageRoot() : packageRoot(moduleUrl), "dist", "cli.js");
 }

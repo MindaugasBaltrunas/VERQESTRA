@@ -167,6 +167,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "claude-dispatch",
       "claude-preflight",
       "claude-diagnose",
+      "loop",
       "loop-guard",
       "dispatch",
       "codex-dispatch",

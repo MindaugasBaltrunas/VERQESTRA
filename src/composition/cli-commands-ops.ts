@@ -48,6 +48,16 @@ import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-reso
 import { packageRoot } from "./runtime-context.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { tryParseJson } from "../shared/json.js";
+import { runLoopCommand } from "./loop-command.js";
+import { emptyQueuePorts, finalAuditRepairPorts } from "./loop-empty-queue-adapters.js";
+import { processFinalAuditRepairTask } from "../application/quality-gates/final-audit-repair.js";
+import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
+import { taskRunPorts } from "./coordinator-execution-adapters.js";
+import { cliChildRunner } from "./coordinator-adapters.js";
+import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
+import { consumeLoopStopRequest } from "../interfaces/http/loop-lifecycle.js";
+import { appendLogLine } from "./loop-adapters.js";
+import { processLifecyclePorts } from "./ui-lifecycle-adapters.js";
 import path from "node:path";
 import { cliEntryPath, templatesRoot } from "./runtime-context.js";
 
@@ -203,6 +213,57 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             resolution: noRuntimeAttemptResolution,
           }),
         ),
+    },
+    {
+      name: "loop",
+      usage: "",
+      description: "Eilės vykdymo ciklas: bangos, slot'ai ir integracija iki tuščios eilės",
+      run: async () => {
+        await ensureRuntimeDirs(deps.roots.agRoot, deps.roots.runtimeRoot);
+        const emptyQueueDeps = {
+          roots: deps.roots,
+          out: (message: string) => (io ?? consoleCliIo).out(message),
+          // Vaiko žingsniai (`claude-dispatch`, `quality-gates`) eina per TĄ PAČIĄ CLI, kurią
+          // suka loop'as — kitaip remontas dirbtų su kito build'o semantika.
+          runCommand: (args: string[]) => cliChildRunner(deps.roots.projectRoot).runCli(args),
+          taskStore: createTaskStateStore({ runtimeRoot: deps.roots.runtimeRoot, agRoot: deps.roots.agRoot }),
+        };
+        return await runLoopCommand({
+          roots: deps.roots,
+          log: (message: string) => appendLogLine(deps.roots.runtimeRoot, "orchestrator.log", message),
+          out: (message) => (io ?? consoleCliIo).out(message),
+          emptyQueue: emptyQueuePorts(emptyQueueDeps),
+          preconditions: loopPreconditionPorts(),
+          // Task'ų enumeracija eina per tą patį FS adapterį kaip visur kitur: antra kopija
+          // duotų kitą rūšiavimą, o eilės tvarka yra kontraktas.
+          taskSelection: {
+            listMarkdownFilePaths: async (dir: string) => {
+              const names = (await nodeFsAdapter.listDirectoryIfExists(dir)) ?? [];
+              return names.filter((name) => name.endsWith(".md")).map((name) => path.join(dir, name)).sort();
+            },
+          },
+          consumeStopRequest: () =>
+            consumeLoopStopRequest({
+              ports: processLifecyclePorts({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
+              runtimeRoot: deps.roots.runtimeRoot,
+            }),
+          // Nutrūkęs task'as tęsiamas TUO PAČIU koordinatoriumi kaip naujas: „tęsimas" nėra
+          // atskira semantika, o tik kitas įėjimo taškas į tą patį ciklą.
+          resumeTask: (task) =>
+            createRunCoordinator(
+              taskRunPorts({
+                projectRoot: deps.roots.projectRoot,
+                runtimeRoot: deps.roots.runtimeRoot,
+                agRoot: deps.roots.agRoot,
+                resolution: noRuntimeAttemptResolution,
+                ...cliChildRunner(deps.roots.projectRoot),
+              }),
+            ).start(path.resolve(deps.roots.projectRoot, task.file)),
+          processAuditRepairTask: async (content) => {
+            await processFinalAuditRepairTask(finalAuditRepairPorts(emptyQueueDeps), content);
+          },
+        });
+      },
     },
     {
       name: "loop-guard",

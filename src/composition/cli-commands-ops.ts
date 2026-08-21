@@ -11,6 +11,8 @@ import { rollbackStableCommand } from "../interfaces/cli/bootstrap/rollback-stab
 import { projectModeCommand } from "../interfaces/cli/bootstrap/project-mode.js";
 import { restoreStableCommand } from "../interfaces/cli/bootstrap/restore-stable.js";
 import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
+import { printCodexDispatch } from "../interfaces/cli/dispatch/codex-dispatch.js";
+import { printDispatch } from "../interfaces/cli/dispatch/dispatch.js";
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
@@ -22,7 +24,10 @@ import {
   rollbackStablePorts,
   smokePorts,
 } from "./bootstrap-adapters.js";
-import { onStopBridgeAdapters, retryGuardAdapters } from "./loop-adapters.js";
+import { createAdapterWithOptions, dispatchAdapters, onStopBridgeAdapters, retryGuardAdapters } from "./loop-adapters.js";
+import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { tryParseJson } from "../shared/json.js";
+import path from "node:path";
 import { cliEntryPath, templatesRoot } from "./runtime-context.js";
 
 export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
@@ -110,6 +115,38 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "dispatch",
+      usage: "<task-file> [--adapter <kind>]",
+      description: "Paleidžia vykdymo adapterį PO preflight, biudžeto ir context-pack vartų",
+      run: (args) =>
+        printDispatch(args, {
+          ...dispatchAdapters(deps.roots.projectRoot, deps.roots.runtimeRoot),
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "codex-dispatch",
+      usage: "<task-id> [--adapter codex]",
+      description: "Codex adapterio kelias (be --adapter codex — dry-run)",
+      run: (args) =>
+        printCodexDispatch(args, {
+          createAdapter: createAdapterWithOptions,
+          readContextPack: async (absolutePath) => {
+            const raw = await nodeFsAdapter.readTextFile(absolutePath);
+            const parsed = tryParseJson<Record<string, unknown>>(raw);
+            // Sugadintas context-pack META: tuščias objektas atrodytų kaip teisėtas paketas
+            // be leistinų kelių, ir adapteris dirbtų be jokio scope.
+            if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
+              throw new Error(`context pack is invalid: ${absolutePath}`);
+            }
+            return parsed.value;
+          },
+          resolvePath: (candidate) => path.resolve(candidate),
+          cwd: () => deps.roots.projectRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
     },
     {
       name: "retry-guard",

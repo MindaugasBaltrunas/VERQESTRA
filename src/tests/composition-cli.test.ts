@@ -160,6 +160,8 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "smoke",
       "restore-stable",
       "rollback-stable",
+      "dispatch",
+      "codex-dispatch",
       "retry-guard",
       "on-stop-bridge",
       "code-index",

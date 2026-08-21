@@ -7,11 +7,19 @@
 
 import path from "node:path";
 import type { RetryCountsStorePort, SupervisorRetryDecision } from "../application/task-execution/retry-counts.js";
+import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
+import type { AgentPolicy } from "../domain/policies/agent-selection.js";
+import type { ExecutionAdapter, ExecutionAdapterKind } from "../domain/agents/execution-port.js";
+import { ClaudeAdapter } from "../infrastructure/adapters/claude-adapter.js";
+import { CodexAdapter } from "../infrastructure/adapters/codex-adapter.js";
+import { DryRunAdapter } from "../infrastructure/adapters/dry-run-adapter.js";
+import { runExecutionDispatch, type ExecutionDispatchResult } from "../infrastructure/adapters/execution-dispatch.js";
 import { parseEnvFile } from "../interfaces/http/ui-port-store.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { stopBridgeForProject } from "../infrastructure/state/stop-bridge.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { toPrettyJson, tryParseJson } from "../shared/json.js";
+import { policyConfigFs } from "./node-adapters.js";
 
 /** `vq/state/current-task-id` — vienintelė vieta, kur loop'as žymi einamąjį task'ą. */
 export function currentTaskIdPath(runtimeRoot: string): string {
@@ -124,5 +132,42 @@ export function onStopBridgeAdapters(
         reason,
         taskId,
       }),
+  };
+}
+
+/**
+ * Vykdymo adapterio fabrikas su `enabled` vartais.
+ *
+ * `enabled` galioja TIK `codex` rūšiai ir tik tada, kai kvietėjas jį aiškiai perduoda: codex
+ * adapteris be jo yra inertiškas ir grąžina „not implemented", o ne bando kviesti išorinį
+ * įrankį. Tai gyvas saugiklis, ne formalumas — `verqestra dispatch --adapter codex` be
+ * eksplicitinio kelio niekada nepaleidžia realaus proceso.
+ */
+export function createAdapterWithOptions(kind: ExecutionAdapterKind, options?: { enabled?: boolean }): ExecutionAdapter {
+  if (kind === "dry-run") return new DryRunAdapter();
+  if (kind === "claude") return new ClaudeAdapter();
+  if (kind === "codex") return new CodexAdapter({ enabled: options?.enabled === true });
+  const exhaustive: never = kind;
+  throw new Error(`Unknown execution adapter: ${String(exhaustive)}`);
+}
+
+/** `dispatch` portai: task tekstas, agentų politika, adapterio fabrikas ir vartais saugomas vykdymas. */
+export function dispatchAdapters(
+  projectRoot: string,
+  runtimeRoot: string,
+): {
+  readTaskText(taskFile: string): Promise<string>;
+  loadAgentPolicy(): Promise<AgentPolicy>;
+  createAdapter(kind: ExecutionAdapterKind): ExecutionAdapter;
+  runDispatch(taskFile: string, adapter: ExecutionAdapter): Promise<ExecutionDispatchResult>;
+} {
+  return {
+    // Neperskaitomas task'as duoda TUŠČIĄ tekstą (etalono semantika): maršrutizavimas tada
+    // krenta į politikos default'ą, o ne griūva — pats dispatch'as vis tiek tikrina vartus.
+    readTaskText: async (taskFile) =>
+      (await nodeFsAdapter.readTextFileIfExists(path.isAbsolute(taskFile) ? taskFile : path.join(projectRoot, taskFile))) ?? "",
+    loadAgentPolicy: () => loadAgentPolicy(policyConfigFs, runtimeRoot),
+    createAdapter: (kind) => createAdapterWithOptions(kind),
+    runDispatch: (taskFile, adapter) => runExecutionDispatch({ taskFile, projectRoot, runtimeRoot, adapter }),
   };
 }

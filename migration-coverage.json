@@ -144,7 +144,7 @@
       "target": "application + composition",
       "wave": "E3/E5",
       "status": "pending",
-      "note": "VQ-504 38/N: NAUJAS application/scheduling/wave-snapshot (schema + buildWaveSnapshot) ir atominis rašytojas infrastructure/state/wave-snapshot-store. Planas atsako „kas gali būti vykdoma\", snapshot'as — „kas iš tikrųjų vyko\"; rūšiavimas pagal file yra kontraktas (nestabili tvarka UI srautui atrodytų kaip pokytis). Rašytojas validuoja prieš rašymą, atmestas įrašas nepalieka pėdsako."
+      "note": "VQ-504 38/N: NAUJAS application/scheduling/wave-snapshot (schema + buildWaveSnapshot) ir atominis rašytojas infrastructure/state/wave-snapshot-store. Planas atsako „kas gali būti vykdoma\", snapshot'as — „kas iš tikrųjų vyko\"; rūšiavimas pagal file yra kontraktas (nestabili tvarka UI srautui atrodytų kaip pokytis). Rašytojas validuoja prieš rašymą, atmestas įrašas nepalieka pėdsako. 44/N: wave-refill -- atsilaisvinusio slot'o papildymas (hold pirmas ir be planavimo; kandidatai perskaiciuojami is naujo; vienkartinis lease isdavimas su atlaisvinimu)."
     },
     {
       "module": "orchestrator/tasks",

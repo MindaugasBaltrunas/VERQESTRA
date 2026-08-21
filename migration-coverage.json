@@ -198,7 +198,8 @@
       "target": "application (+domain)",
       "wave": "E3",
       "status": "migrated",
-      "evidence": "deterministic-diagnose/preflight grynosios pusės — domain/diagnosis (VQ-204) + quality-gates klasteris (VQ-305 2/3); human-review-gates/retry-policy/review-routing taisyklės — domain (VQ-203/204); final-audit(+repair kompozicija — E5 likutis per FinalAuditPorts) — release-readiness (3/3-b). VQ-305 (3/3-g) uždarė likutį: converge-check (ConvergePorts; DUP-02 taskSlug, DUP-10 parseSpecTaskLines; status failai vq/project, bucket'ai AG/tasks), readiness-audit (reikalavimų sąrašai PRIVALOMA įvestis — etalono sąrašai aprašė AG_loop layout'ą; parseReadmeMainCommands/parseRegisteredCommands gryni; persist — kvietėjo darbas per readinessAuditResultPath) ir backlog-audit (BacklogAuditPorts; split-child ir done/ archyvo exempt'ai 1:1, kategorijos parametrizuojamos)"
+      "evidence": "deterministic-diagnose/preflight grynosios pusės — domain/diagnosis (VQ-204) + quality-gates klasteris (VQ-305 2/3); human-review-gates/retry-policy/review-routing taisyklės — domain (VQ-203/204); final-audit(+repair kompozicija — E5 likutis per FinalAuditPorts) — release-readiness (3/3-b). VQ-305 (3/3-g) uždarė likutį: converge-check (ConvergePorts; DUP-02 taskSlug, DUP-10 parseSpecTaskLines; status failai vq/project, bucket'ai AG/tasks), readiness-audit (reikalavimų sąrašai PRIVALOMA įvestis — etalono sąrašai aprašė AG_loop layout'ą; parseReadmeMainCommands/parseRegisteredCommands gryni; persist — kvietėjo darbas per readinessAuditResultPath) ir backlog-audit (BacklogAuditPorts; split-child ir done/ archyvo exempt'ai 1:1, kategorijos parametrizuojamos)",
+      "note": "56/N: application/quality-gates/final-audit-repair -- audito remonto uzduotis (pakartotinis isdavimas neleidziamas; infrastrukturos kodas META, ne virsta human-review; done tik po realiai praejusiu vartu)."
     },
     {
       "module": "orchestrator/learning",

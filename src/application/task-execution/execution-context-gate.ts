@@ -5,6 +5,9 @@
 // Pristatymo (delivery) pusė su CLI argumentais — infrastructure/adapters.
 
 import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
+import { contextPackSchema, TRUST_BOUNDARY_RULE } from "../context-pack/context-pack-schema.js";
+import { sourceSliceOrigins } from "../context-pack/source-slice-freshness.js";
+import { tryParseJson } from "../../shared/json.js";
 import {
   EXECUTION_CONTEXT_FILENAME,
   contextArtifactSha256,
@@ -101,6 +104,17 @@ export type ExecutionContextGateInput = {
    * „sukčiaujama": skip, ne refuse. Non-repair dispatch'ui laukas sprendimo nekeičia.
    */
   isRepair?: boolean;
+  /**
+   * Keliai, kurių SRC pjūviai pack'e nebeatitinka darbinio medžio (žr.
+   * `context-pack/source-slice-freshness`), ARBA `"unchecked"`. Skaičiuoja kvietėjas, nes tik
+   * jis turi IO; vartas lieka grynas ir sprendžia tik politiką.
+   *
+   * Laukas PRIVALOMAS ir sąjunga su `"unchecked"` yra sąmoninga. Anksčiau jis buvo optional, o
+   * varte `?? []` paversdavo „nepatikrinta" į „tuščias sąrašas" — t. y. praktiškai į „šviežia",
+   * nors komentaras teigė priešingai. Tipas dabar verčia KIEKVIENĄ kvietėją pasakyti, ką jis
+   * žino; nutylėti nebeįmanoma.
+   */
+  staleSourceSlices: readonly string[] | "unchecked";
 };
 
 function validateExecutionContext(input: ExecutionContextGateInput, artifact: string): string | undefined {
@@ -127,7 +141,45 @@ function validateExecutionContext(input: ExecutionContextGateInput, artifact: st
       return `${EXECUTION_CONTEXT_FILENAME} context-pack fingerprint mismatch: context=${metadata.contextPackSha256} pack=${packSha}`;
     }
   }
+  // Artefaktų darna dar nereiškia šviežumo: task tekstas ir pack'as gali sutapti baitas į baitą,
+  // o SRC pjūvio šaltinis tuo metu jau būti perrašytas ankstesnio bandymo. Tai ta pati
+  // „pasenusio konteksto" klasė kaip fingerprint neatitikimas, tad ir politika ta pati.
+  const stale = input.staleSourceSlices;
+  if (stale !== "unchecked" && stale.length > 0) {
+    return `${EXECUTION_CONTEXT_FILENAME} embeds source slices that no longer match the working tree: ${stale.join(", ")}`;
+  }
+
+  // NEPATIKRINTA + pack'e REALIAI yra SRC snapshot'ų = tas pats kaip pasenę.
+  //
+  // Anksčiau čia rėmiausi tuo, kad `symbol_slices` numatytai išjungtas. Tai einamosios
+  // KONFIGŪRACIJOS faktas, ne savybė: feature'as jungiamas ir turi canary režimą, tad tokia
+  // „garantija" galioja tik iki pirmo konfigo pakeitimo. Todėl klausiama ne apie feature'ą, o
+  // apie PATĮ pack'ą — jis čia jau yra, ir patikra gryna.
+  //
+  // Kai SRC pjūvių nėra, `"unchecked"` nieko nereiškia ir praleidžiama: tikrinti nėra ko.
+  if (stale === "unchecked" && input.contextPackText !== undefined && packMayCarrySourceSlices(input.contextPackText)) {
+    return `${EXECUTION_CONTEXT_FILENAME} embeds source slices, but this dispatch path cannot verify them against the working tree`;
+  }
   return undefined;
+}
+
+/**
+ * Ar pack'e yra bent vienas simbolis su `source` snapshot'u.
+ *
+ * Neparsinamas pack'as grąžina `true` — fail-closed: nežinodami, ar pjūvių yra, negalime
+ * apsimesti, kad jų nėra. (Iki čia jis jau praėjo fingerprint patikrą, tad tai reiškia
+ * sugadintą, o ne svetimą artefaktą.)
+ */
+function packMayCarrySourceSlices(contextPackText: string): boolean {
+  const parsed = tryParseJson<unknown>(contextPackText);
+  if (!parsed.ok) {
+    return true;
+  }
+  const pack = contextPackSchema.safeParse(parsed.value);
+  if (!pack.success) {
+    return true;
+  }
+  return sourceSliceOrigins(pack.data).length > 0;
 }
 
 export function evaluateExecutionContextGate(input: ExecutionContextGateInput): ExecutionContextGate {
@@ -220,7 +272,22 @@ export function buildWorkerPrompt(parts: {
   if (!context) {
     return body;
   }
-  return `${body.replace(/\s+$/, "")}\n\n---\n\n${WORKER_PROMPT_CONTEXT_HEADING}\n\n${context}\n`;
+  // Riba skelbiama PRIEŠ pridedamą kontekstą ir po task'o teksto — būtent toje siūlėje, kur
+  // baigiasi tai, ką parašė orkestratorius, ir prasideda tai, kas paimta iš failų. Taisyklė
+  // kartojama, nors ji yra ir pačiame `execution-context.md`: prompt'as yra vienintelis
+  // paviršius, kurį modelis tikrai mato, o dubliavimas čia yra apsauga, ne triukšmas.
+  return [
+    body.replace(/\s+$/, ""),
+    "",
+    "---",
+    "",
+    TRUST_BOUNDARY_RULE,
+    "",
+    WORKER_PROMPT_CONTEXT_HEADING,
+    "",
+    context,
+    "",
+  ].join("\n");
 }
 
 /**

@@ -37,6 +37,7 @@ function captureIo(): { io: CliIo; out: string[]; err: string[] } {
 function makeCodeFs(files: Map<string, string>): CodeIntelligenceFileSystemPort {
   return {
     listDirectory: async () => [],
+    statKind: async (p) => (files.has(norm(p)) ? "file" : "absent"),
     readTextFile: async (p) => {
       const text = files.get(norm(p));
       if (text === undefined) throw new Error(`ENOENT: ${p}`);

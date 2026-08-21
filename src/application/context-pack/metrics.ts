@@ -21,6 +21,21 @@ export type ContextSizeMetricsInput = {
   headingMissCount?: number;
   // Total items dropped by the unified priority-aware context budgeter (task 921).
   droppedItemCount?: number;
+  /**
+   * Spec ref'ai, prarasti PRIEŠ tą budgeter'į: neišspręsti (nerasta, už projekto ribų,
+   * neperskaitoma, kandidatų lubos) plius numesti fragmentų limito, dublikato ar simbolių
+   * biudžeto. Atskiras skaičius nuo `droppedItemCount` SĄMONINGAI: tai dvi skirtingos stadijos,
+   * ir sulietas skaičius atimtų vienintelį dalyką, dėl kurio metrika naudinga — priskyrimą.
+   * Apkarpyti fragmentai čia NESKAIČIUOJAMI: jie pack'e YRA (žr. `spec_fragment_truncated`).
+   */
+  specDroppedCount?: number;
+  /**
+   * Simboliai, VISIŠKAI numesti code-context perpildymo kopėčių (task 0006), kai pack'as
+   * netilpo net po visų droppable šaltinių. Pakopos nuleidimas (SRC → SIG → REF) čia
+   * NESKAIČIUOJAMAS: simbolis lieka, tik su mažiau detalių. Iki šiol tai buvo matoma tik
+   * `reduction.note` eilutėje pack'o pastabose — žmogui skirtame tekste, ne metrikoje.
+   */
+  codeContextDroppedCount?: number;
   // True when the code index was stale/missing and was deterministically rebuilt before this
   // pack's code_context was gathered — "degraded mode must be visible" (task 975).
   codeContextRebuilt?: boolean;
@@ -158,6 +173,8 @@ export type ContextSizeMetricsRecord = {
   code_context_item_count: number;
   heading_miss_count: number;
   dropped_item_count: number;
+  spec_dropped_count: number;
+  code_context_dropped_count: number;
   code_context_rebuilt: boolean;
   cache_status: ContextCacheStatus;
   selected_chars: number;
@@ -182,6 +199,8 @@ export function buildContextSizeMetrics(input: ContextSizeMetricsInput, now: Dat
     code_context_item_count: input.codeContextItemCount,
     heading_miss_count: input.headingMissCount ?? 0,
     dropped_item_count: input.droppedItemCount ?? 0,
+    spec_dropped_count: input.specDroppedCount ?? 0,
+    code_context_dropped_count: input.codeContextDroppedCount ?? 0,
     code_context_rebuilt: input.codeContextRebuilt ?? false,
     cache_status: input.cacheStatus ?? "unknown",
     selected_chars: input.selectedChars ?? input.contextChars,
@@ -286,6 +305,10 @@ export async function readContextSizeMetrics(
       code_context_item_count: typeof record.code_context_item_count === "number" ? record.code_context_item_count : 0,
       heading_miss_count: typeof record.heading_miss_count === "number" ? record.heading_miss_count : 0,
       dropped_item_count: typeof record.dropped_item_count === "number" ? record.dropped_item_count : 0,
+      // Senuose įrašuose lauko nėra — 0 čia reiškia „nefiksuota", ne „nieko neprarasta".
+      spec_dropped_count: typeof record.spec_dropped_count === "number" ? record.spec_dropped_count : 0,
+      code_context_dropped_count:
+        typeof record.code_context_dropped_count === "number" ? record.code_context_dropped_count : 0,
       code_context_rebuilt: Boolean(record.code_context_rebuilt),
       cache_status: isContextCacheStatus(record.cache_status) ? record.cache_status : "unknown",
       selected_chars: typeof record.selected_chars === "number" ? record.selected_chars : record.context_chars,

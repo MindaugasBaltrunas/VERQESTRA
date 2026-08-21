@@ -31,6 +31,7 @@ import {
   type DispatchPromptDelivery,
 } from "../infrastructure/adapters/claude-dispatch-delivery.js";
 import { launchClaudeProcess } from "../infrastructure/adapters/claude-dispatch-process.js";
+import { createProjectContainment } from "../infrastructure/fs/project-containment.js";
 import { resolveDispatchOutcome } from "../infrastructure/adapters/claude-dispatch-outcome.js";
 import { finalizeDispatch } from "../infrastructure/adapters/claude-dispatch-finalize.js";
 import { claudeLastLogWriteFatal, writeClaudeLastLog } from "../infrastructure/adapters/claude-last-log.js";
@@ -105,6 +106,8 @@ export type ClaudeDispatchAdapterInput = {
 export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDispatchPorts {
   const deliveries = new WeakMap<DispatchDeliveryHandle, DispatchPromptDelivery>();
   const watchdogs = new WeakMap<DispatchWatchdogHandle, MidDispatchBudgetWatchdog>();
+  // Vienas containment visam dispatch'ui: šaknies `realpath` suskaičiuojamas kartą.
+  const dispatchContainment = createProjectContainment(input.projectRoot);
 
   return {
     projectRoot: input.projectRoot,
@@ -204,6 +207,13 @@ export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDi
     readFileBytesIfExists: async (absolutePath) => {
       // Baitai, ne tekstas: BOM ar ne-UTF8 turinys per tekstinį skaitymą iškraipytų hash'ą ir
       // duotų KLAIDINGĄ „pasenęs" verdiktą — o toks verdiktas čia reiškia atsisakytą dispatch'ą.
+      //
+      // Kelias ateina iš context-pack `symbol.file`, t. y. iš artefakto, kurį gali sugadinti ar
+      // suklastoti. Todėl tas pats containment kaip visur, kur diskas liečiamas pagal task'o
+      // duotus duomenis: symlink'as projekto viduje, rodantis į išorę, leksinio varto nepraeina.
+      // Už ribų vedantis kelias grąžina `undefined`, o `undefined` šviežumo skaičiuotojui
+      // reiškia PASENĘS — tad nukreipimas baigiasi atmetimu, ne tyliu skaitymu.
+      if ((await dispatchContainment.containedOrUndefined(absolutePath)) === undefined) return undefined;
       if ((await nodeFsAdapter.statKind(absolutePath)) !== "file") return undefined;
       try {
         return await nodeFsAdapter.readFileBytes(absolutePath);

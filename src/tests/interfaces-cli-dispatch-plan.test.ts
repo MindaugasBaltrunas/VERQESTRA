@@ -138,10 +138,27 @@ test("execution-context-gate: source-change detekcija, mode, tier paskelbimas", 
 
 test("execution-context-gate: off/missing/attach/mismatch šakos su 0002 repair išimtimi", () => {
   const taskText = SOURCE_TASK;
-  const contextPackText = JSON.stringify({ task_id: "0042" });
+  // SCHEMA-VALIDUS minimalus pack'as. Nuo C17 vartas neparsinamą/schema-invalidų pack'ą laiko
+  // galinčiu nešti SRC pjūvius (fail-closed) ir source-change dispatch'ą atmeta — tad fikstūra
+  // `{task_id}` čia nebe „minimalizmas", o kitas, atmetimo kelias.
+  const contextPackText = JSON.stringify({
+    task_id: "0042",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+  });
   const marker = buildExecutionContextMarker({ taskId: "0042", taskText, contextPackText });
   const artifact = `${marker}\n\n# Execution context body\n`;
-  const base = { mode: "preferred" as const, sourceChange: true, taskId: "0042", taskText };
+  // `staleSourceSlices` PRIVALOMAS: tipas verčia kiekvieną kvietėją pasakyti, ką jis žino,
+  // tad „nepatikrinta" nebegali tyliai virsti „šviežia".
+  const base = {
+    mode: "preferred" as const,
+    sourceChange: true,
+    taskId: "0042",
+    taskText,
+    staleSourceSlices: "unchecked" as const,
+  };
 
   assert.equal(evaluateExecutionContextGate({ ...base, mode: "off" }).kind, "skip");
   assert.equal(evaluateExecutionContextGate({ ...base, mode: "required" }).kind, "refuse", "required be artefakto");
@@ -166,6 +183,74 @@ test("execution-context-gate: off/missing/attach/mismatch šakos su 0002 repair 
   });
   assert.equal(staleForRepair.kind, "skip", "0002: repair'ui pasenęs kontekstas — skip, ne refuse");
   assert.match(staleForRepair.kind === "skip" ? staleForRepair.reason : "", /regeneration_unavailable/);
+
+  // Artefaktų darna NELYGU šviežumui: task tekstas ir pack'as sutampa baitas į baitą, o SRC
+  // pjūvio šaltinis jau perrašytas ankstesnio bandymo. Politika ta pati kaip fingerprint
+  // neatitikimui — source-change non-repair fail-fast, repair'ui skip.
+  const staleSlice = evaluateExecutionContextGate({
+    ...base,
+    executionContext: artifact,
+    contextPackText,
+    staleSourceSlices: ["src/a.ts"],
+  });
+  assert.equal(staleSlice.kind, "refuse", "pasenęs SRC pjūvis source-change dispatch'e — refuse");
+  assert.match(staleSlice.kind === "refuse" ? staleSlice.reason : "", /no longer match the working tree: src\/a\.ts/);
+
+  assert.equal(
+    evaluateExecutionContextGate({
+      ...base,
+      isRepair: true,
+      executionContext: artifact,
+      contextPackText,
+      staleSourceSlices: ["src/a.ts"],
+    }).kind,
+    "skip",
+    "repair'ui pasenęs pjūvis — skip, ne refuse (ta pati 0002 politika)",
+  );
+
+  assert.equal(
+    evaluateExecutionContextGate({ ...base, executionContext: artifact, contextPackText, staleSourceSlices: [] }).kind,
+    "attach",
+    "tuščias sąrašas reiškia PATIKRINTA ir šviežia",
+  );
+
+  // `"unchecked"` savaime NĖRA blokas: kai pack'e SRC pjūvių nėra, tikrinti nėra ko.
+  assert.equal(
+    evaluateExecutionContextGate({ ...base, executionContext: artifact, contextPackText }).kind,
+    "attach",
+    "nepatikrinta + pack'e nėra pjūvių — praleidžiama",
+  );
+
+  // Bet kai pjūvių YRA, nepatikrintas kelias konteksto nebeprisega. Garantija struktūrinė: ji
+  // klausia PATIES pack'o, o ne to, ar `symbol_slices` konfige įjungtas.
+  const packWithSlices = JSON.stringify({
+    task_id: "0042",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+    code_context: {
+      enabled: true,
+      symbol_fragments: [
+        {
+          id: "a#x",
+          file: "src/a.ts",
+          name: "x",
+          reason: "exported",
+          tier: "SRC",
+          source: { line: 1, endLine: 2, hash: "a".repeat(64), text: "pjūvis" },
+        },
+      ],
+    },
+  });
+  const sliceMarker = buildExecutionContextMarker({ taskId: "0042", taskText, contextPackText: packWithSlices });
+  const unverified = evaluateExecutionContextGate({
+    ...base,
+    executionContext: `${sliceMarker}\n\n# Execution context body\n`,
+    contextPackText: packWithSlices,
+  });
+  assert.equal(unverified.kind, "refuse", "nepatikrinti SRC pjūviai source-change dispatch'e — refuse");
+  assert.match(unverified.kind === "refuse" ? unverified.reason : "", /cannot verify them against the working tree/);
 
   const canonical = resolveCanonicalWorkerPrompt({ ...base, executionContext: artifact, contextPackText });
   assert.equal(canonical.kind, "prompt");

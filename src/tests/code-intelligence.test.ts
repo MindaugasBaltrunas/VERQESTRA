@@ -11,7 +11,12 @@ import { extractStackSignals } from "../application/code-intelligence/graph-sour
 import { fromGraphSource } from "../domain/architecture/graph-import.js";
 import { rankRetrievalCandidates } from "../application/code-intelligence/retrieval/ranking.js";
 import { chunkMarkdownByHeading } from "../application/code-intelligence/retrieval/markdown-chunks.js";
-import { retrieveSpecFragments } from "../application/code-intelligence/retrieval/spec-fragments.js";
+import {
+  applySpecFragmentBudget,
+  clipToBoundary,
+  retrieveSpecFragmentCandidates,
+} from "../application/code-intelligence/retrieval/spec-fragments.js";
+import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
 import {
   extractImportEdges,
   extractSymbolRecords,
@@ -73,28 +78,6 @@ test("stack signal extraction: categories, app type, hints, unmodeled-node risk"
   assert.equal(signals.complexity.level, "low");
 });
 
-test("retrieval ranking: canonical tier order, heading fallback demoted, stable ties", () => {
-  const ranked = rankRetrievalCandidates(
-    [
-      { ref: "doc/general.md", text: "nesusijęs tekstas visai", directSpecReference: false },
-      { ref: "doc/spec.md", text: "spec turinys", directSpecReference: true },
-      { ref: "doc/miss.md#nerasta", text: "visas dokumentas", directSpecReference: true, requestedHeading: "nerasta", headingMatched: false },
-      { ref: "doc/hit.md#rasta", text: "sekcija", directSpecReference: true, requestedHeading: "rasta", headingMatched: true },
-      { ref: "src/module.ts", text: "kodo kaimynas", directSpecReference: false, evidencePaths: ["src/module.ts"] },
-      { ref: "doc/lex.md", text: "užklausos žodis budget planas", directSpecReference: false },
-    ],
-    { query: "budget planas" },
-  );
-  assert.deepEqual(
-    ranked.map((entry) => entry.tier),
-    ["direct_spec_reference", "heading_match", "code_architecture_evidence", "bm25", "general_docs", "general_docs"],
-  );
-  assert.equal(ranked[1]?.ref, "doc/hit.md#rasta");
-  assert.equal(ranked[3]?.ref, "doc/lex.md");
-  const generalRefs = ranked.slice(4).map((entry) => entry.ref);
-  assert.deepEqual(generalRefs, ["doc/general.md", "doc/miss.md#nerasta"], "lygios bm25=0 poros laiko įvesties tvarką");
-});
-
 test("markdown chunks: preface root, heading sections, empty chunks dropped", () => {
   const chunks = chunkMarkdownByHeading(["prieš antraštę", "", "# Pirma", "turinys", "## Antra", "kitas"].join("\n"));
   assert.deepEqual(
@@ -110,11 +93,10 @@ test("spec fragments: heading match, heading miss, change-dir expansion, char bu
     await mkdir(path.join(root, "change"), { recursive: true });
     await writeFile(path.join(root, "change", "proposal.md"), "change proposal turinys", "utf8");
 
-    const fragments = await retrieveSpecFragments(
+    const { fragments, unresolved } = await retrieveSpecFragmentCandidates(
       nodeFsTestPort,
       root,
       ["spec.md#beta", "spec.md#nerasta", "change", "nėra.md"],
-      10,
       1000,
     );
     assert.equal(fragments.length, 3);
@@ -122,12 +104,325 @@ test("spec fragments: heading match, heading miss, change-dir expansion, char bu
     assert.equal(fragments[0]?.headingMiss, undefined);
     assert.equal(fragments[1]?.headingMiss, "nerasta", "nerasta antraštė deklaruojama, ne nutylima");
     assert.equal(fragments[2]?.text, "change proposal turinys", "katalogas išskleidžiamas į proposal.md");
+    assert.deepEqual(
+      unresolved,
+      [{ ref: "nėra.md", reason: "not_found" }],
+      "nerastas ref'as deklaruojamas, o ne dingsta tyliai",
+    );
 
-    const clipped = await retrieveSpecFragments(nodeFsTestPort, root, ["spec.md"], 10, 5);
-    assert.equal(clipped[0]?.text.length, 5, "char budget kerpa fragmentą");
+    const clipped = await retrieveSpecFragmentCandidates(nodeFsTestPort, root, ["spec.md"], 5);
+    assert.ok((clipped.fragments[0]?.text.length ?? 99) <= 5, "per-fragmento lubos kerpa tekstą");
+    assert.equal(clipped.fragments[0]?.truncated, true, "kirpimas pažymimas jau pirmoje fazėje");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+// Antraštės sekcija privalo ateiti su savo poskyriais. Plokščias chunker'is nutraukdavo ją
+// ties BET KURIA kita antrašte, tad `## API` atkeliaudavo be `### Request` ir `### Response` —
+// t. y. be to, ko task'as ir prašė. Ir tai atrodydavo kaip sėkmė: headingMiss netaikomas, tad
+// apie nukirstą turinį niekas nepranešdavo.
+test("spec fragments: antraštės sekcija apima gilesnius poskyrius, baigiasi ties lygiu (auditas)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-rag-heading-"));
+  try {
+    await writeFile(
+      path.join(root, "spec.md"),
+      [
+        "# Dokumentas",
+        "įžanga",
+        "## API",
+        "api įžanga",
+        "### Request",
+        "request laukai",
+        "#### Headers",
+        "headers detalės",
+        "### Response",
+        "response laukai",
+        "## Kita sekcija",
+        "šito NETURI būti",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const { fragments } = await retrieveSpecFragmentCandidates(nodeFsTestPort, root, ["spec.md#api"], 10_000);
+    const text = fragments[0]?.text ?? "";
+
+    assert.ok(text.startsWith("## API"), "sekcija prasideda prašyta antrašte");
+    for (const nested of ["### Request", "request laukai", "#### Headers", "headers detalės", "### Response"]) {
+      assert.ok(text.includes(nested), `gilesnis poskyris privalo patekti: ${nested}`);
+    }
+    assert.ok(!text.includes("## Kita sekcija"), "to paties lygio antraštė sekciją baigia");
+    assert.ok(!text.includes("šito NETURI būti"));
+    assert.ok(!text.includes("# Dokumentas"), "aukštesnio lygio antraštė į sekciją nepatenka");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Ne-Markdown nuoroda su `#anchor`: antraštės ten apskritai neieškoma, tad grąžinamas VISAS
+// failas. Anksčiau `headingMiss` irgi būdavo praleidžiamas, tad `toRetrievalCandidate` iš to
+// darydavo `headingMatched: true` — ne-Markdown ref'as gaudavo `heading_match` pakopą, skirtą
+// tiksliai rastai sekcijai, ir jokio įspėjimo. Sėkmės apsimetimas, ne šiaip netikslumas.
+test("spec fragments: `config.json#foo` yra nepataikymas, ne heading_match (auditas)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-rag-nonmd-"));
+  try {
+    await writeFile(path.join(root, "config.json"), '{\n  "foo": 1,\n  "bar": 2\n}\n', "utf8");
+
+    const { fragments } = await retrieveSpecFragmentCandidates(nodeFsTestPort, root, ["config.json#foo"], 10_000);
+    assert.equal(fragments[0]?.headingMiss, "foo", "nepataikymas deklaruojamas, o ne nutylimas");
+    assert.equal(fragments[0]?.headingUnsupported, true, "priežastis: antraštės čia iš viso neieškoma");
+    assert.ok((fragments[0]?.text ?? "").includes('"bar"'), "grąžintas visas failas, ne sekcija");
+
+    // Ir esminis pasekmės tvirtinimas: reitingavime tai nusileidžia TIKRAM antraštės atitikmeniui.
+    const ranked = rankRetrievalCandidates(
+      [
+        { ref: "config.json#foo", text: fragments[0]?.text ?? "", requestedHeading: "foo", headingMatched: false },
+        { ref: "doc/spec.md#alfa", text: "## Alfa\nsekcija", requestedHeading: "alfa", headingMatched: true },
+      ],
+      { query: "alfa foo" },
+    );
+    assert.deepEqual(
+      ranked.map((entry) => entry.tier),
+      ["heading_match", "general_docs"],
+      "visas failas negali stovėti greta tiksliai rastos sekcijos",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Change KATALOGO nuoroda su antrašte: rūšis anksčiau buvo sprendžiama pagal ref'e parašytą
+// kelią, kuris `.md` nesibaigia, tad `#Heading` būdavo tyliai ignoruojamas — būtent openspec
+// nuorodoms, kurias šis projektas naudoja dažniausiai.
+test("spec fragments: change-katalogo ref'as su antrašte ją randa išskleistame faile (auditas)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-rag-changedir-"));
+  try {
+    await mkdir(path.join(root, "changes", "vq-1"), { recursive: true });
+    await writeFile(
+      path.join(root, "changes", "vq-1", "proposal.md"),
+      ["# Proposal", "bendra dalis", "## Tikslas", "tikslo tekstas", "## Rizikos", "rizikų tekstas", ""].join("\n"),
+      "utf8",
+    );
+
+    const { fragments } = await retrieveSpecFragmentCandidates(
+      nodeFsTestPort,
+      root,
+      ["changes/vq-1#tikslas"],
+      10_000,
+    );
+
+    assert.equal(fragments[0]?.headingMiss, undefined, "antraštė RASTA, o ne tyliai ignoruota");
+    assert.equal(fragments[0]?.text, "## Tikslas\ntikslo tekstas");
+    assert.ok(!(fragments[0]?.text ?? "").includes("rizikų tekstas"), "kita to paties lygio sekcija neįtraukiama");
+
+    // TRŪKSTAMA antraštė tame pačiame change kataloge: nepataikymas fiksuojamas, bet priežastis
+    // NĖRA „ne Markdown" — galutinis failas yra proposal.md ir antraštės tikrai ieškota. Iš ref'o
+    // išvedant, ši nuoroda gautų melagingą patarimą nuimti teisingą anchor'ą.
+    const missing = await retrieveSpecFragmentCandidates(nodeFsTestPort, root, ["changes/vq-1#nerasta"], 10_000);
+    assert.equal(missing.fragments[0]?.headingMiss, "nerasta");
+    assert.equal(
+      missing.fragments[0]?.headingUnsupported,
+      undefined,
+      "change katalogas išsiskleidžia į .md, tad anchor'as čia PALAIKOMAS",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Rūšis nustatoma per `statKind`, NE per tėvinio katalogo listinimą, ir „nežinia" yra
+// fail-closed. Fake portas fiksuoja abu dalykus vienu metu: `listDirectory` visada tuščias
+// (tad senas kelias duotų „ne katalogas" ir kristų į readTextFile), o vienas ref'as yra
+// `absent` — neperskaitomas kelias, kurio skaitymas realiame fs mestų EISDIR ir nuverstų
+// VISĄ context pack'ą. Turi būti praleistas tylėdamas, likę fragmentai — nepaliesti.
+test("spec fragments: rūšis per statKind; nenustatyta rūšis praleidžiama, o ne verčia EISDIR", async () => {
+  const root = path.resolve("/vq-frag-statkind");
+  const norm = (value: string): string => value.replace(/\\/g, "/");
+  const key = (...parts: string[]): string => norm(path.join(root, ...parts));
+
+  const kinds = new Map<string, "file" | "directory" | "absent">([
+    [key("spec.md"), "file"],
+    [key("change"), "directory"],
+    [key("change", "proposal.md"), "file"],
+    [key("neperskaitomas"), "absent"],
+  ]);
+  const texts = new Map<string, string>([
+    [key("spec.md"), "spec turinys"],
+    [key("change", "proposal.md"), "proposal turinys"],
+  ]);
+
+  let listCalls = 0;
+  const fs: CodeIntelligenceFileSystemPort = {
+    listDirectory: async () => {
+      listCalls += 1;
+      return [];
+    },
+    statKind: async (p) => kinds.get(norm(p)) ?? "absent",
+    readTextFile: async (p) => {
+      const text = texts.get(norm(p));
+      // Realus fs čia mestų EISDIR; testas tvirtina, kad iki šios eilutės neprieinama.
+      if (text === undefined) throw new Error(`EISDIR: illegal operation on a directory, read ${norm(p)}`);
+      return text;
+    },
+    readFileBytes: async () => new Uint8Array(),
+    fileSize: async () => 0,
+    exists: async (p) => kinds.has(norm(p)),
+    writeTextFileAtomic: async () => {},
+    makeDirectory: async () => {},
+  };
+
+  const { fragments, unresolved } = await retrieveSpecFragmentCandidates(
+    fs,
+    root,
+    ["neperskaitomas", "change", "spec.md"],
+    1000,
+  );
+
+  assert.deepEqual(
+    fragments.map((fragment) => fragment.ref),
+    ["change", "spec.md"],
+    "`absent` (nėra ARBA rūšies nustatyti nepavyko) praleidžiamas, likę ref'ai išlieka",
+  );
+  assert.deepEqual(unresolved, [{ ref: "neperskaitomas", reason: "not_found" }]);
+  assert.equal(fragments[0]?.text, "proposal turinys", "katalogas išskleistas nelistinant tėvo");
+  assert.equal(listCalls, 0, "rūšis nebeeina per listDirectory — tėvinio katalogo skaitymo nebėra");
+});
+
+// Spec ref'as ateina iš task'o teksto, o jo turinys keliauja į LLM promptą ir į cache.
+// Preflight paprastus pabėgimus atmeta, bet context-pack surinkimas kviečiamas ir tiesiogiai,
+// tad retrieval privalo turėti SAVO fail-closed vartą. Nė vienas iš šių ref'ų neturi teisės
+// nei būti perskaitytas, nei nutildytas — kiekvienas deklaruojamas kaip `outside_project`.
+test("spec fragments: už projekto ribų vedantis ref'as atmetamas ir deklaruojamas", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-rag-escape-"));
+  try {
+    await writeFile(path.join(root, "vidus.md"), "vidinis turinys\n", "utf8");
+
+    let readAttempts = 0;
+    const watched: CodeIntelligenceFileSystemPort = {
+      ...nodeFsTestPort,
+      readTextFile: async (p) => {
+        readAttempts += 1;
+        return await nodeFsTestPort.readTextFile(p);
+      },
+    };
+
+    // Tik platformai stabilūs atvejai: `"C:/…"` Linux'e nėra absoliutus, tad jis ten kristų
+    // į `not_found`, o ne į `outside_project` — vartas veiktų, bet testas meluotų apie kelią.
+    const escaping = ["../slaptas.md", "../../etc/passwd", path.join(root, "..", "gretimas.md")];
+    const { fragments, unresolved } = await retrieveSpecFragmentCandidates(
+      watched,
+      root,
+      [...escaping, "vidus.md"],
+      1000,
+    );
+
+    assert.deepEqual(fragments.map((entry) => entry.ref), ["vidus.md"], "praeina TIK projekto vidus");
+    assert.deepEqual(
+      unresolved,
+      escaping.map((ref) => ({ ref, reason: "outside_project" })),
+      "kiekvienas pabėgimas deklaruojamas, ne nutylimas",
+    );
+    assert.equal(readAttempts, 1, "už ribų esantis kelias net neskaitomas");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// A1 regresijos tinklas. Task'o surašymo tvarka ir reitingavimo tvarka čia SĄMONINGAI
+// priešingos: pirmas sąraše yra antraštės atitikmuo (pakopa 2), antras — viso dokumento
+// nuoroda (pakopa 1). Biudžeto užtenka tik vienam. Iki taisymo laimėdavo tas, kurį autorius
+// atsitiktinai parašė pirmas; dabar privalo laimėti aukštesnė pakopa.
+test("spec fragments: biudžetą leidžia REITINGAS, ne task'o surašymo eilė (A1)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-rag-a1-"));
+  try {
+    await writeFile(path.join(root, "notes.md"), "# Alfa\nalfa smulkmena\n", "utf8");
+    await writeFile(path.join(root, "spec.md"), "visas spec dokumentas\n", "utf8");
+
+    const refs = ["notes.md#alfa", "spec.md"];
+    const budgetChars = 21; // telpa lygiai „visas spec dokumentas"
+
+    const candidates = await retrieveSpecFragmentCandidates(nodeFsTestPort, root, refs, budgetChars);
+    assert.equal(candidates.fragments.length, 2, "abu ref'ai PAIMAMI — biudžetas dar nedalijamas");
+
+    const ranked = rankRetrievalCandidates(
+      candidates.fragments.map((fragment) => ({
+        ref: fragment.ref,
+        text: fragment.text,
+        ...(fragment.ref.includes("#")
+          ? { requestedHeading: fragment.ref.split("#")[1] ?? "", headingMatched: fragment.headingMiss === undefined }
+          : {}),
+      })),
+      { query: "spec dokumentas" },
+    );
+    const ordered = ranked
+      .map((entry) => candidates.fragments[entry.index])
+      .filter((fragment): fragment is NonNullable<typeof fragment> => fragment !== undefined);
+    assert.deepEqual(ordered.map((fragment) => fragment.ref), ["spec.md", "notes.md#alfa"]);
+
+    const selection = applySpecFragmentBudget(ordered, 8, budgetChars);
+    assert.deepEqual(
+      selection.kept.map((fragment) => fragment.ref),
+      ["spec.md"],
+      "biudžetą gauna aukščiausia pakopa, nors task'e ji surašyta antra",
+    );
+    assert.deepEqual(selection.dropped, [{ ref: "notes.md#alfa", reason: "char_budget" }]);
+    assert.deepEqual(selection.truncated, [], "tilpęs fragmentas nekarpomas");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Fragmentų limitas taip pat privalo veikti reitinguota tvarka, o kiekvienas iškritęs ar
+// apkarpytas ref'as — būti deklaruotas (A4): tylus praradimas buvo pusė A1 žalos.
+test("spec fragments: limitas ir apkarpymas deklaruojami, ne nutylimi (A4)", () => {
+  const fragment = (ref: string, text: string): { ref: string; text: string } => ({ ref, text });
+
+  const limited = applySpecFragmentBudget([fragment("a.md", "aaa"), fragment("b.md", "bbb")], 1, 1000);
+  assert.deepEqual(limited.kept.map((entry) => entry.ref), ["a.md"]);
+  assert.deepEqual(limited.dropped, [{ ref: "b.md", reason: "fragment_limit" }]);
+
+  const clipped = applySpecFragmentBudget([fragment("a.md", "aaaaa")], 8, 3);
+  assert.equal(clipped.kept[0]?.text, "aaa", "netelpantis fragmentas kerpamas iki likučio");
+  assert.equal(clipped.kept[0]?.truncated, true, "žyma keliauja SU fragmentu, ne tik sąraše");
+  assert.deepEqual(clipped.truncated, ["a.md"], "apkarpymas deklaruojamas");
+  assert.deepEqual(clipped.dropped, []);
+
+  // Kirpimas pirmoje fazėje (per-fragmento lubos) antroje fazėje nebepasikartoja, tad be
+  // atsineštos žymos jis liktų nepastebėtas — fragmentas atkeliautų nepilnas ir be ženklo.
+  const alreadyCut = applySpecFragmentBudget([{ ref: "a.md", text: "aaa", truncated: true }], 8, 1000);
+  assert.deepEqual(alreadyCut.truncated, ["a.md"], "ankstesnės fazės kirpimas neprarandamas");
+  assert.equal(alreadyCut.kept[0]?.truncated, true);
+
+  // Dublikatas anksčiau suvalgydavo biudžetą DUKART, o vis tiek iškrisdavo vėlesniame
+  // dedupeStable — biudžetas prarastas be jokios naudos.
+  const duplicated = applySpecFragmentBudget(
+    [fragment("a.md", "aaa"), fragment("a.md", "aaa"), fragment("b.md", "bbb")],
+    8,
+    6,
+  );
+  assert.deepEqual(duplicated.kept.map((entry) => entry.ref), ["a.md", "b.md"], "dublikatas biudžeto nebekainuoja");
+  assert.deepEqual(duplicated.dropped, [{ ref: "a.md", reason: "duplicate" }]);
+  assert.deepEqual(duplicated.truncated, [], "b.md telpa, nes dublikatas biudžeto nesuvalgė");
+});
+
+// Aklas `slice` nutraukia sakinio viduryje, ir toks fragmentas skaitomas kaip pilnas, tik
+// nelogiškas. Pastraipos riba palieka bent savaime nuoseklų tekstą — bet tik tada, kai dėl jos
+// neaukojama per daug biudžeto.
+test("spec fragments: kirpimas ties pastraipos riba, su atsarga aklam pjūviui", () => {
+  const text = "pirma pastraipa\n\nantra pastraipa\n\ntrečia pastraipa";
+
+  assert.equal(clipToBoundary(text, text.length), text, "telpantis tekstas nekerpamas");
+  assert.equal(
+    clipToBoundary(text, 40),
+    "pirma pastraipa\n\nantra pastraipa",
+    "kerpama ties paskutine TELPANČIA pastraipos riba, be pakabinto tuščio tarpo",
+  );
+  assert.equal(clipToBoundary(text, 20), "pirma pastraipa", "riba randama ir tada, kai lange telpa tik ji");
+
+  // Riba per anksti: laikytis jos reikštų atiduoti didžiąją dalį biudžeto, tad pjaunama aklai.
+  assert.equal(clipToBoundary(`a\n${"b".repeat(100)}`, 50).length, 50, "per brangi riba atmetama");
+  assert.equal(clipToBoundary("bet koks", 0), "", "nulinis biudžetas duoda tuščią tekstą");
 });
 
 test("code-map: scanner records, mermaid render and coverage close the loop", () => {

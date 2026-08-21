@@ -12,6 +12,16 @@ export const nodeFsTestPort: CodeIntelligenceFileSystemPort = {
     const entries = await readdir(absoluteDir, { withFileTypes: true }).catch(() => []);
     return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory(), isFile: entry.isFile() }));
   },
+  async statKind(absolutePath) {
+    try {
+      const stats = await stat(absolutePath);
+      if (stats.isFile()) return "file";
+      if (stats.isDirectory()) return "directory";
+      return "absent";
+    } catch {
+      return "absent";
+    }
+  },
   async readTextFile(absolutePath) {
     return readFile(absolutePath, "utf8");
   },

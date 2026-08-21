@@ -106,7 +106,7 @@ function assertSafeLauncherValue(label: string, value: string): string {
  * `--disallowed-tools` segmentas `claude -p ...` eilutei arba tuščias stringas.
  *
  * Du sluoksniai, kaip ir `--model` atveju: (1) allowlist — vardas be jokių PowerShell
- * metasimbolių (backtick, `"`, `$`, kablelis, tarpas, nauja eilutė NEPRAEINA), (2) viengubа
+ * metasimbolių (backtick, `"`, `$`, kablelis, tarpas, nauja eilutė NEPRAEINA), (2) vienguba
  * kabutė apie visą kableliais sujungtą reikšmę, kad ji būtų vienas argumentas ir dvigubų
  * kabučių here-string'e neišplėtotų nieko. Tuščias sąrašas negrąžina flag'o — taip
  * išjungtas `dispatch_tool_schema` palieka komandą baitas į baitą nepakitusią.

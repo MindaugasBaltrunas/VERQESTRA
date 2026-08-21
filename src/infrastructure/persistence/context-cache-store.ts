@@ -24,6 +24,13 @@ import {
   type ContextCacheKey,
   type ContextCacheLookup,
 } from "../../application/context-pack/context-cache-key.js";
+import { CHANGE_DIR_FILES, specRefFilePart } from "../../application/code-intelligence/retrieval/spec-fragments.js";
+import {
+  contextCompressionArrestStatePath,
+  contextCompressionConfigPath,
+} from "../../application/context-pack/effective-compression-policy.js";
+import { resolveProjectPath } from "../../shared/paths.js";
+import { createProjectContainment, type ProjectContainment } from "../fs/project-containment.js";
 import type { ContextCachePort } from "../../application/context-pack/ports.js";
 import { sha256Hex } from "../../shared/hash.js";
 import { toPrettyJson } from "../../shared/json.js";
@@ -68,17 +75,39 @@ export async function collectContextCacheSources(
   runtimeRoot: string,
   input: CollectContextCacheSourcesInput,
 ): Promise<ContextCacheSource[]> {
-  const root = path.resolve(projectRoot);
+  const containment = createProjectContainment(projectRoot);
+  const root = containment.root;
   const sources: ContextCacheSource[] = [
     { kind: "task", path: relativePath(root, input.taskPath), hash: hashText(input.taskText) },
   ];
 
+  // Ir `targets`, ir spec ref'ai ateina iš task'o teksto. Už projekto ribų vedantis kelias
+  // NEskaitomas: jis fiksuojamas `absent` sentineliu, tad raktas lieka deterministiškas ir
+  // pilnas, bet svetimo failo turinys į kešą nepatenka.
   for (const target of unique(input.targets)) {
-    sources.push({ kind: "source", path: normalizeRelative(target), hash: await hashFile(path.resolve(root, target)) });
+    const contained = await containedProjectPath(containment, target);
+    sources.push({
+      kind: "source",
+      path: normalizeRelative(target),
+      hash: contained === undefined ? CONTEXT_CACHE_ABSENT : await hashFile(contained),
+    });
   }
 
-  for (const ref of unique(input.specSources.map(specFilePart).filter(Boolean))) {
-    sources.push({ kind: "spec", path: normalizeRelative(ref), hash: await hashFile(path.resolve(root, ref)) });
+  for (const ref of unique(input.specSources.map(specRefFilePart).filter(Boolean))) {
+    const contained = await containedProjectPath(containment, ref);
+    if (contained === undefined) {
+      sources.push({ kind: "spec", path: normalizeRelative(ref), hash: CONTEXT_CACHE_ABSENT });
+      continue;
+    }
+    // Išskleistas change failas tikrinamas ATSKIRAI: pats katalogas gali būti projekto viduje,
+    // o jo `proposal.md` — symlink'as į išorę. Vartas taikomas paskutiniam skaitomam keliui.
+    const resolved = await resolveSpecSourceFile(contained);
+    const containedFile = await containment.containedOrUndefined(resolved);
+    sources.push({
+      kind: "spec",
+      path: relativePath(root, resolved),
+      hash: containedFile === undefined ? CONTEXT_CACHE_ABSENT : await hashFile(containedFile),
+    });
   }
 
   for (const architecturePath of [
@@ -145,6 +174,8 @@ export type SaveContextCacheEntryInput = {
   selectedChars: number;
   selectedTokenEstimate: number;
   droppedItemCount: number;
+  specDroppedCount?: number;
+  codeContextDroppedCount?: number;
   maxEntries?: number;
 };
 
@@ -171,6 +202,8 @@ export async function saveContextCacheEntry(
     selected_chars: input.selectedChars,
     selected_token_estimate: input.selectedTokenEstimate,
     dropped_item_count: input.droppedItemCount,
+    spec_dropped_count: input.specDroppedCount ?? 0,
+    code_context_dropped_count: input.codeContextDroppedCount ?? 0,
   };
 
   const entryPath = contextCacheEntryPath(runtimeRoot, input.key.fingerprint);
@@ -213,7 +246,32 @@ export async function pruneStaleContextCacheEntries(
   projectRoot: string,
   runtimeRoot: string,
 ): Promise<ContextCacheInvalidation> {
-  const root = path.resolve(projectRoot);
+  // Keliai čia ateina iš SAUGOMO įrašo, ne iš task'o, tad juos gali nukreipti ne tik symlink'as,
+  // bet ir sugadintas ar suklastotas cache failas. Nė vienas kelias iš įrašo nepatenka į
+  // `hashFile` neperėjęs vieno iš DVIEJŲ vartų, nes rūšys turi skirtingą kilmę:
+  //
+  //   • `task` / `source` / `spec` — task'o kilmės, laisvos formos → projekto ribų containment;
+  //   • `architecture` / `policy` — MŪSŲ konstruoti iš `runtimeRoot`, baigtinis rinkinys →
+  //     TIKSLUS leidžiamų kelių sąrašas. Containment jiems netiktų: `runtimeRoot` teisėtai gali
+  //     gulėti už `projectRoot`, tad prune taptų griežtesnis už collect. Bet ir palikti juos be
+  //     jokio varto negalima — suklastotas įrašas nurodytų bet kokį kelią.
+  const containment = createProjectContainment(projectRoot);
+  const runtime = path.resolve(runtimeRoot);
+  const runtimeAllowlist = new Set(
+    [
+      path.join(runtime, "state", "architecture", "graph.json"),
+      path.join(runtime, "architecture", "architecture-style.json"),
+      ...CONTEXT_CACHE_POLICY_FILES.map((name) => path.join(runtime, "config", name)),
+      contextCompressionConfigPath(runtime),
+      contextCompressionArrestStatePath(runtime),
+    ].map((entry) => path.resolve(entry)),
+  );
+  // Arrest šaltinio hash'as yra IŠVESTINIS (sprendimo projekcija, ne failo baitai — žr.
+  // compression-cache-sources). Perhash'avus failą palyginimas NIEKADA nesutaptų, tad prune
+  // kiekvieną tokį įrašą klaidingai laikytų pasenusiu. Kelias lieka allowlist'e (jį skaityti
+  // būtų teisėta), bet turinio patikra praleidžiama sąmoningai.
+  const derivedHashPaths = new Set([path.resolve(contextCompressionArrestStatePath(runtime))]);
+
   const removed: string[] = [];
   const kept: string[] = [];
 
@@ -221,7 +279,22 @@ export async function pruneStaleContextCacheEntries(
     let stale = entry.version !== CONTEXT_CACHE_VERSION;
     for (const source of entry.sources) {
       if (stale) break;
-      stale = (await hashFile(path.resolve(root, source.path))) !== source.hash;
+      const absolute = path.resolve(containment.root, source.path);
+
+      if (source.kind === "task" || source.kind === "source" || source.kind === "spec") {
+        const readable = await containment.containedOrUndefined(absolute);
+        stale = readable === undefined || (await hashFile(readable)) !== source.hash;
+        continue;
+      }
+
+      if (!runtimeAllowlist.has(absolute)) {
+        // Runtime rūšis, rodanti kur nors kitur, reiškia paliestą įrašą. Neskaitoma.
+        stale = true;
+        continue;
+      }
+      if (!derivedHashPaths.has(absolute)) {
+        stale = (await hashFile(absolute)) !== source.hash;
+      }
     }
     if (stale) {
       await evict(file);
@@ -346,9 +419,56 @@ async function evict(filePath: string): Promise<void> {
   await rm(filePath, { force: true }).catch(() => undefined);
 }
 
-function specFilePart(ref: string): string {
-  const hashIndex = ref.indexOf("#");
-  return (hashIndex === -1 ? ref : ref.slice(0, hashIndex)).trim();
+/**
+ * Kelias projekto viduje arba `undefined`.
+ *
+ * DU sluoksniai, ir abu čia būtini. Anksčiau buvo tik pirmasis, o komentaras tvirtino, kad
+ * symlink'us pagauna `createCodeIntelligenceFsAdapter` — NETIESA šiame vykdymo kelyje: kešas
+ * skaito per `node:fs` tiesiogiai, tad adapterio vartas jam niekada nebėga. Symlink'as
+ * projekto viduje, rodantis į išorę, praeidavo leksinę patikrą ir svetimas failas būdavo
+ * perskaitytas bei hash'uotas.
+ *
+ * 1. `resolveProjectPath` — POLITIKA: task'e absoliutus kelias atmetamas net rodydamas į vidų,
+ *    nes task'ai rašomi repo-santykiniais keliais, ir leksiniai `../` pabėgimai.
+ * 2. `containment.containedOrUndefined` — TIKROVĖ: `realpath` sekimas.
+ */
+async function containedProjectPath(
+  containment: ProjectContainment,
+  candidate: string,
+): Promise<string | undefined> {
+  let lexical: string;
+  try {
+    lexical = resolveProjectPath(containment.root, candidate, { allowAbsoluteInsideRoot: false }, "cache source");
+  } catch {
+    return undefined;
+  }
+  return await containment.containedOrUndefined(lexical);
+}
+
+/**
+ * Change KATALOGO ref'as (`AG/openspec/changes/<id>/`) išskleidžiamas į TĄ PATĮ failą, kurį
+ * paims retrieval — todėl ir tvarka imama iš `CHANGE_DIR_FILES`, o ne kartojama čia.
+ *
+ * Be šito `readFile` katalogui mestų EISDIR, hash'as visada būtų `absent` KONSTANTA, ir
+ * `proposal.md` redagavimas kešo NEINVALIDUOTŲ — pasenęs pack'as būtų atiduotas kaip hit
+ * (auditas A2). Įrašomas išskleistas kelias: taip operatorius mato, kurio failo tapatybė
+ * realiai saugo įrašą, o pasikeitusi rezoliucija (dingęs `proposal.md` → `tasks.md`) pati
+ * savaime tampa invalidacija.
+ *
+ * Neišskleidžiamas katalogas grąžinamas nepakeistas ir hash'uojasi į `absent` — tai tas pats
+ * sentinelis, kurį duoda nesamas kelias, ir jo atsiradimas vėliau yra reali invalidacija.
+ */
+async function resolveSpecSourceFile(absolutePath: string): Promise<string> {
+  if ((await nodeFsAdapter.statKind(absolutePath)) !== "directory") {
+    return absolutePath;
+  }
+  for (const candidate of CHANGE_DIR_FILES) {
+    const candidatePath = path.join(absolutePath, candidate);
+    if ((await nodeFsAdapter.statKind(candidatePath)) === "file") {
+      return candidatePath;
+    }
+  }
+  return absolutePath;
 }
 
 function relativePath(root: string, target: string): string {

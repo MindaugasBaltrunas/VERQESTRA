@@ -44,6 +44,14 @@ export type ContextCachePort = {
     selectedChars: number;
     selectedTokenEstimate: number;
     droppedItemCount: number;
+    /**
+     * Retrieval stadijos praradimai. Nešami kartu su įrašu dėl tos pačios priežasties kaip
+     * `droppedItemCount`: cache HIT privalo pranešti tą pačią telemetriją kaip surinkimas,
+     * kurį jis pakeičia, o iš pack'o šito atkurti nebeįmanoma.
+     */
+    specDroppedCount: number;
+    /** Code-context kopėčių numesti simboliai — ta pati priežastis nešti su įrašu. */
+    codeContextDroppedCount: number;
   }): Promise<{ stored: boolean; reason?: "code_index_stale" }>;
 };
 

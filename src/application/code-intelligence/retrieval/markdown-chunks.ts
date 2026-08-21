@@ -1,4 +1,4 @@
-// Markdown skaidymas pagal antraštes — retrieveSpecFragments heading atitikimo pagrindas.
+// Markdown skaidymas pagal antraštes — spec fragmentų heading atitikimo pagrindas.
 // Behaviour etalon: AG_loop rag-lite/chunker.ts chunkMarkdownByHeading (vienintelė gyva
 // chunker'io dalis; indexControlMarkdown kelias — wont-migrate(dead), VQ-002 §3.5).
 

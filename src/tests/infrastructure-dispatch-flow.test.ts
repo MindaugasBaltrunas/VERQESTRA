@@ -51,7 +51,15 @@ test("buildAdapterExecutionRequest: be taskText — passthrough; su kontekstu �
     assert.equal(passthrough.compilation.kind, "disabled");
   }
 
-  const contextPackText = JSON.stringify({ task_id: "0042" });
+  // Schema-validus pack'as: nuo C17 gate'as schema-invalidų pack'ą laiko fail-closed
+  // (gali nešti SRC pjūvius) ir source-change attach virstų refuse.
+  const contextPackText = JSON.stringify({
+    task_id: "0042",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+  });
   const artifact = `${buildExecutionContextMarker({ taskId: "0042", taskText: TASK_TEXT, contextPackText })}\n\n# Kontekstas\n`;
   const attached = buildAdapterExecutionRequest({
     taskId: "0042",

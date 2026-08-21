@@ -4,6 +4,9 @@
 // jos elgesio kontraktas aprašytas porto tipuose ports.ts.
 
 import { createHash } from "node:crypto";
+import { RETRIEVAL_PRIORITY_ORDER } from "../code-intelligence/retrieval/ranking.js";
+import { BOUNDARY_MIN_RATIO, CHANGE_DIR_FILES, MAX_SPEC_CANDIDATES } from "../code-intelligence/retrieval/spec-fragments.js";
+import { MAX_SPEC_RETRIEVAL_WARNINGS } from "./assemble/spec-phase.js";
 import type { ContextCacheEntry, ContextCacheSource, ContextCacheSourceKind } from "./context-cache-model.js";
 import { CONTEXT_CACHE_VERSION } from "./context-cache-model.js";
 
@@ -30,6 +33,30 @@ export function hashText(text: string): string {
 }
 
 /**
+ * Pack'ą formuojančių DERINIMO KONSTANTŲ atspaudas, dalyvaujantis rakte greta
+ * `CONTEXT_CACHE_VERSION`. Pakeitus bet kurią iš jų, senas įrašas nustoja atitikti raktą
+ * automatiškai — nereikia niekam prisiminti.
+ *
+ * DALINĖ apsauga, ir tai svarbu suprasti teisingai: ji pagauna tik konstantų derinimą.
+ * GRYNAI LOGINIAI pakeitimai — antraščių sekcijų gilinimas, Markdown rūšies šaltinis, ribų
+ * vartas — nekeičia nė vienos konstantos ir čia NEATSISPINDI. Jiems `CONTEXT_CACHE_VERSION`
+ * kėlimas lieka vienintelis kontraktas, o `cache-key-contract` testas — priminimas.
+ *
+ * Įtraukiamos tik tos konstantos, kurios veikia SUKURTO pack'o turinį. Renderio konstantų
+ * (`TRUST_BOUNDARY_RULE`, `RETRIEVED_DATA_TAG`) čia NĖRA sąmoningai: `execution-context.md`
+ * generuojamas iš naujo kiekvieno hit'o metu, tad jų pakeitimai pasiekia ir senus įrašus.
+ */
+export const PACK_SEMANTICS_DESCRIPTOR = [
+  `tiers:${RETRIEVAL_PRIORITY_ORDER.join(">")}`,
+  `change_dir_files:${CHANGE_DIR_FILES.join(",")}`,
+  `max_spec_candidates:${MAX_SPEC_CANDIDATES}`,
+  `boundary_min_ratio:${BOUNDARY_MIN_RATIO}`,
+  // Įspėjimų lubos veikia pack'o `spec_fragment_warnings` turinį (kirpimo eilutė + kiek
+  // eilučių lieka), tad tai tokia pati derinimo konstanta kaip kandidatų lubos aukščiau.
+  `max_spec_retrieval_warnings:${MAX_SPEC_RETRIEVAL_WARNINGS}`,
+].join("|");
+
+/**
  * Fingerprint a source set. Sources are ordered by kind (canonical priority order) and
  * then by path before hashing, so the caller's collection order cannot change the key.
  * Per-kind component digests make a drift attributable to task, source, spec,
@@ -46,6 +73,7 @@ export function computeContextCacheKey(sources: ContextCacheSource[]): ContextCa
   const fingerprint = hashText(
     JSON.stringify({
       version: CONTEXT_CACHE_VERSION,
+      semantics: hashText(PACK_SEMANTICS_DESCRIPTOR),
       components: CONTEXT_CACHE_SOURCE_KINDS.map((kind) => [kind, components[kind]]),
     }),
   );

@@ -1,22 +1,26 @@
-// Deterministic execution-context renderer (spec ag-loop-optimization-v1, CTX-1..CTX-3).
-// Behaviour etalon: AG_loop application/context-pack/render-execution-context.ts (1:1;
-// schemos — context-pack-schema.ts prie klasterio, parseWithSchema — shared/schema).
+// Deterministic execution-context renderer (CTX-1..CTX-3). Behaviour etalon: AG_loop
+// application/context-pack/render-execution-context.ts.
 //
 // `context-pack.json` stays the machine artifact. This module turns one schema-valid pack
 // into the short, prioritized `execution-context.md` handed to the coding worker. Pure: no
 // clock, no randomness, no I/O — the same pack and the same char limit always produce a
 // byte-identical document and the same fingerprint.
+//
+// KĄ dokumentas neša ir kokia tvarka — `render-candidates`. Čia lieka tik tai, KAIP kandidatų
+// sąrašas virsta dokumentu: biudžeto metimo ciklas, netikimo turinio aptvaras ir fingerprint'as.
 
 import { createHash } from "node:crypto";
 import { parseWithSchema } from "../../shared/schema.js";
+import { buildCandidates, type Candidate } from "./render-candidates.js";
 import {
   EXECUTION_CONTEXT_VERSION,
   executionContextSchema,
+  RETRIEVED_DATA_TAG,
+  TRUST_BOUNDARY_RULE,
   type ContextPack,
   type ExecutionContext,
   type ExecutionContextElement,
   type ExecutionContextPriority,
-  type ExecutionContextSection,
 } from "./context-pack-schema.js";
 
 export type RenderExecutionContextOptions = {
@@ -43,14 +47,26 @@ const FINGERPRINT_PLACEHOLDER = "0".repeat(16);
 // goal, acceptance criteria, allowed paths and checks are never dropped.
 const DROP_ORDER: readonly ExecutionContextPriority[] = ["low", "medium", "high"];
 
-type Candidate = {
-  id: string;
-  section: ExecutionContextSection;
-  title: string;
-  priority: ExecutionContextPriority;
-  reason: string;
-  body: string;
-};
+const OPEN_TAG_PREFIX = `<${RETRIEVED_DATA_TAG}`;
+const CLOSE_TAG = `</${RETRIEVED_DATA_TAG}>`;
+
+/**
+ * Ekranuoja aptvaro žymes PAČIAME kūne, kad cituojamas tekstas negalėtų jo uždaryti ir toliau
+ * atrodyti kaip patikima dokumento dalis. Grąžinamas ir pakeitimų skaičius: svetimo teksto
+ * keitimas skelbiamas meta eilutėje, o ne daromas tyliai.
+ */
+function fenceBody(body: string): { text: string; escaped: number } {
+  let escaped = 0;
+  const text = body.replace(new RegExp(`</?${RETRIEVED_DATA_TAG}`, "gi"), (match) => {
+    escaped += 1;
+    return `&lt;${match.slice(1)}`;
+  });
+  return { text, escaped };
+}
+
+function attributeValue(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 /**
  * Render one context pack into the worker-facing execution context.
@@ -128,207 +144,6 @@ function resolveMaxChars(pack: ContextPack, options: RenderExecutionContextOptio
   return requested;
 }
 
-// Canonical element order. Every section is derived from exactly one pack field, so two
-// packs with the same content always produce the same element list in the same order.
-function buildCandidates(pack: ContextPack): Candidate[] {
-  const candidates: Candidate[] = [];
-
-  candidates.push({
-    id: "goal",
-    section: "goal",
-    title: "Goal",
-    priority: "critical",
-    reason: "the single outcome this dispatch must achieve",
-    body: pack.goal,
-  });
-
-  const acceptance = [
-    ...pack.acceptance_criteria.map((criterion) => `- ${criterion}`),
-    ...(pack.stop_condition ? [`- Stop condition: ${collapseWhitespace(pack.stop_condition)}`] : []),
-  ];
-  pushIfPresent(candidates, {
-    id: "acceptance-criteria",
-    section: "acceptance-criteria",
-    title: "Acceptance criteria",
-    priority: "critical",
-    reason: "the task's own definition of done; the work is not complete until every item holds",
-    body: acceptance.join("\n"),
-  });
-
-  pushIfPresent(candidates, {
-    id: "allowed-paths",
-    section: "allowed-paths",
-    title: "Allowed paths",
-    priority: "critical",
-    reason: "hard edit boundary: no file outside this list may be created, changed or deleted",
-    body: pack.allowed_paths.map((entry) => `- \`${entry}\``).join("\n"),
-  });
-
-  pushIfPresent(candidates, {
-    id: "checks",
-    section: "checks",
-    title: "Checks",
-    priority: "critical",
-    reason: "deterministic verification commands that must pass before the task is reported done",
-    body: pack.checks.map((check) => `- \`${check}\``).join("\n"),
-  });
-
-  pack.spec_fragments.forEach((fragment, index) => {
-    const { ref, text } = splitSpecFragment(fragment);
-    pushIfPresent(candidates, {
-      id: `spec-${index + 1}`,
-      section: "spec",
-      title: `Spec fragment: ${ref}`,
-      priority: "high",
-      reason: `retrieved from \`## Spec source\` reference ${index + 1} of ${pack.spec_fragments.length}`,
-      body: text,
-    });
-  });
-
-  pushIfPresent(candidates, {
-    id: "spec-warnings",
-    section: "spec",
-    title: "Spec retrieval warnings",
-    priority: "medium",
-    reason: "a spec reference did not resolve exactly; the fragment above may be broader than requested",
-    body: pack.spec_fragment_warnings.map((warning) => `- ${warning}`).join("\n"),
-  });
-
-  const codeContext = pack.code_context;
-  pushIfPresent(candidates, {
-    id: "symbols",
-    section: "symbols",
-    title: "Symbols",
-    priority: "high",
-    reason: "declarations and exported symbols of the files this task edits, from the code index",
-    body: (codeContext?.summary ?? []).join("\n"),
-  });
-
-  pushIfPresent(candidates, {
-    id: "contracts",
-    section: "contracts",
-    title: "Contracts and direct dependencies",
-    priority: "high",
-    reason: "files directly importing or imported by the allowed paths; their public contracts must keep working",
-    body: (codeContext?.related_files ?? []).map((file) => `- \`${file}\``).join("\n"),
-  });
-
-  // REF/SIG/SRC tiers (task 0023). Symbols carry a tier only when the pack was assembled
-  // with the `symbol_slices` compression feature on; a pack without tiers renders exactly
-  // the pre-0023 document, byte for byte. REF needs no candidate of its own — the summary
-  // above already names every kept symbol with its file and line range.
-  //
-  // Placement inside the `high` band is deliberate: droppables leave from the END of the
-  // canonical order within one priority, so when the budget tightens the SRC blocks go
-  // first, then the SIG lines — never the spec fragments or the symbol map before them.
-  const tieredSymbols = (codeContext?.symbol_fragments ?? []).filter((symbol) => symbol.tier !== undefined);
-
-  pushIfPresent(candidates, {
-    id: "signatures",
-    section: "symbols",
-    title: "Symbol signatures",
-    priority: "high",
-    reason: "declaration heads (tier SIG): enough to call these symbols correctly without reading their bodies",
-    body: tieredSymbols
-      .filter((symbol) => symbol.tier === "SIG" && symbol.signature !== undefined)
-      .map((symbol) => `- \`${symbolRef(symbol)}\` — \`${symbol.signature}\``)
-      .join("\n"),
-  });
-
-  tieredSymbols
-    .filter((symbol) => symbol.tier === "SRC" && symbol.source !== undefined)
-    .forEach((symbol, index) => {
-      const source = symbol.source;
-      if (!source) {
-        return;
-      }
-      pushIfPresent(candidates, {
-        id: `src-${index + 1}`,
-        section: "symbols",
-        title: `Target source: ${symbol.file}#${symbol.name}`,
-        priority: "high",
-        reason: "exact, hash-verified source of a declaration this task edits (tier SRC); edit this, do not re-read the file",
-        body: [
-          `\`${symbol.file}:${source.line}-${source.endLine}\` (sha256:${source.hash.slice(0, 12)})`,
-          "",
-          "```",
-          source.text,
-          "```",
-        ].join("\n"),
-      });
-    });
-
-  pushIfPresent(candidates, {
-    id: "impacted-tests",
-    section: "impacted-tests",
-    title: "Impacted tests",
-    priority: "medium",
-    reason: "existing tests that cover the allowed paths and must stay green",
-    body: (codeContext?.impacted_tests ?? []).map((file) => `- \`${file}\``).join("\n"),
-  });
-
-  pushIfPresent(candidates, {
-    id: "architecture-nodes",
-    section: "architecture",
-    title: "Architecture nodes",
-    priority: "medium",
-    reason: "architecture-graph nodes owning the allowed paths; the change must stay inside them",
-    body: (codeContext?.architecture_nodes ?? []).map((node) => `- ${node}`).join("\n"),
-  });
-
-  pushIfPresent(candidates, {
-    id: "architecture-rules",
-    section: "architecture",
-    title: "Architecture boundaries",
-    priority: "medium",
-    reason: "boundary rules that constrain this change",
-    body: pack.architecture_rules.map((rule) => `- ${rule}`).join("\n"),
-  });
-
-  pushIfPresent(candidates, {
-    id: "out-of-scope",
-    section: "out-of-scope",
-    title: "Out of scope",
-    priority: "low",
-    reason: "explicit non-goals declared by the task",
-    body: pack.out_of_scope.map((entry) => `- ${entry}`).join("\n"),
-  });
-
-  return candidates;
-}
-
-function pushIfPresent(candidates: Candidate[], candidate: Candidate): void {
-  if (candidate.body.trim().length > 0) {
-    candidates.push(candidate);
-  }
-}
-
-// Spec fragments are stored in the pack as `${ref}\n${text}` (see assemble.ts). A fragment
-// without a body still yields a usable ref-only element.
-function splitSpecFragment(fragment: string): { ref: string; text: string } {
-  const newline = fragment.indexOf("\n");
-  if (newline === -1) {
-    return { ref: fragment.trim(), text: fragment.trim() };
-  }
-  return { ref: fragment.slice(0, newline).trim(), text: fragment.slice(newline + 1).trim() };
-}
-
-function collapseWhitespace(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-// `file#name:line-endLine` — the compact symbol reference used by the SIG tier. The range
-// is omitted when the index carries no line information for that symbol.
-function symbolRef(symbol: {
-  file: string;
-  name: string;
-  line?: number | undefined;
-  endLine?: number | undefined;
-}): string {
-  const range = symbol.line === undefined ? "" : `:${symbol.line}-${symbol.endLine ?? symbol.line}`;
-  return `${symbol.file}#${symbol.name}${range}`;
-}
-
 function lastIndexOfPriority(candidates: Candidate[], priority: ExecutionContextPriority): number {
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     if (candidates[index]?.priority === priority) {
@@ -348,6 +163,9 @@ function toElement(candidate: Candidate): ExecutionContextElement {
     source_hash: sourceHash(candidate),
     estimated_chars: candidate.body.length,
     body: candidate.body,
+    trust: candidate.provenance === undefined ? "trusted" : "untrusted",
+    ...(candidate.provenance === undefined ? {} : { provenance: candidate.provenance }),
+    ...(candidate.truncated === true ? { truncated: true } : {}),
   };
 }
 
@@ -358,6 +176,11 @@ function sourceHash(candidate: Candidate): string {
 // The fingerprint covers element identity and size, not the rendered layout, so it stays
 // stable across cosmetic changes to the markdown while still changing whenever the
 // contents, the order, the priorities or the applied limit change.
+//
+// `trust`, `provenance` ir `truncated` čia įtraukti SĄMONINGAI, nors jie ir nekeičia kūno
+// baitų: jie keičia, ką tas kūnas REIŠKIA. Blokas, tapęs `untrusted`, arba fragmentas, tapęs
+// nukirptu, yra kitas dokumentas — o be jų fingerprint'as sakytų „tas pats", ir bet kuris
+// skirtumo ieškantis skaitytojas to pokyčio nepamatytų.
 function computeFingerprint(pack: ContextPack, elements: ExecutionContextElement[], maxChars: number): string {
   const identity = JSON.stringify({
     version: EXECUTION_CONTEXT_VERSION,
@@ -370,6 +193,10 @@ function computeFingerprint(pack: ContextPack, elements: ExecutionContextElement
       element.priority,
       element.source_hash,
       element.estimated_chars,
+      element.trust,
+      element.provenance?.type ?? "",
+      element.provenance?.source ?? "",
+      element.truncated === true,
     ]),
   });
   return sha256Hex(identity).slice(0, 16);
@@ -388,6 +215,9 @@ function renderDocument(
   maxChars: number,
   fingerprint: string,
 ): string {
+  // Taisyklė yra NEIŠMETAMA ir stovi PRIEŠ bet kokį cituojamą turinį: vartas, kuris ateina po
+  // duomenų, jau nebėra vartas. Ji renderinama net kai `untrusted` elementų nėra — tada ji
+  // kainuoja kelis šimtus simbolių, bet dokumento reikšmė nepriklauso nuo to, kas į jį pateko.
   const header = [
     "# Execution context",
     "",
@@ -397,17 +227,36 @@ function renderDocument(
     `- fingerprint: \`${fingerprint}\``,
     `- char_limit: ${maxChars}`,
     `- elements: ${kept.length} kept, ${droppedCount} dropped (lowest priority first)`,
+    "",
+    ...TRUST_BOUNDARY_RULE.split("\n").map((line) => `> ${line}`),
   ].join("\n");
 
   return [header, ...kept.map(renderBlock)].join("\n\n") + "\n";
 }
 
 function renderBlock(candidate: Candidate): string {
+  const provenance = candidate.provenance;
   const meta = [
     `priority: ${candidate.priority}`,
     `reason: ${candidate.reason}`,
     `source: sha256:${sourceHash(candidate)}`,
     `chars: ${candidate.body.length}`,
-  ].join(" | ");
-  return `## ${candidate.title}\n\n> ${meta}\n\n${candidate.body}`;
+    `trust: ${provenance === undefined ? "trusted" : "untrusted"}`,
+    ...(candidate.truncated === true ? ["truncated: yes"] : []),
+  ];
+
+  const notice = candidate.notice === undefined ? "" : `${candidate.notice}\n\n`;
+
+  if (provenance === undefined) {
+    return `## ${candidate.title}\n\n> ${meta.join(" | ")}\n\n${notice}${candidate.body}`;
+  }
+
+  const { text, escaped } = fenceBody(candidate.body);
+  if (escaped > 0) {
+    meta.push(`escaped_fences: ${escaped}`);
+  }
+  const open =
+    `${OPEN_TAG_PREFIX} type="${attributeValue(provenance.type)}"` +
+    ` source="${attributeValue(provenance.source)}" trust="untrusted">`;
+  return `## ${candidate.title}\n\n> ${meta.join(" | ")}\n\n${notice}${open}\n${text}\n${CLOSE_TAG}`;
 }

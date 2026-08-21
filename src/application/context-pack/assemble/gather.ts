@@ -170,7 +170,10 @@ async function gatherFreshCodeContext(
       if (slice.ok) {
         sourceSlices.set(symbol.id, slice.value);
       } else if (slice.error.code !== "missing_range") {
-        sliceNotes.push(`source slice unavailable for ${symbol.id}: ${slice.error.code}`);
+        // Simbolio id ateina iš kodo indekso, t. y. iš repozitorijos. Pastaba yra MŪSŲ tekstas
+        // (`trusted`), tad į jį įdėta svetima dalis renderinama backtick'uose — struktūrizuota,
+        // o ne laisva.
+        sliceNotes.push(`source slice unavailable for \`${symbol.id}\`: ${slice.error.code}`);
       }
     }
   }

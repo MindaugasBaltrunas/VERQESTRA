@@ -42,6 +42,7 @@ export * from "./git/worktrees/worktree-branch-integration.js";
 // adapteris (atskiras nuo nodeFsAdapter — listDirectory formos konfliktas) ir
 // state-history (resolveHumanReviewStatus — FinalAuditPorts tiekėjas).
 export * from "./fs/code-intelligence-fs-adapter.js";
+export * from "./fs/project-containment.js";
 export * from "./persistence/runtime-attempt-schema.js";
 export * from "./persistence/runtime-artifact-io.js";
 export * from "./persistence/runtime-artifact-store.js";

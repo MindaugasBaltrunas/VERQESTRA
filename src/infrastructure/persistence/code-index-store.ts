@@ -2,7 +2,7 @@
 // AG_loop formatu: files/symbols/edges — JSONL (po vieną JSON.stringify eilutę + galinis
 // \n), manifest.json — pretty JSON per atominį rašymą. VERQESTRA kelias:
 // vq/state/code-index. Freshness skenas — application/code-intelligence scanner per
-// codeIntelligenceFsAdapter.
+// createCodeIntelligenceFsAdapter.
 
 import path from "node:path";
 import { computeSourceHash, scanProjectFiles } from "../../application/code-intelligence/indexing/scanner.js";
@@ -16,7 +16,7 @@ import {
   type CodeIndexSymbol,
 } from "../../application/code-intelligence/indexing/types.js";
 import { toPrettyJson } from "../../shared/json.js";
-import { codeIntelligenceFsAdapter } from "../fs/code-intelligence-fs-adapter.js";
+import { createCodeIntelligenceFsAdapter } from "../fs/code-intelligence-fs-adapter.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 
 export function codeIndexDir(runtimeRoot: string): string {
@@ -69,7 +69,7 @@ export async function checkCodeIndexFreshness(projectRoot: string, runtimeRoot: 
     };
   }
 
-  const files = await scanProjectFiles(codeIntelligenceFsAdapter, projectRoot);
+  const files = await scanProjectFiles(createCodeIntelligenceFsAdapter(projectRoot), projectRoot);
   const sourceHash = await computeSourceHash(files);
   if (sourceHash !== currentManifest.source_hash) {
     return { ok: false, reason: "code index is stale", manifest: currentManifest };

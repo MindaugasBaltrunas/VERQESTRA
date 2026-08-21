@@ -110,6 +110,12 @@ export type ClaudeDispatchPorts = {
   resolveExistingTaskFile(taskFileArg: string): Promise<string>;
   /** RAW turinys arba "" kai failo nėra. */
   readOptionalFile(absolutePath: string): Promise<string>;
+  /**
+   * BAITAI, ne tekstas: SRC pjūvių šviežumas tikrinamas per failo sha256, o teksto skaitymas
+   * BOM ar ne-UTF8 turinį iškraipytų ir duotų KLAIDINGĄ „pasenęs" verdiktą — o toks verdiktas
+   * čia reiškia atsisakytą dispatch'ą. `undefined` — failo nėra arba jis neperskaitomas.
+   */
+  readFileBytesIfExists(absolutePath: string): Promise<Uint8Array | undefined>;
   /** Generiniai fs efektai prelaunch žingsniui (per portą — ne tiesioginis node:fs). */
   writeText(absolutePath: string, text: string): Promise<void>;
   removeIfExists(absolutePath: string): Promise<void>;

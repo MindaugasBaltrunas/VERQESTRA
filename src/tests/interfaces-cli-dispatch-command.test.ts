@@ -16,6 +16,7 @@ import type {
   DispatchAttemptView,
   DispatchLaunchResultView,
 } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-ports.js";
+import { buildExecutionContextMarker } from "../application/context-pack/execution-context-fingerprint.js";
 import { USAGE_ERROR_EXIT_CODE } from "../shared/exit-codes.js";
 
 const ROOT = path.resolve("/repo");
@@ -86,6 +87,10 @@ function makeHarness(input: {
     ensureDirs: async () => {},
     resolveExistingTaskFile: async () => TASK_FILE,
     readOptionalFile: async (p) => files.get(p.replace(/\\/g, "/")) ?? "",
+    readFileBytesIfExists: async (p) => {
+      const text = files.get(p.replace(/\\/g, "/"));
+      return text === undefined ? undefined : new TextEncoder().encode(text);
+    },
     writeText: async (p, text) => {
       writes.set(p.replace(/\\/g, "/"), text);
     },
@@ -277,6 +282,56 @@ test("claudeDispatch: happy path — seka iki finalize, nonce iš porto, exit i�
   // Prelaunch per portus: preview + prompt failas + current-task-id.
   assert.ok(h.writes.has(path.join(RUNTIME, "supervisor", "claude-visible-prompt.md").replace(/\\/g, "/")));
   assert.equal(h.writes.get(path.join(RUNTIME, "state", "current-task-id").replace(/\\/g, "/")), "0042-demo\n");
+});
+
+// PILNA grandinė, ne izoliuotas vienetas: realus context-pack su SRC pjūviu, pakeistas šaltinio
+// failas, ir tvirtinimas, kad procesas NEPALEIDŽIAMAS. Artefaktų fingerprint'ai čia SUTAMPA —
+// task tekstas ir pack'as nepakitę — tad vienintelė priežastis atmesti yra pats pjūvio šviežumas.
+// Būtent to izoliuoti testai neįrodė: jie tikrino funkciją, ne kelią.
+test("claudeDispatch: pasenęs SRC pjūvis → refuse, procesas NEPALEIDŽIAMAS", async () => {
+  const packJson = JSON.stringify({
+    task_id: "0042-demo",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+    code_context: {
+      enabled: true,
+      symbol_fragments: [
+        {
+          id: "a#x",
+          file: "src/a.ts",
+          name: "x",
+          reason: "exported",
+          tier: "SRC",
+          // Hash'as, kurio dabartinis failas NEATITIKS.
+          source: { line: 1, endLine: 2, hash: "a".repeat(64), text: "senas pjūvis" },
+        },
+      ],
+    },
+  });
+  const marker = buildExecutionContextMarker({
+    taskId: "0042-demo",
+    taskText: TASK_TEXT,
+    contextPackText: packJson,
+  });
+
+  const stale = makeHarness({
+    files: {
+      [TASK_FILE.replace(/\\/g, "/")]: TASK_TEXT,
+      [path.join(RUNTIME, "supervisor", "execution-context.md").replace(/\\/g, "/")]: `${marker}\n\n# Execution context\n`,
+      [path.join(RUNTIME, "supervisor", "context-pack.json").replace(/\\/g, "/")]: packJson,
+      // Šaltinis diske — kitoks nei pack'e užfiksuotas snapshot'as.
+      [path.join(ROOT, "src", "a.ts").replace(/\\/g, "/")]: "export function x(): void {}\n",
+    },
+  });
+
+  assert.equal(await claudeDispatch(["t"], stale.ports), USAGE_ERROR_EXIT_CODE);
+  assert.equal(stale.launchCalls.length, 0, "procesas NEPALEISTAS su pasenusiu pjūviu");
+  assert.ok(
+    stale.errs.some((line) => line.includes("Execution context gate refused dispatch")),
+    "atmetimas paskelbtas operatoriui",
+  );
 });
 
 test("claudeDispatch: biudžeto refuse → USAGE_ERROR be paleidimo; required konteksto refuse", async () => {

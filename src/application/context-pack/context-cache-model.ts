@@ -8,7 +8,41 @@ import { z } from "zod";
 
 const nonEmptyString = z.string().trim().min(1);
 
-export const CONTEXT_CACHE_VERSION = 1;
+/**
+ * Cache įrašo formato IR pack'o semantikos versija. Dalyvauja dviejuose vartuose: fingerprint'e
+ * (kitas raktas — kitas failas) ir `lookupContextCache` patikroje (senesnė versija evict'inama).
+ *
+ * KELTI PRIVALOMA, kai pasikeičia bet kas, kas veikia SUKURTO pack'o turinį, net jei šaltinių
+ * failai nepasikeitė. Šaltinių hash'ai to nepagauna: jie mato duomenis, ne kodą. Nepakėlus,
+ * senas įrašas grįžta kaip `hit` ir tyliai anuliuoja pataisymą.
+ *
+ * Sąrašas, kas reikalauja kėlimo:
+ *  - retrieval semantika (antraščių sekcijos, katalogų išskleidimas, ribų vartai, kirpimas);
+ *  - reitingavimo pakopos ar tvarka;
+ *  - biudžeto dalijimo taisyklės;
+ *  - `contextPackSchema` laukų prasmė (naujas laukas su default'u parsina SENĄ įrašą tyliai —
+ *    būtent taip `spec_fragment_truncated` būtų atrodęs kaip „nenukirpta").
+ *
+ * NEreikia kelti dėl `execution-context.md` renderio: jis kiekvieno hit'o metu generuojamas
+ * IŠ NAUJO iš kešuoto pack'o, tad render'io pakeitimai pasiekia ir senus įrašus.
+ *
+ * Istorija:
+ *  1 — pradinė (etalono paritetas).
+ *  2 — 2026-08-21 RAG auditas, pirmoji banga: antraščių sekcijos su poskyriais, Markdown rūšis
+ *      pagal galutinį kelią, projekto ribų vartas, kirpimas ties pastraipa,
+ *      `spec_fragment_truncated` laukas, penkios reitingavimo pakopos sutrauktos į tris.
+ *  3 — tos pačios dienos ANTROJI banga, po 2 kėlimo. Kelti reikėjo dar kartą, nes pasikeitė
+ *      pack'o TURINYS, o ne tik kodas aplink jį:
+ *        • `allowed_paths` nebekarpomi iki `max_files` — v2 įrašas grąžintų NUKIRPTĄ redagavimo
+ *          ribą, t. y. worker'iui melagingai susiaurintą leidimų sąrašą;
+ *        • ne-Markdown `#anchor` dabar yra `headingMiss`, tad keičiasi ir pakopa, ir kas
+ *          išgyvena biudžetą, ir `spec_fragment_warnings`;
+ *        • įrašo forma gavo `spec_dropped_count` ir `code_context_dropped_count` — senas
+ *          įrašas juos parsintų kaip 0, t. y. tyliai praneštų „nieko neprarasta".
+ *      Nė vieno iš šių pakeitimų `PACK_SEMANTICS_DESCRIPTOR` nepagauna: jie nekeičia jokios
+ *      derinimo konstantos. Būtent tam ši versija ir yra RANKINIS kontraktas.
+ */
+export const CONTEXT_CACHE_VERSION = 3;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.
@@ -54,6 +88,10 @@ export const contextCacheEntrySchema = z
     // Carried so a cache hit reports the same truncation telemetry as the assembly that
     // produced it; it cannot be derived from the pack afterwards.
     dropped_item_count: z.number().int().nonnegative().default(0),
+    // Retrieval stadijos praradimai — ta pati priežastis kaip `dropped_item_count`: hit'as
+    // privalo pranešti tą pačią telemetriją kaip surinkimas, o iš pack'o to nebeišvesi.
+    spec_dropped_count: z.number().int().nonnegative().default(0),
+    code_context_dropped_count: z.number().int().nonnegative().default(0),
   })
   .passthrough();
 export type ContextCacheEntry = z.infer<typeof contextCacheEntrySchema>;

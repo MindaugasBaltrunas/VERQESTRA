@@ -7,7 +7,12 @@
 import path from "node:path";
 import { parseWithSchema } from "../../../shared/schema.js";
 import type { ContextCompressionFeature } from "../../../domain/policies/compression/features.js";
-import { contextPackSchema, type ContextPack, type ExecutionContext } from "../context-pack-schema.js";
+import {
+  contextPackSchema,
+  SPEC_HEADING_MISS_WARNING,
+  type ContextPack,
+  type ExecutionContext,
+} from "../context-pack-schema.js";
 import { buildExecutionContextMarker } from "../execution-context-fingerprint.js";
 import {
   appendContextSizeMetrics,
@@ -55,6 +60,10 @@ export async function persistContextPack(input: {
   maxContextChars: number;
   cacheStatus: ContextCacheStatus;
   droppedItemCount: number;
+  /** Retrieval stadijos praradimai — atskirai nuo budgeter'io, kad priskyrimas išliktų. */
+  specDroppedCount: number;
+  /** Code-context kopėčių visiškai numesti simboliai (pakopos nuleidimas neskaičiuojamas). */
+  codeContextDroppedCount: number;
   codeContextRebuilt: boolean;
   // Canary cohort marker (task 0031). Passed by both call sites: a cache HIT is still a
   // real dispatch of this task, so leaving it unmarked would silently shrink the canary arm.
@@ -111,8 +120,14 @@ export async function persistContextPack(input: {
       maxContextChars: input.maxContextChars,
       specFragmentCount: pack.spec_fragments.length,
       codeContextItemCount,
-      headingMissCount: pack.spec_fragment_warnings.length,
+      // TIK antraščių nepataikymai: nuo A4 tame pačiame masyve guli ir paėmimo/biudžeto
+      // praradimai, tad `length` čia išpūstų metriką ir sumaišytų dvi skirtingas klases.
+      headingMissCount: pack.spec_fragment_warnings.filter((warning) =>
+        warning.startsWith(SPEC_HEADING_MISS_WARNING),
+      ).length,
       droppedItemCount: input.droppedItemCount,
+      specDroppedCount: input.specDroppedCount,
+      codeContextDroppedCount: input.codeContextDroppedCount,
       codeContextRebuilt: input.codeContextRebuilt,
       cacheStatus: input.cacheStatus,
       selectedChars: encoded.length,

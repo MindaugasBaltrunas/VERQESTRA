@@ -12,8 +12,7 @@ import { resolveDispatchTaskFile, taskFileStem } from "../../../domain/tasks/ind
 import { isContextCompressionFeatureEnabledForTask } from "../../../domain/policies/compression/canary.js";
 import type { CodeIntelligenceFileSystemPort } from "../../code-intelligence/ports.js";
 import { checkCodeIndexFreshness, codeIndexPath } from "../../code-intelligence/store/code-index-store.js";
-import { retrieveSpecFragments, type RetrievedFragment } from "../../code-intelligence/retrieval/spec-fragments.js";
-import { rankRetrievalCandidates } from "../../code-intelligence/retrieval/ranking.js";
+import type { RetrievedFragment } from "../../code-intelligence/retrieval/spec-fragments.js";
 import { loadContextBudget } from "../../policy-governance/context-budget.js";
 import { loadContextPackToolFlags } from "../../policy-governance/tool-budget-config.js";
 import { loadAgentPolicy } from "../../policy-governance/agent-policy.js";
@@ -38,7 +37,8 @@ import { CODE_INDEX_STALE, CODE_INDEX_UNUSED } from "../context-cache-model.js";
 import { estimateTokensFromChars } from "../metrics.js";
 import { COMPRESSION_FALLBACK_SIZE, compileWorkerPromptTaskForDispatch } from "../worker-prompt-compilation.js";
 import { systemClock, type ContextCachePort, type ContextPackFileSystemPort } from "../ports.js";
-import { explicitAllowedPaths, parseTaskMarkdown, retrievalQuery, toRetrievalCandidate } from "./parse-task.js";
+import { explicitAllowedPaths, parseTaskMarkdown } from "./parse-task.js";
+import { runSpecPhase } from "./spec-phase.js";
 import {
   autoGatherCodeContextCandidates,
   gatherCodeContextCandidates,
@@ -175,6 +175,8 @@ export async function assembleContextPack(
           maxContextChars: budget.max_context_chars,
           cacheStatus: "hit",
           droppedItemCount: lookup.entry.dropped_item_count,
+          specDroppedCount: lookup.entry.spec_dropped_count,
+          codeContextDroppedCount: lookup.entry.code_context_dropped_count,
           codeContextRebuilt: false,
           canaryFeatures,
           canarySizeFallback,
@@ -185,13 +187,15 @@ export async function assembleContextPack(
     }
   }
 
-  const specFragments = await retrieveSpecFragments(
-    deps.codeFs,
-    root,
-    parsedTask.specSources,
-    budget.max_spec_fragments,
-    Math.max(0, budget.max_context_chars - taskText.length),
-  );
+  // Visa spec fragmentų fazė (paėmimas → reitingavimas → biudžetas → pranešimai) — `spec-phase`.
+  const specPhase = await runSpecPhase({
+    codeFs: deps.codeFs,
+    projectRoot: root,
+    parsedTask,
+    specCharBudget: Math.max(0, budget.max_context_chars - taskText.length),
+    maxSpecFragments: budget.max_spec_fragments,
+  });
+
   // The policy file may carry its own `max_context_chars` ceiling, while the pack below is
   // measured and enforced against the PER-TASK budget the optimizer produced (task 0006).
   const selectionLimits = effectiveContextSelectionLimits(
@@ -217,22 +221,12 @@ export async function assembleContextPack(
   // call trims every droppable context source against one char budget.
   const fragmentKey = (fragment: RetrievedFragment): string => `${fragment.ref}\n${fragment.text}`;
 
-  // Canonical retrieval ranking (spec RAG-1): the ranking decides the ORDER in which spec
-  // fragments enter the budget below, so when the budget is tight a whole-document fallback
-  // is given up before an exact heading match.
-  const rankedFragments = rankRetrievalCandidates(specFragments.map(toRetrievalCandidate), {
-    query: retrievalQuery(parsedTask),
-    evidencePaths: targets,
-  });
-  const orderedFragments = rankedFragments
-    .map((ranked) => specFragments[ranked.index])
-    .filter((fragment): fragment is RetrievedFragment => fragment !== undefined);
-  const fragmentByKey = new Map(orderedFragments.map((fragment) => [fragmentKey(fragment), fragment]));
+  const fragmentByKey = new Map(specPhase.kept.map((fragment) => [fragmentKey(fragment), fragment]));
 
   // allowed_paths are the authoritative edit boundary: always rendered in full and never
   // trimmed — accounted for as fixed reserved overhead, not as a droppable candidate here.
   const candidateSet: GraphFirstContextCandidates = {
-    specRefs: orderedFragments.map(fragmentKey),
+    specRefs: specPhase.kept.map(fragmentKey),
     architectureNodes: codeCandidates?.architectureNodes ?? [],
     allowedPaths: [],
     codeGraphNeighbors: codeCandidates?.codeGraphNeighbors ?? [],
@@ -273,12 +267,20 @@ export async function assembleContextPack(
         task_id: taskId,
         phase: "implementation",
         goal: parsedTask.goal,
-        allowed_paths: parsedTask.allowedPaths.slice(0, budget.max_files),
+        // NEKARPOMA. `allowed_paths` yra redagavimo RIBA, o renderis ją taip ir deklaruoja:
+        // „no file outside this list may be created, changed or deleted". Nukirptas sąrašas
+        // paverčia tą teiginį melu — worker'iui devintas leistinas failas atrodo uždraustas.
+        //
+        // `max_files` šioje sistemoje NĖRA karpymo limitas: preflight jį naudoja kaip
+        // ŽMOGAUS PERŽIŪROS slenkstį (`context files N > M` → review). Tad per didelė apimtis
+        // sustabdoma anksčiau ir sąmoningai, o jei žmogus ją patvirtino, riba privalo atkeliauti
+        // pilna. Netilpus, `renderExecutionContext` meta garsiai — ir tai teisingas gedimas,
+        // nes tyliai nukirsta riba yra pavojingesnė už nutrūkusį dispatch'ą.
+        allowed_paths: parsedTask.allowedPaths,
         agents,
         spec_fragments: keptFragments.map(fragmentKey),
-        spec_fragment_warnings: keptFragments
-          .filter((fragment) => fragment.headingMiss)
-          .map((fragment) => `spec heading not found: ${fragment.ref} (fell back to whole-file text, bounded by context budget)`),
+        spec_fragment_truncated: keptFragments.filter((fragment) => fragment.truncated).map((fragment) => fragment.ref),
+        spec_fragment_warnings: specPhase.warnings,
         acceptance_criteria: parsedTask.acceptanceCriteria,
         ...(parsedTask.stopCondition ? { stop_condition: parsedTask.stopCondition } : {}),
         architecture_rules: codeContext?.notes ?? [],
@@ -321,6 +323,12 @@ export async function assembleContextPack(
     selection.impacted_tests.length +
     selection.docs_snippets.length;
 
+  // Kopėčių numesti simboliai iki šiol buvo matomi TIK `reduction.note` eilutėje pack'o
+  // pastabose — žmogui skirtame tekste, ne metrikoje. Trečias praradimų šaltinis, greta
+  // budgeter'io ir retrieval'o, ir jam reikia savo skaičiaus dėl tos pačios priežasties:
+  // sulietas skaičius nebeleistų pasakyti, KURI stadija prarado kontekstą.
+  let codeContextDroppedCount = 0;
+
   // The hard limit as a DECISION, not an exception (task 0006): kai rezervas viršija
   // biudžetą, code context'as numetamas deterministiškai — po vieną ladder rungą,
   // permatuojant po kiekvieno ir sustojant ties pirmu tilpusiu.
@@ -336,6 +344,10 @@ export async function assembleContextPack(
       // both the previous rung's note and the per-symbol tier-downgrade notes.
       codeCandidates.symbolFragments = applyCodeContextReduction(fullSymbols, reduction);
       codeCandidates.notes = [...notesBeforeTiers, reduction.note];
+      // Skaičiuojami TIK visiškai numesti simboliai. Pakopos nuleidimas (SRC → SIG → REF) NĖRA
+      // praradimas: simbolis lieka pack'e, tik su mažiau detalių. Kopėčios rungas yra KUMULIATYVI
+      // būsena, tad reikšmė perrašoma, o ne kaupiama.
+      codeContextDroppedCount = reduction.dropped.length;
       reservedChars = encode(buildPack(EMPTY_SELECTION)).length;
       if (reservedChars <= budget.max_context_chars) {
         break;
@@ -371,6 +383,8 @@ export async function assembleContextPack(
       selectedChars: encoded.length,
       selectedTokenEstimate: estimateTokensFromChars(encoded.length),
       droppedItemCount: selection.dropped.length,
+      specDroppedCount: specPhase.droppedCount,
+      codeContextDroppedCount,
     });
   }
 
@@ -382,6 +396,8 @@ export async function assembleContextPack(
     maxContextChars: budget.max_context_chars,
     cacheStatus: cacheEnabled ? "miss" : "bypass",
     droppedItemCount: selection.dropped.length,
+    specDroppedCount: specPhase.droppedCount,
+    codeContextDroppedCount,
     codeContextRebuilt: codeCandidates?.rebuilt ?? false,
     canaryFeatures,
     canarySizeFallback,

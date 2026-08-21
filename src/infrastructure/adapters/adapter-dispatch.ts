@@ -92,6 +92,15 @@ export function buildAdapterExecutionRequest(options: ClaudeAdapterDispatchOptio
     ...(executionContext === undefined ? {} : { executionContext }),
     ...(contextPackText === undefined ? {} : { contextPackText }),
     isRepair: isRepairDispatchPrompt(taskText),
+    // Adapteris gauna TIK eilutes — nei `projectRoot`, nei failų sistemos — tad SRC pjūvių
+    // šviežumo patikrinti negali ir sako tai atvirai.
+    //
+    // Tai NĖRA spraga: vartas pats pažiūri, ar pack'e tų pjūvių apskritai yra, ir jei yra —
+    // konteksto neprisega. Tad šis kelias degraduoja tik tada, kai realiai turi ką prarasti, ir
+    // garantija nepriklauso nuo to, ar `symbol_slices` įjungtas. Norint čia gauti PILNĄ kontekstą
+    // su SRC pjūviais, šviežumą privalo suskaičiuoti kvietėjas, turintis diską — kaip tai daro
+    // CLI kelias (`claude-dispatch/command`).
+    staleSourceSlices: "unchecked",
   });
   if (canonical.kind === "refuse") {
     return { kind: "refuse", reason: canonical.reason };

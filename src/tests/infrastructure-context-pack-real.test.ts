@@ -1,6 +1,6 @@
 // VQ-40A auditas (WBR-4 acceptance #5) — antras context/token matavimas su REALIU
 // context-pack assembly per produkcinius E4 adapterius: nodeFsAdapter dengia
-// ContextPackFileSystemPort, codeIntelligenceFsAdapter — CodeIntelligenceFileSystemPort.
+// ContextPackFileSystemPort, createCodeIntelligenceFsAdapter — CodeIntelligenceFileSystemPort.
 // Skirtingai nuo context-pack-assemble.test.ts (testų helper portai — portų kontrakto
 // etalonas), čia pack'ą surenka TIE PATYS adapteriai, kuriuos gaus E5 kompozicija.
 
@@ -15,15 +15,18 @@ import type { CodeIntelligenceFileSystemPort } from "../application/code-intelli
 import { buildCodeIndex } from "../application/code-intelligence/indexing/builder.js";
 import { DEFAULT_CONTEXT_BUDGET } from "../application/policy-governance/context-budget.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
-import { codeIntelligenceFsAdapter } from "../infrastructure/fs/code-intelligence-fs-adapter.js";
+import { createCodeIntelligenceFsAdapter } from "../infrastructure/fs/code-intelligence-fs-adapter.js";
 
 // KRYPTIES ĮRODYMO dalis, kuri kompiliuojasi arba ne: produkciniai adapteriai privalo
 // STRUKTŪRIŠKAI tenkinti E3 portus be jokių wrapper'ių. Jei portas pasikeis nesuderinamai,
 // šios dvi eilutės sulaužys typecheck dar prieš bet kokį runtime testą.
 const contextPackFs: ContextPackFileSystemPort = nodeFsAdapter;
-const codeFs: CodeIntelligenceFileSystemPort = codeIntelligenceFsAdapter;
+// code-intelligence adapteris yra ŠAKNIES APIMTIES (containment vartas), tad kontraktą
+// tenkina jo gamykla, ne singleton'as.
+const makeCodeFs: (projectRoot: string) => CodeIntelligenceFileSystemPort = createCodeIntelligenceFsAdapter;
 
 const root = await mkdtemp(path.join(tmpdir(), "vq-40a-real-"));
+const codeFs = makeCodeFs(root);
 after(async () => {
   await rm(root, { recursive: true, force: true });
 });

@@ -3,7 +3,9 @@
 // vartai ir session evidencijos tiekėjai.
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { relative } from "node:path";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -18,6 +20,7 @@ import {
   createContextCacheAdapter,
   invalidateContextCacheForSources,
   lookupContextCache,
+  pruneStaleContextCacheEntries,
   saveContextCacheEntry,
 } from "../infrastructure/persistence/context-cache-store.js";
 import {
@@ -121,6 +124,142 @@ test("context-cache: absent sentinelis, save/hit, code-index drift evict'ina, in
   assert.deepEqual(invalidated.kept, []);
 });
 
+// A2 regresijos tinklas. Change KATALOGO ref'as anksčiau hash'uodavosi per `readFile` ant
+// katalogo → EISDIR → `absent` KONSTANTA, tad `proposal.md` redagavimas fingerprint'o
+// nekeisdavo ir kešas atiduodavo pasenusį pack'ą. Būtent tie ref'ai, dėl kurių egzistuoja
+// visas CHANGE_DIR_FILES išskleidimas, buvo vieninteliai, kurių turinio kešas nematė.
+test("context-cache: change-katalogo ref'as seka realų proposal.md turinį (A2)", async () => {
+  const changeDir = path.join(projectRoot, "AG", "openspec", "changes", "a2");
+  await nodeFsAdapter.writeTextFile(path.join(changeDir, "proposal.md"), "pirma redakcija\n");
+
+  const collect = async () =>
+    await collectContextCacheSources(projectRoot, runtimeRoot, {
+      taskPath: path.join(projectRoot, "AG", "tasks", "queue", "t2.md"),
+      taskText: "# Task t2",
+      targets: [],
+      specSources: ["AG/openspec/changes/a2"],
+    });
+
+  const firstEdition = await collect();
+  const specBefore = firstEdition.find((source) => source.kind === "spec");
+  assert.notEqual(specBefore?.hash, CONTEXT_CACHE_ABSENT, "katalogo ref'as nebėra amžinas sentinelis");
+  assert.equal(
+    specBefore?.path,
+    "AG/openspec/changes/a2/proposal.md",
+    "įrašomas IŠSKLEISTAS kelias — operatorius mato, kurio failo tapatybė saugo įrašą",
+  );
+
+  await nodeFsAdapter.writeTextFile(path.join(changeDir, "proposal.md"), "antra redakcija\n");
+  const secondEdition = await collect();
+  assert.notEqual(
+    computeContextCacheKey(secondEdition).fingerprint,
+    computeContextCacheKey(firstEdition).fingerprint,
+    "proposal.md redagavimas privalo invaliduoti kešą",
+  );
+});
+
+// Kešas skaito per `node:fs` TIESIOGIAI, tad code-intelligence adapterio vartas jam nebėga —
+// containment čia privalo būti savas. Anksčiau buvo tik leksinis, o komentaras tvirtino, kad
+// symlink'us pagauna kitas adapteris; symlink'as projekto viduje, rodantis į išorę, praeidavo
+// ir svetimas failas būdavo perskaitytas bei hash'uotas.
+test("context-cache: symlink į išorę nehash'uojamas, o fiksuojamas absent (C10)", async (t) => {
+  const outside = await mkdtemp(path.join(tmpdir(), "vq-cache-out-"));
+  try {
+    await nodeFsAdapter.writeTextFile(path.join(outside, "slaptas.md"), "svetimas turinys\n");
+    try {
+      await symlink(path.join(outside, "slaptas.md"), path.join(projectRoot, "nuoroda.md"), "file");
+    } catch {
+      t.skip("symlink kūrimas neleidžiamas šioje aplinkoje");
+      return;
+    }
+
+    const sources = await collectContextCacheSources(projectRoot, runtimeRoot, {
+      taskPath: path.join(projectRoot, "AG", "tasks", "queue", "t3.md"),
+      taskText: "# Task t3",
+      targets: ["nuoroda.md"],
+      specSources: ["nuoroda.md"],
+    });
+
+    // Leksiškai `nuoroda.md` yra projekto viduje — būtent todėl senasis vartas jį praleisdavo.
+    for (const kind of ["source", "spec"] as const) {
+      assert.equal(
+        sources.find((source) => source.kind === kind)?.hash,
+        CONTEXT_CACHE_ABSENT,
+        `${kind}: už ribų rodanti nuoroda neturi būti perskaityta`,
+      );
+    }
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+// Prune perhash'uoja kelius iš SAUGOMO įrašo, tad juos gali nukreipti ne tik symlink'as, bet ir
+// sugadintas cache failas. Fikstūra sudėliota taip, kad BE varto prune pasakytų „šviežia": įrašo
+// hash'as sutampa su tikru symlink'o taikinio turiniu. Su vartu kelias neskaitomas, o įrašas
+// numetamas — nežinia apie evidenciją negali reikšti „vis dar galioja".
+test("context-cache prune: už ribų vedantis įrašo kelias numetamas, o ne perskaitomas (C14)", async (t) => {
+  const outside = await mkdtemp(path.join(tmpdir(), "vq-prune-out-"));
+  try {
+    const target = path.join(outside, "svetimas.md");
+    await nodeFsAdapter.writeTextFile(target, "svetimas turinys\n");
+    try {
+      await symlink(target, path.join(projectRoot, "prune-nuoroda.md"), "file");
+    } catch {
+      t.skip("symlink kūrimas neleidžiamas šioje aplinkoje");
+      return;
+    }
+
+    const realHash = createHash("sha256").update(await readFile(target)).digest("hex");
+    const sources = [{ kind: "source" as const, path: "prune-nuoroda.md", hash: realHash }];
+    const key = computeContextCacheKey(sources);
+    await saveContextCacheEntry(runtimeRoot, {
+      key,
+      taskId: "t-prune",
+      contextPackJson: "{}",
+      codeIndexDescriptor: CODE_INDEX_UNUSED,
+      selectedChars: 1,
+      selectedTokenEstimate: 1,
+      droppedItemCount: 0,
+    });
+
+    const pruned = await pruneStaleContextCacheEntries(projectRoot, runtimeRoot);
+    assert.ok(pruned.removed.includes(key.fingerprint), "už ribų vedantis šaltinis daro įrašą pasenusiu");
+    assert.ok(!pruned.kept.includes(key.fingerprint));
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+// `architecture` ir `policy` keliai containment'o netikrinami (runtimeRoot teisėtai gali gulėti
+// už projectRoot), tad juos saugo TIKSLUS leidžiamų kelių sąrašas. Suklastotas įrašas, nurodantis
+// bet kokį kitą kelią, privalo baigtis numetimu, o ne skaitymu.
+test("context-cache prune: suklastotas architecture/policy kelias neskaitomas (C21)", async () => {
+  const outside = await mkdtemp(path.join(tmpdir(), "vq-prune-runtime-"));
+  try {
+    const target = path.join(outside, "svetimas.json");
+    await nodeFsAdapter.writeTextFile(target, "{}\n");
+    const realHash = createHash("sha256").update(await readFile(target)).digest("hex");
+
+    // Kelias, kurio hash'as SUTAMPA su tikru turiniu — be varto prune pasakytų „šviežia".
+    const sources = [{ kind: "policy" as const, path: relative(projectRoot, target), hash: realHash }];
+    const key = computeContextCacheKey(sources);
+    await saveContextCacheEntry(runtimeRoot, {
+      key,
+      taskId: "t-forged",
+      contextPackJson: "{}",
+      codeIndexDescriptor: CODE_INDEX_UNUSED,
+      selectedChars: 1,
+      selectedTokenEstimate: 1,
+      droppedItemCount: 0,
+    });
+
+    const pruned = await pruneStaleContextCacheEntries(projectRoot, runtimeRoot);
+    assert.ok(pruned.removed.includes(key.fingerprint), "ne allowlist'e esantis runtime kelias — įrašas numetamas");
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
 test("createContextCacheAdapter tenkina ContextCachePort kontraktą", async () => {
   const adapter = createContextCacheAdapter(projectRoot, runtimeRoot);
   const sources = await adapter.collectSources({
@@ -137,10 +276,19 @@ test("createContextCacheAdapter tenkina ContextCachePort kontraktą", async () =
     codeIndexDescriptor: CODE_INDEX_UNUSED,
     selectedChars: 1,
     selectedTokenEstimate: 1,
-    droppedItemCount: 0,
+    droppedItemCount: 2,
+    specDroppedCount: 3,
+    codeContextDroppedCount: 4,
   });
   const lookup = await adapter.lookup(key, () => Promise.resolve(CODE_INDEX_UNUSED));
   assert.equal(lookup.status, "hit");
+  if (lookup.status === "hit") {
+    // Abu praradimų skaičiai privalo grįžti su įrašu ir NESUSIMAIŠYTI: hit'as praneša tą pačią
+    // telemetriją kaip surinkimas, kurį jis pakeičia, o iš pack'o jų atkurti nebeįmanoma.
+    assert.equal(lookup.entry.dropped_item_count, 2);
+    assert.equal(lookup.entry.spec_dropped_count, 3);
+    assert.equal(lookup.entry.code_context_dropped_count, 4);
+  }
 });
 
 test("attempt-resolution: identity adapteris duoda manifesto tapatybę; no-runtime — tuščią objektą", async () => {

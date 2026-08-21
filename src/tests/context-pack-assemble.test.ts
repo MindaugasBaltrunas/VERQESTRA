@@ -105,6 +105,96 @@ test("assembleContextPack: full path over a real workspace, deterministic re-run
   }
 });
 
+// `allowed_paths` renderyje deklaruojami kaip „no file outside this list may be created,
+// changed or deleted". Anksčiau jie buvo karpomi iki `max_files` (numatytai 8), tad devintas
+// leistinas failas worker'iui atrodydavo UŽDRAUSTAS — deklaracija virsdavo melu. `max_files`
+// šioje sistemoje yra preflight peržiūros slenkstis, ne karpymo limitas.
+test("assembleContextPack: allowed_paths yra pilni, net kai jų daugiau nei max_files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-302-paths-"));
+  try {
+    const files = Array.from({ length: DEFAULT_CONTEXT_BUDGET.max_files + 3 }, (_, index) => `src/f${index}.ts`);
+    const task = [
+      "# Task",
+      "",
+      "## Tikslas",
+      "Plati, bet patvirtinta apimtis.",
+      "",
+      "## Failai",
+      "Leidžiama:",
+      ...files.map((file) => `- \`${file}\``),
+      "",
+      "## Patikra",
+      "- `pnpm test`",
+      "",
+    ].join("\n");
+
+    await mkdir(path.join(root, "AG", "tasks", "queue"), { recursive: true });
+    await writeFile(path.join(root, "AG", "tasks", "queue", "0043-placi.md"), task, "utf8");
+
+    const result = await assembleContextPack(["AG/tasks/queue/0043-placi.md"], root, {
+      fs: nodeContextPackFsPort,
+      codeFs: nodeFsTestPort,
+    });
+
+    assert.equal(files.length > DEFAULT_CONTEXT_BUDGET.max_files, true, "fikstūra tikrai viršija limitą");
+    assert.deepEqual(result.pack.allowed_paths, files, "riba atkeliauja PILNA, be karpymo");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// `dropped_item_count` skaičiuoja TIK graph-selection budgeter'io praradimus. Retrieval stadijos
+// praradimai (neišspręsti ref'ai, fragmentų limitas, dublikatai, simbolių biudžetas) į jokią
+// metriką nepatekdavo — matomi buvo tik `spec_fragment_warnings` eilutėse, kurios turi lubas ir
+// yra skirtos žmogui. `spec_dropped_count` tai uždaro, atskirai nuo budgeter'io, kad išliktų
+// priskyrimas: sulietas skaičius atimtų vienintelį dalyką, dėl kurio metrika naudinga.
+test("assembleContextPack: spec_dropped_count fiksuoja retrieval stadijos praradimus", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-302-dropped-"));
+  try {
+    const task = [
+      "# Task",
+      "",
+      "## Spec source",
+      "doc/nera-1.md",
+      "doc/nera-2.md",
+      "",
+      "## Tikslas",
+      "Tikslas su neišsprendžiamais spec ref'ais.",
+      "",
+      "## Failai",
+      "Leidžiama:",
+      "- `src/a.ts`",
+      "",
+      "## Patikra",
+      "- `pnpm test`",
+      "",
+    ].join("\n");
+
+    await mkdir(path.join(root, "AG", "tasks", "queue"), { recursive: true });
+    await writeFile(path.join(root, "AG", "tasks", "queue", "0044-drop.md"), task, "utf8");
+
+    const result = await assembleContextPack(["AG/tasks/queue/0044-drop.md"], root, {
+      fs: nodeContextPackFsPort,
+      codeFs: nodeFsTestPort,
+    });
+
+    const metricsRaw = await readFile(path.join(root, "vq", "logs", "context-size.jsonl"), "utf8");
+    const record = JSON.parse(metricsRaw.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+
+    assert.equal(record["spec_dropped_count"], 2, "abu neišspręsti ref'ai suskaičiuoti");
+    assert.equal(record["dropped_item_count"], 0, "budgeter'io skaičius NESULIETAS su retrieval'u");
+    assert.equal(record["code_context_dropped_count"], 0, "trečia stadija taip pat atskira");
+    assert.equal(result.pack.spec_fragments.length, 0);
+    assert.equal(
+      result.pack.spec_fragment_warnings.filter((warning) => warning.startsWith("spec source not found")).length,
+      2,
+      "žmogui skirtas kanalas irgi lieka",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("policy loaders: defaults on absent files, fail-fast on invalid values", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "vq-302-policy-"));
   try {

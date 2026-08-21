@@ -81,6 +81,8 @@ function makeDeps(files: Map<string, string>, io: CliIo): ArchitectureCommandDep
   };
   const codeFs: CodeIntelligenceFileSystemPort = {
     listDirectory,
+    // Fake pasaulyje failas = raktas žemėlapyje; katalogas = kažkas guli po juo.
+    statKind: async (p) => (files.has(norm(p)) ? "file" : (await existsFn(p)) ? "directory" : "absent"),
     readTextFile: async (p) => {
       const text = files.get(norm(p));
       if (text === undefined) throw new Error(`ENOENT: ${p}`);

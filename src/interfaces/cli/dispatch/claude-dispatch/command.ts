@@ -18,7 +18,11 @@ import {
   type DispatchExecutionRecord,
   type DispatchExecutionRecordInput,
 } from "../../../../application/task-execution/dispatch-execution-record.js";
+import path from "node:path";
 import { isContextCompressionFeatureEnabledForTask } from "../../../../application/context-pack/compression-arrest-observer.js";
+import { contextPackSchema } from "../../../../application/context-pack/context-pack-schema.js";
+import { staleSourceSlices } from "../../../../application/context-pack/source-slice-freshness.js";
+import { tryParseJson } from "../../../../shared/json.js";
 import { INFRASTRUCTURE_IO_EXIT_CODE, USAGE_ERROR_EXIT_CODE } from "../../../../shared/exit-codes.js";
 import { prepareDispatchInvocation } from "./dispatch-invocation.js";
 import { prepareDispatchArtifacts } from "./dispatch-artifacts.js";
@@ -103,11 +107,20 @@ export async function claudeDispatch(args: string[], ports: ClaudeDispatchPorts)
   const compressionConfig = workerPromptPreparation.compressionConfig;
   const workerPromptRecord = workerPromptPreparation.workerPromptRecord;
 
+  // SRC pjūviai pack'e yra SNAPSHOT'as, paimtas surinkimo metu. Artefaktų fingerprint'ai
+  // nepasikeičia, kai pasikeičia pats šaltinio failas — o perleidus tą patį task'ą po pirmo
+  // bandymo redagavimų būtent taip ir nutinka. Tikrinama ČIA, nes vartas grynas, o IO turi tik
+  // šis kelias. Neperskaitytas pack'as reiškia „nepatikrinta", ne „šviežia".
+  const staleSourceSlices = contextPackRaw
+    ? await staleSourceSlicesFor(contextPackRaw, ports)
+    : ("unchecked" as const);
+
   const canonicalPrompt = resolveCanonicalWorkerPrompt({
     mode: executionContextMode,
     sourceChange,
     taskId,
     taskText: rawTaskText,
+    staleSourceSlices,
     ...(workerPromptPreparation.compiledTask === undefined ? {} : { compiledTask: workerPromptPreparation.compiledTask }),
     ...(executionContextRaw ? { executionContext: executionContextRaw } : {}),
     ...(contextPackRaw ? { contextPackText: contextPackRaw } : {}),
@@ -381,4 +394,33 @@ export async function claudeDispatch(args: string[], ports: ClaudeDispatchPorts)
     logDispatch,
   });
   return outcome.exitCode;
+}
+
+/**
+ * Pack'o SRC pjūvių šviežumas prieš dispatch'ą.
+ *
+ * Neparsinamas arba schemos neatitinkantis pack'as duoda `"unchecked"`. ANKSČIAU čia buvo
+ * parašyta, kad tokį pack'ą vis tiek atmes fingerprint vartas — NETIESA: tas vartas lygina RAW
+ * baitų hash'ą, o ne schemą, tad markerį atitinkantis, bet sugadintas pack'as jį praeitų.
+ * Tikroji apsauga yra `packMayCarrySourceSlices`, kuris neparsinamą pack'ą laiko turinčiu
+ * pjūvių ir todėl `"unchecked"` paverčia atmetimu. Šitas kelias tik sąžiningai pasako „nežinau".
+ *
+ * Kelių ribų vartas gyvena `staleSourceSlices` viduje (leksinis) ir porto realizacijoje
+ * (`realpath`), tad `symbol.file` iš sugadinto pack'o čia disko nepasiekia.
+ */
+async function staleSourceSlicesFor(
+  contextPackRaw: string,
+  ports: ClaudeDispatchPorts,
+): Promise<readonly string[] | "unchecked"> {
+  const parsed = tryParseJson<unknown>(contextPackRaw);
+  if (!parsed.ok) {
+    return "unchecked";
+  }
+  const pack = contextPackSchema.safeParse(parsed.value);
+  if (!pack.success) {
+    return "unchecked";
+  }
+  return await staleSourceSlices(pack.data, ports.projectRoot, (repoRelativePath) =>
+    ports.readFileBytesIfExists(path.resolve(ports.projectRoot, repoRelativePath)),
+  );
 }

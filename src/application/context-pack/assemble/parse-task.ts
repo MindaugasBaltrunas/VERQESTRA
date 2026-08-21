@@ -63,8 +63,6 @@ export function toRetrievalCandidate(fragment: RetrievedFragment): RetrievalCand
   return {
     ref: fragment.ref,
     text: fragment.text,
-    // Every fragment on this path comes from the task's own `## Spec source` block.
-    directSpecReference: true,
     ...(requestedHeading ? { requestedHeading, headingMatched: fragment.headingMiss === undefined } : {}),
   };
 }

@@ -6,7 +6,7 @@
 // kurį jau dabar vartoja diagnozės adapteris.
 
 import path from "node:path";
-import { normalizeGitPath } from "../../domain/git/changes.js";
+import { normalizeGitPath, sessionScopedChangedFiles } from "../../domain/git/changes.js";
 
 export type SessionWriteOwner = {
   /** Dispatch sesijų nonce'ai, rašę šį kelią. Interaktyvios sesijos čia nieko nededa. */
@@ -104,4 +104,24 @@ export function filterStagePathsByOwnership(
     }
   }
   return { paths: kept, foreign };
+}
+
+/**
+ * Task'o NUOSAVI produkto keliai, kuriuos rollback'as gali atstatyti: šios sesijos rašymų
+ * ledger'is be runtime kelių, paliekant tik tai, ką šis dispatch'as realiai turi.
+ *
+ * Etalono task 0018: čia buvo skaitomas VISAS ledger'is be nuosavybės filtro, tad co-tenant'o
+ * dispatch'o rašymas bendrame ledger'yje būdavo priskiriamas šiam task'ui IR jam turinio
+ * lygiu revertinamas. Stop staging'as tą pačią problemą jau išsprendė
+ * {@link filterStagePathsByOwnership} — čia taikomas tas pats šablonas su ta pačia tapatybe.
+ *
+ * GRYNA sąmoningai: etalono `readFileSync` viduje yra jo silpnybė, ne kontraktas — IO lieka
+ * adapteryje, kad rollback kelią būtų galima įrodyti be tikro repo.
+ */
+export function taskScopeRestorePaths(
+  sessionWrites: readonly string[],
+  owners: SessionWriteOwners,
+  identity: SessionWriteIdentity,
+): string[] {
+  return sessionScopedChangedFiles(filterStagePathsByOwnership(sessionWrites, owners, identity).paths);
 }

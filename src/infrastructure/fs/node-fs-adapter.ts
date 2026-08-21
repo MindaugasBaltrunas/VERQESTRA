@@ -162,6 +162,16 @@ export const nodeFsAdapter = {
     }
   },
 
+  /** Failo dydis baitais arba `undefined`, kai failo nėra (session-summary guard žurnalai). */
+  async fileSizeBytes(absolutePath: string): Promise<number | undefined> {
+    try {
+      const stats = await stat(absolutePath);
+      return stats.isFile() ? stats.size : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+
   async fileMtimeMs(absolutePath: string): Promise<number | undefined> {
     try {
       return (await stat(absolutePath)).mtimeMs;

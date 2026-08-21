@@ -42,3 +42,5 @@ export * from "./stop-guards.js";
 // E5 VQ-502 (6/6-d): Stop hook'as — vienintelė vieta, automatiškai commit'inanti sesijos darbą.
 export * from "./on-stop-context.js";
 export * from "./on-stop.js";
+// E5 VQ-502 (6/6-e): sesijos santrauka — ataskaita, kuri niekada neblokuoja.
+export * from "./session-summary.js";

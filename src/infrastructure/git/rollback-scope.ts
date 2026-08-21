@@ -1,12 +1,19 @@
 // Task-scoped rollback IO pusė (etalonas: AG_loop orchestrator/git/rollback-scope.ts,
-// task 890/1077). Grynas sprendimas — domain/git/rollback-rules. Ownership filtruotas
-// kelių rinkimas (taskScopeRestorePaths) atvyks su E5 hooks dalimi — jam reikia
-// session-write-owners protokolo, kuris gyvena hooks sluoksnyje.
+// task 890/1077). Grynas sprendimas — domain/git/rollback-rules; ownership filtruotas kelių
+// rinkimas — application `taskScopeRestorePaths`. Čia lieka tik skaitymas: ledger'is,
+// nuosavybės sidecar'as ir sesijos tapatybė.
 
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pushedRollbackBlock, type PushedRollbackDecision } from "../../domain/git/rollback-rules.js";
+import {
+  sessionWriteOwnersPath,
+  taskScopeRestorePaths,
+  type SessionWriteOwners,
+} from "../../application/task-execution/session-write-owners.js";
+import { parseJsonStringArray, tryParseJson } from "../../shared/json.js";
+import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { run, type CommandResult } from "../process/run-process.js";
 import { gitCurrentBranch, gitHead } from "./git-client.js";
 
@@ -111,4 +118,31 @@ export async function restoreTaskScope(
     restored.push(p);
   }
   return failures.length > 0 ? { ok: false, failures } : { ok: true, restored };
+}
+
+/**
+ * `taskScopePaths` porto realizacija (VQ-501 rollback-stable laukė jos per portą).
+ *
+ * Tapatybė ta pati kaip Stop staging'e: dispatch nonce plius `current-task-id`. Be nonce
+ * niekas negali būti įrodyta svetimu, tad interaktyvi sesija elgiasi kaip anksčiau — filtras
+ * tada nieko nemeta.
+ */
+export async function readTaskScopePaths(
+  runtimeRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string[]> {
+  const stateDir = path.join(runtimeRoot, "state");
+  const sessionWritesPath = path.join(stateDir, "session-writes.json");
+  const sessionWrites = parseJsonStringArray(await nodeFsAdapter.readTextFileIfExists(sessionWritesPath));
+  const ownersRaw = await nodeFsAdapter.readTextFileIfExists(sessionWriteOwnersPath(sessionWritesPath));
+  const parsed = ownersRaw === undefined ? undefined : tryParseJson<unknown>(ownersRaw);
+  const owners =
+    parsed?.ok === true && parsed.value !== null && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as SessionWriteOwners)
+      : {};
+
+  return taskScopeRestorePaths(sessionWrites, owners, {
+    session: (env["AG_DISPATCH_NONCE"] ?? "").trim(),
+    taskId: ((await nodeFsAdapter.readTextFileIfExists(path.join(stateDir, "current-task-id"))) ?? "").trim(),
+  });
 }

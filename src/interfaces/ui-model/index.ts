@@ -3,3 +3,6 @@
 // šaltinių skaitymas per portą (agent-activity-reader).
 export * from "./agent-activity.js";
 export * from "./agent-activity-reader.js";
+// E5 VQ-503 (2/5): control-plane modelis ir token biudžeto vaizdas.
+export * from "./token-budget-view.js";
+export * from "./control-plane-model.js";

@@ -16,6 +16,10 @@ import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.j
 import { exportApiContractCommand } from "../interfaces/cli/spec/export-api-contract.js";
 import { exportJsonSchemaCommand } from "../interfaces/cli/spec/export-json-schema.js";
 import { openSpecReconcileCommand } from "../interfaces/cli/spec/openspec-reconcile.js";
+import { statusCommand } from "../interfaces/cli/admin/status.js";
+import { planCommand } from "../interfaces/cli/spec/plan.js";
+import { specDriftCommand } from "../interfaces/cli/spec/spec-drift.js";
+import { printTaskGenerate } from "../interfaces/cli/task-queue/task-generate.js";
 import { requeueTask } from "../interfaces/cli/task-queue/requeue.js";
 import { moveTask } from "../interfaces/cli/task-queue/task-move.js";
 import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-sync.js";
@@ -27,8 +31,12 @@ import {
   learningFs,
   openSpecReconcileFs,
   isFile,
+  planPorts,
   releaseNotesPorts,
   securityVerifyPorts,
+  specDriftPorts,
+  statusPorts,
+  taskGeneratePorts,
   taskLedgerStore,
   taskStateStore,
   tokenBudgetPorts,
@@ -152,6 +160,54 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           projectRoot: deps.roots.projectRoot,
           ...(io === undefined ? {} : { io }),
         }),
+    },
+    {
+      name: "status",
+      usage: "",
+      description: "Eilės, einamojo task'o, tokenų ir stop įrodymo santrauka",
+      run: () =>
+        statusCommand({
+          ports: statusPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "plan",
+      usage: "[--force]",
+      description: "Sukuria architektūros kontraktą iš aktyvios spec'ifikacijos",
+      run: (args) =>
+        planCommand(
+          { ports: planPorts, projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "task-generate",
+      usage: "[--change <id>] [--start <n>]",
+      description: "Generuoja eilės užduotis iš spec plano",
+      run: (args) =>
+        printTaskGenerate(args, {
+          ports: taskGeneratePorts,
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "spec-drift",
+      usage: "<change-id>",
+      description: "Lygina pakeistus failus su spec change scope",
+      run: (args) =>
+        specDriftCommand(
+          {
+            ports: specDriftPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
     },
     // --- PostToolUse hook'ai (VQ-502) --------------------------------------------------
     // Jie NIEKADA neblokuoja: handler'iai grąžina 0, o dispatch'as tą kodą tik perduoda.

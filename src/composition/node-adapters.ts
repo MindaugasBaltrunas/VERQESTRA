@@ -24,7 +24,18 @@ import {
   type SecurityVerifyPorts,
   type SecurityVerifyResult,
 } from "../application/quality-gates/security-verify.js";
+import type { PlanPorts } from "../application/task-planning/plan.js";
+import type { TaskGeneratePorts } from "../application/task-planning/generate.js";
+import { specDriftResultPath, type SpecDriftPorts, type SpecDriftResult } from "../application/quality-gates/spec-drift.js";
+import { loadSpecPolicy } from "../application/policy-governance/security-spec-policies.js";
+import { tokenAnalyticsSnapshotPath } from "../application/learning/token-analytics-snapshot.js";
+import type { TokenAnalyticsSnapshot } from "../application/learning/token-analytics-snapshot.js";
+import type { StatusPorts, StatusStopEvidenceView } from "../interfaces/cli/admin/status.js";
 import { collectChangedFiles } from "../infrastructure/git/changed-files.js";
+import { gitStatus as gitStatusPlain } from "../infrastructure/git/git-client.js";
+import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { readStopEvidence } from "../infrastructure/state/stop-evidence.js";
+import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
 import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
 import { createTokenBudgetGatePorts } from "../infrastructure/state/token-budget-gate-ports.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
@@ -160,3 +171,95 @@ export function isFile(absolutePath: string): Promise<boolean> {
 
 /** Biudžeto vartų portai — runtime šaknis pakuojama fabrike. */
 export const tokenBudgetPorts = createTokenBudgetGatePorts;
+
+/** `plan`: spec šaltinio skaitymas plius vienas rašymas su tėviniais katalogais. */
+export const planPorts: PlanPorts = {
+  fs: {
+    exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
+    readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+    listSubdirectories: (absoluteDir) => nodeFsAdapter.listSubdirectories(absoluteDir),
+  },
+  writeTextFile: (absolutePath, text) => nodeFsAdapter.writeTextFile(absolutePath, text),
+};
+
+/**
+ * `task-generate`: spec skaitymas plius `wx` rašymas.
+ *
+ * `writeFileExclusive` čia yra KONTRAKTAS, ne optimizacija: pakartotinis generavimas negali
+ * perrašyti eilėje jau gulinčio (galbūt jau redaguoto) task'o failo.
+ */
+export const taskGeneratePorts: TaskGeneratePorts = {
+  fs: {
+    exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
+    readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+    listSubdirectories: (absoluteDir) => nodeFsAdapter.listSubdirectories(absoluteDir),
+    makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
+    writeFileExclusive: (absolutePath, content) => nodeFsAdapter.writeFileExclusive(absolutePath, content),
+    listFiles: (absoluteDir) => nodeFsAdapter.listFiles(absoluteDir),
+  },
+};
+
+/**
+ * `spec-drift`: politikos vartas, spec change įrašas, pakeisti failai ir rezultatas.
+ *
+ * Trūkstamas spec change META (o ne grąžina tuščią scope): tuščias scope reikštų „viskas už
+ * ribų" ir vartai kristų su neteisinga priežastimi.
+ */
+export function specDriftPorts(projectRoot: string, runtimeRoot: string): SpecDriftPorts {
+  return {
+    assertSpecPolicy: async () => {
+      await loadSpecPolicy(policyConfigFs, runtimeRoot);
+    },
+    readSpecChange: async (changeId: string) => {
+      const file = path.join(projectRoot, "AG", "spec", "changes", changeId, "spec.json");
+      const raw = await nodeFsAdapter.readTextFileIfExists(file);
+      if (raw === undefined) throw new Error(`Spec change not found: ${changeId}`);
+      const parsed = tryParseJson<unknown>(raw);
+      // Sugadintas spec.json irgi meta: nešvarus scope duotų tylų „ok" verdiktą.
+      if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
+        throw new Error(`Spec change unreadable: ${changeId}`);
+      }
+      return parsed.value;
+    },
+    changedFiles: () => collectChangedFiles(projectRoot, runtimeRoot),
+    writeResult: (result: SpecDriftResult) =>
+      nodeFsAdapter.writeTextFile(specDriftResultPath(runtimeRoot), toPrettyJson(result)),
+  };
+}
+
+/**
+ * `status`: TIK skaitantis paviršius plius `ensureDirs`.
+ *
+ * Stop įrodymas imamas be attempt rezoliucijos (`noRuntimeAttemptResolution`), kol loop
+ * kompozicija (E5 likutis) atneša pilną resolverį — statusas tuomet mato legacy veidrodį ir
+ * SAKO tai `origin` lauke, o ne apsimeta, kad įrodymo nėra.
+ */
+export function statusPorts(projectRoot: string, runtimeRoot: string, agRoot: string): StatusPorts {
+  return {
+    ensureDirs: () => ensureRuntimeDirs(agRoot, runtimeRoot),
+    countMarkdownFiles: async (absoluteDir) => (await nodeFsAdapter.listMarkdownFiles(absoluteDir)).length,
+    listMarkdownFiles: (absoluteDir) => nodeFsAdapter.listMarkdownFiles(absoluteDir),
+    readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+    readStopEvidence: async (taskId: string): Promise<StatusStopEvidenceView> => {
+      const evidence = await readStopEvidence({
+        runtimeRoot,
+        resolution: noRuntimeAttemptResolution,
+        taskId,
+      });
+      return {
+        origin: evidence.origin,
+        ...(evidence.status === undefined ? {} : { status: evidence.status }),
+        ...(evidence.reason === undefined ? {} : { reason: evidence.reason }),
+        corrupted: evidence.corrupted,
+      };
+    },
+    readTokenAnalytics: async (): Promise<TokenAnalyticsSnapshot | null> => {
+      const raw = await nodeFsAdapter.readTextFileIfExists(tokenAnalyticsSnapshotPath(runtimeRoot));
+      if (raw === undefined) return null;
+      const parsed = tryParseJson<TokenAnalyticsSnapshot>(raw);
+      // Sugadintas snapshot'as statuso NEGRIAUNA: analitika yra papildoma, ne pagrindinė eilutė.
+      return parsed.ok ? parsed.value : null;
+    },
+    gitStatus: () => gitStatusPlain(projectRoot),
+  };
+}

@@ -162,22 +162,22 @@ test("context-cache: change-katalogo ref'as seka realų proposal.md turinį (A2)
 // containment čia privalo būti savas. Anksčiau buvo tik leksinis, o komentaras tvirtino, kad
 // symlink'us pagauna kitas adapteris; symlink'as projekto viduje, rodantis į išorę, praeidavo
 // ir svetimas failas būdavo perskaitytas bei hash'uotas.
-test("context-cache: symlink į išorę nehash'uojamas, o fiksuojamas absent (C10)", async (t) => {
+test("context-cache: symlink į išorę nehash'uojamas, o fiksuojamas absent (C10)", async () => {
   const outside = await mkdtemp(path.join(tmpdir(), "vq-cache-out-"));
   try {
     await nodeFsAdapter.writeTextFile(path.join(outside, "slaptas.md"), "svetimas turinys\n");
-    try {
-      await symlink(path.join(outside, "slaptas.md"), path.join(projectRoot, "nuoroda.md"), "file");
-    } catch {
-      t.skip("symlink kūrimas neleidžiamas šioje aplinkoje");
-      return;
-    }
+    // JUNCTION, ne failo symlink'as: Windows'e failo symlink'ui reikia pakeltų teisių, o
+    // katalogo junction'ui — ne. Vartui klausimas tas pats: `realpath` išveda kelią UŽ projekto
+    // ribų. Anksčiau šie du atvejai šioje mašinoje buvo PRALEIDŽIAMI, tad guard'as likdavo
+    // nepatikrintas būtent ten, kur jis svarbiausias.
+    await symlink(outside, path.join(projectRoot, "nuoroda"), "junction");
+    const escaping = "nuoroda/slaptas.md";
 
     const sources = await collectContextCacheSources(projectRoot, runtimeRoot, {
       taskPath: path.join(projectRoot, "AG", "tasks", "queue", "t3.md"),
       taskText: "# Task t3",
-      targets: ["nuoroda.md"],
-      specSources: ["nuoroda.md"],
+      targets: [escaping],
+      specSources: [escaping],
     });
 
     // Leksiškai `nuoroda.md` yra projekto viduje — būtent todėl senasis vartas jį praleisdavo.
@@ -197,20 +197,17 @@ test("context-cache: symlink į išorę nehash'uojamas, o fiksuojamas absent (C1
 // sugadintas cache failas. Fikstūra sudėliota taip, kad BE varto prune pasakytų „šviežia": įrašo
 // hash'as sutampa su tikru symlink'o taikinio turiniu. Su vartu kelias neskaitomas, o įrašas
 // numetamas — nežinia apie evidenciją negali reikšti „vis dar galioja".
-test("context-cache prune: už ribų vedantis įrašo kelias numetamas, o ne perskaitomas (C14)", async (t) => {
+test("context-cache prune: už ribų vedantis įrašo kelias numetamas, o ne perskaitomas (C14)", async () => {
   const outside = await mkdtemp(path.join(tmpdir(), "vq-prune-out-"));
   try {
     const target = path.join(outside, "svetimas.md");
     await nodeFsAdapter.writeTextFile(target, "svetimas turinys\n");
-    try {
-      await symlink(target, path.join(projectRoot, "prune-nuoroda.md"), "file");
-    } catch {
-      t.skip("symlink kūrimas neleidžiamas šioje aplinkoje");
-      return;
-    }
+    // Junction'as dėl tos pačios priežasties kaip C10: be pakeltų teisių, bet per TĄ PATĮ
+    // `realpath` vartą.
+    await symlink(outside, path.join(projectRoot, "prune-nuoroda"), "junction");
 
     const realHash = createHash("sha256").update(await readFile(target)).digest("hex");
-    const sources = [{ kind: "source" as const, path: "prune-nuoroda.md", hash: realHash }];
+    const sources = [{ kind: "source" as const, path: "prune-nuoroda/svetimas.md", hash: realHash }];
     const key = computeContextCacheKey(sources);
     await saveContextCacheEntry(runtimeRoot, {
       key,

@@ -17,6 +17,8 @@ import { resolveUiPort, writeUiServerRecord, type UiPortPorts } from "../interfa
 import type { UiPortProbeResult } from "../interfaces/http/ui-port-rules.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { createUiServer, listenUiServer } from "./ui-server.js";
+import { createSseHub } from "../interfaces/http/sse-service.js";
+import { ssePorts } from "./sse-adapters.js";
 import { uiRouterPorts } from "./ui-router-adapters.js";
 import { packageRoot } from "./runtime-context.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
@@ -101,6 +103,17 @@ export async function runUiCommand(deps: CliRegistryDeps, io: UiCommandIo): Prom
     logError: (message) => io.error(message),
   });
 
+  const sseHub = createSseHub({
+    ...ssePorts({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
+    // Taimeris paduodamas portu: hub'as pats laiko neskaito, tad jį galima sukti testuose.
+    setInterval: (handler, ms) => {
+      const timer = setInterval(handler, ms);
+      // `unref`: srauto taimeris negali laikyti proceso gyvo po serverio užsidarymo.
+      timer.unref();
+      return { clear: () => clearInterval(timer) };
+    },
+  });
+
   const server = createUiServer({
     route: (request) =>
       handleUiRequest(
@@ -121,17 +134,9 @@ export async function runUiCommand(deps: CliRegistryDeps, io: UiCommandIo): Prom
         },
       ),
     ...(staticDir === undefined ? {} : { staticDir }),
-    // SSE hub'as atvyks kartu su wave kompozicija: jam reikia gyvų slot'ų šaltinio, kurį išduoda
-    // dar nemigruotas planuotojas. Iki tol `/api/stream` prisijungia ir lieka tylus — tai
-    // MATOMA būsena (klientas neturi įvykių), o ne apsimestinis srautas.
-    sse: {
-      addClient: (client) => {
-        client.write(": ui stream not available until the wave scheduler is composed\n\n");
-        return Promise.resolve();
-      },
-      clientCount: () => 0,
-      checkAndBroadcast: () => Promise.resolve(),
-    },
+    // Hub'as sukuriamas VIENAS: taimeriai ir stebimų failų žymės yra jo būsena, o du
+    // egzemplioriai tą pačią eilutę transliuotų dukart.
+    sse: sseHub,
     logError: (message) => io.error(message),
   });
 

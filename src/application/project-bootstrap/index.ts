@@ -8,3 +8,6 @@
 export * from "./detect-profile.js";
 export * from "./generate.js";
 export * from "./detect-mode.js";
+// VQ-501 (5/5-d): queue-synth (bootstrap eilės sintezė iš grafo + įrodymų; įrodymų
+// disciplina — mazgas be įrodymų grįžta kaip signalas, ne kaip išgalvotas task'as).
+export * from "./queue-synth.js";

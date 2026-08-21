@@ -4,7 +4,10 @@
 // (deterministinis task vartas virš application/quality-gates), restore-stable (planas be
 // --execute), smoke (diegimo sveikatos patikra su AG_SMOKE_* žyme) ir install (skip-if-exists
 // šablonai + versijos būsena virš domain/project/template-version).
+// E5 VQ-501 (5/5-d): compound-init — darbo erdvės paruošimas su skip-if-exists rašymu ir
+// profiliu, seedintu iš realios detekcijos.
 export * from "./project-mode.js";
+export * from "./compound-init.js";
 export * from "./preflight.js";
 export * from "./restore-stable.js";
 export * from "./smoke.js";

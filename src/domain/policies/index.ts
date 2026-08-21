@@ -17,3 +17,4 @@ export * from "./compression/dependencies.js";
 export * from "./check-command-allowlist.js";
 export * from "./bash-command-policy.js";
 export * from "./quality-command-policy.js";
+export * from "./bootstrap-routing.js";

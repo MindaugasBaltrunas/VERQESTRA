@@ -148,6 +148,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "converge",
       "readiness-audit",
       "audit-director",
+      "final-audit",
       "policy",
       "agent",
       "project-status",

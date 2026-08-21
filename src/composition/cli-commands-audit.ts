@@ -10,12 +10,14 @@ import { policyCommand } from "../interfaces/cli/admin/policy.js";
 import { auditDirectorCommand } from "../interfaces/cli/audit/audit-director.js";
 import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
 import { convergeCommand } from "../interfaces/cli/audit/converge.js";
+import { finalAuditCommand } from "../interfaces/cli/audit/final-audit.js";
 import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
 import { releaseNotesCommand } from "../interfaces/cli/audit/release-notes.js";
 import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.js";
 import { projectStatusCommand } from "../interfaces/cli/reports/project-status.js";
 import { reportCommand } from "../interfaces/cli/reports/report.js";
 import { agentCommandPorts, gitHeadForProject, policyCommandPorts } from "./node-adapters.js";
+import { finalAuditPorts } from "./final-audit-adapters.js";
 import { auditDirectorPorts } from "./quality-adapters.js";
 import {
   adapterCapabilityViews,
@@ -113,6 +115,21 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
           runtimeRoot: deps.roots.runtimeRoot,
           ...(io === undefined ? {} : { io }),
         }),
+    },
+    {
+      name: "final-audit",
+      usage: "[--json]",
+      description: "Galutinis išleidimo verdiktas iš visų vartų ir įrodymo artefaktų",
+      run: (args) =>
+        finalAuditCommand(
+          {
+            ports: finalAuditPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
     },
     {
       name: "policy",

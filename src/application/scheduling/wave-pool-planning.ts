@@ -9,7 +9,7 @@
 // Kiekvienas išduotas, bet į antrą planą NEPATEKĘS lease atlaisvinamas: kitaip vienas
 // perplanavimas paliktų lease'ą, kuris tris valandas (TTL) blokuotų to task'o dispatch'ą.
 
-import { planWorkerPool, type WorkerPoolPlan } from "./worker-pool-plan.js";
+import { planWorkerPool, type SlotProvisionTarget, type WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { WorkerCandidate } from "./worker-pool-admission.js";
 import { detectPhantomWaveSlots, type PhantomWaveSlot } from "./wave-phantom-slots.js";
 import type { WorkerLease } from "../../domain/scheduling/worker-lease-rules.js";
@@ -18,10 +18,10 @@ import type { WavePlan } from "./schedule-next-wave.js";
 /**
  * Slot'as, kuriam lease buvo IŠDUOTAS šio planavimo metu.
  *
- * Tipas gyvena čia, o ne provisioning modulyje, nes būtent perplanavimas turi pareigą jį
- * atlaisvinti: išdavėjas apie antrą planą nieko nežino.
+ * Tipas re-eksportuojamas iš planuotojo, o ne perrašomas: dvi identiškos deklaracijos vienam
+ * kontraktui išsiskiria tyliai, o čia jis tik keliauja per perplanavimą į atlaisvinimą.
  */
-export type SlotProvisionTarget = { task_id: string; worker_index: number };
+export type { SlotProvisionTarget } from "./worker-pool-plan.js";
 
 export type WavePoolPlanResult = { pool: WorkerPoolPlan; phantomSlots: PhantomWaveSlot[] };
 

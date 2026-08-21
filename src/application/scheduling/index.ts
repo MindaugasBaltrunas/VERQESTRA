@@ -24,3 +24,5 @@ export * from "./worktree-policy.js";
 // E5 VQ-501 (2/5-a): pre-loop vartai per LoopPreconditionPorts (etalono loop-preconditions;
 // higienos reaper'is injektuojamas — realų suriša VQ-504 kompozicija).
 export * from "./loop-preconditions.js";
+export * from "./loop-control-store.js";
+export * from "./worker-request-store.js";

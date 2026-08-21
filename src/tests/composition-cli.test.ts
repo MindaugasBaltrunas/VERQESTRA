@@ -170,6 +170,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "on-stop-bridge",
       "code-index",
       "code-graph",
+      "context-pack",
       "architecture",
       "benchmark",
       "benchmark-drive",

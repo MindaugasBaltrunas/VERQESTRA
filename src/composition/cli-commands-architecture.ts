@@ -9,7 +9,9 @@ import type { CliRegistryDeps } from "./cli-registry-types.js";
 import { architectureCommand } from "../interfaces/cli/architecture/command.js";
 import { codeGraphCommand } from "../interfaces/cli/code-intel/code-graph.js";
 import { codeIndexCommand } from "../interfaces/cli/code-intel/code-index.js";
-import { architectureGraphStore, architectureWavePorts } from "./architecture-adapters.js";
+import { contextPackCommand } from "../interfaces/cli/code-intel/context-pack.js";
+import { architectureGraphStore, architectureWavePorts, assembleContextPackDeps } from "./architecture-adapters.js";
+import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { codeIntelligenceFs, policyConfigFs } from "./node-adapters.js";
 
 export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
@@ -38,6 +40,24 @@ export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
       run: (args) =>
         codeGraphCommand(
           { codeFs: codeIntelligenceFs(deps.roots.projectRoot), projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "context-pack",
+      usage: "<task-file> [--with-code-graph]",
+      description: "Surenka konteksto paketą užduočiai (retrieval, biudžetas, kešas)",
+      run: (args) =>
+        contextPackCommand(
+          {
+            assembleDeps: assembleContextPackDeps(
+              deps.roots.projectRoot,
+              deps.roots.runtimeRoot,
+              noRuntimeAttemptResolution,
+            ),
+            projectRoot: deps.roots.projectRoot,
+            ...(io === undefined ? {} : { io }),
+          },
           args,
         ),
     },

@@ -11,6 +11,10 @@ import type { ArchitectureGraph, ArchitectureProgress } from "../domain/architec
 import { initProgress, updateNodeProgress, writeGraph } from "../infrastructure/bootstrap/architecture-graph-store.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { codeIntelligenceFs } from "./node-adapters.js";
+import type { AssembleContextPackDeps } from "../application/context-pack/assemble/assemble.js";
+import { createContextCacheAdapter } from "../infrastructure/persistence/context-cache-store.js";
+import { attemptIdentityAdapter, type AttemptResolutionPort } from "../infrastructure/state/attempt-resolution.js";
+import { contextPackFs } from "./readiness-adapters.js";
 
 /**
  * Wave variklio FS portas: būsenos skaitymas/rašymas plius katalogų enumeracija.
@@ -58,3 +62,27 @@ export const architectureGraphStore = {
   initProgress: (graph: ArchitectureGraph, statePath: string): Promise<ArchitectureProgress> =>
     initProgress(graph, statePath),
 };
+
+/**
+ * `context-pack` surinkimo deps.
+ *
+ * Kešas paduodamas VISADA: jo nebuvimas portui reiškia `--no-context-cache`, o tai kas kartą
+ * iš naujo skaitytų ir reitinguotų visą kontekstą. Kešo raktas mato ŠALTINIŲ hash'us, ne kodą,
+ * todėl pack'o semantiką keičiantis pataisymas privalo kelti `CONTEXT_CACHE_VERSION` — kitaip
+ * senas įrašas grįžta kaip `hit` ir tyliai anuliuoja pataisymą (žr. CLAUDE.md).
+ *
+ * `attemptIdentity` susieja context-size telemetriją su TUO PAČIU bandymu, kurį mato usage
+ * eilutės; be jos dvi to paties bandymo eilutės būtų nesugretinamos.
+ */
+export function assembleContextPackDeps(
+  projectRoot: string,
+  runtimeRoot: string,
+  resolution: AttemptResolutionPort,
+): AssembleContextPackDeps {
+  return {
+    fs: contextPackFs,
+    codeFs: codeIntelligenceFs(projectRoot),
+    cache: createContextCacheAdapter(projectRoot, runtimeRoot),
+    attemptIdentity: attemptIdentityAdapter(resolution),
+  };
+}

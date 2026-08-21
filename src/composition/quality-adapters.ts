@@ -12,16 +12,32 @@ import {
   type CheckContextProfileView,
   type QualityPolicy,
 } from "../application/policy-governance/quality-policy.js";
+import { loadContextBudget } from "../application/policy-governance/context-budget.js";
+import { loadPreflightLimits } from "../application/policy-governance/preflight-limits-policy.js";
+import { loadTaskClassificationPolicy } from "../application/policy-governance/task-classification-policy.js";
+import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
+import {
+  loadArchitectureStylePolicy,
+  loadCodingPrinciplesPolicy,
+  loadEnforcementPolicy,
+} from "../application/policy-governance/architecture-policies.js";
+import {
+  type PreflightDecision,
+  type PreflightPolicies,
+  type PreflightPorts,
+} from "../application/quality-gates/preflight.js";
+import { checkCodeIndexFreshness } from "../application/code-intelligence/store/code-index-store.js";
 import type { CheckCommandContext } from "../domain/policies/check-command-allowlist.js";
 import type { AuditDirectorPorts } from "../interfaces/cli/audit/audit-director.js";
 import { loadModelsEnv, normalizeModelTier, resolveModelTier } from "../infrastructure/adapters/claude-model-env.js";
 import { runClaudeHeadless } from "../infrastructure/adapters/claude-headless.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { resolveExistingDispatchTaskFile } from "../infrastructure/state/dispatch-task-file.js";
 import { runQualityCheck } from "../infrastructure/process/quality-check-runner.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
-import { tryParseJson } from "../shared/json.js";
 import { appendLogLine } from "./loop-adapters.js";
-import { policyConfigFs } from "./node-adapters.js";
+import { codeIntelligenceFs, policyConfigFs } from "./node-adapters.js";
+import { toPrettyJson, tryParseJson } from "../shared/json.js";
 
 /**
  * Projekto profilis komandų politikos kontekstui.
@@ -83,5 +99,64 @@ export function auditDirectorPorts(projectRoot: string, runtimeRoot: string, agR
       }
     },
     agLog: (line) => appendLogLine(runtimeRoot, "orchestrator.log", line),
+  };
+}
+
+/**
+ * `preflight` politikos — septyni krautuvai vienu pjūviu.
+ *
+ * Krovimas LYGIAGRETUS, bet klaida NENUTYLIMA: bet kurio konfigo gedimas nutraukia preflight'ą.
+ * Tai sąmoninga — sprendimas, priimtas be vienos politikos, atrodytų kaip pilnas sprendimas,
+ * o būtent preflight yra vieta, kur task'ui dar galima pasakyti „ne".
+ */
+export async function preflightPolicies(runtimeRoot: string): Promise<PreflightPolicies> {
+  const [limits, budget, classificationPolicy, agentPolicy, architectureStylePolicy, codingPrinciplesPolicy, enforcementPolicy] =
+    await Promise.all([
+      loadPreflightLimits(policyConfigFs, runtimeRoot),
+      loadContextBudget(policyConfigFs, runtimeRoot),
+      loadTaskClassificationPolicy(policyConfigFs, runtimeRoot),
+      loadAgentPolicy(policyConfigFs, runtimeRoot),
+      loadArchitectureStylePolicy(policyConfigFs, runtimeRoot),
+      loadCodingPrinciplesPolicy(policyConfigFs, runtimeRoot),
+      loadEnforcementPolicy(policyConfigFs, runtimeRoot),
+    ]);
+  return {
+    limits,
+    budget,
+    classificationPolicy,
+    agentPolicy,
+    architectureStylePolicy,
+    codingPrinciplesPolicy,
+    enforcementPolicy,
+  };
+}
+
+/**
+ * `preflight`: task failo rezoliucija, politikos, spec šaltinių patikra, indekso šviežumas
+ * ir sprendimo persistencija.
+ *
+ * `resolveTaskFile` eina per dispatch adreso taisyklę: preflight'as vertina TIK tai, ką loop'as
+ * galėtų realiai dispatch'inti. Laisvas kelias leistų patvirtinti failą, esantį už eilės ribų,
+ * ir sprendimas nurodytų task'ą, kurio niekas niekada nepaims.
+ */
+export function preflightPorts(projectRoot: string, runtimeRoot: string): PreflightPorts {
+  return {
+    resolveTaskFile: async (taskArg: string) => {
+      const filePath = await resolveExistingDispatchTaskFile(projectRoot, taskArg);
+      return { filePath, text: await nodeFsAdapter.readTextFile(filePath) };
+    },
+    loadPolicies: () => preflightPolicies(runtimeRoot),
+    statPathKind: async (absolutePath: string) => {
+      const kind = await nodeFsAdapter.statKind(absolutePath);
+      return kind === "file" || kind === "directory" ? kind : "absent";
+    },
+    codeIndexFreshness: () => checkCodeIndexFreshness(codeIntelligenceFs, projectRoot),
+    // Kelias deklaruotas porto komentare (`vq/supervisor/preflight-decision.json`), bet
+    // use case'as jo funkcijos neeksportuoja — sudaromas čia, vienoje vietoje.
+    writeDecision: (decision: PreflightDecision) =>
+      nodeFsAdapter.writeTextFile(
+        path.join(runtimeRoot, "supervisor", "preflight-decision.json"),
+        toPrettyJson(decision),
+      ),
   };
 }

@@ -11,6 +11,7 @@ import { auditDirectorCommand } from "../interfaces/cli/audit/audit-director.js"
 import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
 import { convergeCommand } from "../interfaces/cli/audit/converge.js";
 import { finalAuditCommand } from "../interfaces/cli/audit/final-audit.js";
+import { preflightCommand } from "../interfaces/cli/bootstrap/preflight.js";
 import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
 import { releaseNotesCommand } from "../interfaces/cli/audit/release-notes.js";
 import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.js";
@@ -18,7 +19,7 @@ import { projectStatusCommand } from "../interfaces/cli/reports/project-status.j
 import { reportCommand } from "../interfaces/cli/reports/report.js";
 import { agentCommandPorts, gitHeadForProject, policyCommandPorts } from "./node-adapters.js";
 import { finalAuditPorts } from "./final-audit-adapters.js";
-import { auditDirectorPorts } from "./quality-adapters.js";
+import { auditDirectorPorts, preflightPorts } from "./quality-adapters.js";
 import {
   adapterCapabilityViews,
   backlogAuditPorts,
@@ -126,6 +127,20 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
             ports: finalAuditPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "preflight",
+      usage: "<task-file> [--json]",
+      description: "Vartai prieš dispatch'ą: dydis, spec šaltiniai, biudžetas, agentai",
+      run: (args) =>
+        preflightCommand(
+          {
+            ports: preflightPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
             ...(io === undefined ? {} : { io }),
           },
           args,

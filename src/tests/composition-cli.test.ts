@@ -149,6 +149,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "readiness-audit",
       "audit-director",
       "final-audit",
+      "preflight",
       "policy",
       "agent",
       "project-status",

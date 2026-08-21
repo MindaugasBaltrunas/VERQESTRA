@@ -19,6 +19,22 @@ export function toPrettyJson(value: unknown): string {
 }
 
 /**
+ * JSON string masyvo failo turinys; VISKAS kita — tuščias masyvas.
+ *
+ * Galiojantis, bet ne masyvo formos JSON (`{}`, `"x"`, `null`) prasprūsta pro paprastą
+ * `tryParseJson` fallback'ą ir `.includes` virsta `TypeError`. Ledger'iams ta kaina
+ * neproporcinga: PostToolUse hook'e išimtis reiškia UŽBLOKUOTĄ tool call'ą — vienas sugadintas
+ * failas blokuotų kiekvieną rašymą, o pataisyti jo agentas negali. Tuščias masyvas čia yra ne
+ * nutylėjimas, o savigyda: kitas append'as failą atominiu rename perrašo teisinga forma.
+ */
+export function parseJsonStringArray(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  const parsed = tryParseJson<unknown>(raw);
+  if (!parsed.ok) return [];
+  return Array.isArray(parsed.value) ? parsed.value.filter((item): item is string => typeof item === "string") : [];
+}
+
+/**
  * Deterministic JSON with recursively sorted object keys — the input to frozen hashes.
  * Array order is meaningful and preserved; `undefined` object properties are dropped and
  * `null` is kept, exactly like `JSON.stringify`. Values that cannot round-trip

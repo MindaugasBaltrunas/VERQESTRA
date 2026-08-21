@@ -199,6 +199,43 @@ export const nodeFsAdapter = {
     await rm(absolutePath, { force: true }).catch(() => undefined);
   },
 
+  // --- Ledger lock protokolo pusė (VQ-502 5/6-b kontraktas) ---
+
+  /**
+   * Pervadinimas su win32 contention retry. MESTI privalo: lock'o perėmimas ir atominis
+   * rašymas iš nesėkmės sprendžia (grąžina lock'ą, nurašo įrašą), tad tylus praradimas čia
+   * būtų blogiausias variantas.
+   */
+  async renamePath(fromPath: string, toPath: string): Promise<void> {
+    await withWin32RenameRetry(() => rename(fromPath, toPath));
+  },
+
+  /**
+   * Failo šalinimas su tuo pačiu win32 retry. Skiriasi nuo `removeIfExists` tuo, kad klaidą
+   * MESTA: lock'o atlaisvinimas privalo žinoti, ar failas realiai dingo — nutylėta klaida
+   * paliktų mūsų pačių lock'ą gulėti iki stale ribos ir stabdytų visus kitus rašytojus.
+   */
+  async removeFile(absolutePath: string): Promise<void> {
+    await withWin32RenameRetry(() => rm(absolutePath, { force: true }));
+  },
+
+  /**
+   * Skaitymas su win32 contention retry: lock failą pollina keliolika skaitytojų, o laikinas
+   * EPERM be retry melagingai paskelbtų sveiką append'ą prarastu. Nesamas failas — `undefined`
+   * (nebuvimas yra atsakymas, ne klaida), lygiai kaip `readTextFileIfExists`.
+   */
+  async readContendedTextFileIfExists(absolutePath: string): Promise<string | undefined> {
+    let content: string | undefined;
+    try {
+      await withWin32RenameRetry(async () => {
+        content = await readFile(absolutePath, "utf8");
+      });
+    } catch {
+      return undefined;
+    }
+    return content;
+  },
+
   // --- SchedulingFileSystemPort pusė (VQ-303 kontraktas; store logika — VQ-403) ---
 
   /** Katalogo įrašų vardai arba `undefined`, kai katalogo nėra (skirtinga nuo listDirectory `[]`). */

@@ -12,3 +12,4 @@ export * from "./paths.js";
 export * from "./ids.js";
 export * from "./numbers.js";
 export * from "./schema.js";
+export * from "./lock-steal.js";

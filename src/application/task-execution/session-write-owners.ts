@@ -22,6 +22,43 @@ export function sessionWriteOwnersPath(sessionWritesPath: string): string {
   return path.join(path.dirname(sessionWritesPath), "session-write-owners.json");
 }
 
+/** Kas rašo: dispatch nonce (arba `session:<claude session_id>`) ir užduotis, jei ji yra. */
+export type SessionWriteIdentity = { session: string; taskId: string };
+
+/**
+ * Įpina tapatybę į savininkų sidecar'ą. Grąžina naują įrašą su jo raktu arba `undefined`, kai
+ * rašyti nėra ko — kvietėjas iš to sprendžia, ar apskritai liesti failą (rašymas vyksta po
+ * ledger'io lock'u, tad kiekvienas nereikalingas įrašas kainuoja kritinės sekcijos laiką).
+ *
+ * Aibės, o ne vienas savininkas: tą patį failą per užduotį rašo dispatch sesija, repair sesija
+ * ir kartais interaktyvi — pirmas-laimi būtų tyliai atėmęs nuosavybę iš vėlesnio rašytojo ir jo
+ * darbas liktų necommit'intas.
+ *
+ * Tuščia sesija NIEKADA nerašoma: kelias be savininko įrašo reiškia „legacy / nežinoma", o toks
+ * kelias {@link filterStagePathsByOwnership} lieka stage'inamas. Tuščio savininko įrašymas tą
+ * saugią „nežinau" būseną paverstų melagingu „žinau, ir tai ne tu".
+ */
+export function mergeSessionWriteOwner(
+  owners: SessionWriteOwners,
+  entry: string,
+  identity: SessionWriteIdentity,
+): { key: string; owner: SessionWriteOwner } | undefined {
+  const session = identity.session.trim();
+  const taskId = identity.taskId.trim();
+  if (!session) return undefined;
+
+  const key = normalizeGitPath(entry);
+  const current = owners[key];
+  const sessions = new Set(current?.sessions ?? []);
+  const tasks = new Set(current?.tasks ?? []);
+  const before = sessions.size + tasks.size;
+  sessions.add(session);
+  if (taskId) tasks.add(taskId);
+  if (current && sessions.size + tasks.size === before) return undefined;
+
+  return { key, owner: { sessions: [...sessions], tasks: [...tasks] } };
+}
+
 export type StageOwnershipResult = {
   /** Keliai, kuriuos ši sesija turi teisę stage'inti / priskirti sau. */
   paths: string[];

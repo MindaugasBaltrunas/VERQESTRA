@@ -21,3 +21,7 @@ export * from "./migration-guard.js";
 // E5 VQ-502 (5/6-a): PreToolUse vartai — vienintelė vieta, galinti blokuoti įrankio kvietimą.
 export * from "./runtime-ownership.js";
 export * from "./pre-hooks.js";
+// E5 VQ-502 (5/6-b): ledger'io lock protokolas ir jo rašytojai — vienintelė vieta, kur
+// serializuojami lygiagrečių sesijų įrodymų įrašai.
+export * from "./ledger-lock.js";
+export * from "./session-write-ledger.js";

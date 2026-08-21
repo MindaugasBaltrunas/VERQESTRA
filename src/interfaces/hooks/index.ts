@@ -30,3 +30,5 @@ export * from "./session-write-ledger.js";
 export * from "./post-hook-context.js";
 export * from "./post-hooks.js";
 export * from "./post-write.js";
+// E5 VQ-502 (6/6-a): sesijos/loop runtime įrašo saugykla (taisyklės — domain/scheduling).
+export * from "./loop-runtime-store.js";

@@ -92,3 +92,4 @@ export * from "./openspec-reconcile.js";
 // Pre-dispatch work-evidence vartai (etalono task 1187) — grynoji taisyklė eksportuojama
 // atskirai (per `export *` aukščiau), kad jos deterministiškumą būtų galima tikrinti be viso
 // port'ų rinkinio.
+export * from "./session-baseline.js";

@@ -129,7 +129,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
 
   assert.deepEqual(
     commands.map((entry) => entry.name),
-    ["export-json-schema", "openspec-reconcile"],
+    ["export-json-schema", "export-api-contract", "learning", "task-ledger-sync", "openspec-reconcile"],
   );
   // Rodyti komandą, kurios dispatch'as nepasiekia, reikštų meluoti operatoriui.
   assert.equal(

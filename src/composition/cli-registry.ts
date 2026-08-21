@@ -7,11 +7,23 @@
 // Handler'iai čia surišami su portais (manual DI). Verslo logikos šiame faile nėra — kiekviena
 // komanda tik gauna savo priklausomybes ir grąžina exit kodą.
 
+import { learningCommand } from "../interfaces/cli/audit/learning.js";
+import { exportApiContractCommand } from "../interfaces/cli/spec/export-api-contract.js";
 import { exportJsonSchemaCommand } from "../interfaces/cli/spec/export-json-schema.js";
 import { openSpecReconcileCommand } from "../interfaces/cli/spec/openspec-reconcile.js";
+import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-sync.js";
 import { renderCliCommandList, type CliCommand, type CliIo } from "../interfaces/cli/registry.js";
-import { jsonSchemaExportPorts, openSpecReconcileFs } from "./node-adapters.js";
+import {
+  apiContractExportPorts,
+  jsonSchemaExportPorts,
+  learningFs,
+  openSpecReconcileFs,
+  taskLedgerStore,
+} from "./node-adapters.js";
+import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import type { RuntimeRoots } from "./runtime-context.js";
+
+const nodeListFiles = (absoluteDir: string): Promise<string[]> => nodeFsAdapter.listFiles(absoluteDir);
 
 export type CliRegistryDeps = {
   roots: RuntimeRoots;
@@ -35,6 +47,34 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           { ports: jsonSchemaExportPorts, projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
           args,
         ),
+    },
+    {
+      name: "export-api-contract",
+      usage: "[--out <file>]",
+      description: "Eksportuoja aktyvaus spec pakeitimo API kontraktą",
+      run: (args) =>
+        exportApiContractCommand(
+          { ports: apiContractExportPorts, projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "learning",
+      usage: "<list|approve|reject> [id]",
+      description: "Learning atminties įrašai ir rekomendacijų sprendimai",
+      run: (args) =>
+        learningCommand({ fs: learningFs, runtimeRoot: deps.roots.runtimeRoot, ...(io === undefined ? {} : { io }) }, args),
+    },
+    {
+      name: "task-ledger-sync",
+      description: "Sutikrina task ledger'į su realiais bucket'ų failais",
+      run: () =>
+        taskLedgerSyncCommand({
+          ledger: taskLedgerStore(deps.roots.runtimeRoot),
+          listFiles: (absoluteDir) => nodeListFiles(absoluteDir),
+          agRoot: deps.roots.agRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
     },
     {
       name: "openspec-reconcile",

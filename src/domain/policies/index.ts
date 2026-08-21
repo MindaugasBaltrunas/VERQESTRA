@@ -23,3 +23,8 @@ export * from "./bootstrap-routing.js";
 export * from "./file-classification.js";
 export * from "./secret-patterns.js";
 export * from "./line-rules.js";
+// VQ-502 (3/6): rašymo politika — saugomi failai/keliai/plėtiniai, README-guard reikalavimai
+// ir runtime nuosavybės vartų aprėptis. Visos trys — grynos, be node API.
+export * from "./write-policy.js";
+export * from "./readme-guard.js";
+export * from "./foreign-lease-scope.js";

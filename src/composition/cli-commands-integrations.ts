@@ -7,12 +7,14 @@
 
 import type { CliCommand } from "../interfaces/cli/registry.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
+import { benchmarkDriveCommand } from "../interfaces/cli/benchmark/benchmark-drive.js";
 import { benchmarkCommand } from "../interfaces/cli/benchmark/benchmark-package.js";
 import { optimizationBenchmarkCommand } from "../interfaces/cli/benchmark/optimization-benchmark.js";
 import { githubIssueImportCommand } from "../interfaces/cli/github/issue-import.js";
 import { githubPrCommand } from "../interfaces/cli/github/pull-request.js";
 import {
   benchmarkCaptureFs,
+  benchmarkDrivePorts,
   benchmarkPackageLoader,
   gitHubIssueImportPorts,
   gitHubPrPorts,
@@ -39,6 +41,12 @@ export function integrationsCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "benchmark-drive",
+      usage: "--workdir <d> --model <m> --step-limit <n> --timeout-ms <n> [--prompt-file <f>]",
+      description: "Vienas ribotas headless agento bėgimas benchmark scenarijui",
+      run: (args) => benchmarkDriveCommand({ ports: benchmarkDrivePorts, ...(io === undefined ? {} : { io }) }, args),
     },
     {
       name: "optimization-benchmark",

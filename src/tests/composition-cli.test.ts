@@ -160,6 +160,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "retry-guard",
       "on-stop-bridge",
       "benchmark",
+      "benchmark-drive",
       "optimization-benchmark",
       "github-issue-import",
       "github-pr",

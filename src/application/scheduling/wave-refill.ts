@@ -20,19 +20,17 @@ import type { WavePlan, WaveReadyTask } from "./schedule-next-wave.js";
 import { planWorkerPool, type WorkerPoolPlan } from "./worker-pool-plan.js";
 import { orderWorkerCandidates, type WorkerCandidate } from "./worker-pool-admission.js";
 import type { SlotProvisionTarget, WavePoolEvent } from "./wave-pool-planning.js";
+import type { WaveDispatchSlot } from "./wave-dispatch-model.js";
 import type { WorkerLease } from "../../domain/scheduling/worker-lease-rules.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 
-/** Bangos dispatch'o slot'as — ką realiai paleisti po papildymo. */
-export type WaveDispatchSlot = {
-  worker_id: string;
-  task_id: string;
-  file: string;
-  absoluteFile: string;
-  worktree_path?: string;
-  lease_id?: string;
-  attempt_ref?: unknown;
-};
+/**
+ * Bangos dispatch'o slot'as — ką realiai paleisti po papildymo.
+ *
+ * Tipas re-eksportuojamas iš dispatch'o modelio, o ne perrašomas: papildymas ir dispatch'as kalba
+ * apie TĄ PATĮ slot'ą, ir dvi jo deklaracijos išsiskirtų tyliai.
+ */
+export type { WaveDispatchSlot } from "./wave-dispatch-model.js";
 
 export type WaveRefillResult = {
   selection: {

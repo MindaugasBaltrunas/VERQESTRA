@@ -16,7 +16,7 @@ import type { WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { PhantomWaveSlot } from "./wave-phantom-slots.js";
 import type { StoredGraphRead } from "./wave-graph.js";
 import type { WaveSnapshot } from "./wave-snapshot.js";
-import type { WaveDispatchSlot } from "./wave-refill.js";
+import type { WaveDispatchSlot } from "./wave-dispatch-model.js";
 import type { WavePoolEvent } from "./wave-pool-planning.js";
 import type { WaveOutcomeCheckpoint } from "./wave-outcome.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";

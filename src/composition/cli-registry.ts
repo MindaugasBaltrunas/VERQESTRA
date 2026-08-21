@@ -16,7 +16,11 @@ import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.j
 import { exportApiContractCommand } from "../interfaces/cli/spec/export-api-contract.js";
 import { exportJsonSchemaCommand } from "../interfaces/cli/spec/export-json-schema.js";
 import { openSpecReconcileCommand } from "../interfaces/cli/spec/openspec-reconcile.js";
+import { agentCommand } from "../interfaces/cli/admin/agent.js";
+import { policyCommand } from "../interfaces/cli/admin/policy.js";
 import { statusCommand } from "../interfaces/cli/admin/status.js";
+import { convergeCommand } from "../interfaces/cli/audit/converge.js";
+import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
 import { planCommand } from "../interfaces/cli/spec/plan.js";
 import { specDriftCommand } from "../interfaces/cli/spec/spec-drift.js";
 import { printTaskGenerate } from "../interfaces/cli/task-queue/task-generate.js";
@@ -30,8 +34,13 @@ import {
   jsonSchemaExportPorts,
   learningFs,
   openSpecReconcileFs,
+  agentCommandPorts,
+  convergePorts,
   isFile,
   planPorts,
+  policyCommandPorts,
+  readinessPorts,
+  readinessRequirements,
   releaseNotesPorts,
   securityVerifyPorts,
   specDriftPorts,
@@ -40,6 +49,7 @@ import {
   taskLedgerStore,
   taskStateStore,
   tokenBudgetPorts,
+  writeReadinessResult,
 } from "./node-adapters.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { postHookPorts } from "./hook-adapters.js";
@@ -204,6 +214,62 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           {
             ports: specDriftPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
             projectRoot: deps.roots.projectRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "converge",
+      usage: "",
+      description: "Sutikrina spec planus su eilės failais",
+      run: (args) =>
+        convergeCommand(
+          {
+            ports: convergePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "readiness-audit",
+      usage: "[--json]",
+      description: "Produkto pasirengimo auditas (aplankai, konfigai, komandos, testai, docs)",
+      run: (args) =>
+        readinessAuditCommand(
+          {
+            ports: readinessPorts,
+            requirements: readinessRequirements,
+            projectRoot: deps.roots.projectRoot,
+            writeResult: writeReadinessResult(deps.roots.runtimeRoot),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "policy",
+      usage: "[list|propose ...]",
+      description: "Politikų peržiūra ir pasiūlymų žurnalas",
+      run: (args) =>
+        policyCommand(
+          { ports: policyCommandPorts, runtimeRoot: deps.roots.runtimeRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "agent",
+      usage: "[list|add|remove ...]",
+      description: "Agentų personų registras",
+      run: (args) =>
+        agentCommand(
+          {
+            ports: agentCommandPorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
             ...(io === undefined ? {} : { io }),
           },
           args,

@@ -24,6 +24,16 @@ import {
   type SecurityVerifyPorts,
   type SecurityVerifyResult,
 } from "../application/quality-gates/security-verify.js";
+import type { ConvergePorts } from "../application/release-readiness/converge-check.js";
+import {
+  readinessAuditResultPath,
+  type ReadinessAuditResult,
+  type ReadinessPorts,
+  type ReadinessRequirements,
+} from "../application/release-readiness/readiness-audit.js";
+import type { PolicyProposalsFsPort } from "../application/policy-governance/policy-proposals-log.js";
+import type { AgentCommandPorts } from "../interfaces/cli/admin/agent.js";
+import type { PolicyCommandPorts } from "../interfaces/cli/admin/policy.js";
 import type { PlanPorts } from "../application/task-planning/plan.js";
 import type { TaskGeneratePorts } from "../application/task-planning/generate.js";
 import { specDriftResultPath, type SpecDriftPorts, type SpecDriftResult } from "../application/quality-gates/spec-drift.js";
@@ -263,3 +273,92 @@ export function statusPorts(projectRoot: string, runtimeRoot: string, agRoot: st
     gitStatus: () => gitStatusPlain(projectRoot),
   };
 }
+
+/** `converge`: tik skaitymas plius mtime. */
+export const convergePorts: ConvergePorts = {
+  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+  listSubdirectories: (absoluteDir) => nodeFsAdapter.listSubdirectories(absoluteDir),
+  listFiles: (absoluteDir) => nodeFsAdapter.listFiles(absoluteDir),
+  fileMtimeMs: (absolutePath) => nodeFsAdapter.fileMtimeMs(absolutePath),
+};
+
+/** `readiness-audit`: dvi skaitymo operacijos, verdiktas rašomas atskirai. */
+export const readinessPorts: ReadinessPorts = {
+  // `statKind` grąžina ir `other` (symlink, socket); auditui tai NE reikalavimo tenkinimas.
+  statKind: async (absolutePath) => {
+    const kind = await nodeFsAdapter.statKind(absolutePath);
+    return kind === "file" || kind === "directory" ? kind : "absent";
+  },
+  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+};
+
+/**
+ * VERQESTRA pasirengimo reikalavimai. Sąrašas SĄMONINGAI aprašo TIKSLINĮ produkto vaizdą, o ne
+ * dabartinį migracijos pjūvį: auditas turi sakyti „dar ne", kol ko nors trūksta — priešingu
+ * atveju jis tik patvirtintų tai, kas jau yra.
+ *
+ * Skirtumas nuo etalono yra tik keliai: sluoksniai gyvena `src/*`, konfigai — `vq/config`
+ * (o ne `AG/config`), o komandų registras yra `src/composition/cli-registry.ts`.
+ */
+export const readinessRequirements: ReadinessRequirements = {
+  folders: [
+    "src/domain",
+    "src/application",
+    "src/infrastructure",
+    "src/interfaces",
+    "src/composition",
+    "src/tests",
+    "AG/spec",
+    "AG/openspec",
+    "AG/tasks/queue",
+    "docs",
+  ],
+  configs: [
+    "vq/config/context-budget.json",
+    "vq/config/model-policy.json",
+    "vq/config/quality-policy.json",
+    "vq/config/security-policy.json",
+    "vq/config/spec-policy.json",
+    "vq/config/tool-budget.json",
+  ],
+  tests: [
+    "src/tests/architecture-gates.test.ts",
+    "src/tests/composition-cli.test.ts",
+    "src/tests/cli-exit-contracts.test.ts",
+  ],
+  docs: ["README.md", "docs/getting-started.md", "docs/spec-workflow.md", "docs/context-pack.md", "docs/release.md"],
+  commandSources: ["src/composition/cli-registry.ts", "src/cli.ts"],
+};
+
+/** `readiness-audit` verdikto rašymas — atominis: pusiau įrašytas verdiktas yra blogesnis nei joks. */
+export function writeReadinessResult(runtimeRoot: string): (result: ReadinessAuditResult) => Promise<void> {
+  return (result) => nodeFsAdapter.writeTextFileAtomic(readinessAuditResultPath(runtimeRoot), toPrettyJson(result));
+}
+
+const policyProposalsFs: PolicyProposalsFsPort = {
+  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+  appendTextFile: (absolutePath, text) => nodeFsAdapter.appendTextFile(absolutePath, text),
+  makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
+};
+
+/** `policy`: konfigų skaitymas plius pasiūlymų žurnalo append. */
+export const policyCommandPorts: PolicyCommandPorts = {
+  configFs: policyConfigFs,
+  proposalsFs: policyProposalsFs,
+};
+
+/**
+ * `agent`: personų failai ir agentų registras.
+ *
+ * `readTextFile` META, kai `--from` šaltinio nėra: tyliai praleista persona duotų registrą,
+ * rodantį agentą, kurio instrukcijų nėra.
+ */
+export const agentCommandPorts: AgentCommandPorts = {
+  policyFs: policyConfigFs,
+  listPersonaFiles: (absoluteDir) => nodeFsAdapter.listFiles(absoluteDir),
+  readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
+  writeTextFile: (absolutePath, content) => nodeFsAdapter.writeTextFile(absolutePath, content),
+  writeJsonFile: (absolutePath, value) => nodeFsAdapter.writeTextFileAtomic(absolutePath, toPrettyJson(value)),
+  removeFile: (absolutePath) => nodeFsAdapter.removeFile(absolutePath),
+  exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
+};

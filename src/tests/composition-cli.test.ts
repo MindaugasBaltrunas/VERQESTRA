@@ -160,6 +160,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "smoke",
       "restore-stable",
       "rollback-stable",
+      "claude-dispatch",
       "claude-preflight",
       "claude-diagnose",
       "loop-guard",

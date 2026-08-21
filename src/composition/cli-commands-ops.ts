@@ -14,6 +14,7 @@ import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
 import { printCodexDispatch } from "../interfaces/cli/dispatch/codex-dispatch.js";
 import { printDispatch } from "../interfaces/cli/dispatch/dispatch.js";
 import { claudeDiagnose } from "../interfaces/cli/dispatch/claude-diagnose/index.js";
+import { claudeDispatch } from "../interfaces/cli/dispatch/claude-dispatch/command.js";
 import { claudePreflight } from "../interfaces/cli/dispatch/claude-preflight/index.js";
 import { loopGuard } from "../interfaces/cli/dispatch/loop-guard.js";
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
@@ -38,6 +39,7 @@ import {
 import { evaluateLoopPreconditions } from "../application/scheduling/loop-preconditions.js";
 import { claudeDiagnosePorts } from "./diagnose-adapters.js";
 import { claudePreflightPorts } from "./claude-preflight-adapters.js";
+import { claudeDispatchPorts } from "./claude-dispatch-adapters.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { packageRoot } from "./runtime-context.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
@@ -129,6 +131,21 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             ...(io === undefined ? {} : { io }),
           },
           args,
+        ),
+    },
+    {
+      name: "claude-dispatch",
+      usage: "<task-file> [--task-id <id>]",
+      description: "Paleidžia vykdytojo modelį su maršrutu, biudžetu ir stop-bridge įrodymu",
+      run: (args) =>
+        claudeDispatch(
+          args,
+          claudeDispatchPorts({
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            agRoot: deps.roots.agRoot,
+            resolution: noRuntimeAttemptResolution,
+          }),
         ),
     },
     {

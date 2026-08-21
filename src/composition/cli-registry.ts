@@ -20,6 +20,9 @@ import { agentCommand } from "../interfaces/cli/admin/agent.js";
 import { policyCommand } from "../interfaces/cli/admin/policy.js";
 import { statusCommand } from "../interfaces/cli/admin/status.js";
 import { convergeCommand } from "../interfaces/cli/audit/converge.js";
+import { projectStatusCommand } from "../interfaces/cli/reports/project-status.js";
+import { reportCommand } from "../interfaces/cli/reports/report.js";
+import { printTaskDependencies } from "../interfaces/cli/task-queue/task-dependencies.js";
 import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
 import { planCommand } from "../interfaces/cli/spec/plan.js";
 import { specDriftCommand } from "../interfaces/cli/spec/spec-drift.js";
@@ -30,27 +33,35 @@ import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-
 import { renderCliCommandList, type CliCommand, type CliIo } from "../interfaces/cli/registry.js";
 import {
   apiContractExportPorts,
-  backlogAuditPorts,
   jsonSchemaExportPorts,
   learningFs,
   openSpecReconcileFs,
   agentCommandPorts,
-  convergePorts,
+  blockedTaskRoutingPorts,
+  gitHeadForProject,
   isFile,
   planPorts,
   policyCommandPorts,
-  readinessPorts,
-  readinessRequirements,
-  releaseNotesPorts,
-  securityVerifyPorts,
   specDriftPorts,
   statusPorts,
   taskGeneratePorts,
   taskLedgerStore,
   taskStateStore,
   tokenBudgetPorts,
-  writeReadinessResult,
 } from "./node-adapters.js";
+import {
+  adapterCapabilityViews,
+  backlogAuditPorts,
+  contextPackFs,
+  convergePorts,
+  projectStatusFs,
+  releaseProofPorts,
+  readinessPorts,
+  readinessRequirements,
+  releaseNotesPorts,
+  securityVerifyPorts,
+  writeReadinessResult,
+} from "./readiness-adapters.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { postHookPorts } from "./hook-adapters.js";
 import type { RuntimeRoots } from "./runtime-context.js";
@@ -274,6 +285,47 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "project-status",
+      usage: "",
+      description: "Projekto būsenos dokumentas iš spec, eilės ir release įrodymo",
+      run: () =>
+        projectStatusCommand({
+          fs: projectStatusFs(),
+          releaseProof: releaseProofPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
+          gitHead: () => gitHeadForProject(deps.roots.projectRoot),
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "report",
+      usage: "[--json] [--recent <n>]",
+      description: "Vietinė telemetrijos ataskaita (užduotys, tokenai, kompresija, adapteriai)",
+      run: (args) =>
+        reportCommand(
+          {
+            fs: projectStatusFs(),
+            contextFs: contextPackFs,
+            adapterCapabilities: adapterCapabilityViews,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "task-dependencies",
+      usage: "[list|route-blocked <task-id>] [--json]",
+      description: "Užduočių priklausomybės ir blokuotų užduočių maršrutizavimas",
+      run: (args) =>
+        printTaskDependencies(args, {
+          ports: blockedTaskRoutingPorts(deps.roots.projectRoot, deps.roots.agRoot, deps.roots.runtimeRoot),
+          ...(io === undefined ? {} : { io }),
+        }),
     },
     // --- PostToolUse hook'ai (VQ-502) --------------------------------------------------
     // Jie NIEKADA neblokuoja: handler'iai grąžina 0, o dispatch'as tą kodą tik perduoda.

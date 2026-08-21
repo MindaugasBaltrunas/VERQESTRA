@@ -15,22 +15,8 @@ import { taskLedgerPath } from "../application/task-execution/task-ledger-rules.
 import type { TaskLedgerEntry } from "../application/task-execution/task-ledger-rules.js";
 import type { TaskLedgerStorePort } from "../application/task-execution/task-ledger-service.js";
 import { toPrettyJson, tryParseJson } from "../shared/json.js";
-import type { BacklogAuditPorts } from "../application/release-readiness/backlog-audit.js";
-import type { ReleaseNotesPorts } from "../application/release-readiness/release-notes.js";
-import { loadGitAutomationPolicy } from "../application/policy-governance/git-automation-policy.js";
-import { loadSecurityPolicy } from "../application/policy-governance/security-spec-policies.js";
-import {
-  securityVerifyResultPath,
-  type SecurityVerifyPorts,
-  type SecurityVerifyResult,
-} from "../application/quality-gates/security-verify.js";
-import type { ConvergePorts } from "../application/release-readiness/converge-check.js";
-import {
-  readinessAuditResultPath,
-  type ReadinessAuditResult,
-  type ReadinessPorts,
-  type ReadinessRequirements,
-} from "../application/release-readiness/readiness-audit.js";
+import type { BlockedTaskRoutingPorts, BucketTaskFile } from "../application/task-execution/task-graph-import.js";
+import type { TaskBucket } from "../domain/tasks/buckets.js";
 import type { PolicyProposalsFsPort } from "../application/policy-governance/policy-proposals-log.js";
 import type { AgentCommandPorts } from "../interfaces/cli/admin/agent.js";
 import type { PolicyCommandPorts } from "../interfaces/cli/admin/policy.js";
@@ -42,7 +28,7 @@ import { tokenAnalyticsSnapshotPath } from "../application/learning/token-analyt
 import type { TokenAnalyticsSnapshot } from "../application/learning/token-analytics-snapshot.js";
 import type { StatusPorts, StatusStopEvidenceView } from "../interfaces/cli/admin/status.js";
 import { collectChangedFiles } from "../infrastructure/git/changed-files.js";
-import { gitStatus as gitStatusPlain } from "../infrastructure/git/git-client.js";
+import { gitHead, gitStatus as gitStatusPlain } from "../infrastructure/git/git-client.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { readStopEvidence } from "../infrastructure/state/stop-evidence.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
@@ -110,60 +96,11 @@ export function taskLedgerStore(runtimeRoot: string): TaskLedgerStorePort {
   };
 }
 
-/** `backlog-audit`: tik katalogų skaitymas. */
-export const backlogAuditPorts: BacklogAuditPorts = {
-  listFiles: (absoluteDir) => nodeFsAdapter.listFiles(absoluteDir),
-  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
-};
-
-const policyConfigFs = {
+/** Politikos konfigų skaitymas — bendras kelioms komandoms, tad eksportuojamas. */
+export const policyConfigFs = {
   readTextFileIfExists: (absolutePath: string): Promise<string | undefined> =>
     nodeFsAdapter.readTextFileIfExists(absolutePath),
 };
-
-/**
- * `security-verify`: politika, pakeisti failai ir rezultato įrašas.
- *
- * `readTextFile` čia META, kai failo perskaityti negalima — ir tai sąmoninga: saugumo patikra,
- * tyliai praleidusi failą, kurio neperskaitė, būtų blogesnė nei jokia patikra.
- */
-export function securityVerifyPorts(projectRoot: string, runtimeRoot: string): SecurityVerifyPorts {
-  return {
-    loadPolicy: () => loadSecurityPolicy(policyConfigFs, runtimeRoot),
-    changedFiles: () => collectChangedFiles(projectRoot, runtimeRoot),
-    readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
-    writeResult: (result: SecurityVerifyResult) =>
-      nodeFsAdapter.writeTextFile(securityVerifyResultPath(runtimeRoot), toPrettyJson(result)),
-  };
-}
-
-/** `release-notes`: politika, ledger'is, dvi būsenos ir vienas rašymas. */
-export function releaseNotesPorts(projectRoot: string, runtimeRoot: string): ReleaseNotesPorts {
-  const readTrimmed = async (absolutePath: string): Promise<string> =>
-    ((await nodeFsAdapter.readTextFileIfExists(absolutePath)) ?? "").trim();
-
-  return {
-    loadPolicy: async () => {
-      const policy = await loadGitAutomationPolicy(policyConfigFs, runtimeRoot);
-      return {
-        release_notes_after_final_audit: policy.release_notes_after_final_audit,
-        release_notes_path: policy.release_notes_path,
-      };
-    },
-    // Ledger'io įrašo forma sutampa su release-notes laukiama — bendras `TaskLedgerEntry`.
-    readTaskLedger: () => taskLedgerStore(runtimeRoot).read(),
-    readReleaseCheckStatus: async () => {
-      const raw = await nodeFsAdapter.readTextFileIfExists(
-        path.join(runtimeRoot, "state", "release-check-result.json"),
-      );
-      if (raw === undefined) return "missing";
-      const parsed = tryParseJson<{ status?: unknown }>(raw);
-      return parsed.ok && typeof parsed.value.status === "string" ? parsed.value.status : "missing";
-    },
-    readProjectStatus: () => readTrimmed(path.join(runtimeRoot, "project", "status.md")),
-    writeNotes: (relativePath, text) => nodeFsAdapter.writeTextFile(path.resolve(projectRoot, relativePath), text),
-  };
-}
 
 /**
  * Task būsenos saugykla. Nuosavybės vartai kol kas NEPRIJUNGTI: juos suriš loop dalis, kuri turi
@@ -172,6 +109,11 @@ export function releaseNotesPorts(projectRoot: string, runtimeRoot: string): Rel
  */
 export function taskStateStore(agRoot: string, runtimeRoot: string): ReturnType<typeof createTaskStateStore> {
   return createTaskStateStore({ agRoot, runtimeRoot });
+}
+
+/** Projekto HEAD; `undefined` ne-git medyje (nebuvimas — atsakymas, ne klaida). */
+export function gitHeadForProject(projectRoot: string): Promise<string | undefined> {
+  return gitHead(projectRoot);
 }
 
 /** `true`, kai kelias egzistuoja IR yra failas (ne katalogas, ne symlink į katalogą). */
@@ -274,67 +216,6 @@ export function statusPorts(projectRoot: string, runtimeRoot: string, agRoot: st
   };
 }
 
-/** `converge`: tik skaitymas plius mtime. */
-export const convergePorts: ConvergePorts = {
-  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
-  listSubdirectories: (absoluteDir) => nodeFsAdapter.listSubdirectories(absoluteDir),
-  listFiles: (absoluteDir) => nodeFsAdapter.listFiles(absoluteDir),
-  fileMtimeMs: (absolutePath) => nodeFsAdapter.fileMtimeMs(absolutePath),
-};
-
-/** `readiness-audit`: dvi skaitymo operacijos, verdiktas rašomas atskirai. */
-export const readinessPorts: ReadinessPorts = {
-  // `statKind` grąžina ir `other` (symlink, socket); auditui tai NE reikalavimo tenkinimas.
-  statKind: async (absolutePath) => {
-    const kind = await nodeFsAdapter.statKind(absolutePath);
-    return kind === "file" || kind === "directory" ? kind : "absent";
-  },
-  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
-};
-
-/**
- * VERQESTRA pasirengimo reikalavimai. Sąrašas SĄMONINGAI aprašo TIKSLINĮ produkto vaizdą, o ne
- * dabartinį migracijos pjūvį: auditas turi sakyti „dar ne", kol ko nors trūksta — priešingu
- * atveju jis tik patvirtintų tai, kas jau yra.
- *
- * Skirtumas nuo etalono yra tik keliai: sluoksniai gyvena `src/*`, konfigai — `vq/config`
- * (o ne `AG/config`), o komandų registras yra `src/composition/cli-registry.ts`.
- */
-export const readinessRequirements: ReadinessRequirements = {
-  folders: [
-    "src/domain",
-    "src/application",
-    "src/infrastructure",
-    "src/interfaces",
-    "src/composition",
-    "src/tests",
-    "AG/spec",
-    "AG/openspec",
-    "AG/tasks/queue",
-    "docs",
-  ],
-  configs: [
-    "vq/config/context-budget.json",
-    "vq/config/model-policy.json",
-    "vq/config/quality-policy.json",
-    "vq/config/security-policy.json",
-    "vq/config/spec-policy.json",
-    "vq/config/tool-budget.json",
-  ],
-  tests: [
-    "src/tests/architecture-gates.test.ts",
-    "src/tests/composition-cli.test.ts",
-    "src/tests/cli-exit-contracts.test.ts",
-  ],
-  docs: ["README.md", "docs/getting-started.md", "docs/spec-workflow.md", "docs/context-pack.md", "docs/release.md"],
-  commandSources: ["src/composition/cli-registry.ts", "src/cli.ts"],
-};
-
-/** `readiness-audit` verdikto rašymas — atominis: pusiau įrašytas verdiktas yra blogesnis nei joks. */
-export function writeReadinessResult(runtimeRoot: string): (result: ReadinessAuditResult) => Promise<void> {
-  return (result) => nodeFsAdapter.writeTextFileAtomic(readinessAuditResultPath(runtimeRoot), toPrettyJson(result));
-}
-
 const policyProposalsFs: PolicyProposalsFsPort = {
   readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
   appendTextFile: (absolutePath, text) => nodeFsAdapter.appendTextFile(absolutePath, text),
@@ -362,3 +243,40 @@ export const agentCommandPorts: AgentCommandPorts = {
   removeFile: (absolutePath) => nodeFsAdapter.removeFile(absolutePath),
   exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
 };
+
+
+/**
+ * `task-dependencies`: bucket'ų skaitymas plius blocked maršrutizavimas.
+ *
+ * `moveToHumanReview` eina per TĄ PAČIĄ task būsenos saugyklą kaip ir loop'as — kitaip rankinis
+ * escape hatch judintų failus be lock'o, lygiagrečiai su dispatch'u.
+ */
+export function blockedTaskRoutingPorts(projectRoot: string, agRoot: string, runtimeRoot: string): BlockedTaskRoutingPorts {
+  const store = createTaskStateStore({ agRoot, runtimeRoot });
+  const tasksDir = (bucket: string): string => path.join(agRoot, "tasks", bucket);
+  const absolute = (file: string): string => (path.isAbsolute(file) ? file : path.join(projectRoot, file));
+
+  return {
+    listTasksInBucket: async (bucket: TaskBucket): Promise<BucketTaskFile[]> => {
+      const dir = tasksDir(bucket);
+      // Vardų tvarka yra KONTRAKTAS: nuo jos priklauso grafo hash'o determinizmas.
+      const names = (await nodeFsAdapter.listMarkdownFiles(dir)).slice().sort();
+      const files: BucketTaskFile[] = [];
+      for (const name of names) {
+        const text = await nodeFsAdapter.readTextFileIfExists(path.join(dir, name));
+        if (text === undefined) continue;
+        files.push({ file: `AG/tasks/${bucket}/${name}`, text });
+      }
+      return files;
+    },
+    readTaskText: (file) => nodeFsAdapter.readTextFile(absolute(file)),
+    writeTaskText: (file, text) => nodeFsAdapter.writeTextFile(absolute(file), text),
+    moveToHumanReview: async (file) => {
+      const from = absolute(file);
+      const moved = await store.moveTaskState(from, tasksDir("human-review"), path.basename(from), {
+        updateCurrent: false,
+      });
+      return path.relative(projectRoot, moved).split(path.sep).join("/");
+    },
+  };
+}

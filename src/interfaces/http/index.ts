@@ -7,3 +7,9 @@ export * from "./ui-waves-view.js";
 // pripažįstamas TIK savo projekto serveris.
 export * from "./ui-port-rules.js";
 export * from "./ui-port-store.js";
+// E5 VQ-503 (4/5-c): loop ir UI proceso gyvavimo ciklas — spawn per portą, gyvumas iš runtime
+// įrašo (PID + šviežias heartbeat).
+export * from "./process-lifecycle-ports.js";
+export * from "./loop-lifecycle.js";
+export * from "./ui-lifecycle.js";
+export * from "./workflow-buckets.js";

@@ -341,7 +341,8 @@
       "module": "commands/ 13 shim'ų (claude-diagnose, claude-dispatch, claude-loop, audit-director, context-pack, claude-preflight, dispatch, codex-dispatch, loop-guard, on-stop-bridge, preflight, restore-stable, rollback-stable)",
       "target": "-",
       "status": "wont-migrate",
-      "reason": "dead: 0 statinių importerių; vienintelis naudotojas — pačių shim'ų egzistavimą saugantis testas (žiedinis argumentas). VQ-002 §3.1"
+      "reason": "dead: 0 statinių importerių; vienintelis naudotojas — pačių shim'ų egzistavimą saugantis testas (žiedinis argumentas). VQ-002 §3.1",
+      "note": "VQ-50A auditas: CLI exit kontraktu fixture'as (9 atvejai per TIKRA registra) + gyvas visu 55 komandu paleidimas; radinys -- claude-diagnose rase tiesiai i process.stderr, apeidamas kvieteju io."
     },
     {
       "module": "ui/server.ts + ui/control-plane.ts + ui/log-service.ts",

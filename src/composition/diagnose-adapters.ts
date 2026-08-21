@@ -36,6 +36,7 @@ import {
 import { run } from "../infrastructure/process/run-process.js";
 import { productPathsFromDiffNames } from "../domain/git/changes.js";
 import { windowProductWorkSha } from "../infrastructure/git/work-evidence.js";
+import { consoleCliIo, type CliIo } from "../interfaces/cli/registry.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { attemptLogPath } from "../infrastructure/runtime-paths.js";
 import type { AttemptResolutionPort } from "../infrastructure/state/attempt-resolution.js";
@@ -150,6 +151,8 @@ export type DiagnoseAdapterInput = {
   runtimeRoot: string;
   resolution: AttemptResolutionPort;
   env?: NodeJS.ProcessEnv;
+  /** Kvietėjo išvestis; be jos — konsolė. Testai ir auditas paduoda savo. */
+  io?: CliIo;
 };
 
 /** Git pjūvis diagnozei — visi keliai grąžina reikšmę, o ne klaidą. */
@@ -378,7 +381,8 @@ export function claudeDiagnosePorts(input: DiagnoseAdapterInput & { agRoot: stri
         checkpoint: entry,
       }),
     agLog: (line) => appendLogLine(input.runtimeRoot, "orchestrator.log", line),
-    stderr: (line) => process.stderr.write(`${line}
-`),
+    // Klaidos eina per TĄ PATĮ `io`, kurį gavo registras: tiesioginis `process.stderr` rašymas
+    // reikštų, kad viena komanda nepaklūsta kvietėjo išvesčiai (o auditas jos net nepamatytų).
+    stderr: (line) => (input.io ?? consoleCliIo).error(line),
   };
 }

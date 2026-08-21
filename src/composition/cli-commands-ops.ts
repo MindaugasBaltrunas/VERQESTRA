@@ -199,6 +199,7 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             runtimeRoot: deps.roots.runtimeRoot,
             agRoot: deps.roots.agRoot,
             resolution: activeAttemptResolution({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
+            ...(io === undefined ? {} : { io }),
           }),
         ),
     },
@@ -215,6 +216,7 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             agRoot: deps.roots.agRoot,
             // Diagnozė SKAITO įrodymus, tad `create` jai neduodamas: bandymą pradeda dispatch'as.
             resolution: activeAttemptResolution({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
+            ...(io === undefined ? {} : { io }),
           }),
         ),
     },

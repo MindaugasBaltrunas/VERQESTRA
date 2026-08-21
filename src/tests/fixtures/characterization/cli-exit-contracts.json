@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "description": "VERQESTRA CLI exit kontraktai (VQ-50A; etalonas AG_loop VQ-003a). Kiekvienas atvejis: komandos handler'is kviečiamas su argv švariame laikiname workspace; fiksuojamas GRĄŽINTAS exit kodas ir stderr žymės. USAGE_ERROR_EXIT_CODE = 2 (shared/exit-codes.ts). NUKRYPIMAS nuo etalono (griežtinantis): handler'iai GRĄŽINA kodą, o ne rašo į process.exitCode, tad atvejai tikrina grąžinamą reikšmę.",
+  "workspace_dirs": [
+    "AG/tasks/queue",
+    "AG/tasks/active",
+    "AG/tasks/delegated",
+    "AG/tasks/done",
+    "AG/tasks/error",
+    "AG/tasks/human-review",
+    "vq/state",
+    "vq/logs",
+    "vq/supervisor"
+  ],
+  "cases": [
+    {
+      "id": "task-move-usage",
+      "command": "task-move",
+      "argv": [],
+      "expect": { "exitCode": 2, "stderrIncludes": ["Usage: verqestra task-move <from-file> <to-dir>"] }
+    },
+    {
+      "id": "task-move-non-md-source",
+      "command": "task-move",
+      "argv": ["AG/tasks/queue/not-a-task.txt", "AG/tasks/done"],
+      "expect": { "exitCode": 2, "stderrIncludes": ["must be a .md file"] }
+    },
+    {
+      "id": "task-move-target-outside-tasks",
+      "command": "task-move",
+      "argv": ["AG/tasks/queue/some-task.md", "somewhere/else"],
+      "expect": { "exitCode": 2, "stderrIncludes": ["target directory must be inside AG/tasks"] }
+    },
+    {
+      "id": "task-move-target-not-a-bucket",
+      "command": "task-move",
+      "argv": ["AG/tasks/queue/some-task.md", "AG/tasks/nonbucket"],
+      "expect": { "exitCode": 2, "stderrIncludes": ["task-move target must be a task bucket:"] }
+    },
+    {
+      "id": "task-move-missing-source-file",
+      "command": "task-move",
+      "argv": ["AG/tasks/queue/ghost-task.md", "AG/tasks/done"],
+      "expect": { "exitCode": 2, "stderrIncludes": ["task-move source must exist and be a file"] }
+    },
+    {
+      "id": "claude-diagnose-usage",
+      "command": "claude-diagnose",
+      "argv": [],
+      "expect": { "exitCode": 2, "stderrIncludes": ["Usage: verqestra claude-diagnose <task-file>"] }
+    },
+    {
+      "id": "requeue-usage",
+      "command": "requeue",
+      "argv": [],
+      "expect": { "exitCode": 2, "stderrIncludes": ["Usage: verqestra requeue <task-file-or-name>"] }
+    },
+    {
+      "id": "process-queued-task-usage",
+      "command": "process-queued-task",
+      "argv": [],
+      "expect": { "exitCode": 2, "stderrIncludes": ["Usage: verqestra process-queued-task <task-file>"] }
+    },
+    {
+      "id": "unknown-command",
+      "command": "nera-tokios-komandos",
+      "argv": [],
+      "expect": { "exitCode": 2, "stderrIncludes": ["Unknown command: nera-tokios-komandos"] }
+    }
+  ]
+}

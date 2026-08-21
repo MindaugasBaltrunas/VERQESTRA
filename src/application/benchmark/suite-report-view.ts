@@ -218,7 +218,7 @@ export async function readBenchmarkReportView(
   options: ReadBenchmarkReportOptions = {},
 ): Promise<BenchmarkReportView> {
   const projectRoot = path.resolve(options.projectRoot ?? process.cwd());
-  const resolveCurrentCommit = options.currentAgCommit ?? (async () => undefined);
+  const resolveCurrentCommit = options.currentAgCommit ?? ((): Promise<string | undefined> => Promise.resolve(undefined));
 
   const bytes = await readReportBytes(fs, projectRoot);
   if (bytes.problem) return bytes.problem;

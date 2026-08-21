@@ -192,7 +192,7 @@ export function parseContextCompressionArrestState(value: unknown): ContextCompr
       counters: {
         fallback_streak: fallbackStreak,
         human_review: humanReview,
-        human_review_task_ids: rawTaskIds as string[],
+        human_review_task_ids: rawTaskIds,
       },
     },
     unreadable: false,

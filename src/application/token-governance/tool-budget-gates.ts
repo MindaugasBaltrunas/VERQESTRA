@@ -247,7 +247,7 @@ async function loadToolBudgetProfileOrFailsafe(
 function resolveTaskId(request: BudgetEnforcementRequest): string {
   const explicit = request.taskId?.trim();
   if (explicit) return explicit;
-  return typeof request.contextPack["task_id"] === "string" ? (request.contextPack["task_id"] as string).trim() : "";
+  return typeof request.contextPack["task_id"] === "string" ? (request.contextPack["task_id"]).trim() : "";
 }
 
 export async function assertExecutionBudget(

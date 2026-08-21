@@ -49,7 +49,7 @@ export type FakeTaskRunEnv = {
   };
 };
 
-export function fakeBucketPath(bucket: TaskBucket | string, taskName: string): string {
+export function fakeBucketPath(bucket: TaskBucket, taskName: string): string {
   return `${BUCKET_ROOT}/${bucket}/${taskName}`;
 }
 

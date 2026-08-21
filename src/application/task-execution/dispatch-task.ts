@@ -251,7 +251,7 @@ export async function dispatchTask(
   const movedFile = await ports.tasks.move(fromTaskFile, "active", state.taskName);
   state.activeFile = state.remember(movedFile);
   const fingerprint = await ports.tasks.fingerprint(state.activeFile);
-  // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (ownership doc in run-coordinator.ts)
+   
   state.fingerprint = fingerprint;
   await ports.ledger.recordState(state.taskId, state.taskName, "active", state.activeFile, state.fingerprint);
   await ports.journal.recordCheckpoint({

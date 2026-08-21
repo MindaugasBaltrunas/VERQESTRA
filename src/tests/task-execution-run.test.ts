@@ -10,11 +10,12 @@ import { dispatchTask, runPreDispatchGates } from "../application/task-execution
 import { verifyTask } from "../application/task-execution/verify-task.js";
 import { repairTask } from "../application/task-execution/repair-task.js";
 import { createFakeTaskRunEnv, fakeBucketPath, type FakeTaskRunEnv } from "./helpers/fake-task-run-ports.js";
+import type { TaskBucket } from "../domain/tasks/index.js";
 
 const TASK = "0042";
 const TASK_MD = `${TASK}.md`;
 
-async function makeState(env: FakeTaskRunEnv, bucket = "delegated", body = "# Task\n## Tikslas\nX") {
+async function makeState(env: FakeTaskRunEnv, bucket: TaskBucket = "delegated", body = "# Task\n## Tikslas\nX") {
   const file = fakeBucketPath(bucket, TASK_MD);
   env.files.set(file, body);
   const state = await createTaskRunState(file, env.ports, { interrupted: bucket !== "queue" });

@@ -98,7 +98,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
     await ports.tasks.installReformulatedTask(state.activeFile);
     state.remember(state.activeFile);
     const preSplitFingerprint = await ports.tasks.fingerprint(state.activeFile);
-    // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (see ownership doc above)
+     
     state.fingerprint = preSplitFingerprint;
     const movedDelegatedFile = await ports.tasks.move(state.activeFile, "delegated", state.taskName);
     state.delegatedFile = state.remember(movedDelegatedFile);
@@ -298,7 +298,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
 
     await ports.tasks.writeTaskBody(state.errorFile, repairPrompt);
     const resumeFingerprint = await ports.tasks.fingerprint(state.errorFile);
-    // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (see ownership doc above)
+     
     state.fingerprint = resumeFingerprint;
     await ports.journal.recordCheckpoint({
       actor: "supervisor",

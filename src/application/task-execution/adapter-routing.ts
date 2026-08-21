@@ -33,7 +33,7 @@ export function resolveDispatchAdapter(
   requestedAdapter: string,
 ): DispatchAdapterDecision {
   const role = effectiveAgentRole(parseAgentBlock(taskText), policy);
-  const allowedAdapters = policy.roles[role]?.allowed_adapters ?? ["claude" as AgentAdapterKind];
+  const allowedAdapters = policy.roles[role]?.allowed_adapters ?? ["claude"];
   const hasAgentBlock = /^##\s*Agentai\b/im.test(taskText);
 
   let adapter = requestedAdapter;

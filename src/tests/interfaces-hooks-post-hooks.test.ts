@@ -32,7 +32,7 @@ function digestOn(): ContextCompressionConfig {
 
 function deps(world: PostHookWorld, overrides: Partial<PostHookPorts> = {}): PostHookDeps {
   return {
-    ports: { ...world.ports, ...overrides } as PostHookPorts,
+    ports: { ...world.ports, ...overrides },
     projectRoot: ROOT,
     runtimeRoot: RUNTIME,
     io: world.io,

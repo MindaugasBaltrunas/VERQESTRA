@@ -128,7 +128,7 @@ export async function repairTask(state: TaskRunState, ports: TaskRunPorts): Prom
   state.errorFile = state.remember(movedErrorFile);
   await ports.tasks.writeTaskBody(state.errorFile, repairPrompt);
   const fingerprint = await ports.tasks.fingerprint(state.errorFile);
-  // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (ownership doc in run-coordinator.ts)
+   
   state.fingerprint = fingerprint;
   await ports.ledger.recordState(state.taskId, state.taskName, "error", state.errorFile, state.fingerprint);
   await ports.journal.recordCheckpoint({

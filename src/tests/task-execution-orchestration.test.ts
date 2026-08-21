@@ -224,7 +224,6 @@ test("importTaskGraphFromMarkdown + routeBlockedTasksToHumanReview per fake port
   assert.equal(graph.nodes.length, 3);
 
   const writes: [string, string][] = [];
-  const moves: string[] = [];
   const routePorts = {
     ...listPorts,
     readTaskText: async (file: string) => buckets.get("queue")!.find((task) => task.file === file)!.text,

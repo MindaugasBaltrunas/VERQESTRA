@@ -31,7 +31,7 @@ async function finishKnownTaskState(
   if (!(await ports.tasks.exists(source))) {
     const fallback = await firstExistingKnownFile(ports, state, source);
     if (fallback !== undefined) {
-      // eslint-disable-next-line require-atomic-updates -- function-local selection; no shared state is read or written
+       
       source = fallback;
     } else if (state.taskBodySnapshot !== undefined) {
       const restored = ports.tasks.bucketPath(bucket, state.taskName);

@@ -115,7 +115,7 @@ export async function tryCheapFinish(
   const publishTaskBody = async (body: string): Promise<void> => {
     await ports.tasks.writeTaskBody(state.errorFile, body);
     const fingerprint = await ports.tasks.fingerprint(state.errorFile);
-    // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (ownership doc in run-coordinator.ts)
+     
     state.fingerprint = fingerprint;
     await ports.ledger.recordState(state.taskId, state.taskName, "error", state.errorFile, fingerprint);
   };
@@ -157,7 +157,7 @@ export async function tryCheapFinish(
     billable_limit: decision.billableLimit,
     max_turns: decision.maxTurns,
   });
-  // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (ownership doc in run-coordinator.ts)
+   
   state.cheapFinishArmed = true;
 
   const prepared = await cheapFinish.prepareDispatch({
@@ -216,7 +216,7 @@ export async function tryCheapFinish(
       // cheap finish šabloną.
       await restoreOriginalBody(`dispatch_vetoed_before_execution=${dispatched.kind}`);
     } else {
-      // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (ownership doc in run-coordinator.ts)
+       
       state.cheapFinishUsed = true;
     }
     if (dispatched.kind === "infrastructure") {
@@ -228,7 +228,7 @@ export async function tryCheapFinish(
     };
   }
 
-  // eslint-disable-next-line require-atomic-updates -- single-writer TaskRunState mutation (ownership doc in run-coordinator.ts)
+   
   state.cheapFinishUsed = true;
   return { kind: "dispatched" };
 }

@@ -21,9 +21,10 @@ export type TaskLedgerSyncCommandDeps = {
 
 export async function taskLedgerSyncCommand(deps: TaskLedgerSyncCommandDeps): Promise<number> {
   const io = deps.io ?? consoleCliIo;
-  const nowIso = deps.nowIso ?? (() => new Date().toISOString());
+  const nowIso = (): string => deps.nowIso?.() ?? new Date().toISOString();
 
-  const outcome = await syncTaskLedger(deps.ledger, deps.listFiles, deps.agRoot, nowIso());
+  const listFiles = (absoluteDir: string): Promise<string[]> => deps.listFiles(absoluteDir);
+  const outcome = await syncTaskLedger(deps.ledger, listFiles, deps.agRoot, nowIso());
 
   if (outcome.status === "missing") {
     io.out("task-ledger.json not found — nothing to sync");

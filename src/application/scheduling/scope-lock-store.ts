@@ -177,7 +177,7 @@ export function parseScopeLockRegistry(raw: unknown): ScopeLockRegistry {
   const locks = record["locks"];
   if (!Array.isArray(locks)) throw new ScopeLockError("Scope lock registry field 'locks' must be an array");
   return {
-    schema_version: typeof record["schema_version"] === "number" ? (record["schema_version"] as number) : SCOPE_LOCK_SCHEMA_VERSION,
+    schema_version: typeof record["schema_version"] === "number" ? (record["schema_version"]) : SCOPE_LOCK_SCHEMA_VERSION,
     locks: locks.map(parseScopeLock),
   };
 }

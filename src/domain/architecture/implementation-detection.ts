@@ -59,7 +59,7 @@ export function parseNodeImplementationMap(raw: string): NodeImplementationMap |
       return null;
     }
     result.nodes[nodeId] = {
-      ...(entry["implemented"] !== undefined ? { implemented: entry["implemented"] as boolean } : {}),
+      ...(entry["implemented"] !== undefined ? { implemented: entry["implemented"] } : {}),
       ...(entry["paths"] !== undefined ? { paths: entry["paths"] as string[] } : {}),
       ...(typeof entry["note"] === "string" ? { note: entry["note"] } : {}),
     };

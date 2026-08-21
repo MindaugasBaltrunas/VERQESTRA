@@ -117,7 +117,7 @@ function makeHarness(input: {
       view: { platform: "windows", transport: "prompt-file" },
       handle: { promptPathModel: `${deliveryInput.promptPath}|${deliveryInput.model}` } as never,
     }),
-    createBudgetWatchdog: () => ({}) as never,
+    createBudgetWatchdog: () => ({}),
     launchProcess: async (launchInput) => {
       launchCalls.push({
         nonce: launchInput.dispatchNonce,
@@ -228,8 +228,8 @@ test("prepareDispatchLaunchState: preview, valymai ir current-task-id per portus
   await prepareDispatchLaunchState({
     ports: {
       runtimeRoot: RUNTIME,
-      writeText: h.ports.writeText,
-      removeIfExists: h.ports.removeIfExists,
+      writeText: (file: string, text: string) => h.ports.writeText(file, text),
+      removeIfExists: (file: string) => h.ports.removeIfExists(file),
       recordResumeCheckpoint: async (entry) => {
         checkpoints.push(entry.next_action);
       },

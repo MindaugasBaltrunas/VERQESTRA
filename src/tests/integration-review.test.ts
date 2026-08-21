@@ -21,7 +21,6 @@ import {
   type ContractDiffReport,
   type ContractRevisionFile,
   type IntegrationReviewerResponse,
-  type IntegrationRiskVerdict,
   type WaveGatePolicy,
   type WaveGateReport,
   type RunWaveGatesDeps,
@@ -256,7 +255,7 @@ test("conflictForIntegrationRepair išveda konfliktą iš taisytino signalo", ()
   assert.equal(derived?.attempts, 1);
 
   const explicit = conflictForIntegrationRepair(
-    { ...risk, focus: { ...risk.focus, conflicts: ["c9"] } } as IntegrationRiskVerdict,
+    { ...risk, focus: { ...risk.focus, conflicts: ["c9"] } },
     [{ id: "c9", paths: ["src/x.ts"] }],
   );
   assert.equal(explicit?.id, "c9", "an explicit wave conflict always wins");

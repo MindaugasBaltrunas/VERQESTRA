@@ -69,7 +69,7 @@ test("probeWorkEvidence: be įrodymo git status net neklausiamas (nulinis pėdsa
 
   env.behavior.git.isRepository = true;
   let dirtyAsked = false;
-  const originalDirty = env.ports.git.productDirtyCount;
+  const originalDirty = env.ports.git.productDirtyCount.bind(env.ports.git);
   env.ports.git.productDirtyCount = async () => {
     dirtyAsked = true;
     return 0;

@@ -195,7 +195,7 @@ function makeGatePorts(input: {
     get resets() {
       return resets;
     },
-  } as { ports: TokenBudgetGatePorts; statusWrites: [string, unknown][]; resets: Record<string, unknown> };
+  };
 }
 
 const PACK = { task_id: "0042", allowed_paths: ["src/a.ts"] };

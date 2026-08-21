@@ -145,7 +145,7 @@ export function parseContextCompressionConfig(value: unknown, label = CONFIG_LAB
           });
           continue;
         }
-        features[feature] = raw as ContextCompressionFeatureValue;
+        features[feature] = raw;
       }
     }
   }

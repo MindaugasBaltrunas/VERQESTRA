@@ -264,7 +264,7 @@ test("mid-dispatch watchdog: verdiktas vieną kartą, meter maitinamas toliau, b
   const verdict = watchdog.observe(line("m2", 60_000));
   assert.ok(verdict, "riba peržengta — verdiktas");
   assert.equal(verdict?.limitSource, "dispatch-ceiling");
-  assert.ok(verdict!.billableTokens > 40_000);
+  assert.ok(verdict.billableTokens > 40_000);
   assert.equal(aborted, 1);
   assert.equal(watchdog.observe(line("m3", 5_000)), undefined, "verdiktas latch'intas, bet meter'is maitinamas");
   assert.equal(watchdog.hit(), verdict);

@@ -171,7 +171,7 @@ export async function runQualityGates(
     }
   }
 
-  const localEnv = await ports.loadLocalEnv().catch(() => ({}) as Record<string, string>);
+  const localEnv = await ports.loadLocalEnv().catch(() => ({}));
   const gateEnv: Record<string, string | undefined> = { ...process.env, ...localEnv };
   const results: QualityGateResult[] = [];
 

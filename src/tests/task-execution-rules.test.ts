@@ -159,7 +159,7 @@ test("markTasksComplete: žymi checklist'ą, praleidžia fenced blokus, išsaugo
   assert.equal(result.marked, 2);
   assert.match(result.text, /- \[x\] vienas/);
   assert.match(result.text, /- \[ \] pavyzdys/, "fence viduje nežymima");
-  assert.match(result.text, /  - \[x\] du/, "įtrauka išsaugoma");
+  assert.match(result.text, / {2}- \[x\] du/, "įtrauka išsaugoma");
   assert.equal(result.text.includes("\r\n"), true, "CRLF EOL išlaikomas");
 });
 

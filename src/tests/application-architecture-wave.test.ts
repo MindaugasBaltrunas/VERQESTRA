@@ -31,7 +31,6 @@ import {
 } from "../application/architecture/wave.js";
 
 const ROOT = path.resolve("/repo");
-const STATE_DIR = path.join(ROOT, "vq", "state", "architecture");
 const norm = (p: string): string => p.replace(/\\/g, "/");
 const abs = (rel: string): string => norm(path.join(ROOT, rel));
 

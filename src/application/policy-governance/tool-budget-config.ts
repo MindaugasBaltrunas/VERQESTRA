@@ -89,7 +89,7 @@ export function deprecatedTokenCeilingKeys(budget: ToolBudget): string[] {
     const phaseLimits = raw["phase_limits"];
     if (!phaseLimits || typeof phaseLimits !== "object") continue;
     for (const [phaseKey, limit] of Object.entries(phaseLimits as Record<string, unknown>)) {
-      if (limit && typeof limit === "object" && Object.hasOwn(limit as Record<string, unknown>, "max_tokens")) {
+      if (limit && typeof limit === "object" && Object.hasOwn(limit, "max_tokens")) {
         found.push(`${profileName}.phase_limits.${phaseKey}.max_tokens`);
       }
     }

@@ -167,9 +167,9 @@ test("orphan reap: švari, integruota kopija be gyvo lease pašalinama kartu su 
   const orphans = await findOrphanWorktrees({ projectRoot: root, leases: [] });
   const target = orphans.find((orphan) => path.resolve(orphan.entry.path) === path.resolve(created.layout.path));
   assert.ok(target, "orphan sąraše turi būti t3 kopija");
-  assert.equal(target!.reason, "lease-not-active");
+  assert.equal(target.reason, "lease-not-active");
 
-  const reaped = await reapOrphanWorktree({ projectRoot: root, orphan: target!, leases: [] });
+  const reaped = await reapOrphanWorktree({ projectRoot: root, orphan: target, leases: [] });
   assert.equal(reaped.status, "reaped", JSON.stringify(reaped));
   assert.equal(await nodeFsAdapter.exists(created.layout.path), false);
 });
@@ -200,7 +200,7 @@ test("integration-branch plumbing: planas taikomas į izoliuotą ref'ą, pirmin�
     run_id: "r1",
     wave_id: "wave1",
     branch: "ag/integration/r1/wave1",
-    base_head: baseHead!,
+    base_head: baseHead,
     base_branch: mainBranch,
     commits: [{ task_id: "t4", sha: sourceSha, order: 1, files: ["src/planas.ts"], subject: "plano commit" }],
     allowed_paths: ["src/**"],

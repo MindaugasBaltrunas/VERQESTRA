@@ -221,7 +221,7 @@ test("stop-bridge: dispatch stop rašo attempt įrodymą PIRMA ir globalų veidr
     status: "interrupted",
     reason: "operator",
     taskId: "t1",
-    env: {} as NodeJS.ProcessEnv,
+    env: {},
   });
   const preserved = JSON.parse(await nodeFsAdapter.readTextFile(stopBridgePath(runtimeRoot))) as Record<string, unknown>;
   assert.equal(preserved["status"], "done");

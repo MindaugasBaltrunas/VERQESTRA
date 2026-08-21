@@ -71,7 +71,7 @@ function parseJsonOrEmpty<T>(raw: string | undefined): Partial<T> {
   if (raw === undefined || raw.trim() === "") return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return typeof parsed === "object" && parsed !== null ? (parsed as Partial<T>) : {};
+    return typeof parsed === "object" && parsed !== null ? (parsed) : {};
   } catch {
     return {};
   }

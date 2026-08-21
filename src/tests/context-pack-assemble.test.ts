@@ -12,7 +12,7 @@ import { buildCodeIndex } from "../application/code-intelligence/indexing/builde
 import { parseExecutionContextMetadata, contextArtifactSha256 } from "../application/context-pack/execution-context-fingerprint.js";
 import { computeContextCacheKey } from "../application/context-pack/context-cache-key.js";
 import { loadContextBudget, DEFAULT_CONTEXT_BUDGET } from "../application/policy-governance/context-budget.js";
-import { loadContextSelectionPolicy, selectGraphFirstContext, DEFAULT_CONTEXT_SELECTION_LIMITS } from "../application/policy-governance/context-selection-policy.js";
+import { loadContextSelectionPolicy, DEFAULT_CONTEXT_SELECTION_LIMITS } from "../application/policy-governance/context-selection-policy.js";
 import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
 import { loadContextPackToolFlags } from "../application/policy-governance/tool-budget-config.js";
 import { optimizeTokenBudget, structuralTaskTier } from "../application/token-governance/token-budget-optimizer.js";

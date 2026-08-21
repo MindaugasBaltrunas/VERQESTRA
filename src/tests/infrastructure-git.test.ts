@@ -77,7 +77,7 @@ test("rollback scope: committedTaskWorkSince mato commit'intą darbą, restoreTa
   await nodeFsAdapter.writeTextFile(path.join(root, "src", "a.ts"), "užcommitintas pakeitimas\n");
   const committed = await commitAndPush(root, "antras commit", undefined, { push: false, paths: ["src/a.ts"] });
   assert.equal(committed.ok, true);
-  assert.deepEqual(await committedTaskWorkSince(root, stable!, ["src/a.ts", "src/naujas.ts"]), ["src/a.ts"]);
+  assert.deepEqual(await committedTaskWorkSince(root, stable, ["src/a.ts", "src/naujas.ts"]), ["src/a.ts"]);
 
   // Necommit'intas darbas: tracked failo edit + task'o sukurtas naujas failas.
   const head = await gitHead(root);
@@ -89,14 +89,14 @@ test("rollback scope: committedTaskWorkSince mato commit'intą darbą, restoreTa
   assert.equal(await nodeFsAdapter.exists(path.join(root, "src", "naujas.ts")), false);
 
   // Be upstream'o push'intos istorijos būti negali — rollback neblokuojamas.
-  assert.deepEqual(await detectPushedRollback(root, stable!), { blocked: false });
+  assert.deepEqual(await detectPushedRollback(root, stable), { blocked: false });
 });
 
 test("gitLogNumstat: file-activity parserio laukiama forma (@@hash|iso|subject + name-status)", async () => {
   const log = await gitLogNumstat(root, 365);
   assert.ok(log !== undefined);
-  assert.match(log!, /^@@[0-9a-f]{40}\|\d{4}-\d{2}-\d{2}T/m);
-  assert.match(log!, /^A\tsrc\/a\.ts$/m);
+  assert.match(log, /^@@[0-9a-f]{40}\|\d{4}-\d{2}-\d{2}T/m);
+  assert.match(log, /^A\tsrc\/a\.ts$/m);
 });
 
 test("parseWorktreePorcelain: porcelain įrašai skaitomi laukas į lauką", () => {

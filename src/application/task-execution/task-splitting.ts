@@ -126,7 +126,7 @@ function renderTaskPart(args: {
     .filter(Boolean)
     .join("\n");
 
-  return `# Task\n\n## Spec source\n${args.sections.specSource || "openspec/changes/unknown"}\n\n## Tikslas\n${title}.\n${dependencies}\n## Agentai\n${args.sections.agents || "coder"}\n\n## Failai\nLeidžiama:\n${allowed}\n\n## Veiksmas\n${args.actions.map((action) => `- ${action}`).join("\n")}\n\n## Patikra\n${args.sections.checks || "- \`npm run test\`"}\n\n## Stop\n${args.sections.stop || "Sustoti, kai patikros praeina."}\n\n## Neįtraukta\n${excluded}\n`;
+  return `# Task\n\n## Spec source\n${args.sections.specSource || "openspec/changes/unknown"}\n\n## Tikslas\n${title}.\n${dependencies}\n## Agentai\n${args.sections.agents || "coder"}\n\n## Failai\nLeidžiama:\n${allowed}\n\n## Veiksmas\n${args.actions.map((action) => `- ${action}`).join("\n")}\n\n## Patikra\n${args.sections.checks || "- `npm run test`"}\n\n## Stop\n${args.sections.stop || "Sustoti, kai patikros praeina."}\n\n## Neįtraukta\n${excluded}\n`;
 }
 
 function splitTitle(goal: string, partIndex: number): string {

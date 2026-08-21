@@ -97,7 +97,7 @@ export async function markAlreadyImplementedNodes(
         done_tasks: [],
         implemented_files: [],
         evidence_refs: [],
-      } as ArchitectureProgress["nodes"][string]);
+      });
     const mergedFiles = Array.from(new Set([...baseProgress.implemented_files, ...detection.files]));
     let verified_at = nowIso();
     if (detection.source !== "map") {

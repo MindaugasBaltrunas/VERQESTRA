@@ -121,7 +121,7 @@ export function parseWorkerLease(raw: unknown): WorkerLease {
   }
 
   return {
-    schema_version: typeof record["schema_version"] === "number" ? (record["schema_version"] as number) : WORKER_LEASE_SCHEMA_VERSION,
+    schema_version: typeof record["schema_version"] === "number" ? (record["schema_version"]) : WORKER_LEASE_SCHEMA_VERSION,
     lease_id: requireString(record, "lease_id"),
     status,
     fencing_token: fencingToken as number,
@@ -134,8 +134,8 @@ export function parseWorkerLease(raw: unknown): WorkerLease {
     acquired_at: requireString(record, "acquired_at"),
     heartbeat_at: requireString(record, "heartbeat_at"),
     expires_at: requireString(record, "expires_at"),
-    ...(typeof record["released_at"] === "string" ? { released_at: record["released_at"] as string } : {}),
-    ...(typeof record["superseded_lease_id"] === "string" ? { superseded_lease_id: record["superseded_lease_id"] as string } : {}),
+    ...(typeof record["released_at"] === "string" ? { released_at: record["released_at"] } : {}),
+    ...(typeof record["superseded_lease_id"] === "string" ? { superseded_lease_id: record["superseded_lease_id"] } : {}),
   };
 }
 

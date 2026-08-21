@@ -345,9 +345,9 @@ test("task-ledger-sync: missing/cleared/synced/in-sync keliai ir grynos taisykl�
 
   // Gryna taisyklė: ta pati vieta be pokyčių — changed 0, ledger objektas naujas, bet lygus.
   const pure = syncTaskLedgerEntries(
-    { "0002-baigtas": { state: "done", file: writtenLedger["0002-baigtas"]!.file! } },
+    { "0002-baigtas": { state: "done", file: writtenLedger["0002-baigtas"].file } },
     new Map<string, TaskLocation>([
-      ["0002-baigtas", { bucket: "done", file: writtenLedger["0002-baigtas"]!.file! }],
+      ["0002-baigtas", { bucket: "done", file: writtenLedger["0002-baigtas"].file }],
     ]),
     "2026-08-20T13:00:00.000Z",
   );

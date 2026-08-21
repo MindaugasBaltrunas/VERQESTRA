@@ -119,13 +119,27 @@ test("architecture-graph-store: roundtrip, initProgress išsaugo done + evidenci
   assert.deepEqual(Object.keys(first.nodes).sort(), ["A", "B"]);
   await updateNodeProgress(progressPath, "A", { status: "done", done_tasks: ["0001"], evidence_refs: ["ref1"] });
 
-  // Refresh: A lieka done su evidencija, B (ne-done) grįžta į planned; graph_hash — imported_at.
-  const refreshed = await initProgress({ ...graph, imported_at: "2026-08-20T11:00:00.000Z" }, progressPath);
-  assert.equal(refreshed.graph_hash, "2026-08-20T11:00:00.000Z");
+  // Refresh su PASIKEITUSIU grafu: A lieka done su evidencija, B (ne-done) grįžta į planned,
+  // naujas mazgas atsiranda kaip planned.
+  //
+  // `graph_hash` tikrinamas kaip INVARIANTAS, o ne kaip literalas: reikšmė yra grafo TAPATYBĖS
+  // antspaudas, iš kurio sprendžiama, ar progresas dar priklauso tam pačiam grafui. Konkreti
+  // jo forma (importo laikas ar turinio atspaudas) yra saugyklos vidus, ir literalas čia
+  // pririštų testą prie realizacijos, o ne prie taisyklės.
+  const refreshed = await initProgress(
+    {
+      ...graph,
+      imported_at: "2026-08-20T11:00:00.000Z",
+      nodes: [...graph.nodes, { id: "C", label: "Naujas", kind: "unknown" as const, status: "planned" as const }],
+    },
+    progressPath,
+  );
+  assert.notEqual(refreshed.graph_hash, first.graph_hash, "pasikeitęs grafas privalo duoti kitą antspaudą");
   assert.equal(refreshed.nodes["A"]?.status, "done");
   assert.deepEqual(refreshed.nodes["A"]?.done_tasks, ["0001"]);
   assert.deepEqual(refreshed.nodes["A"]?.evidence_refs, ["ref1"]);
   assert.equal(refreshed.nodes["B"]?.status, "planned");
+  assert.equal(refreshed.nodes["C"]?.status, "planned", "naujas grafo mazgas patenka į progresą");
   assert.deepEqual(await readProgress(progressPath), refreshed);
 
   await assert.rejects(updateNodeProgress(progressPath, "NERA", { status: "done" }), /not found in progress/);

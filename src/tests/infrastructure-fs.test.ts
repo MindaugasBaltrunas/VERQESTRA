@@ -21,7 +21,7 @@ const p = (...segments: string[]): string => path.join(root, ...segments);
 // Leksinis vartas symlink'o iš principo nemato, tad jis privalo būti čia — vietoje, kuri
 // liečia diską. Be jo nuoroda, guli projekto viduje ir rodanti į išorę, tyliai ištrauktų
 // svetimą turinį į LLM promptą ir į context cache.
-test("createCodeIntelligenceFsAdapter: symlink'as už šaknies neperskaitomas (realpath vartas)", async (t) => {
+test("createCodeIntelligenceFsAdapter: symlink'as už šaknies neperskaitomas (realpath vartas)", async () => {
   const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-contain-in-"));
   const outside = await mkdtemp(path.join(tmpdir(), "vq-contain-out-"));
   try {
@@ -36,18 +36,18 @@ test("createCodeIntelligenceFsAdapter: symlink'as už šaknies neperskaitomas (r
     assert.equal(await fs.statKind(path.join(outside, "slaptas.md")), "absent");
     assert.equal(await fs.exists(path.join(outside, "slaptas.md")), false);
 
-    // Symlink'ui Windows'e reikia Developer Mode arba admin teisių; kur jo sukurti negalima,
-    // testas praleidžiamas SĄMONINGAI, o ne apsimeta žaliu.
-    try {
-      await symlink(path.join(outside, "slaptas.md"), path.join(projectRoot, "nuoroda.md"), "file");
-    } catch {
-      t.skip("symlink kūrimas neleidžiamas šioje aplinkoje");
-      return;
-    }
+    // JUNCTION, ne failo symlink'as: Windows'e failo symlink'ui reikia Developer Mode arba
+    // admin teisių, o katalogo junction'ui — ne. Vartui klausimas identiškas: `realpath`
+    // išveda kelią UŽ šaknies. Anksčiau ši šaka šioje mašinoje buvo PRALEIDŽIAMA, tad
+    // guard'as likdavo nepatikrintas būtent ten, kur jis svarbiausias.
+    await symlink(outside, path.join(projectRoot, "nuoroda"), "junction");
 
-    await assert.rejects(() => fs.readTextFile(path.join(projectRoot, "nuoroda.md")), /escapes project root/);
+    await assert.rejects(
+      () => fs.readTextFile(path.join(projectRoot, "nuoroda", "slaptas.md")),
+      /escapes project root/,
+    );
     assert.equal(
-      await fs.statKind(path.join(projectRoot, "nuoroda.md")),
+      await fs.statKind(path.join(projectRoot, "nuoroda", "slaptas.md")),
       "absent",
       "už ribų rodančios nuorodos egzistavimas nėra informacija, kurią portas turi teisę atskleisti",
     );
@@ -55,12 +55,7 @@ test("createCodeIntelligenceFsAdapter: symlink'as už šaknies neperskaitomas (r
     // RAŠYMO kelias per symlink'intą TĖVĄ. Taikinio dar nėra, tad jo paties `realpath` krenta —
     // anksčiau patikra tada būdavo praleidžiama ir rašymas nukeliaudavo už šaknies. Tikrinamas
     // giliausias EGZISTUOJANTIS protėvis, tad nuoroda pagaunama nesukūrus nė vieno baito.
-    try {
-      await symlink(outside, path.join(projectRoot, "isorinis"), "dir");
-    } catch {
-      t.skip("katalogo symlink'o kūrimas neleidžiamas šioje aplinkoje");
-      return;
-    }
+    await symlink(outside, path.join(projectRoot, "isorinis"), "junction");
     const throughLink = path.join(projectRoot, "isorinis", "naujas.md");
     await assert.rejects(() => fs.writeTextFileAtomic(throughLink, "neturi patekti"), /escapes project root/);
     await assert.rejects(
@@ -86,22 +81,18 @@ test("createCodeIntelligenceFsAdapter: symlink'as už šaknies neperskaitomas (r
 // Leksinis vartas `staleSourceSlices` viduje symlink'o nemato — tai porto realizacijos darbas.
 // Čia tikrinama būtent ta pusė: projekto viduje gulinti nuoroda į išorę per containment
 // nepraeina, tad šviežumo skaičiuotojas jos turinio negauna ir kelias lieka „pasenęs".
-test("createProjectContainment: symlink'as projekto viduje neatiduoda išorinio turinio", async (t) => {
+test("createProjectContainment: symlink'as projekto viduje neatiduoda išorinio turinio", async () => {
   const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-slice-link-in-"));
   const outside = await mkdtemp(path.join(tmpdir(), "vq-slice-link-out-"));
   try {
     await writeFile(path.join(outside, "svetimas.ts"), "svetimas kodas\n", "utf8");
-    try {
-      await symlink(path.join(outside, "svetimas.ts"), path.join(projectRoot, "atrodo-vidinis.ts"), "file");
-    } catch {
-      t.skip("symlink kūrimas neleidžiamas šioje aplinkoje");
-      return;
-    }
+    // Junction dėl tos pačios priežasties kaip aukščiau; taikinys pasiekiamas per jį.
+    await symlink(outside, path.join(projectRoot, "atrodo-vidinis"), "junction");
 
     const containment = createProjectContainment(projectRoot);
     // Leksiškai kelias yra projekto VIDUJE — būtent todėl vien leksinio varto neužtenka.
     assert.equal(
-      await containment.containedOrUndefined(path.join(projectRoot, "atrodo-vidinis.ts")),
+      await containment.containedOrUndefined(path.join(projectRoot, "atrodo-vidinis", "svetimas.ts")),
       undefined,
       "realpath vartas pagauna nuorodą, kurios leksinis nemato",
     );

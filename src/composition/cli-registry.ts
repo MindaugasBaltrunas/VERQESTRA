@@ -7,6 +7,8 @@
 // Handler'iai čia surišami su portais (manual DI). Verslo logikos šiame faile nėra — kiekviena
 // komanda tik gauna savo priklausomybes ir grąžina exit kodą.
 
+import { hookPostBash, hookPostBashSync, hookPostRead } from "../interfaces/hooks/post-hooks.js";
+import { hookPostWrite } from "../interfaces/hooks/post-write.js";
 import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
 import { learningCommand } from "../interfaces/cli/audit/learning.js";
 import { releaseNotesCommand } from "../interfaces/cli/audit/release-notes.js";
@@ -27,6 +29,7 @@ import {
   taskLedgerStore,
 } from "./node-adapters.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { postHookPorts } from "./hook-adapters.js";
 import type { RuntimeRoots } from "./runtime-context.js";
 
 const nodeListFiles = (absoluteDir: string): Promise<string[]> => nodeFsAdapter.listFiles(absoluteDir);
@@ -119,6 +122,9 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           args,
         ),
     },
+    // --- PostToolUse hook'ai (VQ-502) --------------------------------------------------
+    // Jie NIEKADA neblokuoja: handler'iai grąžina 0, o dispatch'as tą kodą tik perduoda.
+    ...postToolUseCommands(deps),
     {
       name: "openspec-reconcile",
       usage: "[--apply]",
@@ -135,4 +141,41 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
 /** `help` tekstas: antraštė plius registro eilutės deklaravimo tvarka. */
 export function renderCliHelp(commands: readonly CliCommand[]): string[] {
   return ["Usage: verqestra <command> [args]", "", "Commands:", ...renderCliCommandList(commands).map((line) => `  ${line}`)];
+}
+
+/**
+ * PostToolUse hook'ų įėjimai. Visi dalijasi tais pačiais portais, tad jie sudedami vienu
+ * pjūviu — kiekvienas atskirai kartotų tą patį surišimą.
+ */
+function postToolUseCommands(deps: CliRegistryDeps): CliCommand[] {
+  const io = deps.io;
+  const hookDeps = {
+    ports: postHookPorts(),
+    projectRoot: deps.roots.projectRoot,
+    runtimeRoot: deps.roots.runtimeRoot,
+    ...(io === undefined ? {} : { io }),
+  };
+
+  return [
+    {
+      name: "hook-post-bash",
+      description: "PostToolUse: Bash žurnalas ir digest shadow telemetrija",
+      run: () => hookPostBash(hookDeps),
+    },
+    {
+      name: "hook-post-bash-sync",
+      description: "PostToolUse: sinchroninis Bash išvesties digest kelias",
+      run: () => hookPostBashSync(hookDeps),
+    },
+    {
+      name: "hook-post-read",
+      description: "PostToolUse: readme skaitymo įrodymas",
+      run: () => hookPostRead(hookDeps),
+    },
+    {
+      name: "hook-post-write",
+      description: "PostToolUse: sesijos rašymų ledger'is ir KPI įvykiai",
+      run: () => hookPostWrite(hookDeps),
+    },
+  ];
 }

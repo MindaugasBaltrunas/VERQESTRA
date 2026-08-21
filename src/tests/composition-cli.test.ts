@@ -137,6 +137,10 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "backlog-audit",
       "security-verify",
       "release-notes",
+      "hook-post-bash",
+      "hook-post-bash-sync",
+      "hook-post-read",
+      "hook-post-write",
       "openspec-reconcile",
     ],
   );

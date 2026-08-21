@@ -42,6 +42,7 @@ import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { runIgnoredProcess } from "../infrastructure/process/process-tree.js";
 import { tryParseJson } from "../shared/json.js";
 import { clearTaskLedgerEntry } from "../application/task-execution/task-ledger-service.js";
+import { authorizeWorkerRuntimeMutation } from "../application/scheduling/worker-lease-runtime.js";
 import { recordLlmCallReset } from "../application/token-governance/tool-budget-gates.js";
 import { learningFs, taskLedgerStore, taskStateStore, tokenBudgetPorts } from "./node-adapters.js";
 import { contextPackFs } from "./readiness-adapters.js";
@@ -181,15 +182,30 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
       applyTaskTriage(
         {
           ports: {
-            listTaskFiles: (absoluteDir) => nodeFsAdapter.listMarkdownFiles(absoluteDir),
+            /**
+             * VARDAI, ne keliai: `resolveBucketEntry` lygina su `<task>.md`, tad absoliutus kelias
+             * niekada nesutaptų ir UI triage nerastų NĖ VIENO task'o.
+             */
+            listTaskFiles: async (absoluteDir) =>
+              (await nodeFsAdapter.listMarkdownFiles(absoluteDir)).map((file) => path.basename(file)),
             taskIdFromFile: (absoluteFile) => path.basename(absoluteFile).replace(/\.md$/i, ""),
             /**
-             * Nuosavybės vartai PRIEŠ bet kokį rašymą. Kol lease registras nemigruotas, verdiktas
-             * yra „leidžiama": UI triage yra RANKINIS operatoriaus veiksmas, ir tai ta pati riba,
-             * kurią etalonas taiko `task-move` keliui. Loop kompozicija čia įstatys tikrą lease
-             * patikrą, ir tada UI nebegalės pajudinti task'o, kurį laiko gyvas worker'is.
+             * Nuosavybės vartai PRIEŠ bet kokį rašymą — TA PATI taisyklė, kurią hook'ai taiko
+             * task būsenos perėjimams (`authorizeWorkerRuntimeMutation`).
+             *
+             * `guardedPath` NEPADUODAMAS sąmoningai: triage juda task'o failą tarp bucket'ų, tad
+             * jis liečia visą medį, ir gyvas svetimas lease privalo blokuoti nepriklausomai nuo
+             * aprėpties. Bet kokia klaida (sugadintas lease, neperskaitomas store) virsta
+             * DRAUDIMU — UI negali pajudinti task'o, kurio nuosavybės neįrodė.
              */
-            authorizeMutation: () => Promise.resolve({ ok: true }),
+            authorizeMutation: async (taskId) => {
+              const authority = await authorizeWorkerRuntimeMutation({
+                deps: { fs: schedulingFs },
+                projectRoot: input.projectRoot,
+                taskId,
+              });
+              return authority.ok ? { ok: true } : { ok: false, reason: authority.reason };
+            },
             clearLedgerEntry: (taskId) => clearTaskLedgerEntry(taskLedgerStore(input.runtimeRoot), taskId),
             recordLlmCallReset: (taskId) => recordLlmCallReset(tokenBudgetPorts(input.runtimeRoot), taskId),
             store: taskStateStore(input.agRoot, input.runtimeRoot),

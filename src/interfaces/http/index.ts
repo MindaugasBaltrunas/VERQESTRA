@@ -16,3 +16,5 @@ export * from "./workflow-buckets.js";
 // E5 VQ-503 (5/5-a): užduočių įkėlimas ir triažo veiksmai — vieninteliai eilės pakeitimai iš UI.
 export * from "./task-upload.js";
 export * from "./ui-task-actions.js";
+// E5 VQ-503 (5/5-b): agentų aktyvumo SSE srautas — vienas hub'as visai sesijai.
+export * from "./sse-service.js";

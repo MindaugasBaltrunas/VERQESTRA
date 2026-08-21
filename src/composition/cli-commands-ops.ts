@@ -1,0 +1,92 @@
+// Operatoriaus ir loop aptarnavimo komandu registro pjuvis (VQ-504): projekto rezimas,
+// sablonu diegimas, smoke, atkurimas is stable-ref, retry vartai ir stop-bridge.
+//
+// Dali siu komandu kviecia NE operatorius, o loop skriptas (`retry-guard`, `on-stop-bridge`).
+
+import type { CliCommand } from "../interfaces/cli/registry.js";
+import type { CliRegistryDeps } from "./cli-registry-types.js";
+import { installCommand } from "../interfaces/cli/bootstrap/install.js";
+import { projectModeCommand } from "../interfaces/cli/bootstrap/project-mode.js";
+import { restoreStableCommand } from "../interfaces/cli/bootstrap/restore-stable.js";
+import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
+import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
+import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
+import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
+import { installPorts, projectModePorts, restoreStablePorts, smokePorts } from "./bootstrap-adapters.js";
+import { onStopBridgeAdapters, retryGuardAdapters } from "./loop-adapters.js";
+import { cliEntryPath, templatesRoot } from "./runtime-context.js";
+
+export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
+  const io = deps.io;
+  return [
+    {
+      name: "project-mode",
+      usage: "[--json]",
+      description: "Nustato projekto režimą (naujas, tęsiamas, nutrūkęs)",
+      run: (args) =>
+        projectModeCommand(
+          {
+            ports: projectModePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "install",
+      usage: "[--dry-run]",
+      description: "Įdiegia šablonus į projektą (esamų failų neperrašo)",
+      run: (args) =>
+        installCommand(
+          { ports: installPorts, templatesRoot: templatesRoot(), ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "smoke",
+      usage: "",
+      description: "Aplinkos ir eilės smoke patikra (nieko nekeičia)",
+      run: () =>
+        smokeCommand({
+          ports: smokePorts(deps.roots.agRoot, deps.roots.runtimeRoot),
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          cliEntry: cliEntryPath(),
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "restore-stable",
+      usage: "[--execute]",
+      description: "Atkuria medį iš stable-ref (be --execute tik parodo planą)",
+      run: (args) =>
+        restoreStableCommand(
+          {
+            ports: restoreStablePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "retry-guard",
+      usage: "[--task-id <id>]",
+      description: "Retry skaitikliai ir limitas prieš human-review nusileidimą",
+      run: (args) =>
+        retryGuard(args, {
+          ensureDirs: () => ensureRuntimeDirs(deps.roots.agRoot, deps.roots.runtimeRoot),
+          ...retryGuardAdapters(deps.roots.runtimeRoot),
+        }),
+    },
+    {
+      name: "on-stop-bridge",
+      usage: "<status> [reason]",
+      description: "Įrašo Stop-bridge įrodymą (attempt + globalus veidrodis)",
+      run: (args) => onStopBridge(args, onStopBridgeAdapters(deps.roots.projectRoot, deps.roots.runtimeRoot)),
+    },
+  ];
+}

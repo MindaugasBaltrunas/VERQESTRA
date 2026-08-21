@@ -1,0 +1,160 @@
+// Audito, politiku ir ataskaitu komandu registro pjuvis (VQ-504).
+//
+// Bendra tema -- ar produktas tvarkingas: backlog, saugumo patikra, release notes,
+// konvergencija, pasirengimo auditas, politikos, agentai ir dvi ataskaitos.
+
+import type { CliCommand } from "../interfaces/cli/registry.js";
+import type { CliRegistryDeps } from "./cli-registry-types.js";
+import { agentCommand } from "../interfaces/cli/admin/agent.js";
+import { policyCommand } from "../interfaces/cli/admin/policy.js";
+import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
+import { convergeCommand } from "../interfaces/cli/audit/converge.js";
+import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
+import { releaseNotesCommand } from "../interfaces/cli/audit/release-notes.js";
+import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.js";
+import { projectStatusCommand } from "../interfaces/cli/reports/project-status.js";
+import { reportCommand } from "../interfaces/cli/reports/report.js";
+import { agentCommandPorts, gitHeadForProject, policyCommandPorts } from "./node-adapters.js";
+import {
+  adapterCapabilityViews,
+  backlogAuditPorts,
+  contextPackFs,
+  convergePorts,
+  projectStatusFs,
+  readinessPorts,
+  readinessRequirements,
+  releaseNotesPorts,
+  releaseProofPorts,
+  securityVerifyPorts,
+  writeReadinessResult,
+} from "./readiness-adapters.js";
+
+export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
+  const io = deps.io;
+  return [
+    {
+      name: "backlog-audit",
+      usage: "[--json]",
+      description: "Eilės backlog'o auditas (dublikatai, superseded, tuščios užduotys)",
+      run: (args) =>
+        backlogAuditCommand(
+          { ports: backlogAuditPorts, projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "security-verify",
+      usage: "[--json]",
+      description: "Saugumo politikos patikra pakeistiems failams",
+      run: (args) =>
+        securityVerifyCommand(
+          {
+            ports: securityVerifyPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "release-notes",
+      usage: "[--json]",
+      description: "Generuoja release notes iš ledger'io ir būsenos",
+      run: (args) =>
+        releaseNotesCommand(
+          {
+            ports: releaseNotesPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "converge",
+      usage: "",
+      description: "Sutikrina spec planus su eilės failais",
+      run: (args) =>
+        convergeCommand(
+          {
+            ports: convergePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "readiness-audit",
+      usage: "[--json]",
+      description: "Produkto pasirengimo auditas (aplankai, konfigai, komandos, testai, docs)",
+      run: (args) =>
+        readinessAuditCommand(
+          {
+            ports: readinessPorts,
+            requirements: readinessRequirements,
+            projectRoot: deps.roots.projectRoot,
+            writeResult: writeReadinessResult(deps.roots.runtimeRoot),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "policy",
+      usage: "[list|propose ...]",
+      description: "Politikų peržiūra ir pasiūlymų žurnalas",
+      run: (args) =>
+        policyCommand(
+          { ports: policyCommandPorts, runtimeRoot: deps.roots.runtimeRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "agent",
+      usage: "[list|add|remove ...]",
+      description: "Agentų personų registras",
+      run: (args) =>
+        agentCommand(
+          {
+            ports: agentCommandPorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "project-status",
+      usage: "",
+      description: "Projekto būsenos dokumentas iš spec, eilės ir release įrodymo",
+      run: () =>
+        projectStatusCommand({
+          fs: projectStatusFs(),
+          releaseProof: releaseProofPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
+          gitHead: () => gitHeadForProject(deps.roots.projectRoot),
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "report",
+      usage: "[--json] [--recent <n>]",
+      description: "Vietinė telemetrijos ataskaita (užduotys, tokenai, kompresija, adapteriai)",
+      run: (args) =>
+        reportCommand(
+          {
+            fs: projectStatusFs(),
+            contextFs: contextPackFs,
+            adapterCapabilities: adapterCapabilityViews,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+  ];
+}

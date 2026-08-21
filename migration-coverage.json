@@ -238,7 +238,8 @@
       "module": "interfaces/http",
       "target": "interfaces",
       "wave": "E5",
-      "status": "pending"
+      "status": "pending",
+      "note": "VQ-503 (1/5) — agentų grandinės aktyvumas: NAUJI interfaces/ui-model/{agent-activity (gryna projekcija: užduoties `## Agentai` blokas per domain parseAgentBlock plius Claude ndjson srautas → agentų būsenos; inline režimas rodo darbą tik kol statusas gyvas), agent-activity-reader (šaltiniai per portą; tiesioginis slot'o įrodymas išjungia globalų claude-resume.json, nes tas aprašo kitą slot'ą)}. Testai: interfaces-ui-model-agent-activity(9)."
     },
     {
       "module": "interfaces/ui-model",

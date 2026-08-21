@@ -28,6 +28,7 @@ import { tokenAnalyticsSnapshotPath } from "../application/learning/token-analyt
 import type { TokenAnalyticsSnapshot } from "../application/learning/token-analytics-snapshot.js";
 import type { StatusPorts, StatusStopEvidenceView } from "../interfaces/cli/admin/status.js";
 import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
+import { createCodeIntelligenceFsAdapter } from "../infrastructure/fs/code-intelligence-fs-adapter.js";
 import { collectChangedFiles } from "../infrastructure/git/changed-files.js";
 import { gitHead, gitStatus as gitStatusPlain } from "../infrastructure/git/git-client.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
@@ -285,33 +286,11 @@ export function blockedTaskRoutingPorts(projectRoot: string, agRoot: string, run
 /**
  * Code-intelligence FS portas (indeksas, grafas, architektūros ribos).
  *
- * `statKind` čia SUSIAURINAMAS: adapteris skiria ir `other` (symlink į niekur, socket, FIFO),
- * bet portas tokios rūšies neturi, ir teisingai — skaitytojui `other` reikštų tą patį, ką
- * `absent`: kelio liesti negalima. Platesnės rūšies praleidimas duotų bandymą skaityti tai,
- * kas nėra failas, ir EISDIR/EPERM viduryje indeksavimo.
+ * Delegavimas, o ne sava kopija: `createCodeIntelligenceFsAdapter` yra ŠAKNIES APIMTIES ir
+ * kiekvieną kelią tikrina per `project-containment` (leksinė patikra plius `realpath`) PRIEŠ
+ * skaitymą. Sava, „paprastesnė" implementacija tą symlink'o vartą tyliai pašalintų — o būtent
+ * šio porto turinys eina TIESIAI į LLM promptą ir į context cache.
  */
-export const codeIntelligenceFs: CodeIntelligenceFileSystemPort = {
-  listDirectory: async (absoluteDir) => {
-    const [directories, files] = await Promise.all([
-      nodeFsAdapter.listSubdirectories(absoluteDir),
-      nodeFsAdapter.listFiles(absoluteDir),
-    ]);
-    return [
-      ...directories.map((name) => ({ name, isDirectory: true, isFile: false })),
-      ...files.map((name) => ({ name, isDirectory: false, isFile: true })),
-    ];
-  },
-  statKind: async (absolutePath) => {
-    const kind = await nodeFsAdapter.statKind(absolutePath);
-    return kind === "file" || kind === "directory" ? kind : "absent";
-  },
-  readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
-  readFileBytes: (absolutePath) => nodeFsAdapter.readFileBytes(absolutePath),
-  // Portas dydžio neturi teisės praleisti: skeneris jį rašo į indeksą, o `undefined` ten
-  // taptų 0 ir failas atrodytų tuščias. Nesamas kelias iki čia neatkeliauja (jį jau atmetė
-  // `statKind`), tad nulis yra teisingas atsakymas tik realiai tuščiam failui.
-  fileSize: async (absolutePath) => (await nodeFsAdapter.fileSizeBytes(absolutePath)) ?? 0,
-  exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
-  writeTextFileAtomic: (absolutePath, content) => nodeFsAdapter.writeTextFileAtomic(absolutePath, content),
-  makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
-};
+export function codeIntelligenceFs(projectRoot: string): CodeIntelligenceFileSystemPort {
+  return createCodeIntelligenceFsAdapter(projectRoot);
+}

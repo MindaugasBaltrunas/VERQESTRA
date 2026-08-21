@@ -150,7 +150,7 @@ export function preflightPorts(projectRoot: string, runtimeRoot: string): Prefli
       const kind = await nodeFsAdapter.statKind(absolutePath);
       return kind === "file" || kind === "directory" ? kind : "absent";
     },
-    codeIndexFreshness: () => checkCodeIndexFreshness(codeIntelligenceFs, projectRoot),
+    codeIndexFreshness: () => checkCodeIndexFreshness(codeIntelligenceFs(projectRoot), projectRoot),
     // Kelias deklaruotas porto komentare (`vq/supervisor/preflight-decision.json`), bet
     // use case'as jo funkcijos neeksportuoja — sudaromas čia, vienoje vietoje.
     writeDecision: (decision: PreflightDecision) =>

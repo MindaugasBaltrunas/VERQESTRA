@@ -139,7 +139,8 @@ export function finalAuditPorts(projectRoot: string, runtimeRoot: string, agRoot
     policyFs: policyConfigFs,
     sourceFs: releaseCheckFs,
     pendingProposalCount: () => countPendingProposals(policyProposalsFsView, runtimeRoot),
-    architectureBoundary: () => checkArchitectureBoundary(codeIntelligenceFs, policyConfigFs, projectRoot, runtimeRoot),
+    architectureBoundary: () =>
+      checkArchitectureBoundary(codeIntelligenceFs(projectRoot), policyConfigFs, projectRoot, runtimeRoot),
     benchmarkEvidence: async () => {
       const result = await checkBenchmarkEvidence(evidenceFs, projectRoot, { currentAgCommit: currentCommitResolver });
       return { ok: result.ok, issues: result.issues, describe: describeBenchmarkEvidence(result) };

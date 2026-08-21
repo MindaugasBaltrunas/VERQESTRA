@@ -22,7 +22,7 @@ export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
       run: (args) =>
         codeIndexCommand(
           {
-            codeFs: codeIntelligenceFs,
+            codeFs: codeIntelligenceFs(deps.roots.projectRoot),
             policyFs: policyConfigFs,
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
@@ -37,7 +37,7 @@ export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
       description: "Kodo grafo uzklausos (priklausomybes, simboliai)",
       run: (args) =>
         codeGraphCommand(
-          { codeFs: codeIntelligenceFs, projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
+          { codeFs: codeIntelligenceFs(deps.roots.projectRoot), projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
           args,
         ),
     },
@@ -48,8 +48,8 @@ export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
       run: (args) =>
         architectureCommand(
           {
-            wave: architectureWavePorts,
-            codeFs: codeIntelligenceFs,
+            wave: architectureWavePorts(deps.roots.projectRoot),
+            codeFs: codeIntelligenceFs(deps.roots.projectRoot),
             graphStore: architectureGraphStore,
             projectRoot: deps.roots.projectRoot,
             ...(io === undefined ? {} : { io }),

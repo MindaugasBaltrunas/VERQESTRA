@@ -32,3 +32,8 @@ export * from "./post-hooks.js";
 export * from "./post-write.js";
 // E5 VQ-502 (6/6-a): sesijos/loop runtime įrašo saugykla (taisyklės — domain/scheduling).
 export * from "./loop-runtime-store.js";
+// E5 VQ-502 (6/6-b): sesijos ciklas — SessionStart vartai (trys nepriklausomi reset'o
+// stabdžiai) ir SessionEnd.
+export * from "./session-hook-context.js";
+export * from "./session-start.js";
+export * from "./session-end.js";

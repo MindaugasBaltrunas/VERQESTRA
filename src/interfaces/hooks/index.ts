@@ -25,3 +25,8 @@ export * from "./pre-hooks.js";
 // serializuojami lygiagrečių sesijų įrodymų įrašai.
 export * from "./ledger-lock.js";
 export * from "./session-write-ledger.js";
+// E5 VQ-502 (5/6-c): PostToolUse pusė — bendras kontekstas, Bash/Read hook'ai ir rašymo
+// hook'as. Visi grąžina 0: PostToolUse exit 2 yra blokuojantis kodas.
+export * from "./post-hook-context.js";
+export * from "./post-hooks.js";
+export * from "./post-write.js";

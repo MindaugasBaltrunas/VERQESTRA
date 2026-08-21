@@ -13,3 +13,4 @@ export * from "./token-analytics-snapshot.js";
 export * from "./failure-analytics.js";
 export * from "./file-activity.js";
 export * from "./reliability-report.js";
+export * from "./session-file-events.js";

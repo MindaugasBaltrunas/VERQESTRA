@@ -18,3 +18,6 @@ export * from "./post-write-guards.js";
 // E5 VQ-502 (4/6-b): package/lockfile ir migracijų guard'ų adapteriai virš grynų sprendimų.
 export * from "./package-guard.js";
 export * from "./migration-guard.js";
+// E5 VQ-502 (5/6-a): PreToolUse vartai — vienintelė vieta, galinti blokuoti įrankio kvietimą.
+export * from "./runtime-ownership.js";
+export * from "./pre-hooks.js";

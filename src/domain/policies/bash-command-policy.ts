@@ -246,6 +246,23 @@ export function isDistRebuildCommand(command: string): boolean {
   return distRebuildCommands.some((pattern) => pattern.test(normalized));
 }
 
+/**
+ * Komandos, KEIČIANČIOS projekto būseną (ne tik ją skaitančios). Būtent joms runtime nuosavybė
+ * (worker lease) yra privaloma: nuosavybę praradęs workeris negali nei commit'inti, nei judinti
+ * ref'ų, nei liesti izoliuotų kopijų. Sąrašas sąmoningai siauras — read-only git verbai pro šiuos
+ * vartus neina, kad diagnostika liktų įmanoma ir netekus nuosavybės.
+ *
+ * `(^|[;&|]\s*)` prefiksas būtinas: komanda gali stovėti antra grandinėje (`x && git push`), o
+ * vien `^` tokią praleistų.
+ */
+const GIT_MUTATION_PATTERN =
+  /(^|[;&|]\s*)git\b[^;&|]*\b(commit|push|merge|rebase|cherry-pick|revert|am|apply|update-ref|worktree|reset|clean|stash|tag)\b/i;
+
+/** Ar bash komanda mutuoja repozitoriją (task 1118: commit kelias privalo turėti galiojančią lease). */
+export function isGitMutationCommand(command: string): boolean {
+  return GIT_MUTATION_PATTERN.test(command);
+}
+
 export function evaluateBashCommandPolicy(
   command: string,
   ctx: CheckCommandContext = EMPTY_CHECK_COMMAND_CONTEXT,

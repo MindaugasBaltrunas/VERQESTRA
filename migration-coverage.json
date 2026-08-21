@@ -239,7 +239,7 @@
       "target": "interfaces",
       "wave": "E5",
       "status": "pending",
-      "note": "VQ-503 (1/5) — agentų grandinės aktyvumas: NAUJI interfaces/ui-model/{agent-activity (gryna projekcija: užduoties `## Agentai` blokas per domain parseAgentBlock plius Claude ndjson srautas → agentų būsenos; inline režimas rodo darbą tik kol statusas gyvas), agent-activity-reader (šaltiniai per portą; tiesioginis slot'o įrodymas išjungia globalų claude-resume.json, nes tas aprašo kitą slot'ą)}. Testai: interfaces-ui-model-agent-activity(9)."
+      "note": "VQ-503 (1/5) — agentų grandinės aktyvumas: NAUJI interfaces/ui-model/{agent-activity (gryna projekcija: užduoties `## Agentai` blokas per domain parseAgentBlock plius Claude ndjson srautas → agentų būsenos; inline režimas rodo darbą tik kol statusas gyvas), agent-activity-reader (šaltiniai per portą; tiesioginis slot'o įrodymas išjungia globalų claude-resume.json, nes tas aprašo kitą slot'ą)}. Testai: interfaces-ui-model-agent-activity(9). VQ-503 (2/5) — control-plane ui-model: NAUJI interfaces/ui-model/{token-budget-view (du blokai nesuliejami, nes juos rašo skirtingi momentai; neatpažintas turinys → undefined, ne nuliai), control-plane-model (politikų valdikliai su laukiančiais pasiūlymais pagal policy_file+setting_id, human-review užduotys, learning rekomendacijos, stack decision)}. Portas — application skaitiklių portų sąjunga. Testai: interfaces-ui-model-control-plane(8)."
     },
     {
       "module": "interfaces/ui-model",

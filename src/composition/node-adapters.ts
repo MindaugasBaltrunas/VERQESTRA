@@ -25,6 +25,8 @@ import {
   type SecurityVerifyResult,
 } from "../application/quality-gates/security-verify.js";
 import { collectChangedFiles } from "../infrastructure/git/changed-files.js";
+import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
+import { createTokenBudgetGatePorts } from "../infrastructure/state/token-budget-gate-ports.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 
 /** `export-json-schema` portas: vienintelis rašymas, visada atominis. */
@@ -141,3 +143,20 @@ export function releaseNotesPorts(projectRoot: string, runtimeRoot: string): Rel
     writeNotes: (relativePath, text) => nodeFsAdapter.writeTextFile(path.resolve(projectRoot, relativePath), text),
   };
 }
+
+/**
+ * Task būsenos saugykla. Nuosavybės vartai kol kas NEPRIJUNGTI: juos suriš loop dalis, kuri turi
+ * lease kontekstą. CLI kelias (`task-move`, `requeue`) yra rankinis operatoriaus veiksmas — jam
+ * etalonas irgi taiko tik failų lygio serializaciją.
+ */
+export function taskStateStore(agRoot: string, runtimeRoot: string): ReturnType<typeof createTaskStateStore> {
+  return createTaskStateStore({ agRoot, runtimeRoot });
+}
+
+/** `true`, kai kelias egzistuoja IR yra failas (ne katalogas, ne symlink į katalogą). */
+export function isFile(absolutePath: string): Promise<boolean> {
+  return nodeFsAdapter.statKind(absolutePath).then((kind) => kind === "file");
+}
+
+/** Biudžeto vartų portai — runtime šaknis pakuojama fabrike. */
+export const tokenBudgetPorts = createTokenBudgetGatePorts;

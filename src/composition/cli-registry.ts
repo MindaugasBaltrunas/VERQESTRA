@@ -16,6 +16,8 @@ import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.j
 import { exportApiContractCommand } from "../interfaces/cli/spec/export-api-contract.js";
 import { exportJsonSchemaCommand } from "../interfaces/cli/spec/export-json-schema.js";
 import { openSpecReconcileCommand } from "../interfaces/cli/spec/openspec-reconcile.js";
+import { requeueTask } from "../interfaces/cli/task-queue/requeue.js";
+import { moveTask } from "../interfaces/cli/task-queue/task-move.js";
 import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-sync.js";
 import { renderCliCommandList, type CliCommand, type CliIo } from "../interfaces/cli/registry.js";
 import {
@@ -24,9 +26,12 @@ import {
   jsonSchemaExportPorts,
   learningFs,
   openSpecReconcileFs,
+  isFile,
   releaseNotesPorts,
   securityVerifyPorts,
   taskLedgerStore,
+  taskStateStore,
+  tokenBudgetPorts,
 } from "./node-adapters.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { postHookPorts } from "./hook-adapters.js";
@@ -121,6 +126,32 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "task-move",
+      usage: "<task-file> <target-dir>",
+      description: "Perkelia užduoties failą į kitą bucket'ą",
+      run: (args) =>
+        moveTask(args, {
+          store: taskStateStore(deps.roots.agRoot, deps.roots.runtimeRoot),
+          isFile,
+          projectRoot: deps.roots.projectRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "requeue",
+      usage: "<task-file-or-name>",
+      description: "Grąžina užduotį į eilę (ledger + biudžeto atstatymas)",
+      run: (args) =>
+        requeueTask(args, {
+          store: taskStateStore(deps.roots.agRoot, deps.roots.runtimeRoot),
+          ledger: taskLedgerStore(deps.roots.runtimeRoot),
+          budget: tokenBudgetPorts(deps.roots.runtimeRoot),
+          isFile,
+          projectRoot: deps.roots.projectRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
     },
     // --- PostToolUse hook'ai (VQ-502) --------------------------------------------------
     // Jie NIEKADA neblokuoja: handler'iai grąžina 0, o dispatch'as tą kodą tik perduoda.

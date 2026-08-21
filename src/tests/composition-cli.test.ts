@@ -156,6 +156,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "project-status",
       "report",
       "project-mode",
+      "ui",
       "bootstrap-project",
       "compound-init",
       "install",

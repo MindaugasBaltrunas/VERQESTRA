@@ -6,6 +6,8 @@
 import type { CliCommand } from "../interfaces/cli/registry.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
 import { bootstrapProjectCommand } from "../interfaces/cli/bootstrap/bootstrap-project.js";
+import { runUiCommand } from "./ui-command.js";
+import { consoleCliIo } from "../interfaces/cli/registry.js";
 import { compoundInitCommand } from "../interfaces/cli/bootstrap/compound-init.js";
 import { installCommand } from "../interfaces/cli/bootstrap/install.js";
 import { rollbackStableCommand } from "../interfaces/cli/bootstrap/rollback-stable.js";
@@ -66,6 +68,12 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "ui",
+      usage: "",
+      description: "Paleidžia dashboard'ą ant 127.0.0.1 (prievadas — iš vq/state/ui-server.json)",
+      run: () => runUiCommand(deps, io ?? consoleCliIo),
     },
     {
       name: "bootstrap-project",

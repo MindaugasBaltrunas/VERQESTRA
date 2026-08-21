@@ -39,7 +39,7 @@ import { ensureWorktreeRuntime } from "../infrastructure/git/worktrees/worktree-
 import { reapOrphanWorktrees } from "../infrastructure/git/worktrees/orphan-worktree-reaper.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../infrastructure/process/run-process.js";
-import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { activeAttemptResolution } from "../infrastructure/state/active-attempt.js";
 import { reapDeadLeases, schedulingFs } from "./loop-adapters.js";
 import { architectureWavePorts } from "./architecture-adapters.js";
 import { cliEntryPath, type RuntimeRoots } from "./runtime-context.js";
@@ -79,7 +79,9 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
   const { projectRoot, agRoot, runtimeRoot } = deps.roots;
   const runId = randomUUID();
   const now = (): string => new Date().toISOString();
-  const inputs: WaveInputAdapterDeps = { projectRoot, agRoot, runtimeRoot, resolution: noRuntimeAttemptResolution };
+  // Įrodymų skaitymas NIEKADA nekuria namespace'o: planuoklis tik klausia, ar darbas priimtas.
+  const evidenceResolution = activeAttemptResolution({ projectRoot, runtimeRoot });
+  const inputs: WaveInputAdapterDeps = { projectRoot, agRoot, runtimeRoot, resolution: evidenceResolution };
   const leaseStore = { fs: schedulingFs };
   const readWorkerLeases = (): Promise<Awaited<ReturnType<typeof listWorkerLeases>>> => listWorkerLeases(schedulingFs, projectRoot);
   const absolutePath = (relativeFile: string): string => path.join(projectRoot, relativeFile);
@@ -183,7 +185,8 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           projectRoot,
           runtimeRoot,
           agRoot,
-          resolution: noRuntimeAttemptResolution,
+          // In-process kelias VYKDO task'ą — jam namespace'as kuriamas.
+          resolution: activeAttemptResolution({ projectRoot, runtimeRoot, create: true }),
           ...cliChildRunner(projectRoot),
         }),
       ).start(absoluteFile),

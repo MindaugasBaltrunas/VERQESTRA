@@ -11,7 +11,7 @@ import { codeGraphCommand } from "../interfaces/cli/code-intel/code-graph.js";
 import { codeIndexCommand } from "../interfaces/cli/code-intel/code-index.js";
 import { contextPackCommand } from "../interfaces/cli/code-intel/context-pack.js";
 import { architectureGraphStore, architectureWavePorts, assembleContextPackDeps } from "./architecture-adapters.js";
-import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { activeAttemptResolution } from "../infrastructure/state/active-attempt.js";
 import { codeIntelligenceFs, policyConfigFs } from "./node-adapters.js";
 
 export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
@@ -53,7 +53,7 @@ export function architectureCommands(deps: CliRegistryDeps): CliCommand[] {
             assembleDeps: assembleContextPackDeps(
               deps.roots.projectRoot,
               deps.roots.runtimeRoot,
-              noRuntimeAttemptResolution,
+              activeAttemptResolution({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
             ),
             projectRoot: deps.roots.projectRoot,
             ...(io === undefined ? {} : { io }),

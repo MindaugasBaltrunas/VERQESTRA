@@ -31,7 +31,7 @@ import type { CodeIntelligenceFileSystemPort } from "../application/code-intelli
 import { createCodeIntelligenceFsAdapter } from "../infrastructure/fs/code-intelligence-fs-adapter.js";
 import { collectChangedFiles } from "../infrastructure/git/changed-files.js";
 import { gitHead, gitStatus as gitStatusPlain } from "../infrastructure/git/git-client.js";
-import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { activeAttemptResolution } from "../infrastructure/state/active-attempt.js";
 import { readStopEvidence } from "../infrastructure/state/stop-evidence.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
 import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
@@ -184,9 +184,8 @@ export function specDriftPorts(projectRoot: string, runtimeRoot: string): SpecDr
 /**
  * `status`: TIK skaitantis paviršius plius `ensureDirs`.
  *
- * Stop įrodymas imamas be attempt rezoliucijos (`noRuntimeAttemptResolution`), kol loop
- * kompozicija (E5 likutis) atneša pilną resolverį — statusas tuomet mato legacy veidrodį ir
- * SAKO tai `origin` lauke, o ne apsimeta, kad įrodymo nėra.
+ * Stop įrodymas skaitomas per PILNĄ attempt resolverį, bet BE `create`: statusas yra skaitytojas,
+ * o namespace'o sukūrimas iš jo reikštų, kad vien pažiūrėjimas pradeda bandymą.
  */
 export function statusPorts(projectRoot: string, runtimeRoot: string, agRoot: string): StatusPorts {
   return {
@@ -197,7 +196,7 @@ export function statusPorts(projectRoot: string, runtimeRoot: string, agRoot: st
     readStopEvidence: async (taskId: string): Promise<StatusStopEvidenceView> => {
       const evidence = await readStopEvidence({
         runtimeRoot,
-        resolution: noRuntimeAttemptResolution,
+        resolution: activeAttemptResolution({ projectRoot, runtimeRoot }),
         taskId,
       });
       return {

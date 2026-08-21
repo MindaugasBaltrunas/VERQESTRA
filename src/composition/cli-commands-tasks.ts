@@ -10,7 +10,7 @@ import { statusCommand } from "../interfaces/cli/admin/status.js";
 import { processQueuedTaskCommand } from "../interfaces/cli/task-queue/process-queued-task.js";
 import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
-import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { activeAttemptResolution } from "../infrastructure/state/active-attempt.js";
 import { taskRunPorts } from "./coordinator-execution-adapters.js";
 import { cliChildRunner } from "./coordinator-adapters.js";
 import { printTaskDependencies } from "../interfaces/cli/task-queue/task-dependencies.js";
@@ -94,7 +94,12 @@ export function tasksCommands(deps: CliRegistryDeps): CliCommand[] {
                 projectRoot: deps.roots.projectRoot,
                 runtimeRoot: deps.roots.runtimeRoot,
                 agRoot: deps.roots.agRoot,
-                resolution: noRuntimeAttemptResolution,
+                resolution: activeAttemptResolution({
+                  projectRoot: deps.roots.projectRoot,
+                  runtimeRoot: deps.roots.runtimeRoot,
+                  // Vaikas VYKDO task'ą, tad jo attempt namespace'as gimsta būtent čia.
+                  create: true,
+                }),
                 ...cliChildRunner(deps.roots.projectRoot),
               }),
             ).start(taskFile),

@@ -44,7 +44,7 @@ import { evaluateLoopPreconditions } from "../application/scheduling/loop-precon
 import { claudeDiagnosePorts } from "./diagnose-adapters.js";
 import { claudePreflightPorts } from "./claude-preflight-adapters.js";
 import { claudeDispatchPorts } from "./claude-dispatch-adapters.js";
-import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { activeAttemptResolution } from "../infrastructure/state/active-attempt.js";
 import { packageRoot } from "./runtime-context.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { tryParseJson } from "../shared/json.js";
@@ -178,7 +178,12 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
             agRoot: deps.roots.agRoot,
-            resolution: noRuntimeAttemptResolution,
+            resolution: activeAttemptResolution({
+              projectRoot: deps.roots.projectRoot,
+              runtimeRoot: deps.roots.runtimeRoot,
+              // Dispatch'as PRADEDA bandymą, tad jis vienintelis kuria namespace'ą.
+              create: true,
+            }),
           }),
         ),
     },
@@ -193,7 +198,7 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
             agRoot: deps.roots.agRoot,
-            resolution: noRuntimeAttemptResolution,
+            resolution: activeAttemptResolution({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
           }),
         ),
     },
@@ -208,9 +213,8 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
             agRoot: deps.roots.agRoot,
-            // Pilnas attempt resolveris atkeliaus su loop kompozicija; iki tol diagnozė remiasi
-            // legacy veidrodžiais ir SAKO tai kiekvieno įrodymo `origin` lauke.
-            resolution: noRuntimeAttemptResolution,
+            // Diagnozė SKAITO įrodymus, tad `create` jai neduodamas: bandymą pradeda dispatch'as.
+            resolution: activeAttemptResolution({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
           }),
         ),
     },
@@ -255,7 +259,11 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
                 projectRoot: deps.roots.projectRoot,
                 runtimeRoot: deps.roots.runtimeRoot,
                 agRoot: deps.roots.agRoot,
-                resolution: noRuntimeAttemptResolution,
+                resolution: activeAttemptResolution({
+                  projectRoot: deps.roots.projectRoot,
+                  runtimeRoot: deps.roots.runtimeRoot,
+                  create: true,
+                }),
                 ...cliChildRunner(deps.roots.projectRoot),
               }),
             ).start(path.resolve(deps.roots.projectRoot, task.file)),

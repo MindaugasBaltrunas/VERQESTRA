@@ -18,7 +18,7 @@ import { CodexAdapter } from "../infrastructure/adapters/codex-adapter.js";
 import { DryRunAdapter } from "../infrastructure/adapters/dry-run-adapter.js";
 import { runExecutionDispatch, type ExecutionDispatchResult } from "../infrastructure/adapters/execution-dispatch.js";
 import { parseEnvFile } from "../interfaces/http/ui-port-store.js";
-import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { activeAttemptResolution } from "../infrastructure/state/active-attempt.js";
 import { findStaleDistFiles } from "../infrastructure/process/dist-freshness.js";
 import { gitCommitExists, gitStatusPorcelain, isGitRepository } from "../infrastructure/git/git-client.js";
 import { run } from "../infrastructure/process/run-process.js";
@@ -133,7 +133,7 @@ export function onStopBridgeAdapters(
       stopBridgeForProject({
         projectRoot,
         runtimeRoot,
-        resolution: noRuntimeAttemptResolution,
+        resolution: activeAttemptResolution({ projectRoot, runtimeRoot }),
         status,
         reason,
         taskId,

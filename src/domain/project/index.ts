@@ -4,3 +4,4 @@ export * from "./mode.js";
 export * from "./profile.js";
 export * from "./bootstrap.js";
 export * from "./guard-roots.js";
+export * from "./template-version.js";

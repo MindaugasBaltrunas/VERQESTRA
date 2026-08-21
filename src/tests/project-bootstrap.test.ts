@@ -14,6 +14,10 @@ import {
   type BootstrapSpecPorts,
   type ProductIntentResult,
 } from "../application/project-bootstrap/generate.js";
+import {
+  detectProjectMode,
+  type ProjectModeDetectionPorts,
+} from "../application/project-bootstrap/detect-mode.js";
 
 const ROOT = path.resolve("/repo");
 const norm = (p: string): string => p.replace(/\\/g, "/");
@@ -131,4 +135,86 @@ test("generated: task tekstas sukomponuotas TIK iš README ir grafo, failai — 
   assert.match(taskText, /- pirmas punktas/);
   assert.match(taskText, /### Funkcijos/);
   assert.match(taskText, /- core: Core/);
+});
+
+// ---------------------------------------------------------------------------
+// detect-mode (VQ-501 5/5-a) — signalų rinkimas virš tų pačių ProfileDetectionPorts
+// ---------------------------------------------------------------------------
+
+const RUNTIME_ROOT = path.join(ROOT, "vq");
+
+function modePorts(input: {
+  existing?: string[];
+  markers?: string[];
+  sourceFiles?: string[];
+  markdownCounts?: Record<string, number>;
+  subdirectories?: Record<string, string[]>;
+  files?: Record<string, string[]>;
+  texts?: Record<string, string>;
+}): ProjectModeDetectionPorts {
+  const existing = new Set((input.existing ?? []).map((rel) => norm(path.join(ROOT, rel))));
+  const counts = input.markdownCounts ?? {};
+  const subdirectories = input.subdirectories ?? {};
+  const files = input.files ?? {};
+  const texts = input.texts ?? {};
+  const rel = (absolute: string): string => norm(path.relative(ROOT, absolute));
+  return {
+    exists: async (p) => existing.has(norm(p)),
+    findProductMarkers: async () => input.markers ?? [],
+    findSourceFiles: async () => input.sourceFiles ?? [],
+    countMarkdownFiles: async (dir) => counts[rel(dir)] ?? 0,
+    listSubdirectories: async (dir) => subdirectories[rel(dir)] ?? [],
+    listFiles: async (dir) => files[rel(dir)] ?? [],
+    readTextFileIfExists: async (p) => texts[rel(p)],
+  };
+}
+
+test("detectProjectMode: tuščias katalogas — naujas projektas be AG workspace", async () => {
+  const detection = await detectProjectMode(modePorts({}), { projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT });
+  assert.equal(detection.mode, "new_project");
+  assert.equal(detection.confidence, "medium");
+  assert.equal(detection.signals.hasAgWorkspace, false);
+  assert.deepEqual(detection.signals.openSpecChanges, []);
+});
+
+test("detectProjectMode: produktas plius suplanuotas darbas — extend_project", async () => {
+  const ports = modePorts({
+    existing: ["AG", "AG/openspec/changes/auto-x/proposal.md"],
+    markers: ["package.json"],
+    sourceFiles: ["src/a.ts"],
+    markdownCounts: { "AG/tasks/queue": 2 },
+    subdirectories: { "AG/openspec/changes": ["auto-x", "archive"] },
+  });
+  const detection = await detectProjectMode(ports, { projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT });
+  assert.equal(detection.mode, "extend_project");
+  assert.equal(detection.signals.queuedTasks, 2);
+  // `archive` niekada nesiskaito change'u, o be dokumentų katalogas irgi ne.
+  assert.deepEqual(detection.signals.openSpecChanges, ["openspec/changes/auto-x"]);
+});
+
+test("detectProjectMode: nutraukti bucket'ai ir repair promptai — repair_project", async () => {
+  const ports = modePorts({
+    existing: ["AG"],
+    markers: ["package.json"],
+    markdownCounts: { "AG/tasks/active": 1, "AG/tasks/error": 2, "AG/tasks/human-review": 1 },
+    files: { "vq/state/repair-prompts": ["0001.md"] },
+    texts: { "vq/supervisor/repair-task.md": "# Repair Task\n" },
+  });
+  const detection = await detectProjectMode(ports, { projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT });
+  assert.equal(detection.mode, "repair_project");
+  assert.equal(detection.signals.interruptedTasks, 3);
+  assert.equal(detection.signals.humanReviewTasks, 1);
+  assert.equal(detection.signals.repairPrompts, 2);
+});
+
+test("detectProjectMode: tuščias legacy repair promptas nesiskaito įrodymu", async () => {
+  const ports = modePorts({
+    existing: ["AG"],
+    markers: ["package.json"],
+    texts: { "vq/supervisor/repair-task.md": "   \n" },
+  });
+  const detection = await detectProjectMode(ports, { projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT });
+  assert.equal(detection.signals.repairPrompts, 0);
+  assert.equal(detection.mode, "existing_project");
+  assert.equal(detection.confidence, "high");
 });

@@ -183,7 +183,7 @@ test("moveTask: usage/ribų/bucket/failo vartai → 2; sėkmė deleguoja į stor
 
   const usage = captureIo();
   assert.equal(await moveTask([], { ...deps, io: usage.io }), 2);
-  assert.equal(usage.err[0], "Usage: ag task-move <from-file> <to-dir>");
+  assert.equal(usage.err[0], "Usage: verqestra task-move <from-file> <to-dir>");
 
   const escape = captureIo();
   assert.equal(await moveTask(["../uz-ribos.md", "AG/tasks/queue"], { ...deps, io: escape.io }), 2);
@@ -366,7 +366,7 @@ test("processQueuedTaskCommand: usage → USAGE_ERROR_EXIT_CODE, ok/fail → 0/1
     }),
     USAGE_ERROR_EXIT_CODE,
   );
-  assert.equal(usage.err[0], "Usage: ag process-queued-task <task-file>");
+  assert.equal(usage.err[0], "Usage: verqestra process-queued-task <task-file>");
 
   const seen: string[] = [];
   const okCode = await processQueuedTaskCommand(["AG/tasks/queue/0001-a.md"], {

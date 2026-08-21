@@ -75,7 +75,7 @@ export function renderReleaseProofMarkdown(data: ReleaseProofData): string {
     "# AG Final Release Proof",
     "",
     "Committed, sanitized evidence of the commit that last passed final gates. Regenerated",
-    "deterministically by `ag final-audit` from current gate outputs — it does not commit any",
+    "deterministically by `verqestra final-audit` from current gate outputs — it does not commit any",
     "raw runtime state internals.",
     "",
     `Generated: ${data.generated_at}`,

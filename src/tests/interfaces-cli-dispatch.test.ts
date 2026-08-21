@@ -192,7 +192,7 @@ test("dispatch: usage → 2, dry-run sėkmė → 0, parked claude gauna DUP-09 g
 
   const usage = captureIo();
   assert.equal(await printDispatch([], { ...deps, io: usage.io }), 2);
-  assert.match(usage.err[0] ?? "", /Usage: ag dispatch <task-file>/);
+  assert.match(usage.err[0] ?? "", /Usage: verqestra dispatch <task-file>/);
 
   const ok = captureIo();
   assert.equal(await printDispatch(["AG/tasks/queue/0001-a.md"], { ...deps, io: ok.io }), 0);
@@ -201,7 +201,7 @@ test("dispatch: usage → 2, dry-run sėkmė → 0, parked claude gauna DUP-09 g
 
   const parked = await dispatch(["AG/tasks/queue/0001-a.md", "--adapter=claude"], deps);
   assert.match(parked.summary, /claude_adapter_not_implemented: adapter 'claude' is parked\/reference only \(DUP-09\)/);
-  assert.match(parked.summary, /use 'ag claude-dispatch <task-file>'/);
+  assert.match(parked.summary, /use 'verqestra claude-dispatch <task-file>'/);
   const parkedPrint = captureIo();
   assert.equal(await printDispatch(["AG/tasks/queue/0001-a.md", "--adapter=claude"], { ...deps, io: parkedPrint.io }), 1);
 });

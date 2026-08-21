@@ -25,10 +25,10 @@ export async function requeueTask(args: string[], deps: RequeueCommandDeps): Pro
   const [taskArg] = args;
 
   if (!taskArg) {
-    io.error("Usage: ag requeue <task-file-or-name>");
+    io.error("Usage: verqestra requeue <task-file-or-name>");
     io.error("  Examples:");
-    io.error("    ag requeue 13_api_filtering.md");
-    io.error("    ag requeue AG/tasks/human-review/13_api_filtering.md");
+    io.error("    verqestra requeue 13_api_filtering.md");
+    io.error("    verqestra requeue AG/tasks/human-review/13_api_filtering.md");
     return 2;
   }
 

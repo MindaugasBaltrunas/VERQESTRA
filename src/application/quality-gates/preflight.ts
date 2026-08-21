@@ -82,7 +82,7 @@ export async function evaluatePreflight(
   projectRoot = process.cwd(),
 ): Promise<PreflightDecision> {
   const taskArg = args[0]?.trim();
-  if (!taskArg) throw new Error("Usage: ag preflight <task-file>");
+  if (!taskArg) throw new Error("Usage: verqestra preflight <task-file>");
 
   const root = path.resolve(projectRoot);
   const { filePath: taskPath, text: taskText } = await ports.resolveTaskFile(taskArg);

@@ -33,7 +33,7 @@ export async function moveTask(args: string[], deps: TaskMoveCommandDeps): Promi
   const [fromFile, toDir] = args;
 
   if (!fromFile || !toDir) {
-    io.error("Usage: ag task-move <from-file> <to-dir>");
+    io.error("Usage: verqestra task-move <from-file> <to-dir>");
     return 2;
   }
 

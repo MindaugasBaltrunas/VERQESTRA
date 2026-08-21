@@ -43,7 +43,7 @@ export async function dispatch(args: string[], deps: DispatchCommandDeps): Promi
   const taskFile = args.find((arg) => !arg.startsWith("--"))?.trim();
   if (!taskFile) {
     throw new Error(
-      "Usage: ag dispatch <task-file> [--adapter=dry-run|auto|codex|claude] " +
+      "Usage: verqestra dispatch <task-file> [--adapter=dry-run|auto|codex|claude] " +
         "(only dry-run executes; codex/claude are parked/reference — use codex-dispatch/claude-dispatch for production execution)",
     );
   }
@@ -69,7 +69,7 @@ function withProductionAdapterGuidance(result: ExecutionDispatchResult, adapterV
     ...result,
     summary:
       `${result.summary}: adapter '${adapterValue}' is parked/reference only (DUP-09) and never executes — ` +
-      `use 'ag ${productionCommand} <task-file>' for production execution`,
+      `use 'verqestra ${productionCommand} <task-file>' for production execution`,
   };
 }
 

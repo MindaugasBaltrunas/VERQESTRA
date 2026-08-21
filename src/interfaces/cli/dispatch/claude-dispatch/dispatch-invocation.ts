@@ -29,7 +29,7 @@ export async function prepareDispatchInvocation(
 ): Promise<PrepareDispatchInvocationResult> {
   const taskFileArg = args[0];
   if (!taskFileArg) {
-    return { kind: "refuse", message: "Usage: ag claude-dispatch <task-file>" };
+    return { kind: "refuse", message: "Usage: verqestra claude-dispatch <task-file>" };
   }
 
   let taskFile: string;

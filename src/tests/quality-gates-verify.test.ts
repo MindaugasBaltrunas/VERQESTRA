@@ -204,5 +204,5 @@ test("specDrift: --files= argumentai nugali git sąrašą; trūkstamas change me
 
   const missing = makeSpecPorts({ missingChange: true });
   await assert.rejects(() => specDrift(missing.ports, ["nėra"], "/repo"), /Spec change not found: nėra/);
-  await assert.rejects(() => specDrift(missing.ports, [], "/repo"), /Usage: ag spec-drift/);
+  await assert.rejects(() => specDrift(missing.ports, [], "/repo"), /Usage: verqestra spec-drift/);
 });

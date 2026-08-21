@@ -246,7 +246,7 @@ test("runQualityGates: be komandų — has_commands=false ir exit 1", async () =
   assert.equal(status.has_commands, false);
   assert.equal(status.exit_code, 1);
   assert.equal(statuses.length, 1);
-  assert.throws(() => parseQualityScope(["--scope", "banana"]), /Usage: ag quality-gates/);
+  assert.throws(() => parseQualityScope(["--scope", "banana"]), /Usage: verqestra quality-gates/);
 });
 
 test("runQualityGates: memo hit praleidžia suite; --no-memo paleidžia pilną ir atnaujina antspaudą", async () => {

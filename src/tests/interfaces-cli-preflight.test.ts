@@ -271,7 +271,7 @@ test("spec-source pagalbininkai: appendSpecSourceRef be dublikatinės antraštė
 test("claudePreflight: usage/rezoliucijos klaidos → USAGE_ERROR_EXIT_CODE", async () => {
   const usage = makeHarness({ taskText: CANONICAL_TASK });
   assert.equal(await claudePreflight([], usage.ports), USAGE_ERROR_EXIT_CODE);
-  assert.match(usage.errs[0] ?? "", /Usage: ag claude-preflight/);
+  assert.match(usage.errs[0] ?? "", /Usage: verqestra claude-preflight/);
 
   const missing = makeHarness({ taskText: CANONICAL_TASK });
   missing.ports.resolveExistingTaskFile = async () => {

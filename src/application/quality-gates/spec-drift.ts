@@ -49,7 +49,7 @@ export async function specDrift(
 ): Promise<SpecDriftResult> {
   const changeId = args[0]?.trim();
   if (!changeId) {
-    throw new Error("Usage: ag spec-drift <change-id> [changed-file ...]");
+    throw new Error("Usage: verqestra spec-drift <change-id> [changed-file ...]");
   }
 
   const root = path.resolve(projectRoot);

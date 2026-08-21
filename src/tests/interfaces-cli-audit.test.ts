@@ -311,11 +311,11 @@ test("learningCommand: query filtruoja pagal task-id, klaidų keliai → 2", asy
 
   const { io: ioUnk, err: errUnk } = captureIo();
   assert.equal(await learningCommand({ ...deps, io: ioUnk }, ["frobnicate"]), 2);
-  assert.match(errUnk[0] ?? "", /^Usage: ag learning /);
+  assert.match(errUnk[0] ?? "", /^Usage: verqestra learning /);
 
   const { io: ioApp, err: errApp } = captureIo();
   assert.equal(await learningCommand({ ...deps, io: ioApp }, ["approve"]), 2);
-  assert.match(errApp[0] ?? "", /^Usage: ag learning approve /);
+  assert.match(errApp[0] ?? "", /^Usage: verqestra learning approve /);
 });
 
 // ---------------------------------------------------------------------------

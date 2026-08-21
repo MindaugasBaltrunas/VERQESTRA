@@ -35,7 +35,7 @@ export async function printTaskDependencies(args: string[], deps: TaskDependenci
 
     if (subcommand === "route-blocked") {
       const blocker = args.find((arg, index) => index > args.indexOf(subcommand) && !arg.startsWith("--"));
-      if (!blocker) throw new Error("Usage: ag task-dependencies route-blocked <task-id> [--json]");
+      if (!blocker) throw new Error("Usage: verqestra task-dependencies route-blocked <task-id> [--json]");
       const result = await routeBlockedTasksToHumanReview(deps.ports, blocker);
       if (asJson) {
         // Etalono elgesys 1:1: --json kelias grąžina PRIEŠ exit kodo sprendimą, tad
@@ -50,7 +50,7 @@ export async function printTaskDependencies(args: string[], deps: TaskDependenci
       return result.routed.length > 0 ? 1 : 0;
     }
 
-    throw new Error("Usage: ag task-dependencies [list|route-blocked <task-id>] [--json]");
+    throw new Error("Usage: verqestra task-dependencies [list|route-blocked <task-id>] [--json]");
   } catch (error: unknown) {
     io.error(error instanceof Error ? error.message : String(error));
     return 2;

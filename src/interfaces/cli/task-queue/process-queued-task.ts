@@ -21,7 +21,7 @@ export async function processQueuedTaskCommand(args: string[], deps: ProcessQueu
   const io = deps.io ?? consoleCliIo;
   const taskFileArg = args[0];
   if (!taskFileArg) {
-    io.error("Usage: ag process-queued-task <task-file>");
+    io.error("Usage: verqestra process-queued-task <task-file>");
     return USAGE_ERROR_EXIT_CODE;
   }
 

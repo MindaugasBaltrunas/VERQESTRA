@@ -48,7 +48,7 @@ export async function printCodexDispatch(args: string[], deps: CodexDispatchComm
 
   const contextPackArg = flagValue(args, "--context-pack");
   if (!contextPackArg) {
-    io.error("Usage: ag codex-dispatch <task-id> --adapter=codex --context-pack=<file>");
+    io.error("Usage: verqestra codex-dispatch <task-id> --adapter=codex --context-pack=<file>");
     return 2;
   }
 

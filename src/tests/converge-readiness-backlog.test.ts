@@ -91,7 +91,7 @@ test("converge: queueId atitikmuo eilėje, tušti nebaigti bucket'ai ir švieži
 
 test("readiness: trūkstamas konfigas ir nedokumentuota komanda krenta į savo kategorijas", async () => {
   const files = new Map<string, string>([
-    [abs("README.md"), "# X\n\n## Main Commands\n- `ag run`\n- `pnpm ag status`\n\n## Kita\n"],
+    [abs("README.md"), "# X\n\n## Main Commands\n- `verqestra run`\n- `pnpm verqestra status`\n\n## Kita\n"],
     [abs("src/cli.ts"), 'register({ name: "run" });\nregister({ name: "extra" });'],
     [abs("docs/getting-started.md"), "turinys"],
   ]);

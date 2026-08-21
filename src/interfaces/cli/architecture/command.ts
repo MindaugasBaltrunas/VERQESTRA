@@ -109,7 +109,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
     if (subcommand === "import-mmd") {
       const filePath = args[1];
       if (!filePath) {
-        io.error("Usage: ag architecture import-mmd <file>");
+        io.error("Usage: verqestra architecture import-mmd <file>");
         return 2;
       }
       // Containment: importuojamas .mmd turi būti projekto kataloge — neleidžiam
@@ -162,7 +162,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
     if (subcommand === "synthesize-node") {
       const nodeId = args[1];
       if (!nodeId || nodeId.startsWith("--")) {
-        io.error("Usage: ag architecture synthesize-node <node-id> [--write]");
+        io.error("Usage: verqestra architecture synthesize-node <node-id> [--write]");
         return 2;
       }
       const doWrite = args.includes("--write");
@@ -227,7 +227,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
     if (subcommand === "verify-node") {
       const nodeId = args[1];
       if (!nodeId || nodeId.startsWith("--")) {
-        io.error("Usage: ag architecture verify-node <node-id>");
+        io.error("Usage: verqestra architecture verify-node <node-id>");
         return 2;
       }
       const { progressPath } = statePaths(projectRoot);
@@ -286,7 +286,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
       // tik render/exit sluoksnis.
       const wave = await synthesizeReadyArchitectureWave(deps.wave, projectRoot);
       if (wave.status === "no-graph") {
-        io.error("architecture graph/progress not found — run `ag architecture import-mmd` (or bootstrap) first");
+        io.error("architecture graph/progress not found — run `verqestra architecture import-mmd` (or bootstrap) first");
         return 2;
       }
 
@@ -330,7 +330,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
       const doWrite = args.includes("--write");
       const doCheck = args.includes("--check");
       if (!doWrite && !doCheck) {
-        io.error("Usage: ag architecture code-map --write|--check [--json]");
+        io.error("Usage: verqestra architecture code-map --write|--check [--json]");
         return 2;
       }
 
@@ -367,7 +367,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
 
     if (subcommand !== "check") {
       throw new Error(
-        "Usage: ag architecture [init|check|import-mmd <file>|next-node|synthesize-node <node-id>|verify-node <node-id>|run-tree|code-map --write|--check] [--write] [--json]",
+        "Usage: verqestra architecture [init|check|import-mmd <file>|next-node|synthesize-node <node-id>|verify-node <node-id>|run-tree|code-map --write|--check] [--write] [--json]",
       );
     }
 

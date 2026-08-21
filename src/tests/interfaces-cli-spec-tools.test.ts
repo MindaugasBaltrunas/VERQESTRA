@@ -69,7 +69,7 @@ test("specDriftCommand: be change id — usage klaida ir exit 2", async () => {
   const { ports } = makeDriftPorts([], []);
   const exit = await specDriftCommand({ ports, projectRoot: ROOT, io }, []);
   assert.equal(exit, 2);
-  assert.equal(err[0], "Usage: ag spec-drift <change-id> [changed-file ...]");
+  assert.equal(err[0], "Usage: verqestra spec-drift <change-id> [changed-file ...]");
 });
 
 function makeContractPorts(

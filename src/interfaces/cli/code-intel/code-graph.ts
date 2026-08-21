@@ -20,7 +20,7 @@ export async function codeGraphCommand(deps: CodeGraphCommandDeps, args: string[
     const asJson = args.includes("--json");
     const fuzzy = args.includes("--fuzzy");
     if (!target) {
-      io.error("Usage: ag code-graph query <file-or-symbol> [--json] [--fuzzy]");
+      io.error("Usage: verqestra code-graph query <file-or-symbol> [--json] [--fuzzy]");
       return 2;
     }
 

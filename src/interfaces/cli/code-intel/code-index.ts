@@ -52,7 +52,7 @@ export async function codeIndexCommand(deps: CodeIndexCommandDeps, args: string[
       return await printArchitectureBoundaryCheck(deps, io);
     }
 
-    io.error("Usage: ag code-index [build|check|architecture-check]");
+    io.error("Usage: verqestra code-index [build|check|architecture-check]");
     return 2;
   } catch (error: unknown) {
     io.error(error instanceof Error ? error.message : String(error));

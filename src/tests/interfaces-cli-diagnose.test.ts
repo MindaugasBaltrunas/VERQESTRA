@@ -231,7 +231,7 @@ function makeHarness(input: HarnessInput = {}): Harness {
 test("claudeDiagnose: usage → USAGE_ERROR_EXIT_CODE", async () => {
   const h = makeHarness();
   assert.equal(await claudeDiagnose([], h.ports), USAGE_ERROR_EXIT_CODE);
-  assert.match(h.errs[0] ?? "", /Usage: ag claude-diagnose/);
+  assert.match(h.errs[0] ?? "", /Usage: verqestra claude-diagnose/);
 });
 
 test("claudeDiagnose: deterministinis done greitkelis — attempt+files paritetas, tušti repair artefaktai", async () => {

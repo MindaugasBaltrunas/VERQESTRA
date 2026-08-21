@@ -84,7 +84,7 @@ export async function learningCommand(deps: LearningCommandDeps, args: string[])
 
     if (command === "approve" || command === "reject") {
       const id = positionalAfter(args, command);
-      if (!id) throw new Error(`Usage: ag learning ${command} <recommendation-id> [--evidence <text>] [--json]`);
+      if (!id) throw new Error(`Usage: verqestra learning ${command} <recommendation-id> [--evidence <text>] [--json]`);
       const record = await decideLearningRecommendation(
         deps.fs,
         deps.runtimeRoot,
@@ -97,7 +97,7 @@ export async function learningCommand(deps: LearningCommandDeps, args: string[])
       return 0;
     }
 
-    throw new Error("Usage: ag learning [record|query|summary|approve|reject] [--json]");
+    throw new Error("Usage: verqestra learning [record|query|summary|approve|reject] [--json]");
   } catch (error: unknown) {
     io.error(error instanceof Error ? error.message : String(error));
     return 2;

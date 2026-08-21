@@ -184,7 +184,7 @@ test("preflightCommand: use case meta klaidą — 2; split planas spausdinamas d
         ports: UNUSED_PREFLIGHT_PORTS,
         projectRoot: ROOT,
         evaluate: async () => {
-          throw new Error("Usage: ag preflight <task-file>");
+          throw new Error("Usage: verqestra preflight <task-file>");
         },
         io: failed.io,
       },
@@ -192,7 +192,7 @@ test("preflightCommand: use case meta klaidą — 2; split planas spausdinamas d
     ),
     2,
   );
-  assert.equal(failed.err[0], "Usage: ag preflight <task-file>");
+  assert.equal(failed.err[0], "Usage: verqestra preflight <task-file>");
 
   const split = captureIo();
   const splitDecision = decision({

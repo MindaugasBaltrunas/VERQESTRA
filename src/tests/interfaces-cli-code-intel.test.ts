@@ -110,7 +110,7 @@ test("codeGraphCommand: be target'o — usage klaida ir exit 2", async () => {
   const { io, err } = captureIo();
   const exit = await codeGraphCommand({ codeFs: makeCodeFs(new Map()), projectRoot: ROOT, io }, []);
   assert.equal(exit, 2);
-  assert.equal(err[0], "Usage: ag code-graph query <file-or-symbol> [--json] [--fuzzy]");
+  assert.equal(err[0], "Usage: verqestra code-graph query <file-or-symbol> [--json] [--fuzzy]");
 });
 
 test("codeGraphCommand: failo užklausa spausdina etalono sąrašus", async () => {
@@ -171,7 +171,7 @@ test("codeIndexCommand: nežinoma subkomanda — usage ir exit 2", async () => {
   const deps = { codeFs: makeCodeFs(new Map()), policyFs: makePolicyFs(new Map()), projectRoot: ROOT, io };
   const exit = await codeIndexCommand(deps, ["frobnicate"]);
   assert.equal(exit, 2);
-  assert.equal(err[0], "Usage: ag code-index [build|check|architecture-check]");
+  assert.equal(err[0], "Usage: verqestra code-index [build|check|architecture-check]");
 });
 
 test("codeIndexCommand: architecture-check be politikos — 0 violations", async () => {

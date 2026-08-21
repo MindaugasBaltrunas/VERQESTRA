@@ -70,7 +70,7 @@ export function parseQualityScope(args: string[]): QualityScope {
   const scopeValue = scopeFlag?.slice("--scope=".length) ?? (scopeIndex >= 0 ? args[scopeIndex + 1] : undefined);
   const scope = scopeValue ?? "task";
   if (!isQualityScope(scope)) {
-    throw new Error("Usage: ag quality-gates --scope task|feature|milestone");
+    throw new Error("Usage: verqestra quality-gates --scope task|feature|milestone");
   }
   return scope;
 }

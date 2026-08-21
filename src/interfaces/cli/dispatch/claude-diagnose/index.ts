@@ -31,7 +31,7 @@ export async function claudeDiagnose(args: string[], ports: ClaudeDiagnosePorts)
 
   const taskFileArg = args[0];
   if (!taskFileArg) {
-    ports.stderr("Usage: ag claude-diagnose <task-file>");
+    ports.stderr("Usage: verqestra claude-diagnose <task-file>");
     return USAGE_ERROR_EXIT_CODE;
   }
 

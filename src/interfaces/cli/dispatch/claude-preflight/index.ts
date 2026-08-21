@@ -64,7 +64,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
 
   const taskFileArg = args[0];
   if (!taskFileArg) {
-    ports.stderr("Usage: ag claude-preflight <task-file>");
+    ports.stderr("Usage: verqestra claude-preflight <task-file>");
     return USAGE_ERROR_EXIT_CODE;
   }
 

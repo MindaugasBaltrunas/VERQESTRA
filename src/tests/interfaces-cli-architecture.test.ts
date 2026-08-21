@@ -208,7 +208,7 @@ test("architecture import-mmd: usage, containment ir sėkmingas importas", async
   const files = new Map<string, string>();
   const { io, err } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, io), ["import-mmd"]), 2);
-  assert.equal(err[0], "Usage: ag architecture import-mmd <file>");
+  assert.equal(err[0], "Usage: verqestra architecture import-mmd <file>");
 
   const { io: ioEsc, err: errEsc } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, ioEsc), ["import-mmd", "../evil.mmd"]), 2);
@@ -247,7 +247,7 @@ test("architecture synthesize-node: usage, nežinomas mazgas, evidence disciplin
   seedState(files, B_GRAPH, { B: nodeProgress() });
   const { io, err } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, io), ["synthesize-node"]), 2);
-  assert.equal(err[0], "Usage: ag architecture synthesize-node <node-id> [--write]");
+  assert.equal(err[0], "Usage: verqestra architecture synthesize-node <node-id> [--write]");
 
   const { io: io2, err: err2 } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, io2), ["synthesize-node", "X"]), 2);
@@ -336,7 +336,7 @@ test("architecture code-map: usage, tuščias projektas 100%, --check be failo",
   const files = new Map<string, string>();
   const { io, err } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, io), ["code-map"]), 2);
-  assert.equal(err[0], "Usage: ag architecture code-map --write|--check [--json]");
+  assert.equal(err[0], "Usage: verqestra architecture code-map --write|--check [--json]");
 
   const { io: io2, out } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, io2), ["code-map", "--write"]), 0);
@@ -355,7 +355,7 @@ test("architecture code-map: usage, tuščias projektas 100%, --check be failo",
 test("architecture: nežinoma subkomanda — usage klaida per catch", async () => {
   const { io, err } = captureIo();
   assert.equal(await architectureCommand(makeDeps(new Map(), io), ["frobnicate"]), 2);
-  assert.match(err[0] ?? "", /^Usage: ag architecture \[init\|check/);
+  assert.match(err[0] ?? "", /^Usage: verqestra architecture \[init\|check/);
 });
 
 test("governance stack decision: persist tik su inputSignals, load valiadavęs", async () => {

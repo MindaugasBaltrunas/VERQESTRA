@@ -49,7 +49,11 @@ export function parseReadmeMainCommands(readme: string): string[] {
   const nextHeading = /^## /m.exec(remainder);
   const section = nextHeading ? remainder.slice(0, nextHeading.index) : remainder;
   const commands = new Set<string>();
-  for (const match of section.matchAll(/(?:pnpm\s+ag|\bag)\s+([a-z][a-z0-9-]*)/gi)) {
+  // Binaro vardas yra `verqestra` (package.json bin), tad TIK jis ir laikomas dokumentacija.
+  // Etalono `ag` forma SAMONINGAI nebepriimama: README, siulantis komanda, kurios nera, yra
+  // neteisingas README -- o priimdamas abi formas auditas toki README praleistu kaip
+  // dokumentuota. Nukrypimas nuo etalono yra GRIEZTINANTIS (priimamu formu maziau).
+  for (const match of section.matchAll(/(?:pnpm\s+verqestra|\bverqestra)\s+([a-z][a-z0-9-]*)/gi)) {
     if (match[1] !== undefined) commands.add(match[1]);
   }
   return [...commands];

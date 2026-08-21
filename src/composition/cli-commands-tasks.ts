@@ -7,6 +7,12 @@
 import type { CliCommand } from "../interfaces/cli/registry.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
 import { statusCommand } from "../interfaces/cli/admin/status.js";
+import { processQueuedTaskCommand } from "../interfaces/cli/task-queue/process-queued-task.js";
+import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
+import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
+import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { taskRunPorts } from "./coordinator-execution-adapters.js";
+import { cliChildRunner } from "./coordinator-adapters.js";
 import { printTaskDependencies } from "../interfaces/cli/task-queue/task-dependencies.js";
 import { requeueTask } from "../interfaces/cli/task-queue/requeue.js";
 import { moveTask } from "../interfaces/cli/task-queue/task-move.js";
@@ -72,6 +78,26 @@ export function tasksCommands(deps: CliRegistryDeps): CliCommand[] {
           ports: statusPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
           projectRoot: deps.roots.projectRoot,
           runtimeRoot: deps.roots.runtimeRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "process-queued-task",
+      usage: "<task-file>",
+      description: "Vieno eilės task'o pilnas ciklas (loop child vykdytojas)",
+      run: (args) =>
+        processQueuedTaskCommand(args, {
+          ensureDirs: () => ensureRuntimeDirs(deps.roots.agRoot, deps.roots.runtimeRoot),
+          processQueuedTask: (taskFile) =>
+            createRunCoordinator(
+              taskRunPorts({
+                projectRoot: deps.roots.projectRoot,
+                runtimeRoot: deps.roots.runtimeRoot,
+                agRoot: deps.roots.agRoot,
+                resolution: noRuntimeAttemptResolution,
+                ...cliChildRunner(deps.roots.projectRoot),
+              }),
+            ).start(taskFile),
           ...(io === undefined ? {} : { io }),
         }),
     },

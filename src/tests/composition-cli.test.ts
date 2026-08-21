@@ -141,6 +141,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "task-move",
       "requeue",
       "status",
+      "process-queued-task",
       "task-dependencies",
       "backlog-audit",
       "security-verify",

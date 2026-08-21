@@ -7,6 +7,7 @@
 import path from "node:path";
 import type { ProfileDetectionPorts } from "../application/project-bootstrap/detect-profile.js";
 import type { ProjectModeDetectionPorts } from "../application/project-bootstrap/detect-mode.js";
+import type { BootstrapProjectPorts } from "../interfaces/cli/bootstrap/bootstrap-project.js";
 import type { CompoundInitPorts, WriteState } from "../interfaces/cli/bootstrap/compound-init.js";
 import type { InstallPorts, TemplateEntry } from "../interfaces/cli/bootstrap/install.js";
 import type {
@@ -27,6 +28,11 @@ import {
 import { loadStableRef } from "../infrastructure/git/stable-ref.js";
 import { run } from "../infrastructure/process/run-process.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
+import { createBootstrapSpecPorts } from "../infrastructure/bootstrap/bootstrap-spec-ports.js";
+import { detectBootstrapEligibility } from "../infrastructure/bootstrap/bootstrap-detector.js";
+import { extractExplicitStackChoice } from "../infrastructure/bootstrap/readme-intent.js";
+import { architectureWaveFs, architectureWavePorts } from "./architecture-adapters.js";
+import { resolveModelForTier } from "./quality-adapters.js";
 import { appendLogLine } from "./loop-adapters.js";
 
 /** Produkto marker failai — tvarka pagal specifiškumą, kaip ir domain klasifikacijoje. */
@@ -266,5 +272,37 @@ export function rollbackStablePorts(runtimeRoot: string, env: NodeJS.ProcessEnv 
       await restoreTaskScope(projectRoot, ref, paths),
     agLog: (line) => appendLogLine(runtimeRoot, "orchestrator.log", line),
     cleanUntracked: rollbackCleanUntracked(env),
+  };
+}
+
+/**
+ * `bootstrap-project`: README intencija, architektūros grafas, tinkamumo detekcija ir eilės
+ * sintezė.
+ *
+ * `writeQueueTaskIfMissing` naudoja `wx`: bootstrap'as gali būti paleistas ne kartą, ir
+ * pakartotinis bėgimas NIEKADA neperrašo eilėje jau gulinčio (galbūt jau redaguoto ar net
+ * pradėto) task'o. Grąžinama `false` yra normali baigtis, ne klaida.
+ */
+export function bootstrapProjectPorts(projectRoot: string, runtimeRoot: string): BootstrapProjectPorts {
+  return {
+    spec: createBootstrapSpecPorts({ runtimeRoot }),
+    fs: architectureWaveFs(projectRoot),
+    updateNodeProgress: (progressPath, nodeId, update, clearFields) =>
+      architectureWavePorts(projectRoot).updateNodeProgress(progressPath, nodeId, update, clearFields),
+    detectEligibility: (root) => detectBootstrapEligibility(root),
+    // Application `ProductIntentSection.heading` yra OPCIONALUS, infra `ReadmeSection.heading` —
+    // privalomas. Sekcijos be antraštės čia praleidžiamos, ir tai ne apkarpymas: stack sekcija
+    // atpažįstama BŪTENT pagal antraštę (`## Stack`), tad beantraštė sekcija ja būti negali.
+    extractExplicitStackChoice: (intent) =>
+      extractExplicitStackChoice({
+        kind: "intent",
+        ...(intent.title === undefined ? {} : { title: intent.title }),
+        sections: intent.sections.flatMap((section) =>
+          section.heading === undefined ? [] : [{ ...section, heading: section.heading }],
+        ),
+      }),
+    resolveModel: (tier) => resolveModelForTier(runtimeRoot, tier),
+    writeQueueTaskIfMissing: async (absolutePath, markdown) =>
+      (await nodeFsAdapter.writeFileExclusive(absolutePath, markdown)) === "created",
   };
 }

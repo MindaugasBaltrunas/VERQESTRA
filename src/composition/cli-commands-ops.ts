@@ -5,6 +5,7 @@
 
 import type { CliCommand } from "../interfaces/cli/registry.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
+import { bootstrapProjectCommand } from "../interfaces/cli/bootstrap/bootstrap-project.js";
 import { compoundInitCommand } from "../interfaces/cli/bootstrap/compound-init.js";
 import { installCommand } from "../interfaces/cli/bootstrap/install.js";
 import { rollbackStableCommand } from "../interfaces/cli/bootstrap/rollback-stable.js";
@@ -21,6 +22,7 @@ import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
 import {
+  bootstrapProjectPorts,
   compoundInitPorts,
   installPorts,
   projectModePorts,
@@ -60,6 +62,20 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             ports: projectModePorts,
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "bootstrap-project",
+      usage: "[--json]",
+      description: "Paruošia architektūros grafą ir pirmąsias eilės užduotis iš README",
+      run: (args) =>
+        bootstrapProjectCommand(
+          {
+            ports: bootstrapProjectPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
             ...(io === undefined ? {} : { io }),
           },
           args,

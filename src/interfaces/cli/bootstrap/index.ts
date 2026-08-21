@@ -11,6 +11,9 @@ export * from "./compound-init.js";
 // E5 VQ-501 (5/5-e): bootstrap-project — pilnas tuščios eilės srautas; kiekviena ne-generated
 // baigtis sustoja PRIEŠ rašymą, o eilės failai rašomi tik „nekurti, jei yra" semantika.
 export * from "./bootstrap-project.js";
+// E5 VQ-501 (5/5-f): rollback-stable — du režimai (task-scoped atstatymas be šakos judinimo
+// ir sąmoningas reset iki stable-ref); kiekvienas vartas fail-closed, blokada visada garsi.
+export * from "./rollback-stable.js";
 export * from "./preflight.js";
 export * from "./restore-stable.js";
 export * from "./smoke.js";

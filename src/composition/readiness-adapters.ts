@@ -141,7 +141,19 @@ export const readinessRequirements: ReadinessRequirements = {
     "src/tests/cli-exit-contracts.test.ts",
   ],
   docs: ["README.md", "docs/getting-started.md", "docs/spec-workflow.md", "docs/context-pack.md", "docs/release.md"],
-  commandSources: ["src/composition/cli-registry.ts", "src/cli.ts"],
+  // VISI registro pjūviai, ne vien surinkėjas. 11/N iškėlus komandas į teminius
+  // `cli-commands-*` failus, sąrašas su vienu `cli-registry.ts` matė 4 komandas iš 53 —
+  // auditas tyliai nustojo matuoti tai, ką turi matuoti. Naujas pjūvis privalo atsirasti ir čia.
+  commandSources: [
+    "src/composition/cli-registry.ts",
+    "src/composition/cli-commands-spec.ts",
+    "src/composition/cli-commands-tasks.ts",
+    "src/composition/cli-commands-audit.ts",
+    "src/composition/cli-commands-ops.ts",
+    "src/composition/cli-commands-architecture.ts",
+    "src/composition/cli-commands-integrations.ts",
+    "src/cli.ts",
+  ],
 };
 
 /** `readiness-audit` verdikto rašymas — atominis: pusiau įrašytas verdiktas yra blogesnis nei joks. */

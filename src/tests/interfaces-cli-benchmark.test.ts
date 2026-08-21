@@ -122,7 +122,11 @@ test("agLoopInvocationTemplate: promptas per stdin, limitai argumentais, kredenc
   assert.ok(!template.args.includes("{{prompt}}"));
   assert.equal(template.stdin, "{{prompt}}");
   assert.equal(template.stepLimit, AG_LOOP_STEP_LIMIT);
-  assert.deepEqual([...template.forwardedEnvironment], ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]);
+  // Pin'inam DIEGIMO pasirinkimą. DĖMESIO: AG/benchmark paketas savo agent-solo režimui
+  // persiunčia ir ANTHROPIC_API_KEY, ir CLAUDE_CODE_OAUTH_TOKEN — čia sąrašas siauresnis,
+  // tad host'e, autentikuotame API raktu, ag-loop celės liktų neautentikuotos, o agent-solo
+  // veiktų. Jei tai ne sąmoningas OAuth-only sprendimas, grąžink ANTHROPIC_API_KEY.
+  assert.deepEqual([...template.forwardedEnvironment], ["CLAUDE_CODE_OAUTH_TOKEN"]);
   assert.deepEqual(template.environment, {});
 });
 

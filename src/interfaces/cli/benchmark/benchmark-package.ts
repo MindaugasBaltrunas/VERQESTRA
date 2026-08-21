@@ -46,7 +46,6 @@ export const AG_LOOP_STEP_LIMIT = 40;
  * kodas aukščiau. Reikšmė priklauso operatoriaus shell'ui ir niekada šiam repo.
  */
 const FORWARDED_CREDENTIAL_VARIABLES: readonly string[] = Object.freeze([
-  "ANTHROPIC_API_KEY",
   "CLAUDE_CODE_OAUTH_TOKEN",
 ]);
 

@@ -9,6 +9,7 @@
 // I dalis (žurnalai, CLI, gedimai, failai, ledger'is, būsena) — `coordinator-adapters`.
 
 import path from "node:path";
+import { integrationGatePort, integrationReviewPort, preflightFailureMemoPort } from "./coordinator-optional-adapters.js";
 import { assembleContextPack } from "../application/context-pack/assemble/assemble.js";
 import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
 import { loadPreflightLimits } from "../application/policy-governance/preflight-limits-policy.js";
@@ -231,10 +232,12 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
 /**
  * Visi koordinatoriaus portai vienoje vietoje.
  *
- * Neprivalomi portai (`integration`, `integrationGate`, `preflightMemo`, `cheapFinish`)
- * SĄMONINGAI nepaduodami: jų nebuvimas reiškia „tik deterministinis kelias" — `review-required`
- * rizika parkuojama į human-review, o ne tyliai patvirtinama. Jie prisijungs kartu su wave
- * kompozicija, kuri vienintelė turi jų reikalaujamą kontekstą.
+ * `integration`, `integrationGate` ir `preflightMemo` prijungti (61/N): visi trys reikalavo
+ * konteksto — runtime šaknies, git revizijų ir attempt rezoliucijos — kurį kompozicija dabar turi.
+ *
+ * `cheapFinish` LIEKA neprijungtas ir tai ĮVARDINTA, ne nutylėta: jo `prepareDispatch` daro retry
+ * inkrementą, attempt namespace'ą, `decision.json` ir biudžeto epochą vienu ėjimu, tad jam reikia
+ * atskiro adapterio, o ne perrišimo. Be jo kiekvienas kelias lieka baitas į baitą toks pat.
  */
 export function taskRunPorts(input: CoordinatorAdapterInput): TaskRunPorts {
   return {
@@ -250,5 +253,8 @@ export function taskRunPorts(input: CoordinatorAdapterInput): TaskRunPorts {
     policy: coordinatorPolicyPort(input),
     rules: coordinatorRulesPort,
     completion: coordinatorCompletionPort(input),
+    integration: integrationReviewPort(input),
+    integrationGate: integrationGatePort(input),
+    preflightMemo: preflightFailureMemoPort(input),
   };
 }

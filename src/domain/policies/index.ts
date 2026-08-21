@@ -18,3 +18,8 @@ export * from "./check-command-allowlist.js";
 export * from "./bash-command-policy.js";
 export * from "./quality-command-policy.js";
 export * from "./bootstrap-routing.js";
+// VQ-502 (2/6): guard'ų grynosios taisyklės — failų klasifikacija, slaptukų pattern'ai ir
+// eilučių taisyklių variklis. Hooks sluoksnyje lieka tik protokolas ir IO.
+export * from "./file-classification.js";
+export * from "./secret-patterns.js";
+export * from "./line-rules.js";

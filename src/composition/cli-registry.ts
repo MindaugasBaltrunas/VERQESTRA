@@ -7,7 +7,10 @@
 // Handler'iai čia surišami su portais (manual DI). Verslo logikos šiame faile nėra — kiekviena
 // komanda tik gauna savo priklausomybes ir grąžina exit kodą.
 
+import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
 import { learningCommand } from "../interfaces/cli/audit/learning.js";
+import { releaseNotesCommand } from "../interfaces/cli/audit/release-notes.js";
+import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.js";
 import { exportApiContractCommand } from "../interfaces/cli/spec/export-api-contract.js";
 import { exportJsonSchemaCommand } from "../interfaces/cli/spec/export-json-schema.js";
 import { openSpecReconcileCommand } from "../interfaces/cli/spec/openspec-reconcile.js";
@@ -15,9 +18,12 @@ import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-
 import { renderCliCommandList, type CliCommand, type CliIo } from "../interfaces/cli/registry.js";
 import {
   apiContractExportPorts,
+  backlogAuditPorts,
   jsonSchemaExportPorts,
   learningFs,
   openSpecReconcileFs,
+  releaseNotesPorts,
+  securityVerifyPorts,
   taskLedgerStore,
 } from "./node-adapters.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
@@ -75,6 +81,43 @@ export function buildCliCommands(deps: CliRegistryDeps): CliCommand[] {
           agRoot: deps.roots.agRoot,
           ...(io === undefined ? {} : { io }),
         }),
+    },
+    {
+      name: "backlog-audit",
+      usage: "[--json]",
+      description: "Eilės backlog'o auditas (dublikatai, superseded, tuščios užduotys)",
+      run: (args) =>
+        backlogAuditCommand(
+          { ports: backlogAuditPorts, projectRoot: deps.roots.projectRoot, ...(io === undefined ? {} : { io }) },
+          args,
+        ),
+    },
+    {
+      name: "security-verify",
+      usage: "[--json]",
+      description: "Saugumo politikos patikra pakeistiems failams",
+      run: (args) =>
+        securityVerifyCommand(
+          {
+            ports: securityVerifyPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "release-notes",
+      usage: "[--json]",
+      description: "Generuoja release notes iš ledger'io ir būsenos",
+      run: (args) =>
+        releaseNotesCommand(
+          {
+            ports: releaseNotesPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
     },
     {
       name: "openspec-reconcile",

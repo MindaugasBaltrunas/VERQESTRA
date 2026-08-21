@@ -16,6 +16,8 @@ export * from "./process/process-tree.js";
 export * from "./process/run-process.js";
 export * from "./runtime-paths.js";
 export * from "./git/git-client.js";
+// E5 VQ-504: pakeistų produkto failų sąjunga (git status ∪ changes.log) — E4 adapterio spraga.
+export * from "./git/changed-files.js";
 export * from "./git/git-automation.js";
 export * from "./git/stable-ref.js";
 export * from "./git/rollback-scope.js";

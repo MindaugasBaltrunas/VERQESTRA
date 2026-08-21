@@ -39,3 +39,6 @@ export * from "./session-start.js";
 export * from "./session-end.js";
 // E5 VQ-502 (6/6-c): Stop pre-commit guard'ai — vienintelė guard'ų klasė, kuri BLOKUOJA.
 export * from "./stop-guards.js";
+// E5 VQ-502 (6/6-d): Stop hook'as — vienintelė vieta, automatiškai commit'inanti sesijos darbą.
+export * from "./on-stop-context.js";
+export * from "./on-stop.js";

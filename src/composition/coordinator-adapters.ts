@@ -51,6 +51,8 @@ export type CoordinatorAdapterInput = {
   /** Savo CLI vykdytojas — koordinatorius kviečia TAS PAČIAS komandas, kurias mato operatorius. */
   runCli(args: string[]): Promise<number>;
   runCliCaptured(args: string[]): Promise<{ code: number; output: string }>;
+  /** Cheap finish env overlay; kai nepaduotas, `cheapFinish` portas NEPRIJUNGIAMAS. */
+  cheapFinishOverlay?: { consume(): Record<string, string> | undefined; arm(taskId: string): void };
 };
 
 export function coordinatorLogPort(runtimeRoot: string): LogPort {
@@ -302,12 +304,25 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
  * `runCaptured` grąžina SUJUNGTĄ stdout+stderr: diagnozė skaito būtent tekstą, o ne srautą, ir
  * atskyrimas ten nieko neduotų — pusė įrodymų dažnai yra stderr pusėje.
  */
-export function cliChildRunner(projectRoot: string): {
+export function cliChildRunner(
+  projectRoot: string,
+  /**
+   * Vienkartinis env priedas sekančiam kvietimui (cheap finish). SUNAUDOJAMAS čia, o ne
+   * kvietėjo pusėje: taip lengvata negali nutekėti į antrą dispatch'ą, net jei kvietėjas jos
+   * pamirštų nuimti.
+   */
+  envOverlay?: { consume(): Record<string, string> | undefined },
+): {
   runCli(args: string[]): Promise<number>;
   runCliCaptured(args: string[]): Promise<{ code: number; output: string }>;
 } {
-  const invoke = (args: string[]): Promise<{ code: number; stdout: string; stderr: string }> =>
-    run(process.execPath, [cliEntryPath(), ...args], { cwd: projectRoot });
+  const invoke = (args: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
+    const overlay = envOverlay?.consume();
+    return run(process.execPath, [cliEntryPath(), ...args], {
+      cwd: projectRoot,
+      ...(overlay === undefined ? {} : { env: { ...process.env, ...overlay } }),
+    });
+  };
 
   return {
     runCli: async (args) => (await invoke(args)).code,

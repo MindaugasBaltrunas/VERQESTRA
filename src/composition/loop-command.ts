@@ -47,6 +47,7 @@ import { createWaveIntegrationAdapters } from "./wave-integration-adapters.js";
 import { taskRunPorts } from "./coordinator-execution-adapters.js";
 import { cliChildRunner } from "./coordinator-adapters.js";
 import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
+import { createCheapFinishEnvOverlay } from "./cheap-finish-adapters.js";
 import {
   ledgerDuplicate,
   locateTaskBucket,
@@ -86,6 +87,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
   const readWorkerLeases = (): Promise<Awaited<ReturnType<typeof listWorkerLeases>>> => listWorkerLeases(schedulingFs, projectRoot);
   const absolutePath = (relativeFile: string): string => path.join(projectRoot, relativeFile);
   const stateDir = path.join(runtimeRoot, "state");
+  const cheapFinishOverlay = createCheapFinishEnvOverlay();
 
   // Aprūpinimas gauna PLANUOKLIO būseną (grafą ir tai, kas dirba) per fabriką: konstantos čia
   // reikštų aklą aprūpinimą — be grafo write-set'as tuščias, o be „kas dirba" tas pats task'as
@@ -187,7 +189,10 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           agRoot,
           // In-process kelias VYKDO task'ą — jam namespace'as kuriamas.
           resolution: activeAttemptResolution({ projectRoot, runtimeRoot, create: true }),
-          ...cliChildRunner(projectRoot),
+          // Overlay gyvena VIENAS visam paleidimui: cheap finish yra vienkartinė išimtis, ir du
+          // egzemplioriai reikštų dvi nepriklausomas „vienkartines" teises.
+          cheapFinishOverlay,
+          ...cliChildRunner(projectRoot, cheapFinishOverlay),
         }),
       ).start(absoluteFile),
     runChild: async (slot, worktreeAbs) => {

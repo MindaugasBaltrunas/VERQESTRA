@@ -18,6 +18,7 @@ import { requeueTask } from "../interfaces/cli/task-queue/requeue.js";
 import { moveTask } from "../interfaces/cli/task-queue/task-move.js";
 import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-sync.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { createCheapFinishEnvOverlay } from "./cheap-finish-adapters.js";
 import {
   blockedTaskRoutingPorts,
   isFile,
@@ -30,6 +31,9 @@ import {
 const nodeListFiles = (absoluteDir: string): Promise<string[]> => nodeFsAdapter.listFiles(absoluteDir);
 
 export function tasksCommands(deps: CliRegistryDeps): CliCommand[] {
+  // Vienas overlay visam procesui: cheap finish yra vienkartinė išimtis, o `process-queued-task`
+  // vykdo LYGIAI vieną task'ą, tad antro egzemplioriaus čia ir negali būti.
+  const queuedTaskOverlay = createCheapFinishEnvOverlay();
   const io = deps.io;
   return [
     {
@@ -100,7 +104,8 @@ export function tasksCommands(deps: CliRegistryDeps): CliCommand[] {
                   // Vaikas VYKDO task'ą, tad jo attempt namespace'as gimsta būtent čia.
                   create: true,
                 }),
-                ...cliChildRunner(deps.roots.projectRoot),
+                cheapFinishOverlay: queuedTaskOverlay,
+                ...cliChildRunner(deps.roots.projectRoot, queuedTaskOverlay),
               }),
             ).start(taskFile),
           ...(io === undefined ? {} : { io }),

@@ -11,3 +11,7 @@ export * from "./log-rotation.js";
 // gitignore filtras) ir file-line-guard (bendras per-failą skeletas; taisyklės — domain).
 export * from "./secret-scan.js";
 export * from "./file-line-guard.js";
+// E5 VQ-502 (4/6-a): produkto formos guard'ai (backend/frontend/mobile) ir PostToolUse
+// fan-out, kuris NIEKADA neblokuoja — blokavimas paliktas Stop hook'ui.
+export * from "./scope-guards.js";
+export * from "./post-write-guards.js";

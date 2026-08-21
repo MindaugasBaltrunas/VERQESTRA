@@ -28,3 +28,5 @@ export * from "./line-rules.js";
 export * from "./write-policy.js";
 export * from "./readme-guard.js";
 export * from "./foreign-lease-scope.js";
+// VQ-502 (4/6-a): produkto formos guard'ų eilučių taisyklės (backend/frontend/mobile).
+export * from "./scope-guard-rules.js";

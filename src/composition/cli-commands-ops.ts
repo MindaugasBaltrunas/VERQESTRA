@@ -14,6 +14,7 @@ import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
 import { printCodexDispatch } from "../interfaces/cli/dispatch/codex-dispatch.js";
 import { printDispatch } from "../interfaces/cli/dispatch/dispatch.js";
 import { claudeDiagnose } from "../interfaces/cli/dispatch/claude-diagnose/index.js";
+import { claudePreflight } from "../interfaces/cli/dispatch/claude-preflight/index.js";
 import { loopGuard } from "../interfaces/cli/dispatch/loop-guard.js";
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
@@ -36,6 +37,7 @@ import {
 } from "./loop-adapters.js";
 import { evaluateLoopPreconditions } from "../application/scheduling/loop-preconditions.js";
 import { claudeDiagnosePorts } from "./diagnose-adapters.js";
+import { claudePreflightPorts } from "./claude-preflight-adapters.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { packageRoot } from "./runtime-context.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
@@ -127,6 +129,21 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             ...(io === undefined ? {} : { io }),
           },
           args,
+        ),
+    },
+    {
+      name: "claude-preflight",
+      usage: "<task-file>",
+      description: "LLM preflight: performulavimas, spec kontekstas, agentai, biudžetas",
+      run: (args) =>
+        claudePreflight(
+          args,
+          claudePreflightPorts({
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            agRoot: deps.roots.agRoot,
+            resolution: noRuntimeAttemptResolution,
+          }),
         ),
     },
     {

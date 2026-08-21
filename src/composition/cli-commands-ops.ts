@@ -13,6 +13,7 @@ import { restoreStableCommand } from "../interfaces/cli/bootstrap/restore-stable
 import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
 import { printCodexDispatch } from "../interfaces/cli/dispatch/codex-dispatch.js";
 import { printDispatch } from "../interfaces/cli/dispatch/dispatch.js";
+import { loopGuard } from "../interfaces/cli/dispatch/loop-guard.js";
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
@@ -24,7 +25,16 @@ import {
   rollbackStablePorts,
   smokePorts,
 } from "./bootstrap-adapters.js";
-import { createAdapterWithOptions, dispatchAdapters, onStopBridgeAdapters, retryGuardAdapters } from "./loop-adapters.js";
+import {
+  createAdapterWithOptions,
+  dispatchAdapters,
+  loopPreconditionPorts,
+  onStopBridgeAdapters,
+  reapDeadLeases,
+  retryGuardAdapters,
+} from "./loop-adapters.js";
+import { evaluateLoopPreconditions } from "../application/scheduling/loop-preconditions.js";
+import { packageRoot } from "./runtime-context.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { tryParseJson } from "../shared/json.js";
 import path from "node:path";
@@ -115,6 +125,27 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "loop-guard",
+      usage: "",
+      description: "Pre-loop patikros be loop'o starto (0 = saugu, 1 = blokuota)",
+      run: () =>
+        loopGuard({
+          ensureDirs: () => ensureRuntimeDirs(deps.roots.agRoot, deps.roots.runtimeRoot),
+          evaluate: () =>
+            evaluateLoopPreconditions(
+              loopPreconditionPorts(),
+              deps.roots.projectRoot,
+              // Dist šviežumas tikrinamas ŠIO diegimo pakete, ne vartotojo projekte: loop'as
+              // vykdo būtent šio paketo `dist`, o taikinio medyje jo išvis gali nebūti.
+              packageRoot(),
+              path.join(deps.roots.runtimeRoot, "state"),
+              Date.now(),
+              { reapDeadLeases },
+            ),
+          ...(io === undefined ? {} : { io }),
+        }),
     },
     {
       name: "dispatch",

@@ -8,6 +8,9 @@
 import path from "node:path";
 import type { RetryCountsStorePort, SupervisorRetryDecision } from "../application/task-execution/retry-counts.js";
 import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
+import type { LoopPreconditionPorts } from "../application/scheduling/loop-preconditions.js";
+import type { SchedulingFileSystemPort } from "../application/scheduling/ports.js";
+import { reapDeadWorkerLeases } from "../application/scheduling/worker-lease-runtime.js";
 import type { AgentPolicy } from "../domain/policies/agent-selection.js";
 import type { ExecutionAdapter, ExecutionAdapterKind } from "../domain/agents/execution-port.js";
 import { ClaudeAdapter } from "../infrastructure/adapters/claude-adapter.js";
@@ -16,6 +19,9 @@ import { DryRunAdapter } from "../infrastructure/adapters/dry-run-adapter.js";
 import { runExecutionDispatch, type ExecutionDispatchResult } from "../infrastructure/adapters/execution-dispatch.js";
 import { parseEnvFile } from "../interfaces/http/ui-port-store.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { findStaleDistFiles } from "../infrastructure/process/dist-freshness.js";
+import { gitCommitExists, gitStatusPorcelain, isGitRepository } from "../infrastructure/git/git-client.js";
+import { run } from "../infrastructure/process/run-process.js";
 import { stopBridgeForProject } from "../infrastructure/state/stop-bridge.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { toPrettyJson, tryParseJson } from "../shared/json.js";
@@ -170,4 +176,64 @@ export function dispatchAdapters(
     createAdapter: (kind) => createAdapterWithOptions(kind),
     runDispatch: (taskFile, adapter) => runExecutionDispatch({ taskFile, projectRoot, runtimeRoot, adapter }),
   };
+}
+
+/** Scheduling FS portas (lease saugykla, lock katalogai) — vienas visiems planuotojo keliams. */
+export const schedulingFs: SchedulingFileSystemPort = {
+  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+  listDirectoryIfExists: (absoluteDir) => nodeFsAdapter.listDirectoryIfExists(absoluteDir),
+  writeTextFileAtomic: (absolutePath, content) => nodeFsAdapter.writeTextFileAtomic(absolutePath, content),
+  makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
+  exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
+  createLockDirectory: (absoluteDir) => nodeFsAdapter.createLockDirectory(absoluteDir),
+  removeDirectory: (absoluteDir) => nodeFsAdapter.removeDirectory(absoluteDir),
+  directoryModifiedAtMs: (absoluteDir) => nodeFsAdapter.directoryModifiedAtMs(absoluteDir),
+};
+
+/**
+ * `.git` katalogo kelias.
+ *
+ * Klausiama git'o, o ne spėjama `<root>/.git`: worktree ir submodule atvejais `.git` yra
+ * FAILAS su nuoroda, ir spėjimas ten rastų ne tą katalogą — o būtent jame ieškoma pakibusio
+ * `index.lock`. Nepavykęs kvietimas grąžina `undefined` („nežinau"), ne klaidą.
+ */
+export async function resolveGitDir(projectRoot: string): Promise<string | undefined> {
+  const result = await run("git", ["-C", projectRoot, "rev-parse", "--git-dir"], { cwd: projectRoot });
+  if (result.code !== 0) return undefined;
+  const dir = result.stdout.trim();
+  if (dir === "") return undefined;
+  return path.isAbsolute(dir) ? dir : path.join(projectRoot, dir);
+}
+
+/** `loop-guard` prielaidų portai: git būsena, dist šviežumas ir failų skaitymas. */
+export function loopPreconditionPorts(): LoopPreconditionPorts {
+  return {
+    isGitRepository: (projectRoot) => isGitRepository(projectRoot),
+    // Portas prašo `{code, stdout}` formos: `code !== 0` reiškia „git nepasiekiamas", ir tai
+    // NE tas pats, kas švarus medis — sulietas atsakymas paverstų gedimą sėkme.
+    gitStatusPorcelain: async (projectRoot) => {
+      const stdout = await gitStatusPorcelain(projectRoot);
+      return stdout === undefined ? { code: 1, stdout: "" } : { code: 0, stdout };
+    },
+    resolveGitDir: (projectRoot) => resolveGitDir(projectRoot),
+    fileMtimeMs: (absolutePath) => nodeFsAdapter.fileMtimeMs(absolutePath),
+    readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+    gitCommitExists: (ref, projectRoot) => gitCommitExists(ref, projectRoot),
+    findStaleDistFiles: (packageRoot) => findStaleDistFiles(packageRoot),
+  };
+}
+
+/**
+ * Higienos žingsnis prieš vartus: mirusių savininkų lease'ų nuėmimas.
+ *
+ * Tai NE vartai — grąžinamos eilutės tik pasakoja, kas buvo sutvarkyta, ir niekada nekeičia
+ * verdikto. Klaida čia praryjama: nepavykęs valymas negali blokuoti loop'o, kurį jis turėjo
+ * tik palengvinti.
+ */
+export async function reapDeadLeases(projectRoot: string, now: Date): Promise<string[]> {
+  try {
+    return await reapDeadWorkerLeases({ fs: schedulingFs }, projectRoot, { now });
+  } catch {
+    return [];
+  }
 }

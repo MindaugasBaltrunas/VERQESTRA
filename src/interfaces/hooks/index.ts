@@ -37,3 +37,5 @@ export * from "./loop-runtime-store.js";
 export * from "./session-hook-context.js";
 export * from "./session-start.js";
 export * from "./session-end.js";
+// E5 VQ-502 (6/6-c): Stop pre-commit guard'ai — vienintelė guard'ų klasė, kuri BLOKUOJA.
+export * from "./stop-guards.js";

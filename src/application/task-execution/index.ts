@@ -93,3 +93,4 @@ export * from "./openspec-reconcile.js";
 // atskirai (per `export *` aukščiau), kad jos deterministiškumą būtų galima tikrinti be viso
 // port'ų rinkinio.
 export * from "./session-baseline.js";
+export * from "./session-stage-planning.js";

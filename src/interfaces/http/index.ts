@@ -21,3 +21,5 @@ export * from "./sse-service.js";
 // E5 VQ-503 (5/5-c): UI serverio saugos riba ir klaidų atvaizdis į HTTP kodus.
 export * from "./ui-security.js";
 export * from "./ui-error-mapping.js";
+// E5 VQ-503 (5/5-d): maršrutizatorius — GRĄŽINA atsakymo aprašą, transportas lieka kompozicijai.
+export * from "./ui-router.js";

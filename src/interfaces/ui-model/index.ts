@@ -6,3 +6,5 @@ export * from "./agent-activity-reader.js";
 // E5 VQ-503 (2/5): control-plane modelis ir token biudžeto vaizdas.
 export * from "./token-budget-view.js";
 export * from "./control-plane-model.js";
+// E5 VQ-503 (3/5-a): bangos slot'ų projekcija (be jokių importų — gryna).
+export * from "./wave-slot-model.js";

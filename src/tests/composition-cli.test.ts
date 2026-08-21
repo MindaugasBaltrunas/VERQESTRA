@@ -147,6 +147,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "release-notes",
       "converge",
       "readiness-audit",
+      "audit-director",
       "policy",
       "agent",
       "project-status",

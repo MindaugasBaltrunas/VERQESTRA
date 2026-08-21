@@ -7,6 +7,7 @@ import type { CliCommand } from "../interfaces/cli/registry.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
 import { agentCommand } from "../interfaces/cli/admin/agent.js";
 import { policyCommand } from "../interfaces/cli/admin/policy.js";
+import { auditDirectorCommand } from "../interfaces/cli/audit/audit-director.js";
 import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
 import { convergeCommand } from "../interfaces/cli/audit/converge.js";
 import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
@@ -15,6 +16,7 @@ import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.j
 import { projectStatusCommand } from "../interfaces/cli/reports/project-status.js";
 import { reportCommand } from "../interfaces/cli/reports/report.js";
 import { agentCommandPorts, gitHeadForProject, policyCommandPorts } from "./node-adapters.js";
+import { auditDirectorPorts } from "./quality-adapters.js";
 import {
   adapterCapabilityViews,
   backlogAuditPorts,
@@ -99,6 +101,18 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
           },
           args,
         ),
+    },
+    {
+      name: "audit-director",
+      usage: "",
+      description: "Kokybės patikros ciklu su taisančiu agentu (iki 3 iteracijų)",
+      run: () =>
+        auditDirectorCommand({
+          ports: auditDirectorPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
     },
     {
       name: "policy",

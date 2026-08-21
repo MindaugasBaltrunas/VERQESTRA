@@ -18,3 +18,6 @@ export * from "./task-upload.js";
 export * from "./ui-task-actions.js";
 // E5 VQ-503 (5/5-b): agentų aktyvumo SSE srautas — vienas hub'as visai sesijai.
 export * from "./sse-service.js";
+// E5 VQ-503 (5/5-c): UI serverio saugos riba ir klaidų atvaizdis į HTTP kodus.
+export * from "./ui-security.js";
+export * from "./ui-error-mapping.js";

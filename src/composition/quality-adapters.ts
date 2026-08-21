@@ -30,6 +30,9 @@ import { checkCodeIndexFreshness } from "../application/code-intelligence/store/
 import type { CheckCommandContext } from "../domain/policies/check-command-allowlist.js";
 import type { AuditDirectorPorts } from "../interfaces/cli/audit/audit-director.js";
 import { loadModelsEnv, normalizeModelTier, resolveModelTier } from "../infrastructure/adapters/claude-model-env.js";
+import type { QualityGatesPorts } from "../application/quality-gates/quality-gates.js";
+import { checksLogPath, qualityGatesStatusPath } from "../application/quality-gates/quality-gates-status.js";
+import { parseEnvFile } from "../interfaces/http/ui-port-store.js";
 import { runClaudeHeadless } from "../infrastructure/adapters/claude-headless.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { resolveExistingDispatchTaskFile } from "../infrastructure/state/dispatch-task-file.js";
@@ -99,6 +102,32 @@ export function auditDirectorPorts(projectRoot: string, runtimeRoot: string, agR
       }
     },
     agLog: (line) => appendLogLine(runtimeRoot, "orchestrator.log", line),
+  };
+}
+
+/**
+ * `quality-gates` portai.
+ *
+ * Ta pati komandų politika ir tas pats vykdytojas kaip audito direktoriaus kelyje — vartai,
+ * kurie leistų kitokias komandas nei auditas, būtų du skirtingi „praėjo".
+ *
+ * MEMO SĄMONINGAI NEPADUODAMAS: jo adapteris (git medžio tapatybė per laikiną indeksą + dist
+ * turinio hash) dar nemigruotas, o memo be tapatybės būtų arba tylus praleidimas, arba melagingas
+ * „hit". Be jo vartai tiesiog visada bėga — konservatyvi pusė.
+ */
+export function qualityGatesPorts(runtimeRoot: string): QualityGatesPorts {
+  return {
+    loadPolicy: () => loadQualityPolicy(policyConfigFs, runtimeRoot),
+    commandContext: (policy) => checkCommandContext(runtimeRoot, policy),
+    runner: (check, cwd, timeoutMs, env) => runQualityCheck(check, cwd, timeoutMs ?? AUDIT_CHECK_TIMEOUT_MS, env),
+    writeStatus: (status) => nodeFsAdapter.writeTextFile(qualityGatesStatusPath(runtimeRoot), toPrettyJson(status)),
+    writeChecksLog: (text) => nodeFsAdapter.writeTextFile(checksLogPath(runtimeRoot), text),
+    // Klaida čia yra TUŠČIAS rinkinys, ne lūžis: trūkstamas lokalus konfigas neturi sustabdyti
+    // vartų, kurie ir be jo turi ką patikrinti.
+    loadLocalEnv: async () => {
+      const raw = await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "config", "local.env"));
+      return raw === undefined ? {} : parseEnvFile(raw);
+    },
   };
 }
 

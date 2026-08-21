@@ -28,6 +28,7 @@ import { persistWaveSnapshot } from "./wave-snapshot-persist.js";
 import { planWavePool } from "./wave-pool-planning.js";
 import { PRIMARY_SLOT_CLAIM_SUPPORTED, type WaveProvisioningCoordinator } from "./wave-provisioning.js";
 import type { WavePlan } from "./schedule-next-wave.js";
+import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 import type { WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { PhantomWaveSlot } from "./wave-phantom-slots.js";
 import type { WavePoolEvent } from "./wave-pool-planning.js";
@@ -38,15 +39,34 @@ import type { WaveScheduler, WaveSchedulerPorts, WaveSelection } from "./wave-sc
 /** Integracijos IO be tų laukų, kuriuos planuoklis turi pats (run id, bangos kontekstas, žurnalas). */
 export type WaveIntegrationIo = Omit<WaveIntegrationPorts, "runId" | "waveContext" | "safeLog" | "safeEvent">;
 
+/**
+ * Būsena, kurios aprūpinimui reikia iš planuoklio: kanoninis grafas (write-set'ams) ir tai, kas
+ * jau dirba. Ji paduodama FABRIKUI, o ne skaitoma iš išorės, nes ši būsena gyvena planuoklyje ir
+ * keičiasi kiekvienoje bangoje — konstantos čia reikštų aklą aprūpinimą: be grafo write-set'as
+ * būtų tuščias, o be „kas dirba" tas pats task'as gautų antrą lease'ą.
+ */
+export type ProvisioningStateAccess = {
+  graph: () => TaskGraph | undefined;
+  isRunning: (taskId: string) => boolean;
+  hasStarted: (taskId: string) => boolean;
+};
+
 export type WaveSchedulerDeps = WaveSchedulerPorts & {
   integration: WaveIntegrationIo;
-  provisioning: WaveProvisioningCoordinator;
+  /** Fabrikas, o ne gatavas koordinatorius: jam reikia planuoklio būsenos, kurios dar nėra. */
+  provisioning: (access: ProvisioningStateAccess) => WaveProvisioningCoordinator;
   readWorkerLeases: () => Promise<WorkerLease[]>;
 };
 
 export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
   const state = createWaveSchedulerState(deps.now);
   let phantomSlots: PhantomWaveSlot[] = [];
+
+  const provisioning = deps.provisioning({
+    graph: () => state.canonicalGraph,
+    isRunning: (taskId) => state.runningTaskIds.has(taskId),
+    hasStarted: (taskId) => state.started.has(taskId),
+  });
 
   const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -146,11 +166,11 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       now: deps.now,
       log: deps.log,
       recordEvent: deps.recordEvent,
-      readIsolationInputs: deps.provisioning.readIsolationInputs,
-      toWorkerCandidates: deps.provisioning.toWorkerCandidates,
+      readIsolationInputs: provisioning.readIsolationInputs,
+      toWorkerCandidates: provisioning.toWorkerCandidates,
       rememberCandidate: (candidate) => state.admittedCandidates.set(candidate.task_id, candidate),
-      provisionMissingSlotLeases: deps.provisioning.provisionMissingSlotLeases,
-      releaseWaveProvisionLease: deps.provisioning.releaseWaveProvisionLease,
+      provisionMissingSlotLeases: provisioning.provisionMissingSlotLeases,
+      releaseWaveProvisionLease: provisioning.releaseWaveProvisionLease,
     });
     state.outcomesFor(result.pool.plan_hash);
     phantomSlots = result.phantomSlots;
@@ -179,11 +199,11 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     liveSlots: liveSlotList,
     isRunning: (taskId) => state.runningTaskIds.has(taskId),
     hasStarted: (taskId) => state.started.has(taskId),
-    readIsolationInputs: deps.provisioning.readIsolationInputs,
-    toWorkerCandidates: deps.provisioning.toWorkerCandidates,
-    provisionSlotLease: deps.provisioning.provisionSlotLease,
+    readIsolationInputs: provisioning.readIsolationInputs,
+    toWorkerCandidates: provisioning.toWorkerCandidates,
+    provisionSlotLease: provisioning.provisionSlotLease,
     releaseUnusedProvision: (workerId, taskId) =>
-      deps.provisioning.releaseWaveProvisionLease({ task_id: taskId, worker_index: workerIndexOfId(workerId) }),
+      provisioning.releaseWaveProvisionLease({ task_id: taskId, worker_index: workerIndexOfId(workerId) }),
     rememberCandidate: (candidate) => state.admittedCandidates.set(candidate.task_id, candidate),
     candidateWriteSet: (taskId, graph) => candidateWriteSet(taskId, graph),
   });

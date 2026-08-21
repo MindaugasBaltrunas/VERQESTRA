@@ -15,8 +15,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
-import { createWaveScheduler, type WaveIntegrationIo } from "../application/scheduling/wave-scheduler.js";
-import { createWaveProvisioningCoordinator } from "../application/scheduling/wave-provisioning.js";
+import { createWaveScheduler, type ProvisioningStateAccess, type WaveIntegrationIo } from "../application/scheduling/wave-scheduler.js";
+import { createWaveProvisioningCoordinator, type WaveProvisioningCoordinator } from "../application/scheduling/wave-provisioning.js";
 import { createSlotTaskRunner, buildChildEnvironment, PROCESS_QUEUED_TASK_COMMAND } from "../application/scheduling/slot-task-runner.js";
 import { runLoopCycle, type LoopCyclePorts, type ResumableTask } from "../application/scheduling/loop-cycle.js";
 import { handleEmptyQueue, AUDIT_REPAIR_TASK_CONTENT, type EmptyQueuePorts } from "../application/scheduling/loop-empty-queue.js";
@@ -85,19 +85,21 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
   const absolutePath = (relativeFile: string): string => path.join(projectRoot, relativeFile);
   const stateDir = path.join(runtimeRoot, "state");
 
-  const provisioning = createWaveProvisioningCoordinator({
-    workspaceRoot: projectRoot,
-    runId,
-    // Proceso tapatybė paduodama, ne skaitoma application viduje.
-    ownerId: `loop-${process.pid}`,
-    leaseStore,
-    worktree: waveWorktreePort({ projectRoot, agRoot }),
-    now,
-    log: deps.log,
-    graph: () => undefined,
-    isRunning: () => false,
-    hasStarted: () => false,
-  });
+  // Aprūpinimas gauna PLANUOKLIO būseną (grafą ir tai, kas dirba) per fabriką: konstantos čia
+  // reikštų aklą aprūpinimą — be grafo write-set'as tuščias, o be „kas dirba" tas pats task'as
+  // gautų antrą lease'ą.
+  const provisioning = (access: ProvisioningStateAccess): WaveProvisioningCoordinator =>
+    createWaveProvisioningCoordinator({
+      workspaceRoot: projectRoot,
+      runId,
+      // Proceso tapatybė paduodama, ne skaitoma application viduje.
+      ownerId: `loop-${process.pid}`,
+      leaseStore,
+      worktree: waveWorktreePort({ projectRoot, agRoot }),
+      now,
+      log: deps.log,
+      ...access,
+    });
 
   const integrationAdapters = createWaveIntegrationAdapters({
     projectRoot,

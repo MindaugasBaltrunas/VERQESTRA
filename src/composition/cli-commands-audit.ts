@@ -10,6 +10,8 @@ import { policyCommand } from "../interfaces/cli/admin/policy.js";
 import { auditDirectorCommand } from "../interfaces/cli/audit/audit-director.js";
 import { backlogAuditCommand } from "../interfaces/cli/audit/backlog-audit.js";
 import { convergeCommand } from "../interfaces/cli/audit/converge.js";
+import { qualityGatesCommand } from "../interfaces/cli/audit/quality-gates.js";
+import { qualityGatesPorts } from "./quality-adapters.js";
 import { finalAuditCommand } from "../interfaces/cli/audit/final-audit.js";
 import { preflightCommand } from "../interfaces/cli/bootstrap/preflight.js";
 import { readinessAuditCommand } from "../interfaces/cli/audit/readiness-audit.js";
@@ -69,6 +71,20 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
         releaseNotesCommand(
           {
             ports: releaseNotesPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "quality-gates",
+      usage: "[scope] [--json] [--no-memo]",
+      description: "Sukonfigūruoti lint/typecheck/test/build vartai su statusu ir log'u",
+      run: (args) =>
+        qualityGatesCommand(
+          {
+            ports: qualityGatesPorts(deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
             ...(io === undefined ? {} : { io }),
           },
           args,

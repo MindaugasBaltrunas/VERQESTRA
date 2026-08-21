@@ -42,7 +42,7 @@ const integrationIo: WaveIntegrationIo = {
   releaseLease: () => Promise.resolve("released"),
 };
 
-const provisioning: WaveProvisioningCoordinator = {
+const provisioningCoordinator: WaveProvisioningCoordinator = {
   toWorkerCandidates: (list) =>
     list.map(
       (task): WorkerCandidate => ({
@@ -114,7 +114,8 @@ function world(options: {
     requestedWorkers: () => Promise.resolve(options.workers ?? 1),
     ledgerDuplicate: () => Promise.resolve(options.duplicate ?? false),
     integration: { ...integrationIo, ...(options.relocate === undefined ? {} : { relocateTask: options.relocate }) },
-    provisioning,
+    // Fabrikas: planuoklis paduoda savo būseną, o testui pakanka vienos konstantos.
+    provisioning: () => provisioningCoordinator,
     readWorkerLeases: () => Promise.resolve([]),
   };
 

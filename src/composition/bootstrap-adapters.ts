@@ -7,14 +7,27 @@
 import path from "node:path";
 import type { ProfileDetectionPorts } from "../application/project-bootstrap/detect-profile.js";
 import type { ProjectModeDetectionPorts } from "../application/project-bootstrap/detect-mode.js";
+import type { CompoundInitPorts, WriteState } from "../interfaces/cli/bootstrap/compound-init.js";
 import type { InstallPorts, TemplateEntry } from "../interfaces/cli/bootstrap/install.js";
+import type {
+  RollbackCommandResult,
+  RollbackStablePorts,
+  TaskScopeRestoreOutcome,
+} from "../interfaces/cli/bootstrap/rollback-stable.js";
 import type { RestoreGitResult, RestoreStablePorts } from "../interfaces/cli/bootstrap/restore-stable.js";
 import type { SmokePorts } from "../interfaces/cli/bootstrap/smoke.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
-import { gitCommitExists, isGitRepository } from "../infrastructure/git/git-client.js";
+import { gitCommitExists, gitHead, gitStatus, isGitRepository } from "../infrastructure/git/git-client.js";
+import {
+  committedTaskWorkSince,
+  detectPushedRollback,
+  readTaskScopePaths,
+  restoreTaskScope,
+} from "../infrastructure/git/rollback-scope.js";
 import { loadStableRef } from "../infrastructure/git/stable-ref.js";
 import { run } from "../infrastructure/process/run-process.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
+import { appendLogLine } from "./loop-adapters.js";
 
 /** Produkto marker failai — tvarka pagal specifiškumą, kaip ir domain klasifikacijoje. */
 const PRODUCT_MARKERS = [
@@ -175,3 +188,83 @@ export const restoreStablePorts: RestoreStablePorts = {
     return { code: result.code, stdout: result.stdout, stderr: result.stderr };
   },
 };
+
+/**
+ * `compound-init`: profilio detekcija plius `writeTextIfMissing` semantika.
+ *
+ * Sprendimą „ar rašyti" priima ADAPTERIS, nes tik jis mato failų sistemos lenktynes:
+ * `exists`-tada-`write` pora tarp dviejų procesų perrašytų svetimą ką tik sukurtą failą.
+ * `wx` rašymas tą lenktynę uždaro vienu sisteminiu kvietimu.
+ */
+export const compoundInitPorts: CompoundInitPorts = {
+  ...profileDetectionPorts,
+  makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
+  writeTextIfMissing: async (absolutePath, content, options): Promise<WriteState> => {
+    if (options.overwrite) {
+      const existed = await nodeFsAdapter.exists(absolutePath);
+      await nodeFsAdapter.writeTextFile(absolutePath, content);
+      return existed ? "overwritten" : "created";
+    }
+    return (await nodeFsAdapter.writeFileExclusive(absolutePath, content)) === "created" ? "created" : "skipped";
+  },
+};
+
+/**
+ * Rekursyvi untracked įrašo kopija į snapshot katalogą.
+ *
+ * `wx`: snapshot'as NIEKADA neperrašo to, kas jame jau guli — pakartotinis rollback'as antrą
+ * kartą nufotografuotų jau atkurtą (t. y. pasikeitusią) būseną ir sunaikintų vienintelį
+ * originalo pėdsaką. Kopijuojamas TIK turinys: symlink'ai ir socket'ai praleidžiami, nes
+ * snapshot'as saugo darbą, o ne failų sistemos nuorodas.
+ */
+async function snapshotCopy(source: string, destination: string): Promise<void> {
+  const kind = await nodeFsAdapter.statKind(source);
+  if (kind === "directory") {
+    for (const name of await nodeFsAdapter.listDirectory(source)) {
+      await snapshotCopy(path.join(source, name), path.join(destination, name));
+    }
+    return;
+  }
+  if (kind !== "file") return;
+  await nodeFsAdapter.makeDirectory(path.dirname(destination));
+  await nodeFsAdapter.writeFileExclusive(destination, await nodeFsAdapter.readTextFile(source));
+}
+
+/**
+ * `AG_ROLLBACK_CLEAN` — ar po reset'o šalinti untracked failus.
+ *
+ * Default'as NE: `git clean -fd` naikina ir tai, ko niekas nefotografavo. Įjungiama tik
+ * eksplicitiškai, ir tik reikšme `1`/`true` — bet kokia kita reikšmė laikoma „ne".
+ */
+export function rollbackCleanUntracked(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env["AG_ROLLBACK_CLEAN"]?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+/** `rollback-stable`: git, failai, untracked snapshot'as ir task scope atkūrimas. */
+export function rollbackStablePorts(runtimeRoot: string, env: NodeJS.ProcessEnv = process.env): RollbackStablePorts {
+  const agRoot = path.join(path.dirname(runtimeRoot), "AG");
+  return {
+    ensureDirs: () => ensureRuntimeDirs(agRoot, runtimeRoot),
+    isGitRepository: (projectRoot) => isGitRepository(projectRoot),
+    gitCommitExists: (ref, projectRoot) => gitCommitExists(ref, projectRoot),
+    gitHead: (projectRoot) => gitHead(projectRoot),
+    gitStatus: (projectRoot) => gitStatus(projectRoot),
+    runGit: async (args, projectRoot): Promise<RollbackCommandResult> => {
+      const result = await run("git", ["-C", projectRoot, ...args], { cwd: projectRoot });
+      return { code: result.code, stdout: result.stdout, stderr: result.stderr };
+    },
+    readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+    writeTextFile: (absolutePath, text) => nodeFsAdapter.writeTextFile(absolutePath, text),
+    appendTextFile: (absolutePath, text) => nodeFsAdapter.appendTextFile(absolutePath, text),
+    makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
+    copyPath: (source, destination) => snapshotCopy(source, destination),
+    taskScopePaths: () => readTaskScopePaths(runtimeRoot, env),
+    detectPushedRollback: (projectRoot, ref) => detectPushedRollback(projectRoot, ref),
+    committedTaskWorkSince: (projectRoot, baseRef, paths) => committedTaskWorkSince(projectRoot, baseRef, paths),
+    restoreTaskScope: async (projectRoot, ref, paths): Promise<TaskScopeRestoreOutcome> =>
+      await restoreTaskScope(projectRoot, ref, paths),
+    agLog: (line) => appendLogLine(runtimeRoot, "orchestrator.log", line),
+    cleanUntracked: rollbackCleanUntracked(env),
+  };
+}

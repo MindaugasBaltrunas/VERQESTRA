@@ -52,7 +52,7 @@ async function readJsonOrEmpty<T extends object>(absolutePath: string): Promise<
 }
 
 /** Vienos eilutės append į `vq/logs/<name>` su laiko antspaudu (etalono `agLog` forma). */
-function appendLogLine(runtimeRoot: string, name: string, line: string): Promise<void> {
+export function appendLogLine(runtimeRoot: string, name: string, line: string): Promise<void> {
   const stamp = new Date().toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
   return nodeFsAdapter.appendTextFile(path.join(runtimeRoot, "logs", name), `[${stamp}] ${line}\n`);
 }

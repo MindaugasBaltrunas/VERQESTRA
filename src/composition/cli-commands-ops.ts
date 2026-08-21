@@ -5,14 +5,23 @@
 
 import type { CliCommand } from "../interfaces/cli/registry.js";
 import type { CliRegistryDeps } from "./cli-registry-types.js";
+import { compoundInitCommand } from "../interfaces/cli/bootstrap/compound-init.js";
 import { installCommand } from "../interfaces/cli/bootstrap/install.js";
+import { rollbackStableCommand } from "../interfaces/cli/bootstrap/rollback-stable.js";
 import { projectModeCommand } from "../interfaces/cli/bootstrap/project-mode.js";
 import { restoreStableCommand } from "../interfaces/cli/bootstrap/restore-stable.js";
 import { smokeCommand } from "../interfaces/cli/bootstrap/smoke.js";
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
 import { ensureRuntimeDirs } from "../infrastructure/state/runtime-dirs.js";
-import { installPorts, projectModePorts, restoreStablePorts, smokePorts } from "./bootstrap-adapters.js";
+import {
+  compoundInitPorts,
+  installPorts,
+  projectModePorts,
+  restoreStablePorts,
+  rollbackStablePorts,
+  smokePorts,
+} from "./bootstrap-adapters.js";
 import { onStopBridgeAdapters, retryGuardAdapters } from "./loop-adapters.js";
 import { cliEntryPath, templatesRoot } from "./runtime-context.js";
 
@@ -27,6 +36,21 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
         projectModeCommand(
           {
             ports: projectModePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "compound-init",
+      usage: "<aprašymas> [--force]",
+      description: "Paruošia darbo erdvę ir projekto profilį",
+      run: (args) =>
+        compoundInitCommand(
+          {
+            ports: compoundInitPorts,
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
             ...(io === undefined ? {} : { io }),
@@ -65,6 +89,21 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
         restoreStableCommand(
           {
             ports: restoreStablePorts,
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "rollback-stable",
+      usage: "[--task-scope] [--ref <sha>]",
+      description: "Grąžina medį į stable-ref su untracked snapshot'u",
+      run: (args) =>
+        rollbackStableCommand(
+          {
+            ports: rollbackStablePorts(deps.roots.runtimeRoot),
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
             ...(io === undefined ? {} : { io }),

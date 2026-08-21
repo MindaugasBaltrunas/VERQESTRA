@@ -2,3 +2,10 @@ node_modules/
 dist/
 coverage/
 *.log
+
+# VERQESTRA runtime būsena: konfigai, žurnalai, supervizoriaus artefaktai, kešas.
+# `AG/` čia SĄMONINGAI NĖRA: `AG/tasks` yra darbo eilė, o `AG/openspec` ir `AG/spec` —
+# specifikacijų kontraktai. Tai produkto turinys, kurį commit'ina pats loop'as
+# (`chore(AG/tasks): …`), o ne runtime šiukšlės. Etalonas daro tą patį skirstymą:
+# ignoruoja `AG/state/` ir `AG/logs/`, bet ne `AG/tasks`.
+vq/

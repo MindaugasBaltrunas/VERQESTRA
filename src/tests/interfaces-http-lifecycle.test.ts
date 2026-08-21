@@ -34,7 +34,7 @@ import {
   loadWorkflowBucketTasks,
   loadWorkflowBuckets,
   openTaskBucketFolder,
-  taskBucketDir,
+  resolveTaskBucketDir,
   type WorkflowBucketPorts,
 } from "../interfaces/http/workflow-buckets.js";
 import { loopControlFile } from "../application/scheduling/loop-control-store.js";
@@ -322,10 +322,10 @@ function bucketPorts(files: Record<string, string[]> = {}): { ports: WorkflowBuc
   };
 }
 
-test("taskBucketDir: nežinomas vardas NIEKADA netampa keliu", () => {
-  assert.equal(taskBucketDir(AG_ROOT, "queue"), path.join(AG_ROOT, "tasks", "queue"));
-  assert.equal(taskBucketDir(AG_ROOT, "../../etc"), undefined);
-  assert.equal(taskBucketDir(AG_ROOT, ""), undefined);
+test("resolveTaskBucketDir: nežinomas vardas NIEKADA netampa keliu", () => {
+  assert.equal(resolveTaskBucketDir(AG_ROOT, "queue"), path.join(AG_ROOT, "tasks", "queue"));
+  assert.equal(resolveTaskBucketDir(AG_ROOT, "../../etc"), undefined);
+  assert.equal(resolveTaskBucketDir(AG_ROOT, ""), undefined);
 });
 
 test("loadWorkflowBuckets: kortelėje rodomos naujausios, bet kiekis — pilnas", async () => {

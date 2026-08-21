@@ -5,8 +5,8 @@
 // keliu: `taskBucketDir` grąžina `undefined` nežinomam vardui, ir tik tada kelias sudedamas.
 // Katalogo atidarymas gyvena už porto — `interfaces` sluoksnis procesų nepaleidžia.
 
-import path from "node:path";
 import { taskBuckets, type TaskBucket } from "../../domain/tasks/buckets.js";
+import { taskBucketDir } from "../../application/task-execution/bucket-transition.js";
 
 /** Kiek naujausių užduočių rodoma bucket'o kortelėje; pilnas sąrašas — atskiras maršrutas. */
 export const VISIBLE_TASK_LIMIT = 20;
@@ -24,10 +24,14 @@ export type WorkflowBucketPorts = {
   openFolder(absolutePath: string): Promise<boolean>;
 };
 
-/** Bucket'o katalogas arba `undefined`, kai vardas nėra žinomas bucket'as. */
-export function taskBucketDir(agRoot: string, bucket: string): string | undefined {
+/**
+ * Bucket'o katalogas arba `undefined`, kai vardas nėra ŽINOMAS bucket'as. Kelio sudėjimas
+ * deleguojamas application `taskBucketDir` — čia lieka tik vartai laisvos formos vardui, kad
+ * repozitorijoje neatsirastų antra to paties kelio taisyklė.
+ */
+export function resolveTaskBucketDir(agRoot: string, bucket: string): string | undefined {
   const known = taskBuckets.find((candidate) => candidate === bucket);
-  return known === undefined ? undefined : path.join(agRoot, "tasks", known);
+  return known === undefined ? undefined : taskBucketDir(agRoot, known);
 }
 
 /** Visi bucket'ai su naujausiomis užduotimis ir pilnu kiekiu (kortelėms). */
@@ -37,7 +41,7 @@ export async function loadWorkflowBuckets(
 ): Promise<WorkflowBucketView[]> {
   const views: WorkflowBucketView[] = [];
   for (const bucket of taskBuckets) {
-    const files = await ports.listTaskFiles(path.join(agRoot, "tasks", bucket));
+    const files = await ports.listTaskFiles(taskBucketDir(agRoot, bucket));
     views.push({ name: bucket, tasks: files.slice(-VISIBLE_TASK_LIMIT), totalCount: files.length });
   }
   return views;
@@ -49,7 +53,7 @@ export async function loadWorkflowBucketTasks(
   agRoot: string,
   bucket: string,
 ): Promise<WorkflowBucketView> {
-  const dir = taskBucketDir(agRoot, bucket);
+  const dir = resolveTaskBucketDir(agRoot, bucket);
   if (dir === undefined) throw new UnknownTaskBucketError(`Unknown task bucket: ${bucket}`);
   const tasks = await ports.listTaskFiles(dir);
   return { name: bucket, tasks, totalCount: tasks.length };
@@ -66,7 +70,7 @@ export async function openTaskBucketFolder(
   agRoot: string,
   bucket: string,
 ): Promise<boolean> {
-  const dir = taskBucketDir(agRoot, bucket);
+  const dir = resolveTaskBucketDir(agRoot, bucket);
   if (dir === undefined) return false;
   return await ports.openFolder(dir);
 }

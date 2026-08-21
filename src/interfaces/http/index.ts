@@ -13,3 +13,6 @@ export * from "./process-lifecycle-ports.js";
 export * from "./loop-lifecycle.js";
 export * from "./ui-lifecycle.js";
 export * from "./workflow-buckets.js";
+// E5 VQ-503 (5/5-a): užduočių įkėlimas ir triažo veiksmai — vieninteliai eilės pakeitimai iš UI.
+export * from "./task-upload.js";
+export * from "./ui-task-actions.js";

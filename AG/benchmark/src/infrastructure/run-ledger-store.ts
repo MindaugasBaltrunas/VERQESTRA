@@ -75,7 +75,7 @@ const MAX_RUN_ID_ADVANCE_MS = 1_000;
  * restated pattern matches neither. It is left behind deliberately — an id that was once used
  * stays used, which is the whole job of an allocation marker.
  */
-export const RUN_CLAIM_SUFFIX = ".claim";
+const RUN_CLAIM_SUFFIX = ".claim";
 
 /**
  * A run id claimed atomically, so two processes cannot be handed the same one.

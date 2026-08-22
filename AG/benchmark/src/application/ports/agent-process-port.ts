@@ -58,6 +58,30 @@ export interface AgentProcessResult {
    */
 }
 
+/**
+ * Raised when a killed process tree was not confirmed gone.
+ *
+ * Declared on the PORT, not in the adapter that throws it, because the layer that must not catch
+ * it lives here. `IsolatedSampleRunner` catches everything an adapter throws and turns it into an
+ * unmeasured cell — right for an adapter that stopped being able to report, and wrong for this:
+ * the thing that survived is a paid agent, and continuing means starting the next cell beside a
+ * process that is still calling a model. The runner re-throws this one, and nothing above it
+ * catches, so the run stops.
+ *
+ * An error rather than a field on the result for the same reason: a boolean a caller is free to
+ * ignore does not stop anything.
+ */
+export class AgentProcessTreeAbandonedError extends Error {
+  constructor(pid: number, waitedMs: number) {
+    super(
+      `The process tree of pid ${pid} was not confirmed gone within ${waitedMs}ms of the kill. ` +
+        "A surviving agent keeps calling a paid model outside the cell it belonged to, so the run " +
+        "stops here rather than starting another one beside it.",
+    );
+    this.name = "AgentProcessTreeAbandonedError";
+  }
+}
+
 export interface AgentProcessPort {
   /**
    * Runs the process to completion. A process that ran and failed is a result,

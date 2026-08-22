@@ -160,7 +160,7 @@ export async function readSuiteLockHash(fs: BenchmarkFsPort, projectRoot: string
  * lexicographic order and chronological order are the same thing, with no index file that could
  * disagree with the directory it indexes.
  */
-export async function findNewestRunLedger(
+async function findNewestRunLedger(
   fs: BenchmarkFsPort,
   projectRoot: string,
 ): Promise<string | undefined> {

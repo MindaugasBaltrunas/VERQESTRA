@@ -1,3 +1,4 @@
+import { AgentProcessTreeAbandonedError } from "../ports/agent-process-port.js";
 import type { BenchmarkScenario } from "../../domain/scenario.js";
 import type { ExecutionMode } from "../../domain/result.js";
 import type { AgentExecutionPort } from "../ports/agent-execution-port.js";
@@ -187,7 +188,12 @@ export class IsolatedSampleRunner {
         failure = redactSecrets(outcome.failure).slice(0, 500);
       }
     } catch (error) {
-      // The adapter did not report a failure — it stopped being able to report
+      // One thrown value is not an unmeasured cell: a process tree that could not be confirmed
+      // gone means a paid agent is still running on this machine. Recording that as a lost cell
+      // and starting the next one puts a second agent beside the first, which is the outcome the
+      // kill exists to prevent. Nothing above catches this, so the run stops.
+      if (error instanceof AgentProcessTreeAbandonedError) throw error;
+      // Everything else: the adapter did not report a failure — it stopped being able to report
       // at all, which says nothing about the agent's ability to do the task.
       exit = "harness-failed";
       failure = describeFailure(error);

@@ -1,10 +1,15 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 
-import type {
-  AgentProcessPort,
-  AgentProcessResult,
-  AgentProcessSpec,
+import {
+  AgentProcessTreeAbandonedError,
+  type AgentProcessPort,
+  type AgentProcessResult,
+  type AgentProcessSpec,
 } from "../../application/ports/agent-process-port.js";
+
+// Re-eksportuojama, nes kvietejai ir testai ja gauna is cia; deklaruota porte, nes ten gyvena
+// sluoksnis, kuris privalo jos NEGAUDYTI.
+export { AgentProcessTreeAbandonedError };
 import { redactSecrets } from "../../application/secret-redaction.js";
 
 /**
@@ -297,30 +302,6 @@ async function endWindowsTree(rootPid: number): Promise<boolean> {
   // The anchor, released last and with `/T` so the OS walks whatever was born since our last look.
   await taskkillOne(rootPid);
   return await waitUntilGone(() => [...seen].some(isPidAlive), TREE_VERIFY_TIMEOUT_MS);
-}
-
-/**
- * Raised when a killed process tree was not confirmed gone.
- *
- * An error rather than a field on the result, because of what the survivor is. The thing this
- * harness kills is a paid agent, and one that outlives its cell keeps calling a model against a
- * checkout nobody is reading any more — spending outside the sample it belonged to, and outside
- * any bound at all. Recording that as an ordinary timeout and starting the next cell would add a
- * second such process to the first.
- *
- * Nothing in `executeBenchmarkRun` catches this, which is the point: the run stops. A stopped run
- * with a named pid is a smaller loss than a run that continued while an unknown number of agents
- * kept billing behind it.
- */
-export class AgentProcessTreeAbandonedError extends Error {
-  constructor(pid: number, waitedMs: number) {
-    super(
-      `The process tree of pid ${pid} was not confirmed gone within ${waitedMs}ms of the kill. ` +
-        "A surviving agent keeps calling a paid model outside the cell it belonged to, so the run " +
-        "stops here rather than starting another one beside it.",
-    );
-    this.name = "AgentProcessTreeAbandonedError";
-  }
 }
 
 /** Raised for a spec this package will not spawn. Never a process failure — a refusal to start one. */

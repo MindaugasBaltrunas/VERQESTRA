@@ -20,10 +20,10 @@ import type {
   IsolatedSampleRequest,
 } from "../application/run/isolated-sample-runner.js";
 import type { IsolatedSampleRun } from "../application/run/isolated-run-record.js";
-import {
-  AgentProcessTreeAbandonedError,
-  NodeAgentProcessRunner,
-} from "../infrastructure/adapters/node-agent-process-runner.js";
+import { AgentProcessTreeAbandonedError } from "../application/ports/agent-process-port.js";
+import type { AgentExecutionPort } from "../application/ports/agent-execution-port.js";
+import { IsolatedSampleRunner } from "../application/run/isolated-sample-runner.js";
+import { NodeAgentProcessRunner } from "../infrastructure/adapters/node-agent-process-runner.js";
 import { JsonlSampleStore } from "../infrastructure/jsonl-sample-store.js";
 import { findLatestRunLedger, runLedgerPath } from "../infrastructure/run-ledger-store.js";
 import { RecordingRunIdentityStore, scenario } from "./execution-fixtures.js";
@@ -336,4 +336,40 @@ test("a timeout leaves a durable JSONL trace and the run continues to the next c
   // The sidecar must never be mistaken for a run ledger by the "latest run" scan.
   const latest = await findLatestRunLedger(dir);
   assert.equal(latest, ledgerPath);
+});
+
+/**
+ * Nepatvirtintas medis neturi apsistoti ties runneriu.
+ *
+ * `IsolatedSampleRunner` gaudo VISKĄ, ką meta adapteris, ir paverčia neišmatuota cele — teisinga
+ * adapteriui, kuris nustojo galėti pranešti, ir neteisinga šitam: išgyvenęs daiktas yra mokamas
+ * agentas. Įrašius tai kaip prarastą celę ir pradėjus kitą, prie pirmojo proceso atsiranda
+ * antras — būtent tai, ko nužudymas ir turi neleisti.
+ *
+ * Šis testas atsirado per auditą: commit'e `c33ed0b` buvo parašyta, kad `executeBenchmarkRun`
+ * metimo negaudo ir run'as sustoja. Viršuje jis tikrai negaudo — bet vienu lygiu žemiau gaudė, ir
+ * teiginys buvo neteisingas.
+ */
+test("nepatvirtintas medis nutraukia visą run'ą, o ne vieną celę", async () => {
+  const failing: AgentExecutionPort = {
+    mode: "ag-loop",
+    adapterVersion: "ag-loop/test",
+    execute: () => Promise.reject(new AgentProcessTreeAbandonedError(4242, 10_000)),
+  };
+
+  const runner = new IsolatedSampleRunner({
+    worktrees: {
+      create: () => Promise.resolve({ id: "w-1", path: "/tmp/w-1", startCommit: "a".repeat(40) }),
+      capture: () => Promise.resolve(workspace()),
+      remove: () => Promise.resolve({ removed: true, reason: "" }),
+      dispose: () => Promise.resolve({ removed: true, reason: "" }),
+    } as never,
+    agents: [failing],
+  });
+
+  await assert.rejects(
+    runner.run({ scenario: scenario(), mode: "ag-loop", repetition: 1, allowNetworkModels: true }, async () => {}),
+    AgentProcessTreeAbandonedError,
+    "runneris privalo permesti šią klaidą, o ne paversti ją neišmatuota cele",
+  );
 });

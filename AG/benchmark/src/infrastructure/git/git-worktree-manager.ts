@@ -97,11 +97,32 @@ export const MAX_DIFF_CHARACTERS = 256 * 1024;
  */
 export const TOOLCHAIN_EXCLUDED_PATHS = ["Python", "node_modules", ".venv", "__pycache__", ".claude"] as const;
 
+/**
+ * The harness's own bookkeeping, for the same reason and by the same test.
+ *
+ * The `ag-loop` mode runs a real orchestrator inside the scenario checkout, and an orchestrator
+ * keeps a runtime: the task it was handed, the spec change it was pointed at, its state, ledgers,
+ * logs and supervisor decisions. None of that is the agent's answer to the scenario — it is the
+ * instrument writing in its own notebook, in a checkout it happens to share with the fixture.
+ *
+ * 2026-08-22 pilot: every `ag-loop` cell was rejected with `out-of-scope-change`, and all 26
+ * offending paths were these. Not one of them was produced by an agent editing the fixture. Left
+ * in, the scope gate would report a structural `acceptedRate` of zero for exactly one mode, and
+ * the comparison the benchmark exists for would be a comparison of that artefact.
+ *
+ * The list passes the test the block above sets, checked against the frozen suite: no scenario
+ * names a path under `AG/`, `vq/` or `.claude` in `allowedPaths` or `forbiddenPaths` — every
+ * declared prefix is `src`, `test`, `docs`, `README.md` or `CHANGELOG.md`. A fixture could not be
+ * asked to change these, so excluding them takes nothing away from the gate.
+ */
+export const HARNESS_EXCLUDED_PATHS = ["AG", "vq"] as const;
+
 /** `-- . ':(exclude)<path>' …` — the pathspec both diff reads are scoped by. */
 const measuredPathspec = (): string[] => [
   "--",
   ".",
   ...TOOLCHAIN_EXCLUDED_PATHS.map((path) => `:(exclude)${path}`),
+  ...HARNESS_EXCLUDED_PATHS.map((path) => `:(exclude)${path}`),
 ];
 
 export class UnsafeIdentifierError extends Error {

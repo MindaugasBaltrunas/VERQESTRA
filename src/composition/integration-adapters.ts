@@ -185,6 +185,46 @@ export const benchmarkLoopCellPorts: LoopCellPorts = {
     }));
     return { code: result.code, stdout: result.stdout, stderr: result.stderr };
   },
+  /**
+   * Agentų roster'is ir jį įjungianti politika — nukopijuojami iš projekto šaknies.
+   *
+   * Loop'as agentus atpažįsta iš DVIEJŲ šaltinių, ir abu privalo būti kopijoje: failų vardai
+   * `.claude/agents/*.md` duoda kandidatus, o `vq/config/agents.json` juos įjungia
+   * (`agentPolicy.roles[name]` nesantis vardas iškrenta). Nukopijavus tik vieną, roster'is lieka
+   * tuščias, o preflight — nesugebantis pasiūlyti grandinės.
+   *
+   * Kopijuojama, o ne nurodoma keliu: dispatch'inamas agentas bėga kopijoje, ir `.claude` jam
+   * reiškia kopijos `.claude`. Nei `.claude`, nei `vq` neįeina į matuojamą diff'ą
+   * (`TOOLCHAIN_EXCLUDED_PATHS`, `HARNESS_EXCLUDED_PATHS`), tad roster'is nepasirodo kaip
+   * scenarijaus pakeitimas.
+   */
+  provisionLoopRuntime: async (workdir) => {
+    const projectRoot = process.cwd();
+    const sourceDir = path.join(projectRoot, ".claude", "agents");
+    const names = (await nodeFsAdapter.listFiles(sourceDir)).filter((name) => name.endsWith(".md"));
+    let agents = 0;
+    for (const name of names) {
+      const content = await nodeFsAdapter.readTextFileIfExists(path.join(sourceDir, name));
+      if (content === undefined) continue;
+      await nodeFsAdapter.writeTextFile(path.join(workdir, ".claude", "agents", name), content);
+      agents += 1;
+    }
+    // VISAS `vq/config`, o ne pasirinkti failai. Loop'as skaito jį plačiai — biudžetus, modelių ir
+    // klasifikacijos politikas, preflight ribas — ir kiekvienas praleistas failas sustabdo ciklą
+    // vienu žingsniu vėliau nei ankstesnis. Pilotas tai parodė du kartus iš eilės: pirma
+    // `agents.json`, paskui `tool-budget.json`. Kopijuojant aibę, trečio karto nebūna.
+    const configDir = path.join(projectRoot, "vq", "config");
+    let policyPresent = false;
+    for (const name of await nodeFsAdapter.listFiles(configDir)) {
+      const content = await nodeFsAdapter.readTextFileIfExists(path.join(configDir, name));
+      if (content === undefined) continue;
+      await nodeFsAdapter.writeTextFile(path.join(workdir, "vq", "config", name), content);
+      if (name === "agents.json") policyPresent = true;
+    }
+    // Be `agents.json` roster'is lieka tuščias net su visais `.md` failais (politika įjungia
+    // vaidmenis), tad nulis agentų grąžinamas ir tada — celė atsisako, užuot matavusi aprūpinimą.
+    return { agents: policyPresent ? agents : 0 };
+  },
   readUsageRecords: async (workdir) => {
     const raw = await nodeFsAdapter.readTextFileIfExists(
       path.join(workdir, "vq", "logs", "token-usage.jsonl"),

@@ -14,6 +14,10 @@ import {
 } from "../application/validate-suite.js";
 import { SCENARIO_CATEGORIES } from "../domain/scenario.js";
 import { isInsideBenchmarkWorkspace } from "../infrastructure/benchmark-workspace-paths.js";
+import {
+  HARNESS_EXCLUDED_PATHS,
+  TOOLCHAIN_EXCLUDED_PATHS,
+} from "../infrastructure/git/git-worktree-manager.js";
 
 /**
  * The authored suite, checked as the artefact it is (BENCH-2).
@@ -297,4 +301,34 @@ test("a scenario that must produce a change ties every outcome to its own scope"
 test("the hash is stable across repeated computation of the same suite", async () => {
   const { suite } = await validated();
   assert.equal(computeScenarioSuiteHash(suite), computeScenarioSuiteHash(suite));
+});
+
+/**
+ * The measured diff excludes some paths, and this is the argument that keeps that safe.
+ *
+ * `git-worktree-manager.ts` drops toolchain and harness paths from the diff both the report and
+ * the scope gate read. Anything excluded there is invisible to `outOfScopeFiles`, so the
+ * exclusion is defensible only while no scenario can legitimately name such a path. That was
+ * checked by hand when the lists were written; this test is what keeps it true, because the
+ * failure mode is silent — a new scenario naming `AG/…` would simply stop being scope-checked.
+ */
+test("no scenario names a path the measured diff excludes", async () => {
+  const { suite } = await validated();
+  const excluded: readonly string[] = [...TOOLCHAIN_EXCLUDED_PATHS, ...HARNESS_EXCLUDED_PATHS];
+  const offenders: string[] = [];
+
+  for (const scenario of suite.scenarios) {
+    for (const declaredPath of [...scenario.allowedPaths, ...scenario.forbiddenPaths]) {
+      const head = declaredPath.split("/")[0] ?? "";
+      if (excluded.includes(head)) {
+        offenders.push(`${scenario.id}: ${declaredPath}`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "a scenario declaring an excluded path would never be scope-checked on it",
+  );
 });

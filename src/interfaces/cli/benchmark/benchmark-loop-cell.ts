@@ -158,6 +158,13 @@ export type LoopCellPorts = {
     stepLimit: number;
     timeoutMs: number;
   }): Promise<LoopCellRunResult>;
+  /**
+   * Loop'o veikimo aplinka kopijoje: agentų roster'is ir jį įjungianti politika.
+   *
+   * Grąžina, kiek agentų realiai atsidūrė kopijoje — nulis yra celės atsisakymo priežastis,
+   * ne įspėjimas.
+   */
+  provisionLoopRuntime(workdir: string): Promise<{ agents: number }>;
   /** `<workdir>/vq/logs/token-usage.jsonl` įrašai; nesantis žurnalas — tuščias sąrašas. */
   readUsageRecords(workdir: string): Promise<readonly CellUsageRecord[]>;
   /** Kiek užduočių ciklas paliko `AG/tasks/human-review` bucket'e. */
@@ -224,6 +231,32 @@ export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonl
   for (const [relative, content] of renderCellSpec(cell)) {
     await deps.ports.writeTextFile(path.join(workdirAbs, ...relative.split("/")), content);
   }
+  // Loop'o veikimo aplinka — 2026-08-22 piloto radinys, ir jis buvo dvigubas.
+  //
+  // Kopijoje nebuvo NEI `.claude/agents/`, NEI `vq/config/`. Pirmojo trūkumas preflight promptui
+  // duodavo tuščią leistinų agentų sąrašą („gali naudoti tik agentus iš šio sąrašo: .") ir čia pat
+  // reikalaudavo netuščios grandinės: modelis teisingai negrąžindavo nė vieno, validacija tai
+  // atmesdavo kaip `target_agent_chain is required for delegation`, ir celė baigdavosi
+  // human-review po VIENO kvietimo. Antrojo trūkumas sustabdydavo ciklą jau po delegavimo
+  // (`tool budget not found`). Abi piloto celės buvo identiškos — tai deterministiniai aprūpinimo
+  // defektai, ne loop'o elgsena.
+  //
+  // Aprūpinama VISA konfigų aibė, o ne po failą: kiekvienas praleistas failas atrandamas tik
+  // kitame MOKAMAME paleidime, ir kiekvienas toks atradimas kainuoja visą celių rinkinį. Tai nėra
+  // atsakymo padavimas — tai loop'o mechanizmas, ne užduoties turinys, ir promptas lieka tas pats
+  // (BENCH-3). Nei `.claude`, nei `vq` neįeina į matuojamą diff'ą.
+  const runtime = await deps.ports.provisionLoopRuntime(workdirAbs);
+  if (runtime.agents === 0) {
+    // Garsiai, o ne tyliai: orkestratorius be agentų roster'io išmatuoja mūsų aprūpinimą, ne save.
+    io.error(
+      "verqestra benchmark-loop-cell: no agent definition reached the checkout, so preflight " +
+        "could only refuse; the cell measures provisioning, not the loop.",
+    );
+    return USAGE_ERROR_EXIT_CODE;
+  }
+
+  // PO aprūpinimo: kokybės vartai gauna BŪTENT scenarijaus patikras, o ne projekto politiką,
+  // kuri ką tik buvo nukopijuota. Įrašius anksčiau, kopija ją perrašytų.
   await deps.ports.writeTextFile(
     path.join(workdirAbs, "vq", "config", "quality-policy.json"),
     cellQualityPolicy(checks),

@@ -164,11 +164,26 @@ function sampleTotalTokens(sample: BenchmarkSample): number {
  * What one sample cost, on the same basis the live orchestrator bills at.
  *
  * Cache *reads* are excluded and cache *creation* is not: writing a prefix into
- * the cache is charged like input, re-reading it is charged at a fraction. The
- * formula is restated here rather than imported — BENCH-1 forbids this package
- * from reaching into orchestrator internals — and
- * `src/tests/analytics-cohorts.test.ts` fails from the other
- * side if the two restatements ever disagree.
+ * the cache is charged like input, re-reading it is charged at a fraction. The formula is
+ * restated here rather than imported — BENCH-1 forbids this package from reaching into
+ * orchestrator internals.
+ *
+ * ## What actually protects the pair
+ *
+ * Two tests, one on each side, pinning the SAME arithmetic on the same illustrative numbers
+ * (140 input + 50 output + 10 cache creation = 200):
+ *
+ * - here: `tests/compression-aggregate.test.ts`, "the restated formula matches the orchestrator";
+ * - there: `src/tests/analytics-cohorts.test.ts`, "summarizeUsageByTask: billable be cache_read".
+ *
+ * Neither test can see the other module, so neither proves agreement by itself. What they do
+ * guarantee is that NEITHER side can drift silently: changing a formula fails its own test, and
+ * the failing test names its counterpart, so the person updating one is told where the other is.
+ *
+ * This wording is deliberate. Until 2026-08-22 the comment here claimed the orchestrator's test
+ * "fails from the other side if the two restatements ever disagree" — it does not and cannot,
+ * since it exercises only `summarizeUsageByTask`. A comment describing a guard that does not
+ * exist is worse than no comment: it is the reason nobody goes looking for the real one.
  */
 export function sampleBillableTokens(sample: BenchmarkSample): number {
   return (

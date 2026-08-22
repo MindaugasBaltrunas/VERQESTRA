@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   aggregateCompressionCohort,
   aggregateCompressionSamples,
+  sampleBillableTokens,
   unattributedSampleCount,
   type CompressionAggregate,
 } from "../domain/compression/aggregate.js";
@@ -308,4 +309,28 @@ test("a variant with several repetitions folds them into one population", () => 
   );
   assert.equal(aggregate.quality.sampleCount, 3);
   assert.equal(aggregate.billableTokensPerAcceptedTask.value, 100, "300 tokens over 3 accepted tasks");
+});
+
+// The formula is restated in this package rather than imported: BENCH-1 forbids reaching into
+// orchestrator internals. Neither side can see the other, so neither test proves agreement by
+// itself — what the pair guarantees is that neither side drifts SILENTLY, and each failing test
+// names its counterpart so whoever changes one is told where the other lives.
+//
+// Counterpart: `src/tests/analytics-cohorts.test.ts`,
+// "summarizeUsageByTask: billable be cache_read, turnsMeasured ir repair formos" — same numbers.
+test("the restated formula matches the orchestrator: 140 input + 50 output + 10 cache creation = 200", () => {
+  const sample = validSample({
+    telemetry: {
+      model: "claude-opus-5",
+      inputTokens: 140,
+      outputTokens: 50,
+      llmCalls: 1,
+      attempts: 1,
+      repairs: 0,
+      humanReviewEvents: 0,
+    },
+    usage: { captured: true, source: "envelope", cacheCreationInputTokens: 10, cacheReadInputTokens: 9_999 },
+  });
+
+  assert.equal(sampleBillableTokens(sample), 200);
 });

@@ -24,8 +24,20 @@ const TELEMETRY_ENVELOPE_VERSION = 2;
 
 const REQUIRED_FLAGS = ["workdir", "model", "step-limit", "timeout-ms"] as const;
 
+/**
+ * Leidimų režimai, kuriuos ši komanda priima.
+ *
+ * `agent-solo` celė pagal benchmark paketo šabloną paleidžiama su `acceptEdits`, o `ag-loop` —
+ * su `auto`. Iki VQ-802 audito režimas buvo įrašytas paleidiklyje, tad solo celė jo gauti
+ * negalėjo: paketo shipped šablonas kviečia `claude` tiesiogiai, o tiesioginis `claude`
+ * telemetrijos voko nespausdina, tad KIEKVIENA solo celė grįždavo kaip `telemetry-missing`.
+ */
+const PERMISSION_MODES = ["auto", "acceptEdits"] as const;
+type PermissionMode = (typeof PERMISSION_MODES)[number];
+
 const USAGE =
-  "Usage: verqestra benchmark-drive [--prompt-file <f>] --workdir <d> --model <m> --step-limit <n> --timeout-ms <n>\n" +
+  "Usage: verqestra benchmark-drive [--prompt-file <f>] [--permission-mode <auto|acceptEdits>]" +
+  " --workdir <d> --model <m> --step-limit <n> --timeout-ms <n>\n" +
   "  Be --prompt-file promptas skaitomas iš stdin iki EOF.";
 
 export type ParsedBenchmarkDriveArgs = {
@@ -35,6 +47,7 @@ export type ParsedBenchmarkDriveArgs = {
   readonly model: string;
   readonly stepLimit: number;
   readonly timeoutMs: number;
+  readonly permissionMode: PermissionMode;
 };
 
 export type BenchmarkDriveArgsResult =
@@ -93,7 +106,17 @@ export function parseBenchmarkDriveArgs(args: readonly string[]): BenchmarkDrive
   const timeoutMs = parsePositiveInt(flags.get("timeout-ms") ?? "", "timeout-ms");
   if (typeof timeoutMs === "string") return { kind: "error", message: timeoutMs };
 
-  return { kind: "ok", args: { promptFile, workdir, model, stepLimit, timeoutMs } };
+  const rawMode = (flags.get("permission-mode") ?? "auto").trim();
+  const permissionMode = PERMISSION_MODES.find((mode) => mode === rawMode);
+  if (permissionMode === undefined) {
+    return {
+      kind: "error",
+      message: `${USAGE}
+--permission-mode must be one of ${PERMISSION_MODES.join(", ")}, got "${rawMode}"`,
+    };
+  }
+
+  return { kind: "ok", args: { promptFile, workdir, model, stepLimit, timeoutMs, permissionMode } };
 }
 
 /** Struktūrinis usage vaizdas — infrastruktūros `ClaudeUsage` jį tenkina, importo nėra. */
@@ -114,6 +137,8 @@ export type BenchmarkDriveHeadlessInput = {
   cwd: string;
   timeoutMs: number;
   maxTurns: number;
+  /** Perduodamas paleidikliui: celės režimas, ne šio proceso nustatymas. */
+  permissionMode: PermissionMode;
 };
 
 export type BenchmarkDrivePorts = {
@@ -185,7 +210,7 @@ export async function benchmarkDriveCommand(deps: BenchmarkDriveDeps, args: read
     io.error(parsed.message);
     return USAGE_ERROR_EXIT_CODE;
   }
-  const { promptFile, workdir, model, stepLimit, timeoutMs } = parsed.args;
+  const { promptFile, workdir, model, stepLimit, timeoutMs, permissionMode } = parsed.args;
 
   const workdirAbs = path.resolve(workdir);
   if (!(await deps.ports.isDirectory(workdirAbs))) {
@@ -205,6 +230,7 @@ export async function benchmarkDriveCommand(deps: BenchmarkDriveDeps, args: read
     cwd: workdirAbs,
     timeoutMs,
     maxTurns: stepLimit,
+    permissionMode,
   });
 
   if (deps.ports.isUsageLimitOutput(result.stdout)) {

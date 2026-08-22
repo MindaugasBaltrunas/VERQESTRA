@@ -111,6 +111,7 @@ async function runBenchmarkHeadless(input: {
   cwd: string;
   timeoutMs: number;
   maxTurns: number;
+  permissionMode: "auto" | "acceptEdits";
 }): Promise<BenchmarkDriveRunResult> {
   const runtimeDir = await mkdtemp(path.join(tmpdir(), "vq-benchmark-drive-"));
   const previousCwd = process.cwd();
@@ -119,7 +120,10 @@ async function runBenchmarkHeadless(input: {
   try {
     process.chdir(input.cwd);
     process.env["CLAUDE_HEADLESS_TIMEOUT_MS"] = String(input.timeoutMs);
-    return await runClaudeHeadless(input.prompt, input.model, runtimeDir, { maxTurns: input.maxTurns });
+    return await runClaudeHeadless(input.prompt, input.model, runtimeDir, {
+      maxTurns: input.maxTurns,
+      permissionMode: input.permissionMode,
+    });
   } finally {
     process.chdir(previousCwd);
     if (previousTimeout === undefined) delete process.env["CLAUDE_HEADLESS_TIMEOUT_MS"];

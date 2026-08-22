@@ -23,9 +23,21 @@ export function claudeHeadlessTimeoutMs(env: NodeJS.ProcessEnv = process.env): n
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CLAUDE_HEADLESS_TIMEOUT_MS;
 }
 
+/**
+ * Claude Code leidimų režimas.
+ *
+ * Portas, o ne konstanta, nuo VQ-802 audito: benchmark `agent-solo` celė pagal paketo
+ * kontraktą paleidžiama su `acceptEdits`, o orkestratoriaus dispatch — su `auto`. Įrašius vieną
+ * jų į paleidiklį, antrasis režimas arba nebūtų įmanomas, arba tyliai gautų svetimą režimą, ir
+ * matavimas lygintų du dalykus, kurie skiriasi ne tuo, kuo skelbiasi.
+ */
+export type ClaudePermissionMode = "auto" | "acceptEdits";
+
 export type ClaudeHeadlessOptions = {
   /** Sesijos turn limitas (`--max-turns N`). Nenurodyta arba <=0 — be ribos. */
   maxTurns?: number;
+  /** Leidimų režimas; numatytasis `auto` — istorinė orkestratoriaus dispatch elgsena. */
+  permissionMode?: ClaudePermissionMode;
   /**
    * Pašalinti rašymo/vykdymo įrankių schemas iš konteksto (semantinei peržiūrai jos
    * nereikalingos). Nepalaikomas flag'as automatiškai nuimamas ir kvietimas kartojamas.
@@ -52,6 +64,7 @@ async function runClaudeHeadlessOnce(
   options: ClaudeHeadlessOptions = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const timeoutMs = claudeHeadlessTimeoutMs();
+  const permissionMode = options.permissionMode ?? "auto";
   const extraArgs = [...claudeMaxTurnsArgs(options.maxTurns), ...claudeDisallowedToolsArgs(options.disallowWriteTools)];
   if (process.platform === "win32") {
     const shell = (await commandExists("pwsh.exe")) ? "pwsh.exe" : "powershell.exe";
@@ -70,7 +83,7 @@ async function runClaudeHeadlessOnce(
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        `Get-Content -LiteralPath '${escapedPath}' -Raw | & claude -p --output-format json --permission-mode auto --model '${escapedModel}'${extraSuffix}`,
+        `Get-Content -LiteralPath '${escapedPath}' -Raw | & claude -p --output-format json --permission-mode ${permissionMode} --model '${escapedModel}'${extraSuffix}`,
       ],
       { timeoutMs },
     );
@@ -84,7 +97,7 @@ async function runClaudeHeadlessOnce(
 
   return await runWithInput(
     "claude",
-    ["-p", "--output-format", "json", "--permission-mode", "auto", "--model", model, ...extraArgs],
+    ["-p", "--output-format", "json", "--permission-mode", permissionMode, "--model", model, ...extraArgs],
     prompt,
     process.cwd(),
     timeoutMs,

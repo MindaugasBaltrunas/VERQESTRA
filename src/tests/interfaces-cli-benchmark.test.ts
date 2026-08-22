@@ -15,6 +15,7 @@ import {
   BENCHMARK_INFRASTRUCTURE_EXIT_CODE,
   BENCHMARK_PACKAGE_ENTRY,
   agLoopInvocationTemplate,
+  agentSoloInvocationTemplate,
   benchmarkCommand,
   type BenchmarkCommandDeps,
 } from "../interfaces/cli/benchmark/benchmark-package.js";
@@ -106,9 +107,32 @@ test("benchmarkCommand: sėkmė — argv persiunčiamas, ag-loop šablonas merge
   assert.equal(exit, 3);
   assert.deepEqual([...seenArgv], ["run", "--allow-network"]);
   assert.deepEqual(out, ["benchmark ok"]);
-  // Paketo šablonas išlieka: plikas ag-loop įrašas tyliai atimtų agent-solo režimą.
-  assert.ok(seenConfig["agent-solo"]);
   assert.deepEqual(seenConfig["ag-loop"], agLoopInvocationTemplate("/usr/bin/node", CLI_ENTRY));
+  // VQ-802: iki šiol `agent-solo` likdavo paketo shipped šablonas, kviečiantis `claude`
+  // TIESIOGIAI — o tiesioginis `claude` telemetrijos voko nespausdina, tad kiekviena solo celė
+  // grįždavo `telemetry-missing` ir nebūdavo išsaugota. Dabar abu režimus varo tas pats
+  // draiveris, tad solo celė matuojama.
+  assert.deepEqual(seenConfig["agent-solo"], agentSoloInvocationTemplate("/usr/bin/node", CLI_ENTRY));
+});
+
+test("agentSoloInvocationTemplate: tas pats draiveris kaip ag-loop, skiriasi TIK leidimų režimas", () => {
+  const loop = agLoopInvocationTemplate("/usr/bin/node", CLI_ENTRY);
+  const solo = agentSoloInvocationTemplate("/usr/bin/node", CLI_ENTRY);
+
+  assert.equal(solo.command, loop.command);
+  assert.equal(solo.stdin, loop.stdin);
+  assert.equal(solo.stepLimit, loop.stepLimit);
+  assert.deepEqual([...solo.forwardedEnvironment], [...loop.forwardedEnvironment]);
+
+  // Bet koks KITAS skirtumas tarp dviejų draiverių pasirodytų rezultatuose kaip loop'o efektas,
+  // nors būtų matavimo artefaktas. Todėl argumentų vektoriai privalo skirtis lygiai vienu dalyku.
+  const soloArgs = [...solo.args];
+  const loopArgs = [...loop.args];
+  assert.equal(soloArgs.length, loopArgs.length);
+  const differences = soloArgs.filter((argument, index) => argument !== loopArgs[index]);
+  assert.deepEqual(differences, ["acceptEdits"]);
+  assert.ok(loopArgs.includes("auto"));
+  assert.ok(soloArgs.includes("--permission-mode"));
 });
 
 test("agLoopInvocationTemplate: promptas per stdin, limitai argumentais, kredencialai tik vardais", () => {

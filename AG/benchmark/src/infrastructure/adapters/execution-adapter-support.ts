@@ -496,17 +496,49 @@ export class ProcessExecutionAdapter implements AgentExecutionPort {
       return executionFailure(EXECUTION_FAILURE_CODES.telemetryInvalid, contradiction);
     }
 
-    const spent = reading.telemetry.inputTokens + reading.telemetry.outputTokens;
+    const spent = billableTokensOf(reading);
     if (spent > plan.limits.tokenLimit) {
       // Still a measurement: the tokens were spent and are recorded. The limit
       // is what the scenario declared the attempt was worth, not a harness fault.
       return executionFailure(
         EXECUTION_FAILURE_CODES.tokenLimitExceeded,
-        `the agent spent ${spent} tokens against a limit of ${plan.limits.tokenLimit}`,
+        `the agent spent ${spent} billable tokens against a limit of ${plan.limits.tokenLimit}`,
       );
     }
     return "";
   }
+}
+
+/**
+ * What one execution spent, on the basis the scenario's `tokenLimit` bounds.
+ *
+ * `input + output + cacheCreation` — the same quantity
+ * `domain/compression/aggregate.ts` calls billable and publishes as the primary cost KPI. A
+ * limit and an objective that measure different things would let a cell pass the gate and then
+ * dominate the report, which is the one contradiction a bound must not have.
+ *
+ * ## Why the cache read is not in this sum
+ *
+ * It is charged at a fraction the provider decides, and this package holds no price list — the
+ * same argument the aggregate makes for excluding it from the bill.
+ *
+ * ## The gap this closes, and the one it leaves
+ *
+ * Until 2026-08-22 the sum was `input + output` alone. With prompt caching that is not a small
+ * omission: two measured cells spent 27 928 and 22 038 billable tokens while the gate saw only
+ * 7 381 and 6 191, and the raw stream behind them was 512 740 and 238 173 against a declared
+ * limit of 150 000. A bound that reads ~70× less than the stream it is meant to bound cannot
+ * fire, and a gate that cannot fire is not a gate.
+ *
+ * The raw stream stays UNBOUNDED here, deliberately. Bounding it would refuse every cell at
+ * today's scenario limits, so it needs new limit values — and those live in the frozen suite,
+ * whose hash is a comparability field. Re-scaling them is a methodology decision with a cost
+ * (it refuses comparison against every committed baseline), not a fix to slip into an adapter.
+ */
+function billableTokensOf(reading: TelemetryEnvelopeReading): number {
+  const telemetry = reading.telemetry;
+  if (telemetry === undefined) return 0;
+  return telemetry.inputTokens + telemetry.outputTokens + (reading.usage?.cacheCreationInputTokens ?? 0);
 }
 
 /**

@@ -82,6 +82,11 @@ test("assignArms: latest-wins, dispatchCount ir fallback markerio semantika", ()
   assert.equal(assignments.get("0003")?.appliedArm, "control");
 });
 
+// Ta pati aritmetika yra RESTATE'inta benchmark pakete (`AG/benchmark/src/domain/compression/
+// aggregate.ts`, `sampleBillableTokens`) — BENCH-1 draudžia jam importuoti orkestratoriaus vidų.
+// Nė vienas testas nemato kitos pusės, tad nė vienas ĮRODO sutapimo; ką pora garantuoja — kad nė
+// viena pusė nenudreifuos TYLIAI. Counterpart: `AG/benchmark/src/tests/compression-aggregate.test.ts`,
+// "the restated formula matches the orchestrator" — tie patys skaičiai (140 + 50 + 10 = 200).
 test("summarizeUsageByTask: billable be cache_read, turnsMeasured ir repair formos", () => {
   const byTask = summarizeUsageByTask([
     usage("0001", 100, { output_tokens: 50, cache_creation_input_tokens: 10, num_turns: 3 }),

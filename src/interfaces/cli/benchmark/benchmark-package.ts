@@ -83,6 +83,30 @@ export type AgentInvocationTemplateShape = {
  * negali imti skambėti kaip „ag-loop nepavyko kiekviename scenarijuje".
  */
 export function agLoopInvocationTemplate(nodeExecPath: string, cliEntry: string): AgentInvocationTemplateShape {
+  return driveInvocationTemplate(nodeExecPath, cliEntry, "auto");
+}
+
+/**
+ * `agent-solo` celės šablonas.
+ *
+ * VQ-802 auditas: paketo shipped šablonas kviečia `claude` TIESIOGIAI, o tiesioginis `claude`
+ * telemetrijos voko nespausdina — tad kiekviena solo celė grįždavo kaip `telemetry-missing` ir
+ * bėgimas jos nesaugodavo. Tai paaiškina ir tai, kodėl užšaldytuose baseline'uose nėra nė vieno
+ * `agent-solo` sample'o: jų niekada ir negalėjo būti.
+ *
+ * Naudojamas TAS PATS draiveris kaip `ag-loop`, su vieninteliu skirtumu — leidimų režimu, kurį
+ * deklaruoja paketo šablonas (`acceptEdits`). Tai sąmoninga: bet koks kitas skirtumas tarp dviejų
+ * draiverių pasirodytų rezultatuose kaip loop'o efektas, nors būtų matavimo artefaktas.
+ */
+export function agentSoloInvocationTemplate(nodeExecPath: string, cliEntry: string): AgentInvocationTemplateShape {
+  return driveInvocationTemplate(nodeExecPath, cliEntry, "acceptEdits");
+}
+
+function driveInvocationTemplate(
+  nodeExecPath: string,
+  cliEntry: string,
+  permissionMode: "auto" | "acceptEdits",
+): AgentInvocationTemplateShape {
   return Object.freeze({
     command: nodeExecPath,
     args: Object.freeze([
@@ -98,6 +122,8 @@ export function agLoopInvocationTemplate(nodeExecPath: string, cliEntry: string)
       "{{stepLimit}}",
       "--timeout-ms",
       "{{timeoutMs}}",
+      "--permission-mode",
+      permissionMode,
     ]),
     stdin: "{{prompt}}",
     forwardedEnvironment: FORWARDED_CREDENTIAL_VARIABLES,
@@ -168,10 +194,10 @@ function exportsBenchmarkCli(value: unknown): value is BenchmarkCliModule {
  * konfigo negauna visai, tad plikas `{ "ag-loop": ... }` tyliai atimtų `agent-solo` — režimas,
  * kurį diegimas šiandien gali varyti, imtų raportuoti „no configured agent invocation".
  */
-function agentInvocationConfig(loaded: BenchmarkCliModule, template: AgentInvocationTemplateShape): Record<string, unknown> {
+function agentInvocationConfig(loaded: BenchmarkCliModule, template: Record<string, AgentInvocationTemplateShape>): Record<string, unknown> {
   const shipped = loaded.DEFAULT_AGENT_INVOCATION_CONFIG;
   const base = typeof shipped === "object" && shipped !== null ? (shipped as Record<string, unknown>) : {};
-  return { ...base, "ag-loop": template };
+  return { ...base, ...template };
 }
 
 function describe(error: unknown): string {
@@ -212,7 +238,10 @@ export async function benchmarkCommand(deps: BenchmarkCommandDeps, args: string[
 
   let agentInvocations: unknown;
   try {
-    const template = agLoopInvocationTemplate(deps.nodeExecPath, deps.cliEntry);
+    const template = {
+      "ag-loop": agLoopInvocationTemplate(deps.nodeExecPath, deps.cliEntry),
+      "agent-solo": agentSoloInvocationTemplate(deps.nodeExecPath, deps.cliEntry),
+    };
     agentInvocations = loaded.createAgentInvocations({ config: agentInvocationConfig(loaded, template) });
   } catch (error: unknown) {
     // Konfigas, kurio paketas nepriima, yra šio diegimo surišimo klaida — ji atmetama PRIEŠ

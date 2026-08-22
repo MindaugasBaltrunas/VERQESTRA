@@ -421,9 +421,50 @@ test("an agent that spent more than the scenario allowed still has its cost reco
   );
   const outcome = await loopAdapter(processes).execute(executionRequest());
 
-  assert.match(outcome.failure ?? "", /^token-limit-exceeded: the agent spent 101000 tokens against a limit of 100000/);
+  assert.match(
+    outcome.failure ?? "",
+    /^token-limit-exceeded: the agent spent 101000 billable tokens against a limit of 100000/,
+  );
   assert.equal(outcome.telemetry?.inputTokens, 99_000, "the tokens were spent whether or not they were allowed");
   assert.equal(isUnmeasuredFailure(outcome.failure ?? ""), false);
+});
+
+// 2026-08-22: the gate summed `input + output` alone. With prompt caching that is not a small
+// omission — two measured cells spent 27 928 and 22 038 billable tokens while the gate saw 7 381
+// and 6 191 — so a bound declared at 150 000 could not fire. The limit now reads the same
+// quantity the report publishes as the primary cost KPI.
+test("cache creation counts against the scenario limit; a cache read does not", async () => {
+  const overLimit = new FakeProcessPort(
+    processResult({
+      stdout: `${telemetryEnvelope({
+        inputTokens: 10_000,
+        outputTokens: 5_000,
+        usage: { captured: true, cacheCreationInputTokens: 90_000, cacheReadInputTokens: 400_000 },
+      })}
+`,
+    }),
+  );
+  const refused = await loopAdapter(overLimit).execute(executionRequest());
+  assert.match(
+    refused.failure ?? "",
+    /^token-limit-exceeded: the agent spent 105000 billable tokens against a limit of 100000/,
+    "writing 90k into the cache is charged like input and must be inside the bound",
+  );
+
+  // The same 400k cache read, without the cache write, stays outside the bound: it is charged at
+  // a fraction this package holds no price list for.
+  const withinLimit = new FakeProcessPort(
+    processResult({
+      stdout: `${telemetryEnvelope({
+        inputTokens: 10_000,
+        outputTokens: 5_000,
+        usage: { captured: true, cacheReadInputTokens: 400_000 },
+      })}
+`,
+    }),
+  );
+  const accepted = await loopAdapter(withinLimit).execute(executionRequest());
+  assert.equal(accepted.failure, undefined);
 });
 
 test("a model the run did not ask for is audited as a difference, not hidden and not fatal", async () => {

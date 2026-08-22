@@ -7,12 +7,15 @@ import {
   type FinalAuditPorts,
   type FinalAuditResult,
 } from "../../../application/release-readiness/final-audit.js";
+import type { SourceStateInputs } from "../../../application/release-readiness/release-check.js";
 import { consoleCliIo, type CliIo } from "../registry.js";
 
 export type FinalAuditCommandDeps = {
   ports: FinalAuditPorts;
   projectRoot: string;
   runtimeRoot?: string;
+  /** Source-state įėjimai; PRIVALO sutapti su tais, kuriais bėgo `release-check`. */
+  sourceStateInputs?: SourceStateInputs;
   io?: CliIo;
 };
 
@@ -34,6 +37,11 @@ export async function finalAuditCommand(deps: FinalAuditCommandDeps, args: strin
     const result = await runFinalAudit(deps.ports, {
       projectRoot: deps.projectRoot,
       ...(deps.runtimeRoot === undefined ? {} : { runtimeRoot: deps.runtimeRoot }),
+      // TAS PATS įėjimų sąrašas kaip `release-check`. Du skirtingi „šaltinio" apibrėžimai
+      // reikštų, kad šviežumo patikra NIEKADA nepraeina: verdiktas įrašytas su vienu hash'u,
+      // tikrinamas su kitu. Vartas, visada sakantis „stale", yra lygiai taip pat nenaudingas
+      // kaip visada sakantis „ok".
+      ...(deps.sourceStateInputs === undefined ? {} : { sourceStateInputs: deps.sourceStateInputs }),
     });
     io.out(args.includes("--json") ? JSON.stringify(result, null, 2) : renderFinalAudit(result));
     return result.status === "complete" ? 0 : 1;

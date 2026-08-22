@@ -155,6 +155,7 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
             ports: finalAuditPorts(deps.roots.projectRoot, deps.roots.runtimeRoot, deps.roots.agRoot),
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
+            sourceStateInputs: RELEASE_SOURCE_STATE_INPUTS,
             ...(io === undefined ? {} : { io }),
           },
           args,

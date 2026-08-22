@@ -429,3 +429,33 @@ test("final-audit: laukiantis task'as, resolved human-review filtras ir rule-sta
   assert.equal(stale.checks["release_check"]?.ok, false);
   assert.deepEqual(stale.checks["release_check"]?.issues, ["release-check-result is stale: source"]);
 });
+
+// 2026-08-22: `release-check` įrašė hash'ą su KOMPOZICIJOS įėjimų sąrašu, o `final-audit` jį
+// tikrino su application default'u — du skirtingi „šaltinio" apibrėžimai, tad šviežumo patikra
+// niekada nepraeidavo. Vartas, visada sakantis „stale", yra lygiai taip pat nenaudingas kaip
+// visada sakantis „ok": abu nustoja nešti informaciją. Testas pin'ina, kad hash'as, įrašytas su
+// TAIS PAČIAIS įėjimais, laikomas šviežiu, o su kitais — ne.
+test("final-audit: šviežumas skaičiuojamas TAIS PAČIAIS įėjimais kaip release-check", async () => {
+  const files = { [abs("src/a.ts")]: "const a = 1;", [abs("scripts/x.mjs")]: "export {};" };
+  const inputs = { dirs: ["src"], files: ["package.json"] };
+  const sourceState = await computeSourceState(fakeReleaseFs({ files }), ROOT, inputs);
+
+  const ports = makeFinalAuditPorts({
+    sourceFs: fakeReleaseFs({ files }),
+    readReleaseCheck: async () => ({
+      status: "ok",
+      updated_at: "2026-08-20T08:00:00.000Z",
+      source_state: sourceState,
+    }),
+  });
+
+  const fresh = await runFinalAudit(ports.ports, { ...FINAL_AUDIT_OPTS, sourceStateInputs: inputs });
+  assert.equal(fresh.checks["release_check"]?.ok, true, JSON.stringify(fresh.checks["release_check"]));
+
+  // Kitas įėjimų sąrašas = kitas hash'as, net jei medis nepasikeitė nė per baitą.
+  const mismatched = await runFinalAudit(ports.ports, {
+    ...FINAL_AUDIT_OPTS,
+    sourceStateInputs: { dirs: ["src", "scripts"], files: ["package.json"] },
+  });
+  assert.equal(mismatched.checks["release_check"]?.ok, false);
+});

@@ -23,7 +23,7 @@
 import {
   countLedgerSamples,
   readSuiteLockHash,
-  BENCHMARK_SAMPLE_LEDGER_RELATIVE_PATH,
+  BENCHMARK_RUN_LEDGER_DIRECTORY,
   BENCHMARK_SUITE_LOCK_RELATIVE_PATH,
 } from "../benchmark/report-provenance.js";
 import {
@@ -149,9 +149,14 @@ export async function checkBenchmarkEvidence(
   if (ledger.count === undefined) {
     issues.push(`benchmark evidence is incomplete: the sample ledger could not be read (${ledger.problem})`);
   } else if (ledger.count !== report.current.sampleCount) {
+    // Ivardijamas TAS ledger'is, kuris buvo perskaitytas, o ne konstanta. Su vienu ledger'iu per
+    // run'a konstanta pasakytu, pagal kuri faila kodas sukompiliuotas, o ne kuri jis skaite —
+    // ir butent tai leido sitiems vartams tyliai blokuoti kiekviena raporta, kai paketas
+    // persikele i `results/runs/`, o vartai liko prie `results/samples.jsonl`.
+    const named = ledger.source ?? `${BENCHMARK_RUN_LEDGER_DIRECTORY} (no run ledger)`;
     issues.push(
       `benchmark evidence does not match its ledger: the report claims ${report.current.sampleCount} ` +
-        `sample(s) but ${BENCHMARK_SAMPLE_LEDGER_RELATIVE_PATH} holds ${ledger.count}`,
+        `sample(s) but ${named} holds ${ledger.count}`,
     );
   }
 

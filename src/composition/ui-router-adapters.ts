@@ -137,6 +137,7 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
         {
           statPath: (absolutePath) => nodeFsAdapter.statPath(absolutePath),
           readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
+          listDirectory: (absoluteDir) => nodeFsAdapter.listDirectory(absoluteDir),
         },
         { projectRoot: input.projectRoot, currentAgCommit: currentCommitResolver },
       ),

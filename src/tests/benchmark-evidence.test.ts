@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   readBenchmarkReportView,
+  BENCHMARK_PACKAGE_RELATIVE_PATH,
   BENCHMARK_REPORT_RELATIVE_PATH,
   MAX_BENCHMARK_REPORT_BYTES,
   type BenchmarkFsPort,
@@ -12,7 +13,7 @@ import {
 import {
   countLedgerSamples,
   readSuiteLockHash,
-  BENCHMARK_SAMPLE_LEDGER_RELATIVE_PATH,
+  BENCHMARK_RUN_LEDGER_DIRECTORY,
   BENCHMARK_SUITE_LOCK_RELATIVE_PATH,
 } from "../application/benchmark/report-provenance.js";
 import {
@@ -21,6 +22,8 @@ import {
 } from "../application/release-readiness/benchmark-evidence-check.js";
 
 const ROOT = path.resolve("/repo");
+
+const LF = "\n";
 const abs = (relative: string): string => path.join(ROOT, ...relative.split("/")).replace(/\\/g, "/");
 
 type FakeEntry = { kind: "file" | "directory" | "other"; content?: string; size?: number };
@@ -39,8 +42,18 @@ function fakeFs(entries: Record<string, FakeEntry>): BenchmarkFsPort {
       if (!entry || entry.content === undefined) throw new Error(`ENOENT: ${p}`);
       return entry.content;
     },
+    listDirectory: async (dir) => {
+      const prefix = `${norm(dir)}/`;
+      return [...map.keys()]
+        .filter((key) => key.startsWith(prefix) && !key.slice(prefix.length).includes("/"))
+        .map((key) => key.slice(prefix.length))
+        .sort();
+    },
   };
 }
+
+/** Kelias iki run ledger'io; vardo forma yra kontraktas, tad testas jos nesugalvoja laisvai. */
+const runLedger = (stamp: string): string => `${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-${stamp}.jsonl`;
 
 const FULL_SHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
@@ -164,11 +177,55 @@ test("report-provenance: suite lock ir ledger skaitymo matricos", async () => {
   );
 
   assert.equal((await countLedgerSamples(fakeFs({}), ROOT)).count, 0, "nesamas ledger'is = 0 sample'ų");
-  const ledger = (content: string) => fakeFs({ [abs(BENCHMARK_SAMPLE_LEDGER_RELATIVE_PATH)]: { kind: "file", content } });
+  const ledger = (content: string) =>
+    fakeFs({ [abs(runLedger("20260822t141440313z"))]: { kind: "file", content } });
   assert.equal((await countLedgerSamples(ledger('{"a":1}\n{"b":2}\n'), ROOT)).count, 2);
   assert.match((await countLedgerSamples(ledger('{"a":1}\n{"b"'), ROOT)).problem ?? "", /ends mid-record/);
   assert.match((await countLedgerSamples(ledger('{"a":1}\n\n{"b":2}\n'), ROOT)).problem ?? "", /blank line at record 2/);
   assert.match((await countLedgerSamples(ledger("ne json\n"), ROOT)).problem ?? "", /unreadable record at line 1/);
+});
+
+/**
+ * The gate must read the ledger the benchmark package actually writes.
+ *
+ * It did not. The package moved to one file per run (`results/runs/run-<ts>.jsonl`) and the gate
+ * stayed on the single `results/samples.jsonl` it was written against. Because an absent ledger
+ * counts as zero samples, the mismatch never surfaced as an error — it silently blocked every
+ * report claiming any sample at all, reporting that the ledger held none. Two checks stand
+ * against that returning: the newest of several run ledgers must be the one counted, and neither
+ * the `.unmeasured.jsonl` sidecar beside it nor a fabricated legacy `samples.jsonl` may answer in
+ * its place.
+ */
+test("BENCH-12 provenance: vartai skaito TIKRĄ run ledger'į, ne pasenusį kelią", async () => {
+  const newest = runLedger("20260822t141440313z");
+  const older = runLedger("20260101t000000000z");
+  const record = (...records: readonly string[]): string =>
+    records.map((json) => `${json}${LF}`).join("");
+  const fs = fakeFs({
+    [abs(older)]: { kind: "file", content: record('{"a":1}') },
+    [abs(newest)]: { kind: "file", content: record('{"a":1}', '{"b":2}', '{"c":3}') },
+    // Šalutinis pėdsakas, gulintis TAME PAČIAME kataloge: jo įrašai yra prarastos celės, ne
+    // sample'ai. Suskaičiavus juos, run'as atrodytų pilnesnis, kuo daugiau jo nepavyko.
+    [abs(`${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-20260822t141440313z.unmeasured.jsonl`)]: {
+      kind: "file",
+      content: record('{"lost":1}', '{"lost":2}'),
+    },
+    // Pasenęs kelias, kurio paketas nebeturi ir nebeprirašo.
+    [abs(`${BENCHMARK_PACKAGE_RELATIVE_PATH}/results/samples.jsonl`)]: {
+      kind: "file",
+      content: record(...Array.from({ length: 99 }, () => '{"stale":1}')),
+    },
+  });
+
+  const counted = await countLedgerSamples(fs, ROOT);
+  assert.equal(counted.count, 3, "naujausias run'as yra didžiausias vardas, ne pirmas ir ne senas kelias");
+  assert.equal(counted.source, newest, "vartai privalo pasakyti, KURĮ ledger'į skaitė");
+});
+
+test("BENCH-12 provenance: be nė vieno run'o skaičius yra nulis, o šaltinio nėra", async () => {
+  const empty = await countLedgerSamples(fakeFs({}), ROOT);
+  assert.equal(empty.count, 0);
+  assert.equal(empty.source, undefined, "šaltinis negali būti įvardytas, kai jo nėra");
 });
 
 function evidenceFs(input: { report?: string; lockHash?: string; ledgerLines?: number }): BenchmarkFsPort {
@@ -178,7 +235,7 @@ function evidenceFs(input: { report?: string; lockHash?: string; ledgerLines?: n
     entries[abs(BENCHMARK_SUITE_LOCK_RELATIVE_PATH)] = { kind: "file", content: JSON.stringify({ suiteHash: input.lockHash }) };
   }
   if (input.ledgerLines !== undefined) {
-    entries[abs(BENCHMARK_SAMPLE_LEDGER_RELATIVE_PATH)] = {
+    entries[abs(runLedger("20260822t141440313z"))] = {
       kind: "file",
       content: Array.from({ length: input.ledgerLines }, (_, index) => `{"sample":${index}}`).join("\n") + (input.ledgerLines > 0 ? "\n" : ""),
     };

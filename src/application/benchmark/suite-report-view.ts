@@ -43,6 +43,8 @@ export const MAX_BENCHMARK_REPORT_BYTES = 8 * 1024 * 1024;
 export type BenchmarkFsPort = {
   statPath(absolutePath: string): Promise<{ kind: "file" | "directory" | "other" | "absent"; size: number }>;
   readTextFile(absolutePath: string): Promise<string>;
+  /** Katalogo vardai, surūšiuoti; nesantis katalogas — tuščias sąrašas, ne klaida. */
+  listDirectory(absoluteDir: string): Promise<readonly string[]>;
 };
 
 // Mažiausias vokas, kuris dokumentą daro BŪTENT šiuo raportu. Loose objektai visur: kiekvienas

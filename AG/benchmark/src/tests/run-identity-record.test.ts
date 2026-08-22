@@ -27,7 +27,12 @@ import { computeSuiteConfigHash } from "../domain/baseline/manifest.js";
 import { computeCompressionConfigDigest } from "../domain/compression/config-identity.js";
 import { JsonlSampleStore } from "../infrastructure/jsonl-sample-store.js";
 import { JsonRunIdentityStore } from "../infrastructure/run-identity-store.js";
-import { createRunId, runIdentityPath, runLedgerPath } from "../infrastructure/run-ledger-store.js";
+import {
+  createRunId,
+  reserveRunId,
+  runIdentityPath,
+  runLedgerPath,
+} from "../infrastructure/run-ledger-store.js";
 import {
   RecordingRunIdentityStore,
   RecordingSampleStore,
@@ -285,4 +290,55 @@ test("a sidecar whose hash does not describe its own configuration is refused", 
   await writeFile(store.filePath, JSON.stringify(document, null, 2), "utf8");
 
   await assert.rejects(readRecordedRunIdentity(store), RunIdentityIntegrityError);
+});
+
+/**
+ * Two runs started in the same millisecond.
+ *
+ * The id carries a millisecond timestamp and nothing else, which separates two runs started in
+ * the same second and not two started in the same millisecond. The second one lost: the sidecar
+ * is opened `wx`, so it refused rather than overwriting — no data lost, and nothing spent yet,
+ * because the identity is recorded before the first cell runs. What was lost was a legitimate
+ * run, killed for a reason its operator could not see.
+ */
+test("a run id already taken is advanced, not collided with", async (t) => {
+  const root = await ledgerRoot(t);
+  const startedAt = new Date("2026-08-11T09:07:03.045Z");
+
+  const first = await reserveRunId(startedAt, root);
+  assert.equal(first, createRunId(startedAt), "an unused millisecond is used as it stands");
+
+  // The first run claims its millisecond, exactly as the pipeline does before any cell runs.
+  await new JsonRunIdentityStore(runLedgerPath(first), root).record(
+    runIdentityRecord({ runId: first, recordedAt: startedAt.toISOString() }),
+  );
+
+  const second = await reserveRunId(startedAt, root);
+  assert.notEqual(second, first, "a second run must not be handed the ledger of the first");
+  assert.equal(second, createRunId(new Date(startedAt.getTime() + 1)), "advanced by one millisecond");
+
+  // The shape is unchanged, so nothing downstream learns a new name: the newest run is still the
+  // greatest name, and the release gate's restated pattern still matches.
+  assert.match(runLedgerPath(second), /^results\/runs\/run-\d{8}t\d{9}z\.jsonl$/);
+  assert.ok(second > first, "lexicographic order still equals chronological order");
+
+  // And the advanced id is genuinely free: the second run records without a refusal.
+  await new JsonRunIdentityStore(runLedgerPath(second), root).record(
+    runIdentityRecord({ runId: second, recordedAt: startedAt.toISOString() }),
+  );
+});
+
+test("a ledger with no sidecar still holds its millisecond", async (t) => {
+  // Both halves are checked, because a run that crashed after its samples were written and before
+  // its identity was — or one restored from an archive — leaves only the ledger. Handing that
+  // millisecond to a new run would append one run's samples onto another's, which is the single
+  // thing per-run files exist to prevent.
+  const root = await ledgerRoot(t);
+  const startedAt = new Date("2026-08-11T09:07:03.045Z");
+  const taken = createRunId(startedAt);
+
+  await mkdir(path.join(root, "results", "runs"), { recursive: true });
+  await writeFile(path.join(root, "results", "runs", `${taken}.jsonl`), "", "utf8");
+
+  assert.equal(await reserveRunId(startedAt, root), createRunId(new Date(startedAt.getTime() + 1)));
 });

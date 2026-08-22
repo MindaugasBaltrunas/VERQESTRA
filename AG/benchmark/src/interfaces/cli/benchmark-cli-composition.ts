@@ -47,8 +47,8 @@ import { createGitWorktreeManager } from "../../infrastructure/git/git-worktree-
 import { JsonlSampleStore } from "../../infrastructure/jsonl-sample-store.js";
 import { JsonRunIdentityStore } from "../../infrastructure/run-identity-store.js";
 import {
-  createRunId,
   findLatestRunLedger,
+  reserveRunId,
   runLedgerPath,
 } from "../../infrastructure/run-ledger-store.js";
 import { runBenchmarkCli, type BenchmarkCliIo, type BenchmarkCliPorts } from "./benchmark-cli.js";
@@ -263,7 +263,11 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
         () => environmentPort.captureRunEnvironment(),
       );
 
-      const runId = createRunId(now());
+      // `reserveRunId`, ne `createRunId`: id nesa tik milisekundini laika, tad du kartu paleisti
+      // procesai gauna ta pati ledger'io kelia, ir antrasis nutraukiamas identity `wx` vartu.
+      // Nutraukiamas anksti — prie pinigu neprieina — bet tai vis tiek teisetas run'as, mires del
+      // priezasties, kurios operatorius nemato.
+      const runId = await reserveRunId(now(), packageRoot);
       // One path, two stores: the samples and the statement about them are bound
       // to the same ledger by construction rather than by two callers agreeing.
       const ledgerPath = runLedgerPath(runId);

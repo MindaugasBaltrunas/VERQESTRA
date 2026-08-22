@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { BENCHMARK_PACKAGE_ROOT } from "./benchmark-workspace-paths.js";
@@ -51,6 +51,63 @@ export function createRunId(startedAt: Date): string {
   const stamp = startedAt.toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
   const millis = String(startedAt.getUTCMilliseconds()).padStart(3, "0");
   return `run-${stamp.toLowerCase()}${millis}z`;
+}
+
+/**
+ * How many milliseconds forward a colliding start time may be advanced before giving up.
+ *
+ * One second of ids. A caller that cannot find a free millisecond inside a whole second is not
+ * racing another run; it is looking at a directory something else is filling, and inventing a
+ * thousand-and-first id would hide that rather than answer it.
+ */
+const MAX_RUN_ID_ADVANCE_MS = 1_000;
+
+/**
+ * A run id whose ledger and identity sidecar do not exist yet.
+ *
+ * The id carries a millisecond timestamp and nothing else, which is enough to separate two runs
+ * started by different processes in the same *second* and not enough to separate two started in
+ * the same *millisecond*. The second of those loses: `JsonRunIdentityStore` opens the sidecar
+ * `wx`, so it refuses rather than overwriting — correct, and no data is lost, because the identity
+ * is recorded before the first cell runs and therefore before anything is spent. What is lost is a
+ * legitimate run, killed for a reason its operator cannot see.
+ *
+ * So the colliding start is advanced by a millisecond and tried again. Chronology survives: the
+ * second run really did start after the first, and a millisecond is finer than the thing being
+ * measured. Lexicographic order still equals chronological order, the name still matches
+ * {@link LEDGER_NAME_PATTERN}, and nothing downstream learns a new shape.
+ *
+ * This narrows the window rather than closing it. Two processes that both check a free
+ * millisecond before either writes will both pick it, and the `wx` still refuses one — the arbiter
+ * has to be the atomic create, not this check. What the check removes is the ordinary case: two
+ * runs launched together, which without it collide whenever the clock rounds them into one
+ * millisecond.
+ */
+export async function reserveRunId(
+  startedAt: Date,
+  packageRoot: string = BENCHMARK_PACKAGE_ROOT,
+): Promise<string> {
+  for (let advance = 0; advance < MAX_RUN_ID_ADVANCE_MS; advance += 1) {
+    const runId = createRunId(new Date(startedAt.getTime() + advance));
+    const ledger = runLedgerPath(runId);
+    const taken =
+      (await pathExists(path.join(packageRoot, ...ledger.split("/")))) ||
+      (await pathExists(path.join(packageRoot, ...runIdentityPath(ledger).split("/"))));
+    if (!taken) return runId;
+  }
+  throw new Error(
+    `No free run id was available in the ${MAX_RUN_ID_ADVANCE_MS} millisecond(s) after ` +
+      `${startedAt.toISOString()}; "${RUN_LEDGER_DIRECTORY}" already holds a ledger for each of them.`,
+  );
+}
+
+async function pathExists(absolutePath: string): Promise<boolean> {
+  try {
+    await stat(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Package-relative ledger path of `runId`, in POSIX form as every stored path is. */

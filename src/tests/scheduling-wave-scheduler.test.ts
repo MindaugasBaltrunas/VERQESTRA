@@ -109,7 +109,7 @@ function world(options: {
     importGraph: () => Promise.resolve(emptyGraph()),
     writeGraphSnapshot: () => Promise.resolve(),
     readGraphSnapshot: () => Promise.resolve({ ok: false, reason: "missing", errors: [] }),
-    readySetBudget: () => undefined,
+    readySetBudget: () => Promise.resolve(undefined),
     approvals: () => [],
     requestedWorkers: () => Promise.resolve(options.workers ?? 1),
     ledgerDuplicate: () => Promise.resolve(options.duplicate ?? false),

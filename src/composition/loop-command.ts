@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
+import { readRunBudget } from "../application/scheduling/run-budget.js";
 import { createWaveScheduler, type ProvisioningStateAccess, type WaveIntegrationIo } from "../application/scheduling/wave-scheduler.js";
 import { createWaveProvisioningCoordinator, type WaveProvisioningCoordinator } from "../application/scheduling/wave-provisioning.js";
 import { createSlotTaskRunner, buildChildEnvironment, PROCESS_QUEUED_TASK_COMMAND } from "../application/scheduling/slot-task-runner.js";
@@ -162,14 +163,19 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       const stored = await readTaskGraphSnapshot(runtimeRoot);
       return stored.ok ? { ok: true, graph: stored.graph } : { ok: false, reason: stored.reason, errors: stored.errors };
     },
-    // Abu — sąmoningai neprijungti, ir tai užrašyta, o ne palikta atrodyti kaip prijungta.
-    // `readySetBudget`: `budget-exhausted`/`budget-insufficient` produkcijoje nepasiekiami;
-    // prijungimas reikalauja apsispręsti, ar `token-budget-status.json` veidrodis yra
-    // autoritetingas (žr. `BuildReadySetInput.budget`).
-    // `approvals`: `TaskNode.approved` niekur netampa `true`, o realus patvirtinimas yra task'o
-    // išėjimas iš `human-review` bucket'o. Trūksta ŠALTINIO, kur operatoriaus sprendimas būtų
-    // užrašytas (žr. `BuildReadySetInput.approvals`).
-    readySetBudget: () => undefined,
+    // Run lygio biudžetas: riba yra NEPRIVALOMAS `maxRunBillableTokens` raktas
+    // `vq/config/token-budget.json` faile. Jos nesant grąžinama `undefined` — tiksliai ta
+    // elgsena, kuri buvo iki šiol. Esamos `tool-budget` ribos čia netiktų: jos yra per-task, ir
+    // vieno task'o likutis taptų visos eilės riba.
+    readySetBudget: () =>
+      readRunBudget({
+        readBudgetConfig: () => nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "config", "token-budget.json")),
+        readUsageLog: () => nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "logs", "token-usage.jsonl")),
+      }),
+    // Patvirtinimai: veikiantis kanalas yra `HUMAN-REVIEW-APPROVED:` žyma task'o faile —
+    // `task-graph-import` iš jos nustato `TaskNode.approved`. Šis run-scoped sąrašas yra ANTRAS
+    // kanalas tam pačiam sprendimui; jis lieka tuščias sąmoningai, nes du patvirtinimo keliai,
+    // nežinantys vienas apie kitą, yra blogiau nei vienas.
     approvals: () => [],
     requestedWorkers: createWaveWorkerRequestReader({
       readRequest: async () => {

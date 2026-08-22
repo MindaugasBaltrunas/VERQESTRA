@@ -51,7 +51,6 @@ function graphDeps(overrides: Partial<WaveGraphDeps> = {}): { deps: WaveGraphDep
       return Promise.resolve();
     },
     approvals: () => [],
-    readySetBudget: () => undefined,
     statuses: () => ({ completed: [], blocked: [], running: [] }),
     ...overrides,
   };
@@ -100,7 +99,7 @@ test("nepavykęs rašymas rezervaciją GRĄŽINA", async () => {
 
 test("run'o būsena viršija grafo įrašytą", () => {
   const world = graphDeps({ statuses: () => ({ completed: ["0001"], blocked: [], running: [] }) });
-  const ready = createWaveGraphCoordinator(world.deps).readySet(graph());
+  const ready = createWaveGraphCoordinator(world.deps).readySet(graph(), undefined);
   // Padarytas darbas ready set'e nebesiūlomas.
   assert.equal(ready?.ready.some((entry) => entry.task_id === "0001"), false);
 });

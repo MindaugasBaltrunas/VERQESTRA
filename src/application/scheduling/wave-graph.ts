@@ -30,13 +30,17 @@ export type WaveGraphDeps = {
   log: (message: string) => Promise<void>;
   recordEvent: (event: WavePoolEvent) => Promise<void>;
   approvals: () => Iterable<string>;
-  readySetBudget: () => ReadySetBudget | undefined;
   statuses: () => { completed: Iterable<string>; blocked: Iterable<string>; running: Iterable<string> };
 };
 
 export type WaveGraphCoordinator = {
   refresh: (waveId: string) => Promise<TaskGraph | undefined>;
-  readySet: (graph: TaskGraph | undefined) => ReadySet | undefined;
+  /**
+   * Biudžetas paduodamas, o ne skaitomas viduje: jo šaltinis yra failas, o šis metodas
+   * sinchroninis ir kviečiamas planavimo viduryje. Skaitymas gyvena bangos perskaičiavime, kur
+   * async jau yra, ir įvyksta VIENĄ kartą per bangą — ne kartą per plano variantą.
+   */
+  readySet: (graph: TaskGraph | undefined, budget: ReadySetBudget | undefined) => ReadySet | undefined;
   reportSnapshot: (stored: StoredGraphRead, graph: TaskGraph | undefined, waveId: string) => Promise<void>;
 };
 
@@ -81,7 +85,7 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
       return graph;
     },
 
-    readySet(graph): ReadySet | undefined {
+    readySet(graph, budget): ReadySet | undefined {
       if (graph === undefined) return undefined;
       // Run'o būsena viršija grafo įrašytą: grafas yra importo momento nuotrauka, o completed/
       // blocked/running gimsta bangoje. Be perrašymo ready set siūlytų jau padarytą darbą.
@@ -90,7 +94,6 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
       for (const taskId of statuses.completed) statusOverrides.set(taskId, "done");
       for (const taskId of statuses.blocked) statusOverrides.set(taskId, "blocked");
       for (const taskId of statuses.running) statusOverrides.set(taskId, "running");
-      const budget = deps.readySetBudget();
       return buildReadySet({
         graph,
         statusOverrides,

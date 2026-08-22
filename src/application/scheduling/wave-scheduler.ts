@@ -20,6 +20,7 @@ import { applyReadySetGates, formatWaveBlockedReason } from "./apply-ready-set-g
 import { decideResume, type ResumeDecision } from "./resume-run.js";
 import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js";
 import { createWaveGraphCoordinator } from "./wave-graph.js";
+import type { ReadySetBudget } from "./build-ready-set.js";
 import { createWaveIntegrationCoordinator } from "./wave-integration-coordinator.js";
 import { createWaveOutcomeRecorder } from "./wave-outcome.js";
 import { createWaveRefillCoordinator } from "./wave-refill.js";
@@ -120,7 +121,6 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     log: deps.log,
     recordEvent: deps.recordEvent,
     approvals: deps.approvals,
-    readySetBudget: deps.readySetBudget,
     statuses: () => ({ completed: state.completed, blocked: state.blockedBranch, running: state.runningTaskIds }),
   });
 
@@ -135,11 +135,16 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     liveSlots: liveSlotList,
   });
 
+  // Bangos biudžetas skaitomas kartą per perskaičiavimą ir laikomas čia: `gatedPlan` kviečiamas
+  // kelis kartus vienam planui, o failo skaitymas kiekvienam variantui duotų skirtingus atsakymus
+  // tam pačiam sprendimui.
+  let waveBudget: ReadySetBudget | undefined;
   const gatedPlan = (base: WavePlan): WavePlan =>
-    applyReadySetGates(base, graphCoordinator.readySet(state.canonicalGraph), deps.readySetPolicy);
+    applyReadySetGates(base, graphCoordinator.readySet(state.canonicalGraph, waveBudget), deps.readySetPolicy);
 
   const replan = async (): Promise<WavePlan> => {
     state.tasks = await deps.readTasks();
+    waveBudget = await deps.readySetBudget();
     // VIENINTELIS prašymo skaitymas šiam perskaičiavimui — bangos cap'as, pool'o planas ir resume
     // kelias remiasi būtent šia reikšme.
     state.requestedWorkers = await deps.requestedWorkers();

@@ -85,7 +85,7 @@ export type WaveSchedulerPorts = {
   writeGraphSnapshot: (graph: TaskGraph) => Promise<void>;
   readGraphSnapshot: () => Promise<StoredGraphRead>;
   readySetPolicy?: ReadySetGatePolicy | undefined;
-  readySetBudget: () => ReadySetBudget | undefined;
+  readySetBudget: () => Promise<ReadySetBudget | undefined>;
   approvals: () => Iterable<string>;
 
   /** Efektyvus slot'ų skaičius šiai bangai (jau suvestas prašymas + valdikliai). */

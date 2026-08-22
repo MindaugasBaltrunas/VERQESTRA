@@ -108,3 +108,65 @@ Tai to paties dydžio darbas kaip esamas `benchmark-drive`, tik be loop'o.
 - Neleido nė vienos `ag-loop` celės per patį benchmark harness'ą (tik `benchmark-drive`
   tiesiogiai). Pirmas toks bėgimas kainuotų ≥3 celes dėl BENCH-9.
 - Nekeitė nė vieno baseline dokumento. Baseline yra nekintamas pagal apibrėžimą.
+
+---
+
+## Papildomas auditas 2026-08-22: mirusios dalys ir kaštų metrikos kiekybė
+
+Mechaninė visų 611 `AG/benchmark/src` eksportų analizė (nenaudojamas nei kitame faile,
+nei savo faile, nei per barjerą `index.ts`, nei VERQESTRA tilte) davė 5 kandidatus,
+iš jų 3 tikrus. Likę „nenaudojami" 100 yra `Options`/`Input` tipai savo pačių funkcijos
+paraše arba viešas barjero kontraktas — ne mirusi dalis.
+
+### Ištrinta
+
+| Simbolis | Kodėl |
+|---|---|
+| `ScenarioSuitePort` | Portas be implementacijos. `loadSuite` kompozicijoje yra lokali funkcija, ne adapteris. Eksportuotas per barjerą, tad skelbė kontraktą, kurio niekas nevykdo — defektų klasė #1 („parašyta, neprijungta"). |
+| `isCompressionFeature`, `isCompressionHookProfile` | Priklausomybė tam pačiam masyvui tikrinama dar dviem gyvais keliais: regex'u `schema-validation.ts` ir `readEnum` `recorded-compression-config.ts`. Trys keliai, veikė du. |
+
+`AllowedGitSubcommand` ir `BenchmarkComparisonRollupReason` palikti: išvestiniai tipai
+šalia savo `const` masyvo yra idiomas, ne spraga.
+
+### Ištaisyta: kaštų metrika matavo ne sąskaitą
+
+`domain/metrics/aggregate.ts` ir `domain/statistics/scenario-observations.ts` skaičiavo
+`tokens = input + output`. Tai vienintelis šaltinis, iš kurio gimsta `ag-loop` vs
+`agent-solo` „cost per accepted change" ir scenarijų skirstiniai — t. y. VQ-802 verdiktas.
+
+`usage.input_tokens` pagal apibrėžimą **neįskaičiuoja kešuoto prefikso**. Gyvi VERQESTRA
+loop'o logai (`vq/logs/token-usage.jsonl`, 2026-08-22, paskutiniai 4 kvietimai):
+
+```text
+input 16 · output 2 674 · cacheRead 305 234 · cacheCreation 44 671
+metrika matė:  2 690
+sąskaita:     47 361      → 94.3 % apmokestinamo tūrio nematoma
+```
+
+Paklaida nėra pastovus poslinkis: ji auga su pakartotinai naudojamo prefikso dydžiu —
+su tuo, ką `ag-loop` turi, o `agent-solo` ne. Ji glostė būtent tą režimą, kuris matuojamas.
+
+Nuo šiol:
+
+- `billableTokens` = `input + output + cacheCreation` — ta pati aritmetika kaip
+  `sampleBillableTokens` (suspaudimo šaka) ir kaip adapterio tokenų limitas;
+- `cacheReadTokens` — atskira metrika, ne sudėta į sąskaitą (kešo skaitymas
+  apmokestinamas dalimi input kainos), bet ir ne paslėpta: režimas, kuris naudoja didelį
+  prefiksą, perkelia tūrį būtent čia;
+- sugedusi apskaita (`usage.captured === false`) atmeta **tik** tokenų metrikas,
+  išsaugodama tikrą vardiklį; trukmė ir kvietimų skaičius neremiasi usage bloku.
+  Nesantis usage blokas nėra sugedęs: v1 vokas neturėjo kešo dimensijos, o
+  `deterministic-control` nekviečia modelio — abiem atvejais kešo nariai tikrai yra nuliai.
+
+### Ištaisyta: perapibrėžimas galėjo įvykti tyliai
+
+Suspaudimo šaka turėjo `COMPRESSION_COST_KPI_VERSION`, režimų šaka — nieko. Pridėta
+`MODE_COST_KPI_VERSION = 2`, įrašoma į baseline manifesto `metricsVersion` ir tikrinama
+`REQUIRED_METHODOLOGY_FIELDS`. Manifesto schema 1 → 2: v1 yra būtent tie baseline'ai,
+kurių `tokens` neįskaičiavo cache creation, tad lauko defaultinimas paskelbtų juos
+palyginamais su kita kiekybe — vienintele nesėkme, kurios laukas ir saugo.
+
+Du užšaldyti baseline'ai (`2026-08-09`, `2026-08-10`) nuo šiol atmetami
+`unsupportedManifestSchema`. Jie turi tik `deterministic-control` mėginius be tokenų
+telemetrijos, tad palyginimo neprarandama; palikti, nes atmestas baseline vis tiek yra
+įrašas apie tai, kas buvo išmatuota (`AG/benchmark/baselines/README.md`).

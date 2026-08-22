@@ -58,13 +58,3 @@ export type CompressionFeature = (typeof COMPRESSION_FEATURES)[number];
 export const COMPRESSION_HOOK_PROFILES = ["unwired", "bash-digest-handler"] as const;
 
 export type CompressionHookProfile = (typeof COMPRESSION_HOOK_PROFILES)[number];
-
-/** Whether an arbitrary string names a flag this registry version knows. */
-export function isCompressionFeature(value: string): value is CompressionFeature {
-  return (COMPRESSION_FEATURES as readonly string[]).includes(value);
-}
-
-/** Whether an arbitrary string names a hook profile this package can execute or declare. */
-export function isCompressionHookProfile(value: string): value is CompressionHookProfile {
-  return (COMPRESSION_HOOK_PROFILES as readonly string[]).includes(value);
-}

@@ -4,6 +4,7 @@ import { EXECUTION_MODES } from "../result.js";
 import {
   measure,
   totalOf,
+  unmeasured,
   type MetricValue,
   type UnmeasuredCause,
 } from "./metric-value.js";
@@ -75,8 +76,30 @@ export const RATE_METRIC_KEYS = [
 
 export type RateMetricKey = (typeof RATE_METRIC_KEYS)[number];
 
+/**
+ * The version of the quantity `billableTokens` measures.
+ *
+ * Bumped whenever the token arithmetic below changes, and carried into the baseline manifest so
+ * a run recorded under one definition cannot be compared against a run recorded under another
+ * (BENCH-8). Without it the redefinition is silent: both sides publish a field called `tokens`,
+ * the gate finds every methodology field equal, and the report presents two incomparable numbers
+ * as a delta.
+ *
+ * Version 1 counted `input + output` and excluded cache creation entirely. On the VERQESTRA loop
+ * that was 5.7 % of the bill: a measured 2 690 tokens against 47 361 actually billable, because
+ * `usage.input_tokens` excludes cached prefixes by definition. The error was not a constant
+ * offset — it grew with the size of the reused prefix, which is precisely what the `ag-loop` mode
+ * has and `agent-solo` does not, so it flattered exactly the mode under test.
+ */
+export const MODE_COST_KPI_VERSION = 2;
+
 /** The BENCH-7 per-change cost metrics, in report order. */
-export const COST_METRIC_KEYS = ["tokens", "durationMs", "llmCalls"] as const;
+export const COST_METRIC_KEYS = [
+  "billableTokens",
+  "cacheReadTokens",
+  "durationMs",
+  "llmCalls",
+] as const;
 
 export type CostMetricKey = (typeof COST_METRIC_KEYS)[number];
 
@@ -156,8 +179,35 @@ function hasFailedCheckOfKind(sample: BenchmarkSample, kind: CheckKind): boolean
   return sample.checks.some((check) => check.kind === kind && check.status === "failed");
 }
 
-function sampleTokens(sample: BenchmarkSample): number {
-  return sample.telemetry.inputTokens + sample.telemetry.outputTokens;
+/**
+ * What one sample cost, on the basis the provider bills at: `input + output + cacheCreation`.
+ *
+ * Writing a prefix into the cache is charged like input; re-reading it is charged at a fraction
+ * and is reported separately by {@link sampleCacheReadTokens}. The same arithmetic is restated in
+ * `domain/compression/aggregate.ts` — `sampleBillableTokens` — and enforced as a limit in
+ * `infrastructure/adapters/execution-adapter-support.ts`. Three restatements is two too many, but
+ * the layering forbids the domain from importing the adapter and BENCH-1 forbids either from
+ * reaching into the orchestrator; what keeps them together is that each has a test pinning the
+ * same illustrative numbers, and each test names its counterparts.
+ */
+function sampleBillableTokens(sample: BenchmarkSample): number {
+  return (
+    sample.telemetry.inputTokens +
+    sample.telemetry.outputTokens +
+    (sample.usage?.cacheCreationInputTokens ?? 0)
+  );
+}
+
+/**
+ * Cache reads, reported as their own cost rather than folded into the bill.
+ *
+ * They are billed at a fraction of input, so adding them to `billableTokens` would overstate the
+ * bill by roughly the same margin that omitting cache creation understated it. They are published
+ * because a mode that reuses a large prefix — the loop does, a bare agent session does not — moves
+ * its volume here, and a comparison that never shows the column cannot be read as a cost claim.
+ */
+function sampleCacheReadTokens(sample: BenchmarkSample): number {
+  return sample.usage?.cacheReadInputTokens ?? 0;
 }
 
 /**
@@ -231,6 +281,31 @@ function failureRateForKind(
  * one class. `cause` names the class, so a report can say which change was
  * missing rather than only that a denominator was empty.
  */
+/**
+ * Samples whose token accounting explicitly broke: the model ran, and the adapter said so by
+ * publishing `usage.captured: false`.
+ *
+ * An *absent* usage block is not this. A version 1 telemetry envelope had no cache dimension at
+ * all, and a mode that calls no model has nothing to report — in both cases the cache terms are
+ * genuinely zero and the sum stands. What may not be summed is a population where accounting was
+ * attempted and failed: `domain/result.ts` states the rule, and leaving those samples out would
+ * understate exactly the mode whose accounting broke.
+ */
+function hasBrokenUsageAccounting(sample: BenchmarkSample): boolean {
+  return sample.usage?.captured === false;
+}
+
+function usageRefusal(conclusive: readonly BenchmarkSample[]): UnmeasuredCause | undefined {
+  const broken = conclusive.filter(hasBrokenUsageAccounting).length;
+  if (broken === 0) return undefined;
+  return {
+    reason: "no-captured-usage",
+    detail:
+      `${broken} of the ${conclusive.length} conclusive sample(s) ran a model whose token accounting failed, ` +
+      "so the tokens they spent are unknown and the remaining ones may not be summed in their place",
+  };
+}
+
 function costPerChange(
   conclusive: readonly BenchmarkSample[],
   sampleCount: number,
@@ -238,8 +313,18 @@ function costPerChange(
   cause: UnmeasuredCause,
 ): CostMetricsReport {
   const emptyCause = conclusive.length === 0 ? emptyPopulationCause(sampleCount) : cause;
+  // Only the token metrics rest on usage accounting; a broken usage block says nothing about how
+  // long a sample took or how many calls it made, and refusing those too would report a wider
+  // failure than the one that happened. The refusal keeps the real denominator: a metric whose
+  // counts claimed nothing was divided by would be traceable to inputs it did not have.
+  const brokenUsage = usageRefusal(conclusive);
+  const tokenMetric = (numerator: number): MetricValue =>
+    brokenUsage === undefined
+      ? measure(numerator, changeCount, emptyCause)
+      : unmeasured(brokenUsage, { numerator, denominator: changeCount });
   return {
-    tokens: measure(totalOf(conclusive.map(sampleTokens)), changeCount, emptyCause),
+    billableTokens: tokenMetric(totalOf(conclusive.map(sampleBillableTokens))),
+    cacheReadTokens: tokenMetric(totalOf(conclusive.map(sampleCacheReadTokens))),
     durationMs: measure(
       totalOf(conclusive.map((sample) => sample.durationMs)),
       changeCount,
@@ -317,7 +402,8 @@ export function aggregateSamplesByMode(
 
 function toCostMetrics(report: CostMetricsReport): CostMetrics {
   return {
-    tokens: report.tokens.value,
+    billableTokens: report.billableTokens.value,
+    cacheReadTokens: report.cacheReadTokens.value,
     durationMs: report.durationMs.value,
     llmCalls: report.llmCalls.value,
   };

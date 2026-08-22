@@ -105,6 +105,7 @@ export const REQUIRED_METHODOLOGY_FIELDS: readonly ManifestField[] = [
     read: (manifest) => optionalNumber(manifest.modelSettings.maxOutputTokens),
   },
   { field: "verifierVersion", read: (manifest) => manifest.verifierVersion },
+  { field: "metricsVersion", read: (manifest) => manifest.metricsVersion },
   ...EXECUTION_MODES.map((mode) => ({
     field: `identity.modeAdapterVersions.${mode}`,
     read: (manifest: BaselineManifest) => manifest.identity.modeAdapterVersions[mode] ?? ABSENT,

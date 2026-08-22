@@ -11,6 +11,7 @@ import {
   freezeDeep,
   type BaselineManifest,
 } from "../../domain/baseline/manifest.js";
+import { MODE_COST_KPI_VERSION } from "../../domain/metrics/aggregate.js";
 import type { BenchmarkSample } from "../../domain/result.js";
 import type { BenchmarkSuiteConfig } from "../../domain/suite-config.js";
 import type { ValidationResult } from "../../domain/validation.js";
@@ -67,6 +68,7 @@ export function buildBaselineManifest(request: BaselineCreationRequest): Baselin
     suiteVersion: request.suiteVersion,
     modelSettings: request.config.modelSettings,
     verifierVersion: request.verifierVersion ?? ACCEPTANCE_VERIFIER_VERSION,
+    metricsVersion: String(MODE_COST_KPI_VERSION),
     environment: request.environment.environment,
     osRelease: request.environment.osRelease,
     toolVersions: request.environment.toolVersions,

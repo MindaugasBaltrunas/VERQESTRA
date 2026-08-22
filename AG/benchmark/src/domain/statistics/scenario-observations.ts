@@ -38,13 +38,18 @@ import { DISTRIBUTION_REFUSAL_REASONS, summarizeDistribution } from "./distribut
  * of success, but it may still testify against it.
  */
 
-/** What a distribution measures. Same three cost dimensions `metrics/aggregate.ts` reports, in report order. */
-export const SCENARIO_MEASURE_KEYS = ["tokens", "durationMs", "llmCalls"] as const;
+/** What a distribution measures. Same cost dimensions `metrics/aggregate.ts` reports, in report order. */
+export const SCENARIO_MEASURE_KEYS = [
+  "billableTokens",
+  "cacheReadTokens",
+  "durationMs",
+  "llmCalls",
+] as const;
 
 export type ScenarioMeasureKey = (typeof SCENARIO_MEASURE_KEYS)[number];
 
-/** Tokens, because it is the dimension that is comparable across machines — wall clock is not. */
-export const DEFAULT_SCENARIO_MEASURE: ScenarioMeasureKey = "tokens";
+/** Billable tokens, because it is the dimension that is comparable across machines — wall clock is not. */
+export const DEFAULT_SCENARIO_MEASURE: ScenarioMeasureKey = "billableTokens";
 
 /** BENCH-9's floor for a scenario whose result varies between runs. */
 export const MINIMUM_NONDETERMINISTIC_OBSERVATIONS = 3;
@@ -116,11 +121,22 @@ function countOf(samples: readonly BenchmarkSample[], holds: (sample: BenchmarkS
   return samples.reduce((count, sample) => (holds(sample) ? count + 1 : count), 0);
 }
 
-/** The number one sample contributes to the distribution. Tokens are the two halves the adapter reported, never an estimate. */
+/**
+ * The number one sample contributes to the distribution. Every quantity is what the adapter
+ * reported, never an estimate — and `billableTokens` is the same arithmetic
+ * `metrics/aggregate.ts` folds, so a scenario's distribution and the mode rollup describe one
+ * quantity rather than two that happen to share a name.
+ */
 function measureOf(sample: BenchmarkSample, measure: ScenarioMeasureKey): number {
   switch (measure) {
-    case "tokens":
-      return sample.telemetry.inputTokens + sample.telemetry.outputTokens;
+    case "billableTokens":
+      return (
+        sample.telemetry.inputTokens +
+        sample.telemetry.outputTokens +
+        (sample.usage?.cacheCreationInputTokens ?? 0)
+      );
+    case "cacheReadTokens":
+      return sample.usage?.cacheReadInputTokens ?? 0;
     case "durationMs":
       return sample.durationMs;
     case "llmCalls":

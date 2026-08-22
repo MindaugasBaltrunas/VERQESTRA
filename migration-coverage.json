@@ -7,7 +7,11 @@
     "initialized_at": "2026-08-19"
   },
   "rules": {
-    "statuses": ["pending", "migrated", "wont-migrate"],
+    "statuses": [
+      "pending",
+      "migrated",
+      "wont-migrate"
+    ],
     "cutover_requires": "0 pending (COV-3)",
     "resync": "kiekvienas AG_loop pakeitimas po freeze registruojamas resync_log įraše paliestiems moduliams (COV-4)",
     "note": "failas persikelia į vq/state/ E7 self-hosting metu"
@@ -423,6 +427,18 @@
         "tests (characterization/*)"
       ],
       "reason": "0049 diagnozės atribucijos fix + VQ-003 characterization fixtures (po freeze; įtraukta į etaloną HEAD 9027d627 ir vėlesnius commit'us — E3/E5 bangos ima naujausią elgesį su fixture'ais)"
+    }
+  ],
+  "deviations": [
+    {
+      "date": "2026-08-22",
+      "area": "AG/benchmark — domain/metrics, domain/statistics, domain/baseline",
+      "etalon_behaviour": "Rezimu palyginimo kastu metrika `tokens` = telemetry.inputTokens + telemetry.outputTokens. Cache creation neiskaiciuojamas, cache read nerodomas. Baseline manifeste nera metriku versijos lauko.",
+      "verqestra_behaviour": "`billableTokens` = input + output + cacheCreation (ta pati aritmetika, kaip `sampleBillableTokens` ir adapterio limitas); `cacheReadTokens` — atskira metrika; `MODE_COST_KPI_VERSION` = 2 irasomas i manifesto `metricsVersion` ir tikrinamas palyginamumo vartuose; manifesto schema 1 → 2.",
+      "reason": "Irodoma etalono spraga, ne sprendimas. `usage.input_tokens` pagal apibrezima NEiskaiciuoja kesuoto prefikso, tad matuojama kiekybe nera saskaita. Gyvi VERQESTRA loop'o logai (vq/logs/token-usage.jsonl, 2026-08-22): metrika mato 2 690 tokenu, apmokestinama 47 361 — 94.3 % tureju nematoma. Paklaida ne pastovi: ji auga su pakartotinai naudojamo prefikso dydziu, t. y. su tuo, ka `ag-loop` turi, o `agent-solo` ne, tad ji sistemiskai palankesne butent tam rezimui, kuris matuojamas. Be `metricsVersion` toks perapibrezimas lieka tylus: abi puses skelbia lauka tuo paciu vardu.",
+      "direction": "grieztinantis — du uzsaldyti baseline'ai (schema 1) nuo siol atmetami `unsupportedManifestSchema`; jie turi tik deterministic-control mėginius be tokenu telemetrijos, tad nera prarandamo palyginimo",
+      "etalon_annotation": "NEIRASYTA — etalonas uzsaldytas 2026-08-22 (AG_loop a75f9fe3), tasks.md nebekeiciamas; nukrypimas fiksuojamas cia, commit'o ataskaitoje ir docs/audits/E8-benchmark-audit.md",
+      "tests": "AG/benchmark/src/tests/metrics-aggregation.test.ts — 4 nauji testai (cache creation ieina i saskaita; cache read rodomas atskirai; sugedes usage atmeta TIK tokenu metrikas issaugant vardikli; nesantis usage blokas nera sugedes)"
     }
   ]
 }

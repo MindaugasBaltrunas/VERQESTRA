@@ -13,7 +13,17 @@ export type Ratio = number | undefined;
 export type CostPerChange = number | undefined;
 
 export interface CostMetrics {
-  readonly tokens: CostPerChange;
+  /**
+   * `input + output + cacheCreation` — what the provider bills. Cache *reads* are excluded here
+   * and reported beside it: they are charged at a fraction, so folding them in would overstate
+   * the bill as surely as omitting cache creation understated it.
+   */
+  readonly billableTokens: CostPerChange;
+  /**
+   * Cache reads, per change. Not part of the bill's basis, but the quantity a mode that reuses a
+   * large prefix moves its volume into — published so the cost claim is readable.
+   */
+  readonly cacheReadTokens: CostPerChange;
   readonly durationMs: CostPerChange;
   readonly llmCalls: CostPerChange;
 }

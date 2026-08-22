@@ -136,6 +136,7 @@ const MANIFEST_KEYS = [
   "suiteVersion",
   "modelSettings",
   "verifierVersion",
+  "metricsVersion",
   "environment",
   "osRelease",
   "toolVersions",
@@ -369,6 +370,14 @@ function readManifest(
     VERSION_LABEL,
     "a printable version label",
   );
+  const metricsVersion = readMatching(
+    nested.record,
+    "metricsVersion",
+    at,
+    problems,
+    VERSION_LABEL,
+    "a printable version label",
+  );
   const environment = readEnvironment(nested.record, at, problems);
   const osRelease = readString(nested.record, "osRelease", at, problems);
   const toolVersions = readToolVersions(nested.record, at, problems);
@@ -381,6 +390,7 @@ function readManifest(
     suiteVersion === undefined ||
     modelSettings === undefined ||
     verifierVersion === undefined ||
+    metricsVersion === undefined ||
     environment === undefined ||
     osRelease === undefined ||
     toolVersions === undefined
@@ -396,6 +406,7 @@ function readManifest(
     suiteVersion,
     modelSettings,
     verifierVersion,
+    metricsVersion,
     environment,
     osRelease,
     toolVersions,

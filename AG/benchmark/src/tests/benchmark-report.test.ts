@@ -236,7 +236,7 @@ test("a mode section carries both sides and the differences BENCH-3 requires to 
   assert.ok(section.differences.length > 0, "the ag-loop mode declares differences from the plan");
 
   const tokens = section.metrics.find(
-    (row) => row.metric === "perVerifiedAcceptedChange.tokens",
+    (row) => row.metric === "perVerifiedAcceptedChange.billableTokens",
   );
   assert.ok(tokens !== undefined);
   assert.equal(tokens.baseline, 100);

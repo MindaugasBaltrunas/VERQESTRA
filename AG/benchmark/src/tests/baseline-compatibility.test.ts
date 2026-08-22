@@ -9,7 +9,10 @@ import {
   REQUIRED_METHODOLOGY_FIELDS,
   type ComparabilityAssessment,
 } from "../domain/baseline/compatibility.js";
-import type { BaselineManifest } from "../domain/baseline/manifest.js";
+import {
+  BASELINE_MANIFEST_SCHEMA_VERSION,
+  type BaselineManifest,
+} from "../domain/baseline/manifest.js";
 import { EXECUTION_MODES } from "../domain/result.js";
 import {
   manifestWith,
@@ -223,7 +226,7 @@ test("a run without an AG commit cannot be compared in either direction", () => 
 });
 
 test("a manifest from a schema version this build does not read is refused", () => {
-  const future = manifestWith({ schemaVersion: 2 });
+  const future = manifestWith({ schemaVersion: BASELINE_MANIFEST_SCHEMA_VERSION + 1 });
   const assessment = assessComparability(validManifest(), future);
   assert.ok(!assessment.comparable);
   assert.ok(

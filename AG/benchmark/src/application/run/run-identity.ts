@@ -10,7 +10,11 @@ import {
   freezeDeep,
   type BaselineManifest,
 } from "../../domain/baseline/manifest.js";
-import { aggregateSamplesByMode, toModeMetrics } from "../../domain/metrics/aggregate.js";
+import {
+  MODE_COST_KPI_VERSION,
+  aggregateSamplesByMode,
+  toModeMetrics,
+} from "../../domain/metrics/aggregate.js";
 import type { BenchmarkSample, ExecutionMode } from "../../domain/result.js";
 import {
   SCENARIO_TIMEOUT_MS_BOUNDS,
@@ -184,6 +188,7 @@ export function buildRunManifest(input: RunManifestInput): BaselineManifest {
     suiteVersion: input.config.suiteVersion,
     modelSettings: input.config.modelSettings,
     verifierVersion: ACCEPTANCE_VERIFIER_VERSION,
+    metricsVersion: String(MODE_COST_KPI_VERSION),
     environment: input.environment.environment,
     osRelease: input.environment.osRelease,
     toolVersions: input.environment.toolVersions,

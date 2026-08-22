@@ -52,6 +52,10 @@ interface SampleShape {
   readonly checks?: readonly CheckResult[];
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheCreationInputTokens?: number;
+  readonly cacheReadInputTokens?: number;
+  /** `false` publishes a usage block whose accounting failed — the model ran and the tokens are unknown. */
+  readonly usageCaptured?: boolean;
   readonly llmCalls?: number;
   readonly durationMs?: number;
 }
@@ -104,6 +108,18 @@ function sample(shape: SampleShape = {}): BenchmarkSample {
       reasons: REASONS_BY_VERDICT[verdict],
       agentClaimedDone: shape.claimedDone ?? verdict === "verified-accepted",
     },
+    ...(shape.cacheCreationInputTokens === undefined &&
+    shape.cacheReadInputTokens === undefined &&
+    shape.usageCaptured === undefined
+      ? {}
+      : {
+          usage: {
+            source: "envelope" as const,
+            captured: shape.usageCaptured ?? true,
+            cacheCreationInputTokens: shape.cacheCreationInputTokens ?? 0,
+            cacheReadInputTokens: shape.cacheReadInputTokens ?? 0,
+          },
+        }),
   });
 }
 
@@ -218,10 +234,12 @@ test("BENCH-7 publishes exactly the metrics the specification names", () => {
     "testFailureRate",
     "architectureFailureRate",
     "securityFailureRate",
-    "perAcceptedChange.tokens",
+    "perAcceptedChange.billableTokens",
+    "perAcceptedChange.cacheReadTokens",
     "perAcceptedChange.durationMs",
     "perAcceptedChange.llmCalls",
-    "perVerifiedAcceptedChange.tokens",
+    "perVerifiedAcceptedChange.billableTokens",
+    "perVerifiedAcceptedChange.cacheReadTokens",
     "perVerifiedAcceptedChange.durationMs",
     "perVerifiedAcceptedChange.llmCalls",
   ]);
@@ -331,11 +349,11 @@ test("a claim the verifier refused still counts as an accepted change and never 
   const report = aggregateSamples([
     sample({ verdict: "rejected", claimedDone: true, inputTokens: 900, outputTokens: 100 }),
   ]);
-  assert.equal(report.perAcceptedChange.tokens.value, 1_000);
+  assert.equal(report.perAcceptedChange.billableTokens.value, 1_000);
   assertUnmeasured(
-    report.perVerifiedAcceptedChange.tokens,
+    report.perVerifiedAcceptedChange.billableTokens,
     "no-verified-accepted-change",
-    "perVerifiedAcceptedChange.tokens",
+    "perVerifiedAcceptedChange.billableTokens",
   );
   assert.equal(report.acceptedRate.value, 0, "the verifier accepted none of one conclusive sample");
 });
@@ -347,11 +365,11 @@ test("a change the verifier granted but the agent never claimed leaves the claim
     sample({ claimedDone: false, inputTokens: 900, outputTokens: 100 }),
   ]);
   assertUnmeasured(
-    report.perAcceptedChange.tokens,
+    report.perAcceptedChange.billableTokens,
     "no-accepted-change",
-    "perAcceptedChange.tokens",
+    "perAcceptedChange.billableTokens",
   );
-  assert.equal(report.perVerifiedAcceptedChange.tokens.value, 1_000);
+  assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 1_000);
   assert.equal(report.acceptedRate.value, 1);
 });
 
@@ -361,9 +379,9 @@ test("a claim on a sample nobody could verify is not an accepted change", () => 
     sample({ sampleId: "s-2", verdict: "rejected", claimedDone: false }),
   ]);
   assertUnmeasured(
-    report.perAcceptedChange.tokens,
+    report.perAcceptedChange.billableTokens,
     "no-accepted-change",
-    "perAcceptedChange.tokens",
+    "perAcceptedChange.billableTokens",
   );
   assert.equal(report.conclusiveCount, 1);
   assert.equal(report.inconclusiveCount, 1);
@@ -375,7 +393,11 @@ test("a claim on a sample nobody could verify is not an accepted change", () => 
 
 /** One way to make each cost total unusable: an overflow, and a term that is not a whole number. */
 const UNUSABLE_COST: Readonly<Record<CostMetricKey, SampleShape>> = {
-  tokens: { inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: Number.MAX_SAFE_INTEGER },
+  billableTokens: {
+    inputTokens: Number.MAX_SAFE_INTEGER,
+    outputTokens: Number.MAX_SAFE_INTEGER,
+  },
+  cacheReadTokens: { cacheReadInputTokens: Number.MAX_SAFE_INTEGER },
   durationMs: { durationMs: 0.5 },
   llmCalls: { llmCalls: Number.MAX_SAFE_INTEGER },
 };
@@ -407,9 +429,9 @@ test("an untrustworthy total outranks the empty denominator it would also have h
   );
   assert.equal(report.perAcceptedChange.durationMs.denominator, 0);
   assertUnmeasured(
-    report.perAcceptedChange.tokens,
+    report.perAcceptedChange.billableTokens,
     "no-accepted-change",
-    "perAcceptedChange.tokens",
+    "perAcceptedChange.billableTokens",
   );
 });
 
@@ -572,10 +594,10 @@ test("cost per change divides the whole population's cost by the changes it prod
     }),
   ]);
   // Both runs were paid for; the agent claimed two changes and the verifier granted one.
-  assert.equal(report.perAcceptedChange.tokens.value, 1_500 / 2);
+  assert.equal(report.perAcceptedChange.billableTokens.value, 1_500 / 2);
   assert.equal(report.perAcceptedChange.llmCalls.value, 6 / 2);
   assert.equal(report.perAcceptedChange.durationMs.value, 16_000 / 2);
-  assert.equal(report.perVerifiedAcceptedChange.tokens.value, 1_500);
+  assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 1_500);
   assert.equal(report.perVerifiedAcceptedChange.llmCalls.value, 6);
   assert.equal(report.perVerifiedAcceptedChange.durationMs.value, 16_000);
 });
@@ -591,7 +613,7 @@ test("an inconclusive sample is excluded from the cost totals as well as from th
       llmCalls: 99,
     }),
   ]);
-  assert.equal(report.perVerifiedAcceptedChange.tokens.value, 100);
+  assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 100);
   assert.equal(report.inconclusiveCount, 1);
 });
 
@@ -729,8 +751,18 @@ test("the published metrics view maps every metric to its own value", () => {
     testFailureRate: distinct(),
     architectureFailureRate: distinct(),
     securityFailureRate: distinct(),
-    perAcceptedChange: { tokens: distinct(), durationMs: distinct(), llmCalls: distinct() },
-    perVerifiedAcceptedChange: { tokens: distinct(), durationMs: distinct(), llmCalls: distinct() },
+    perAcceptedChange: {
+      billableTokens: distinct(),
+      cacheReadTokens: distinct(),
+      durationMs: distinct(),
+      llmCalls: distinct(),
+    },
+    perVerifiedAcceptedChange: {
+      billableTokens: distinct(),
+      cacheReadTokens: distinct(),
+      durationMs: distinct(),
+      llmCalls: distinct(),
+    },
   };
 
   const metrics = toBenchmarkMetrics(report);
@@ -753,4 +785,66 @@ test("per-mode metrics narrow to the published contract mode by mode", () => {
     reports.map((entry) => entry.mode),
   );
   assert.equal(toModeMetrics(reports)[1]?.metrics.acceptedRate, 1 / 2);
+});
+
+// ---------------------------------------------------------------------------
+// What the cost metric counts (MODE_COST_KPI_VERSION 2)
+// ---------------------------------------------------------------------------
+
+test("billableTokens counts cache creation, because the provider bills for it", () => {
+  // Version 1 of this metric summed `input + output` alone. On a real VERQESTRA loop that saw
+  // 2 690 tokens where 47 361 were billable: `usage.input_tokens` excludes cached prefixes by
+  // definition, so the omission grew with the reused prefix — the very thing the `ag-loop` mode
+  // has and `agent-solo` does not.
+  const report = aggregateSamples([
+    sample({ inputTokens: 16, outputTokens: 674, cacheCreationInputTokens: 1_310 }),
+  ]);
+  assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 2_000);
+});
+
+test("cache reads are reported beside the bill, never folded into it", () => {
+  // They are charged at a fraction of input. Adding them would overstate the bill by about the
+  // margin omitting cache creation understated it, and hiding them would leave the mode that
+  // reuses a large prefix looking free.
+  const report = aggregateSamples([
+    sample({
+      inputTokens: 100,
+      outputTokens: 100,
+      cacheCreationInputTokens: 300,
+      cacheReadInputTokens: 9_000,
+    }),
+  ]);
+  assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 500);
+  assert.equal(report.perVerifiedAcceptedChange.cacheReadTokens.value, 9_000);
+});
+
+test("a sample whose accounting broke refuses the token metrics and only those", () => {
+  // The tokens were spent; summing the samples that did report leaves them out and understates
+  // exactly the mode whose accounting failed (`domain/result.ts`). Duration and call count rest
+  // on nothing the usage block carries, so refusing them would claim a wider failure.
+  const report = aggregateSamples([
+    sample({ sampleId: "s-1", inputTokens: 100, outputTokens: 100, durationMs: 4_000 }),
+    sample({ sampleId: "s-2", usageCaptured: false, durationMs: 4_000 }),
+  ]);
+  assertUnmeasured(
+    report.perVerifiedAcceptedChange.billableTokens,
+    "no-captured-usage",
+    "perVerifiedAcceptedChange.billableTokens",
+  );
+  assert.equal(
+    report.perVerifiedAcceptedChange.billableTokens.denominator,
+    2,
+    "the refusal keeps the real denominator; a zero there would be untraceable",
+  );
+  assert.equal(report.perVerifiedAcceptedChange.durationMs.value, 4_000);
+  assert.equal(report.perVerifiedAcceptedChange.llmCalls.value !== undefined, true);
+});
+
+test("an absent usage block is not a broken one", () => {
+  // A version 1 telemetry envelope had no cache dimension, and `deterministic-control` calls no
+  // model at all. In both cases the cache terms are genuinely zero, and refusing would report a
+  // failure that did not happen.
+  const report = aggregateSamples([sample({ inputTokens: 100, outputTokens: 100 })]);
+  assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 200);
+  assert.equal(report.perVerifiedAcceptedChange.cacheReadTokens.value, 0);
 });

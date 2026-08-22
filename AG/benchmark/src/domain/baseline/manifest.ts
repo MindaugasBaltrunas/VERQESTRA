@@ -34,7 +34,13 @@ import { canonicalDigest, canonicalJson } from "./canonical-json.js";
  * the reader the field that differed — that is `compatibility.ts`'s job.
  */
 
-export const BASELINE_MANIFEST_SCHEMA_VERSION = 1;
+/**
+ * Version 2 added `metricsVersion`. A manifest recorded under version 1 is refused rather than
+ * read with the field defaulted: version 1 is exactly the set of baselines whose `tokens` metric
+ * excluded cache creation, and defaulting the missing field would declare them comparable with
+ * runs that measure a different quantity — the one failure the field exists to prevent.
+ */
+export const BASELINE_MANIFEST_SCHEMA_VERSION = 2;
 
 /**
  * The methodology version of the independent acceptance verifier (BENCH-6).
@@ -80,6 +86,15 @@ export interface BaselineManifest {
   readonly modelSettings: ModelSettings;
   /** {@link ACCEPTANCE_VERIFIER_VERSION} as it stood when the samples were verified. */
   readonly verifierVersion: string;
+  /**
+   * `MODE_COST_KPI_VERSION` as it stood when the samples were aggregated — the version of the
+   * quantity the cost metrics measure, not of the code that measured it.
+   *
+   * Recorded for the same reason `verifierVersion` is: acceptance and cost are both judgements,
+   * and a comparison across two definitions of either is not a comparison. A digest cannot carry
+   * this, because two runs can agree on every input and still fold them into different numbers.
+   */
+  readonly metricsVersion: string;
   readonly environment: BenchmarkEnvironment;
   /** Operating system type and release, e.g. `Windows_NT 10.0.26200`. Never the host name. */
   readonly osRelease: string;
@@ -191,6 +206,7 @@ function projectManifest(manifest: BaselineManifest): Record<string, unknown> {
     suiteVersion: manifest.suiteVersion,
     modelSettings: projectModelSettings(manifest.modelSettings),
     verifierVersion: manifest.verifierVersion,
+    metricsVersion: manifest.metricsVersion,
     environment: projectEnvironment(manifest.environment),
     osRelease: manifest.osRelease,
     toolVersions: projectToolVersions(manifest.toolVersions),

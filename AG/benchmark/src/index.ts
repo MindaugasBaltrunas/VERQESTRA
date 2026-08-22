@@ -15,7 +15,6 @@ export * from "./domain/baseline.js";
 export * from "./domain/verdict.js";
 
 export * from "./application/benchmark-api.js";
-export * from "./application/ports/scenario-suite-port.js";
 export * from "./application/ports/sample-store-port.js";
 export * from "./application/ports/worktree-port.js";
 export * from "./application/ports/agent-execution-port.js";

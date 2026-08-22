@@ -2,7 +2,7 @@ import { EXECUTION_MODES, type ExecutionMode } from "../../application/benchmark
 import { BENCHMARK_REPORT_FORMATS, type BenchmarkReportFormat } from "../../application/benchmark-api.js";
 
 /**
- * Argument contract for `ag benchmark` (BENCH-10).
+ * Argument contract for `verqestra benchmark` (BENCH-10).
  *
  * Everything here is pure: text in, a request or a refusal out. Parsing owns no
  * knowledge of what a suite contains, so it cannot decide that a scenario id is
@@ -410,7 +410,7 @@ function buildInvocation(command: BenchmarkCliCommand, scanned: ScannedOptions):
 // ---------------------------------------------------------------------------
 
 /**
- * `argv` is what follows `ag benchmark`. An empty invocation is help rather than
+ * `argv` is what follows `verqestra benchmark`. An empty invocation is help rather than
  * an error: a caller who does not yet know the surface should be shown it, not
  * scolded with exit 2.
  */

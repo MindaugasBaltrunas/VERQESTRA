@@ -6,7 +6,7 @@ import {
 import { BENCHMARK_EXIT_CODES, BENCHMARK_EXIT_CODE_MEANINGS, type BenchmarkExitCodeName } from "./benchmark-exit-codes.js";
 
 /**
- * `ag benchmark --help`, rendered from the same tables the parser reads.
+ * `verqestra benchmark --help`, rendered from the same tables the parser reads.
  *
  * Help is generated rather than written out because a hand-maintained usage
  * block drifts: it keeps advertising an option that was removed, or stays silent
@@ -70,10 +70,10 @@ function exitCodeLines(): readonly string[] {
 /** Deterministic: identical text for identical tables, so it can be asserted on. */
 export function renderBenchmarkCliHelp(): string {
   return [
-    "ag benchmark — measure what AG Loop costs and delivers (BENCH-10)",
+    "verqestra benchmark — measure what VERQESTRA costs and delivers (BENCH-10)",
     "",
     "Usage:",
-    "  ag benchmark <command> [options]",
+    "  verqestra benchmark <command> [options]",
     "",
     "Commands:",
     ...commandLines(),

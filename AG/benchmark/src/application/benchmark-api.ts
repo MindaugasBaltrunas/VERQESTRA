@@ -130,7 +130,7 @@ export class BenchmarkRunNotExecutedError extends Error {
   constructor(readonly action: string) {
     super(
       `no executed run to ${action}: this benchmark package holds no run ledger. ` +
-        "Execute `ag benchmark run` first; nothing was read and nothing was written.",
+        "Execute `verqestra benchmark run` first; nothing was read and nothing was written.",
     );
     this.name = "BenchmarkRunNotExecutedError";
   }

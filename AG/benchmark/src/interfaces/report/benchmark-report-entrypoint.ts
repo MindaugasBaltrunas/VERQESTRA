@@ -23,7 +23,7 @@ import { writeBenchmarkReports, type BenchmarkReportWriteResult } from "./write-
  * Renders the JSON and Markdown report of whatever the sample ledger currently
  * holds and writes both into `reports/`. It is a *generator*, not a gate: it
  * exits non-zero when a report could not be produced, never because the verdict
- * inside it was unwelcome. The gate is `ag benchmark compare`, whose exit code is
+ * inside it was unwelcome. The gate is `verqestra benchmark compare`, whose exit code is
  * the verdict's (`interfaces/cli/benchmark-cli.ts`).
  *
  * ## The identity is read, never re-derived
@@ -74,7 +74,7 @@ export const REPORT_LIMITATIONS = {
   unrecordedIdentity:
     "this run ledger was written before runs recorded their configuration and policy " +
     "identities, so its `configHash` and `policyHash` are unrecorded and BENCH-8 does not " +
-    "permit this report to be compared against a baseline; re-run `ag benchmark run` to " +
+    "permit this report to be compared against a baseline; re-run `verqestra benchmark run` to " +
     "produce an attributable ledger",
 
   /** Disclosure, not a gate: the report identifies the run that was measured. */

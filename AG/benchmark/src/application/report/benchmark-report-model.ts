@@ -278,7 +278,10 @@ export interface BenchmarkReportInput {
  */
 export const REPRODUCTION_BASELINE_PLACEHOLDER = "<baseline-document>";
 
-const REPRODUCTION_BASE_ARGUMENTS = ["ag", "benchmark", "report"] as const;
+// Binaro vardas yra reprodukcijos komandos DALIS: ataskaita, kviečianti `ag`, siunčia skaitytoją
+// prie komandos, kurios šiame produkte nėra. Atskiri masyvo elementai, o ne viena eilutė —
+// būtent todėl VQ-703 tekstinis pervadinimas šios vietos nepasiekė ir ją pagavo testas.
+const REPRODUCTION_BASE_ARGUMENTS = ["verqestra", "benchmark", "report"] as const;
 
 /** Identity fields whose absence makes a run unattributable (BENCH-8). */
 const REQUIRED_IDENTITY_FIELDS = ["suiteHash", "configHash", "policyHash", "agCommit"] as const;

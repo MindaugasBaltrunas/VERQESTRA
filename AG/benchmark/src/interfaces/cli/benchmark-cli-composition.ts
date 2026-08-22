@@ -91,7 +91,7 @@ import { runBenchmarkCli, type BenchmarkCliIo, type BenchmarkCliPorts } from "./
 import type { BenchmarkExitCode } from "./benchmark-exit-codes.js";
 
 /**
- * The composition root of `ag benchmark`.
+ * The composition root of `verqestra benchmark`.
  *
  * This is where the CLI's dependencies are chosen and built; every other module
  * under `interfaces/cli` is pure or injected. It is also the only place in the
@@ -754,7 +754,7 @@ export async function readLatestRecordedRun(
 }
 
 /**
- * The entry point a host CLI calls. `argv` is what follows `ag benchmark`; the
+ * The entry point a host CLI calls. `argv` is what follows `verqestra benchmark`; the
  * returned code is the contract of `BENCHMARK_EXIT_CODES`.
  */
 export async function runBenchmarkCommand(

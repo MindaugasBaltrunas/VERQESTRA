@@ -1,5 +1,5 @@
 /**
- * The exit codes `ag benchmark` answers with (BENCH-10).
+ * The exit codes `verqestra benchmark` answers with (BENCH-10).
  *
  * A benchmark is read by machines — a CI job, the release gate of BENCH-12, a
  * scheduled workflow — before it is read by a person, and those readers have to

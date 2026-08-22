@@ -21,7 +21,7 @@ import { renderBenchmarkCliHelp } from "./benchmark-cli-help.js";
 import { BENCHMARK_EXIT_CODES, type BenchmarkExitCode } from "./benchmark-exit-codes.js";
 
 /**
- * The `ag benchmark` adapter (BENCH-10).
+ * The `verqestra benchmark` adapter (BENCH-10).
  *
  * It parses, calls the application API, renders, and turns an outcome into an
  * exit code. It owns no benchmark rule: no metric is computed here, no verdict
@@ -350,7 +350,7 @@ async function dispatch(
 }
 
 /**
- * `argv` is what follows `ag benchmark`. Returns the exit code rather than
+ * `argv` is what follows `verqestra benchmark`. Returns the exit code rather than
  * setting `process.exitCode`, so the caller decides what to do with it and the
  * tests can read it.
  */
@@ -361,7 +361,7 @@ export async function runBenchmarkCli(
   const parsed = parseBenchmarkCliArguments(argv);
   if (!parsed.ok) {
     deps.err(parsed.problem);
-    deps.err("run `ag benchmark --help` for the command and option surface");
+    deps.err("run `verqestra benchmark --help` for the command and option surface");
     return BENCHMARK_EXIT_CODES.usageError;
   }
   if (parsed.invocation.command === "help") {

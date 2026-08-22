@@ -1,0 +1,4 @@
+# Paleidimo išvestis: sample ledger'iai ir jų tapatybės. Jie yra ĮRODYMAS, bet susietas su
+# konkrečia mašina ir laiku, tad commit'inama ne jų kopija, o ataskaita ir baseline dokumentas.
+# Katalogas sekamas per šį failą, kad `results/runs` egzistuotų švariame checkout'e.
+runs/

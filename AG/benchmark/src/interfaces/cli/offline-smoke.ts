@@ -2,7 +2,7 @@ import { runBenchmarkCommand, type BenchmarkCliCompositionOptions } from "./benc
 import { BENCHMARK_EXIT_CODES, type BenchmarkExitCodeName } from "./benchmark-exit-codes.js";
 
 /**
- * The deterministic offline smoke of `ag benchmark` (BENCH-12).
+ * The deterministic offline smoke of `verqestra benchmark` (BENCH-12).
  *
  * BENCH-12 lets a pull request run `validate`, the unit and fixture tests, and a
  * deterministic smoke — and nothing that reaches a paid model. The unit tests
@@ -31,7 +31,7 @@ export const PAID_MODEL_ARGUMENTS: readonly string[] = Object.freeze(["--allow-n
 
 export interface OfflineSmokeCheck {
   readonly id: string;
-  /** What follows `ag benchmark`. */
+  /** What follows `verqestra benchmark`. */
   readonly argv: readonly string[];
   readonly expect: BenchmarkExitCodeName;
   /** Why this invocation is part of the gate — read by whoever has to change it. */

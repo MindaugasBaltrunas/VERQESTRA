@@ -3,7 +3,7 @@ import type { BenchmarkSample } from "../../domain/result.js";
 import type { BenchmarkScenario } from "../../domain/scenario.js";
 
 /**
- * Re-deriving acceptance from a stored sample (BENCH-6, `ag benchmark verify`).
+ * Re-deriving acceptance from a stored sample (BENCH-6, `verqestra benchmark verify`).
  *
  * The question this answers is narrow and worth stating exactly: *given the
  * evidence this sample recorded, does the current acceptance rule reach the

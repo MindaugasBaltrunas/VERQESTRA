@@ -414,7 +414,7 @@ test("the source hashes and the reproduction command appear in both formats", ()
   }
   assert.equal(
     model.reproduction.command,
-    `ag benchmark report --baseline ${REPRODUCTION_BASELINE_PLACEHOLDER}`,
+    `verqestra benchmark report --baseline ${REPRODUCTION_BASELINE_PLACEHOLDER}`,
   );
 });
 

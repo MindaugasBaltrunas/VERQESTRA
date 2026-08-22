@@ -18,7 +18,7 @@ import { runBenchmarkCli, type BenchmarkCliPorts } from "../interfaces/cli/bench
 import { validSample } from "./sample-fixtures.js";
 
 /**
- * The exit-code and rendering contract of `ag benchmark` (BENCH-10).
+ * The exit-code and rendering contract of `verqestra benchmark` (BENCH-10).
  *
  * The API is stubbed throughout: this file is about what the delivery layer does
  * with an answer, and a test that needed a real suite, a worktree or a model
@@ -370,7 +370,7 @@ test("a baseline asked for before any run is a refused input naming the missing 
   );
   assert.equal(result.code, BENCHMARK_EXIT_CODES.validationFailed);
   assert.match(result.err, /no executed run to snapshot/);
-  assert.match(result.err, /ag benchmark run/);
+  assert.match(result.err, /verqestra benchmark run/);
   assert.doesNotMatch(
     result.err,
     /cannot execute/,

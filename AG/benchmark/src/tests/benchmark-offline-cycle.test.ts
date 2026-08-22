@@ -194,7 +194,7 @@ test("a baseline asked for before any run refuses, and writes nothing", async ()
 
   assert.equal(result.code, BENCHMARK_EXIT_CODES.validationFailed);
   assert.match(result.err, /no executed run to summarize/);
-  assert.match(result.err, /ag benchmark run/);
+  assert.match(result.err, /verqestra benchmark run/);
   await assert.rejects(() => readFile(path.join(packageRoot, "baselines"), "utf8"));
 });
 

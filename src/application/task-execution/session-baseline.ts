@@ -78,12 +78,19 @@ export function sessionStartIsSameAttempt(baseline: SessionStartBaseline, dispat
  */
 export const LIVE_DISPATCH_MAX_AGE_MS = 90 * 60 * 1000;
 
-/** Minimalus resume checkpoint'o pjūvis, kurio reikia gyvumo sprendimui. */
+/**
+ * Minimalus resume checkpoint'o pjūvis, kurio reikia gyvumo sprendimui.
+ *
+ * `| undefined` eksplicitiškai (ta pati priežastis kaip `AgentRoleConfig`): tikrasis tiekėjas yra
+ * zod schema, o `.optional()` inferuoja būtent `T | undefined`. Su `exactOptionalPropertyTypes`
+ * siauresnė forma atmestų realų `readResumeCheckpoint` rezultatą, ir vaizdas, sukurtas tam, kad
+ * saugykla būtų PAKEIČIAMA, priimtų tik fiktyvią.
+ */
 export type DispatchCheckpointView = {
-  phase?: string;
-  status?: string;
-  task_id?: string;
-  updated_at?: string;
+  phase?: string | undefined;
+  status?: string | undefined;
+  task_id?: string | undefined;
+  updated_at?: string | undefined;
 };
 
 /**

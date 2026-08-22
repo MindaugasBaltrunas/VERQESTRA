@@ -194,6 +194,10 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "hook-backend-guard",
       "hook-frontend-guard",
       "hook-mobile-guard",
+      "hook-session-start",
+      "hook-session-end",
+      "hook-session-summary",
+      "hook-user-prompt",
     ],
   );
   // Rodyti komandą, kurios dispatch'as nepasiekia, reikštų meluoti operatoriui.

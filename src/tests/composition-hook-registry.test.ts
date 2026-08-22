@@ -49,13 +49,7 @@ const ETALON_HOOK_COMMANDS = [
  * Sąrašas privalo TRUMPĖTI. Naujas įrašas čia leidžiamas tik tada, kai etalonas įgyja naują
  * hook'ą, kurio dar nemigravome.
  */
-const PENDING_HOOK_COMMANDS = [
-  "hook-on-stop",
-  "hook-session-end",
-  "hook-session-start",
-  "hook-session-summary",
-  "hook-user-prompt",
-] as const;
+const PENDING_HOOK_COMMANDS = ["hook-on-stop"] as const;
 
 function registryHookCommands(): string[] {
   const roots = resolveRuntimeRoots({ env: () => "/repo" });
@@ -85,13 +79,16 @@ test("hook registras: PENDING sąrašas negali dengti jau surištos komandos", (
   }
 });
 
-test("hook registras: PostToolUse fan-out'as spawnina TIK egzistuojančias komandas", () => {
-  // `POST_WRITE_GUARDS` nurodo guard'us VARDU ir paleidžia juos atskiru procesu, tad registro
-  // spraga čia nevirsta kompiliavimo klaida — ji virsta tyliu non-zero exit'u žurnale, kurio
-  // niekas neskaito. Šis testas paverčia tokį neatitikimą matomu.
+/**
+ * Komandos, kurias hook'ai paleidžia VAIKINIU PROCESU pagal vardą. Registro spraga čia nevirsta
+ * kompiliavimo klaida — ji virsta tyliu non-zero exit'u žurnale, kurio niekas neskaito.
+ */
+const SPAWNED_BY_NAME = [...POST_WRITE_GUARDS.map((guard) => guard.command), "hook-session-summary"];
+
+test("hook registras: vaikiniai procesai spawninami TIK egzistuojančiais vardais", () => {
   const wired = new Set(registryHookCommands());
-  for (const guard of POST_WRITE_GUARDS) {
-    assert.equal(wired.has(guard.command), true, `${guard.command} spawninamas, bet registre jo nėra`);
+  for (const command of SPAWNED_BY_NAME) {
+    assert.equal(wired.has(command), true, `${command} spawninamas, bet registre jo nėra`);
   }
 });
 

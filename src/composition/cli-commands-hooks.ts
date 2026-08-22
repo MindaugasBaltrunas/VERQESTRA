@@ -20,6 +20,11 @@ import { hookSecretScan } from "../interfaces/hooks/secret-scan.js";
 import { hookPackageGuard } from "../interfaces/hooks/package-guard.js";
 import { hookMigrationGuard } from "../interfaces/hooks/migration-guard.js";
 import { hookBackendGuard, hookFrontendGuard, hookMobileGuard } from "../interfaces/hooks/scope-guards.js";
+import { hookSessionStart } from "../interfaces/hooks/session-start.js";
+import { hookSessionEnd } from "../interfaces/hooks/session-end.js";
+import { hookSessionSummary } from "../interfaces/hooks/session-summary.js";
+import { hookUserPrompt } from "../interfaces/hooks/user-prompt.js";
+import { sessionHookPorts, sessionSummaryPorts, userPromptDeps } from "./session-hook-adapters.js";
 import {
   migrationGuardPorts,
   packageGuardPorts,
@@ -44,6 +49,7 @@ export function hookCommands(deps: CliRegistryDeps): CliCommand[] {
   const preDeps = { ports: preHookPorts(runtimeRoot), ...shared };
   const postDeps = { ports: postHookPorts(), ...shared };
   const scopeDeps = { ports: scopeGuardPorts(runtimeRoot), ...shared };
+  const sessionDeps = { ports: sessionHookPorts(runtimeRoot), ...shared };
 
   return [
     {
@@ -120,6 +126,29 @@ export function hookCommands(deps: CliRegistryDeps): CliCommand[] {
       usage: "[post|stop]",
       description: "Guard: mobile aplikacijos taisyklės (stop režimu ir typecheck)",
       run: (args) => hookMobileGuard(scopeDeps, args),
+    },
+    {
+      name: "hook-session-start",
+      description: "SessionStart: įrodymų reset'as su trimis stabdžiais ir git baseline",
+      run: () => hookSessionStart(sessionDeps),
+    },
+    {
+      name: "hook-session-end",
+      description: "SessionEnd: sesijos apimtis ir runtime įrašo atlaisvinimas",
+      run: () => hookSessionEnd(sessionDeps),
+    },
+    {
+      name: "hook-session-summary",
+      description: "Sesijos santrauka: patikros, pakeisti failai, guard'ų būsena",
+      run: () => hookSessionSummary({ ports: sessionSummaryPorts(runtimeRoot), ...shared }),
+    },
+    {
+      // Vienintelis hook'as, kurio deps sudaromi ASINCHRONIŠKAI: agentų santrauka ateina iš
+      // `vq/config/agents.json`, o ne iš modulyje įrašyto sąrašo. Tas sąrašas yra šios
+      // repozitorijos agentų kopija ir target projekte meluotų.
+      name: "hook-user-prompt",
+      description: "UserPromptSubmit: vienkartinis orkestratoriaus konteksto blokas",
+      run: async () => hookUserPrompt(await userPromptDeps(runtimeRoot, io)),
     },
   ];
 }

@@ -17,6 +17,7 @@ import type {
   ArchitectureNode,
   ArchitectureProgress,
 } from "../../domain/architecture/graph.js";
+import { computeArchitectureGraphHash } from "../../domain/architecture/graph-hash.js";
 import { getReadyNodes } from "../../domain/architecture/readiness.js";
 import { inferInterfaceContract } from "../../domain/architecture/interface-inference.js";
 import { taskBuckets } from "../../domain/tasks/buckets.js";
@@ -110,7 +111,10 @@ function defaultProgress(graph: ArchitectureGraph): ArchitectureProgress {
       evidence_refs: [],
     };
   }
-  return { graph_hash: graph.imported_at, nodes };
+  // TURINIO hash'as, kaip `initProgress`: `imported_at` yra laiko žyma, tad ji keisdavosi
+  // kiekvieno importo metu ir NEsikeisdavo pasikeitus grafui. Abu keliai privalo gaminti tą
+  // patį `graph_hash` tam pačiam grafui, kitaip sintezė ir ledger'is prasilenktų.
+  return { graph_hash: computeArchitectureGraphHash(graph), nodes };
 }
 
 /** Mazgas laukia darbo, kai jis nėra išorinis ir dar nėra `done`. */

@@ -2,6 +2,7 @@
 // įtraukia ir node-verification-rules (WBR VQ-204) — verifikacijos taisyklės yra to paties
 // domeno dalis, o ne atskiras privatus modulis.
 export * from "./graph.js";
+export * from "./graph-hash.js";
 export * from "./graph-import.js";
 export * from "./path-lite.js";
 export * from "./input-source-classification.js";

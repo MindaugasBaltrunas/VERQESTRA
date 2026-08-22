@@ -8,6 +8,13 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { createCodeIntelligenceFsAdapter } from "../infrastructure/fs/code-intelligence-fs-adapter.js";
 import { createProjectContainment } from "../infrastructure/fs/project-containment.js";
+import { initProgress, updateNodeProgress } from "../infrastructure/bootstrap/architecture-graph-store.js";
+import { computeArchitectureGraphHash } from "../domain/architecture/graph-hash.js";
+import type {
+  ArchitectureGraph,
+  ArchitectureNodeProgress,
+  ArchitectureProgress,
+} from "../domain/architecture/index.js";
 import { isWin32ContentionError, withWin32RenameRetry } from "../infrastructure/fs/fs-retry.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 
@@ -105,6 +112,78 @@ test("createProjectContainment: symlink'as projekto viduje neatiduoda išorinio 
     await rm(projectRoot, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }
+});
+
+// Prarasto atnaujinimo atkūrimas: du „workeriai" vienu metu baigia SKIRTINGUS mazgus. Be lock'o
+// abu perskaito tą pačią pradinę būseną, ir vėlesnis rašymas ištrina ankstesniojo rezultatą —
+// atkurta būsena buvo `A=planned, B=done`. Testas tikrina BŪTENT tai, ko nebuvo: kad išlieka ABU.
+test("architecture progress: lygiagretūs skirtingų mazgų atnaujinimai neprarandami", async () => {
+  const statePath = p("arch", "progress.json");
+  const node = (): ArchitectureNodeProgress => ({
+    status: "planned",
+    attempts: {},
+    queued_tasks: [],
+    done_tasks: [],
+    implemented_files: [],
+    evidence_refs: [],
+  });
+  await nodeFsAdapter.writeTextFile(
+    statePath,
+    JSON.stringify({ graph_hash: "h", nodes: { A: node(), B: node() } }, null, 2),
+  );
+
+  // Startuoja kartu — ne nuosekliai; be mutex'o abu perskaitytų `A=planned, B=planned`.
+  await Promise.all([
+    updateNodeProgress(statePath, "A", { status: "done" }),
+    updateNodeProgress(statePath, "B", { status: "done" }),
+  ]);
+
+  const after = JSON.parse(await nodeFsAdapter.readTextFile(statePath)) as ArchitectureProgress;
+  assert.equal(after.nodes["A"]?.status, "done", "pirmojo rašytojo rezultatas neperrašytas");
+  assert.equal(after.nodes["B"]?.status, "done");
+  // Lock'as atlaisvinamas — kitaip kitas rašytojas lauktų iki stale ribos.
+  assert.equal(await nodeFsAdapter.exists(`${statePath}.lock`), false, "lock katalogas nepaliktas");
+});
+
+// `done` yra teiginys apie KONKRETŲ darbo vienetą. Anksčiau refresh'as jį išsaugodavo vien pagal
+// ID, tad pasikeitus etiketei ar briaunoms mazgas likdavo `done` su senais `implemented_files` ir
+// atrakindavo downstream. ID yra tik vardas, ne tapatybė.
+test("architecture progress: pasikeitęs mazgo apibrėžimas nebepaveldi `done`", async () => {
+  const statePath = p("arch-refresh", "progress.json");
+  const graph = (label: string): ArchitectureGraph => ({
+    source_path: "s.mmd",
+    imported_at: "2026-08-21T00:00:00.000Z",
+    nodes: [
+      { id: "A", label, kind: "component", status: "planned" },
+      { id: "B", label: "Stabilus", kind: "component", status: "planned" },
+    ],
+    edges: [],
+  });
+
+  const first = await initProgress(graph("Parseris"), statePath);
+  assert.match(first.graph_hash, /^ag1:[0-9a-f]{16}$/, "graph_hash yra TURINIO atspaudas, ne laiko žyma");
+
+  // Abu mazgai užbaigiami.
+  await updateNodeProgress(statePath, "A", { status: "done", implemented_files: ["src/a.ts"] });
+  await updateNodeProgress(statePath, "B", { status: "done", implemented_files: ["src/b.ts"] });
+
+  // Grafas perimportuojamas: A etiketė pasikeitė, B — ne.
+  const refreshed = await initProgress(graph("Visai kitas komponentas"), statePath);
+  assert.equal(refreshed.nodes["A"]?.status, "human-review", "pakeistas mazgas nebelieka `done`");
+  assert.match(refreshed.nodes["A"]?.human_review_reason ?? "", /definition changed/);
+  assert.deepEqual(
+    refreshed.nodes["A"]?.implemented_files,
+    ["src/a.ts"],
+    "evidencija IŠSAUGOMA — jos operatoriui reikia sprendžiant, ar darbas vis dar tinka",
+  );
+  assert.equal(refreshed.nodes["B"]?.status, "done", "nepakitęs mazgas lieka `done`");
+
+  // Tas pats grafas antrą kartą — hash'as NEsikeičia, nors `imported_at` būtų kitoks.
+  assert.equal(
+    computeArchitectureGraphHash({ ...graph("Visai kitas komponentas"), imported_at: "2027-01-01T00:00:00.000Z" }),
+    refreshed.graph_hash,
+    "provenencija (imported_at) į turinio atspaudą nepatenka",
+  );
 });
 
 test("writeTextFile: atominis, kuria tėvinius katalogus ir nepalieka tmp šiukšlių", async () => {

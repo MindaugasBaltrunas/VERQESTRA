@@ -51,6 +51,15 @@ export type ArchitectureNodeProgress = {
   evidence_refs: string[];
   verified_at?: string;
   human_review_reason?: string;
+  /**
+   * Mazgo apibrėžimo atspaudas TUO METU, kai šis progresas buvo pasiektas
+   * (`computeArchitectureNodeHash`). Refresh'e jis atsako į vienintelį klausimą, kurio anksčiau
+   * niekas neuždavė: ar `done` vis dar reiškia TĄ PATĮ darbo vienetą.
+   *
+   * Nesant lauko (ledger'is iš laikų prieš šią patikrą) `done` yra NEPATIKRINAMAS — žr.
+   * `initProgress`, kur toks mazgas keliauja į `human-review`, o ne lieka `done`.
+   */
+  node_hash?: string;
 };
 
 export type NodeInterfaceContract = {

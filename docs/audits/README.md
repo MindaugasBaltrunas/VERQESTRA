@@ -16,3 +16,4 @@ būsena pasikeis ar bus išvalyta.
 | Failas | Epikas | Data |
 |---|---|---|
 | [E6-audit.md](E6-audit.md) | E6 — UI app + benchmark paketas | 2026-08-22 |
+| [E7-audit.md](E7-audit.md) | E7 — Self-hosting | 2026-08-22 |

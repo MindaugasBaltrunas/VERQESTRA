@@ -23,3 +23,8 @@ jobs:
       # šaknies `pnpm test` jo nemato. Be atskiro žingsnio jis tyliai pūtų: paketas, kurio
       # niekas nepaleidžia, nustoja būti įrodymu ir tampa archyvu.
       - run: pnpm test:benchmark
+      # Dashboard'as taip pat: savo tsconfig, savo vitest, savo testai. Be šio žingsnio
+      # sulaužtas UI paaiškėtų tik operatoriui atsidarius naršyklę.
+      - run: pnpm typecheck:ui
+      - run: pnpm test:ui
+      - run: pnpm build:ui

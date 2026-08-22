@@ -215,7 +215,7 @@ test("parametrizuoti maršrutai: slot'as, triažas, learning ir katalogas", asyn
 
   await handleUiRequest(
     world.deps,
-    request({ method: "POST", url: "/api/runtime/slots/w1/mode", readJsonBody: () => Promise.resolve({ mode: "drain" }) }),
+    request({ method: "POST", url: "/api/runtime/loop/slots/w1", readJsonBody: () => Promise.resolve({ mode: "drain" }) }),
   );
   assert.equal(world.calls.includes("slot:w1"), true);
 

@@ -1,0 +1,6 @@
+# Kanoninis paketų tvarkytojas yra pnpm (žr. task 973 ir šakninį pnpm-workspace.yaml).
+# npm lockfile čia draudžiamas: pasenęs package-lock.json 2026-07-07 perrašė
+# node_modules be test devDeps ir sulaužė visus hook-render testus (dvi React
+# kopijos). Jei jį matai lokaliai — ištrink ir paleisk `pnpm install` repo šaknyje.
+package-lock.json
+node_modules

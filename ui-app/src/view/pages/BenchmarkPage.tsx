@@ -1,0 +1,328 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchBenchmarkReport } from "../../model/api";
+import type {
+  BenchmarkComparisonVerdict,
+  BenchmarkMetricRow,
+  BenchmarkModeSection,
+  BenchmarkReportRunFacts,
+  BenchmarkReportView,
+  BenchmarkScenarioSection,
+} from "../../model/types";
+import { useI18n } from "../../i18n/I18nContext";
+import { Header, type Route } from "../components/Header";
+
+// Read-only view over the backend's authoritative benchmark report
+// (BENCH-10, BENCH-11). Every number shown here is read off `report` as the
+// backend computed it; this page must never re-derive a rate, a delta or a
+// verdict, or it would put a second, possibly disagreeing, answer in front of
+// the operator.
+
+type Props = { activeRoute: Route; onNavigate: (route: Route) => void };
+
+const HEADLINE_MODE_PREFERENCE = "ag-loop";
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function verdictTone(verdict: BenchmarkComparisonVerdict): "good" | "error" | "neutral" {
+  if (verdict === "improved" || verdict === "stable") return "good";
+  if (verdict === "regressed") return "error";
+  return "neutral";
+}
+
+function findMetric(mode: BenchmarkModeSection | undefined, metric: string): BenchmarkMetricRow | undefined {
+  return mode?.metrics.find((row) => row.metric === metric);
+}
+
+function abbreviateCommit(commit: string): string {
+  return commit === "" ? "—" : commit.slice(0, 12);
+}
+
+export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
+  const { t, locale } = useI18n();
+  const percent = useMemo(() => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }), [locale]);
+  const compact = useMemo(() => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }), [locale]);
+  const decimal = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }), [locale]);
+  const [data, setData] = useState<BenchmarkReportView>();
+  const [error, setError] = useState<string>();
+  const [selectedMode, setSelectedMode] = useState<string>();
+  const [selectedScenarioKey, setSelectedScenarioKey] = useState<string>();
+
+  const load = useCallback(async () => {
+    setError(undefined);
+    try {
+      setData(await fetchBenchmarkReport());
+    } catch (nextError) {
+      setError(toMessage(nextError));
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const report = data?.report;
+  const modes = useMemo(() => report?.modes ?? [], [report]);
+  const scenarios = useMemo(() => report?.scenarios ?? [], [report]);
+
+  useEffect(() => {
+    if (modes.length === 0) { setSelectedMode(undefined); return; }
+    setSelectedMode((current) => (current && modes.some((mode) => mode.mode === current) ? current : modes[0].mode));
+  }, [modes]);
+  useEffect(() => {
+    if (scenarios.length === 0) { setSelectedScenarioKey(undefined); return; }
+    const key = (scenario: BenchmarkScenarioSection) => `${scenario.scenarioId}/${scenario.mode}`;
+    setSelectedScenarioKey((current) =>
+      current && scenarios.some((scenario) => key(scenario) === current) ? current : key(scenarios[0]));
+  }, [scenarios]);
+
+  const activeModeSection = modes.find((mode) => mode.mode === selectedMode);
+  const headlineMode = modes.find((mode) => mode.mode === HEADLINE_MODE_PREFERENCE) ?? modes[0];
+  const selectedScenario = scenarios.find((scenario) => `${scenario.scenarioId}/${scenario.mode}` === selectedScenarioKey);
+  const regressedScenarios = scenarios.filter((scenario) => scenario.verdict === "regressed");
+
+  const formatRate = useCallback((value: number | undefined) => (value === undefined ? "n/a" : percent.format(value)), [percent]);
+  const formatTokens = useCallback((value: number | undefined) => (value === undefined ? "n/a" : compact.format(value)), [compact]);
+  const formatDelta = useCallback((row: BenchmarkMetricRow | undefined) => {
+    if (!row || row.relativeDelta === undefined) return undefined;
+    const formatted = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1, signDisplay: "always" }).format(row.relativeDelta);
+    return formatted;
+  }, [locale]);
+
+  return (
+    <>
+      <Header root="" onRefresh={() => void load()} activeRoute={activeRoute} onNavigate={onNavigate} />
+      <main>
+        <div className="page-heading">
+          <div>
+            <p className="page-eyebrow">{t("Engineering intelligence")}</p>
+            <h2>{t("Benchmark")}</h2>
+            <p>{t("Authoritative benchmark verdict, reliability, and baseline comparison for VERQESTRA.")}</p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="notice notice-error" role="alert">
+            {t("Could not load benchmark report")}: {error}{" "}
+            <button className="button ghost small-button" type="button" onClick={() => void load()}>{t("Try again")}</button>
+          </div>
+        )}
+        {!data && !error && <div className="panel">{t("Loading...")}</div>}
+
+        {data && (data.state === "missing" || data.state === "corrupt") && (
+          <div className="panel inbox-zero">
+            <span>{data.state === "missing" ? "○" : "!"}</span>
+            <strong>{t("No benchmark report available")}</strong>
+            <p>{data.reason}</p>
+            <p><code>{data.source.command}</code></p>
+          </div>
+        )}
+
+        {data && report && (
+          <div className="benchmark-page">
+            {data.state === "stale" && (
+              <div className="notice notice-warning" role="alert">{t("This report is stale")}: {data.reason}</div>
+            )}
+
+            <section className="panel benchmark-verdict-panel" aria-label={t("Benchmark verdict")}>
+              <div className="panel-header">
+                <div>
+                  <h2>{t("Verdict")}</h2>
+                  <p className="panel-subtitle">
+                    {report.verdictBasis === "no-baseline" ? t("No baseline comparison was supplied.") : t("Compared against the stored baseline.")}
+                  </p>
+                </div>
+                <span className={`badge status-${verdictTone(report.verdict)}`}>{t(report.verdict)}</span>
+              </div>
+              {report.reasons.length > 0 && (
+                <ul className="benchmark-reasons">
+                  {report.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              )}
+            </section>
+
+            <section className="benchmark-kpis" aria-label={t("Headline metrics")}>
+              <BenchmarkKpi label={t("Accepted rate")} row={findMetric(headlineMode, "acceptedRate")} format={formatRate} delta={formatDelta} />
+              <BenchmarkKpi label={t("First-pass rate")} row={findMetric(headlineMode, "firstPassRate")} format={formatRate} delta={formatDelta} />
+              <BenchmarkKpi label={t("Tokens per verified accepted change")} row={findMetric(headlineMode, "perVerifiedAcceptedChange.tokens")} format={formatTokens} delta={formatDelta} />
+              <BenchmarkKpi label={t("Human review rate")} row={findMetric(headlineMode, "humanReviewRate")} format={formatRate} delta={formatDelta} />
+            </section>
+
+            <section className="panel">
+              <div className="panel-header"><div><h2>{t("Baseline / current runs")}</h2><p className="panel-subtitle">{t("What the report compares, and what it does not have.")}</p></div></div>
+              <div className="benchmark-run-facts">
+                <RunFactsCard title={t("Current run")} facts={report.current} t={t} />
+                {report.baseline ? (
+                  <RunFactsCard title={t("Baseline run")} facts={report.baseline} t={t} />
+                ) : (
+                  <div className="benchmark-run-fact-card benchmark-run-fact-missing">
+                    <strong>{t("Baseline run")}</strong>
+                    <p>{t("No baseline recorded")}</p>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {modes.length > 0 && (
+              <section className="panel">
+                <div className="panel-header">
+                  <div><h2>{t("Mode comparison")}</h2><p className="panel-subtitle">{t("Every BENCH-7 metric, baseline vs. current, one execution mode at a time.")}</p></div>
+                </div>
+                <div className="segmented-control" aria-label={t("Execution modes")}>
+                  {modes.map((mode) => (
+                    <button key={mode.mode} type="button" className={selectedMode === mode.mode ? "active" : ""} aria-pressed={selectedMode === mode.mode} onClick={() => setSelectedMode(mode.mode)}>
+                      {mode.mode}
+                    </button>
+                  ))}
+                </div>
+                {activeModeSection && (
+                  <>
+                    {activeModeSection.differences.length > 0 && (
+                      <ul className="benchmark-mode-differences">
+                        {activeModeSection.differences.map((difference) => (
+                          <li key={`${difference.aspect}/${difference.code}`}><strong>{difference.aspect}</strong>: {difference.detail}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="table-scroll">
+                      <table>
+                        <thead><tr><th>{t("Metric")}</th><th>{t("Baseline")}</th><th>{t("Current")}</th><th>{t("Change")}</th></tr></thead>
+                        <tbody>
+                          {activeModeSection.metrics.map((row) => (
+                            <tr key={row.metric}>
+                              <td>{row.metric}</td>
+                              <td>{row.kind === "rate" ? formatRate(row.baseline) : formatTokens(row.baseline)}</td>
+                              <td>{row.kind === "rate" ? formatRate(row.current) : formatTokens(row.current)}</td>
+                              <td>{formatDelta(row) ?? "n/a"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+
+            <section className="panel">
+              <div className="panel-header"><div><h2>{t("Scenario results")}</h2><p className="panel-subtitle">{t("Select a scenario to see its full distribution.")}</p></div></div>
+              {scenarios.length === 0 ? (
+                <div className="inbox-zero"><span>○</span><strong>{t("No scenario results in this report")}</strong></div>
+              ) : (
+                <>
+                  <div className="table-scroll">
+                    <table>
+                      <thead><tr><th>{t("Scenario")}</th><th>{t("Mode")}</th><th>{t("Verdict")}</th><th>{t("Baseline median")}</th><th>{t("Current median")}</th><th>{t("Success")}</th></tr></thead>
+                      <tbody>
+                        {scenarios.map((scenario) => {
+                          const key = `${scenario.scenarioId}/${scenario.mode}`;
+                          return (
+                            <tr key={key} className={`benchmark-scenario-row${selectedScenarioKey === key ? " selected" : ""}`} onClick={() => setSelectedScenarioKey(key)}>
+                              <td><strong>{scenario.scenarioId}</strong></td>
+                              <td>{scenario.mode}</td>
+                              <td><span className={`badge status-${verdictTone(scenario.verdict)}`}>{t(scenario.verdict)}</span></td>
+                              <td>{decimal.format(scenario.baseline.median)}</td>
+                              <td>{decimal.format(scenario.current.median)}</td>
+                              <td>{scenario.current.successCount}/{scenario.current.count}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {selectedScenario && (
+                    <div className="benchmark-scenario-detail">
+                      <div className="panel-header"><div><h3>{selectedScenario.scenarioId} · {selectedScenario.mode}</h3></div><span className={`badge status-${verdictTone(selectedScenario.verdict)}`}>{t(selectedScenario.verdict)}</span></div>
+                      {selectedScenario.reasons.length > 0 && (
+                        <ul className="benchmark-reasons">{selectedScenario.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                      )}
+                      <div className="table-scroll">
+                        <table>
+                          <thead><tr><th /><th>{t("Count")}</th><th>{t("Median")}</th><th>{t("Mean")}</th><th>{t("Min")}</th><th>{t("Max")}</th><th>{t("Std. deviation")}</th><th>{t("Successes")}</th></tr></thead>
+                          <tbody>
+                            <tr>
+                              <td>{t("Baseline")}</td>
+                              <td>{selectedScenario.baseline.count}</td>
+                              <td>{decimal.format(selectedScenario.baseline.median)}</td>
+                              <td>{decimal.format(selectedScenario.baseline.mean)}</td>
+                              <td>{decimal.format(selectedScenario.baseline.min)}</td>
+                              <td>{decimal.format(selectedScenario.baseline.max)}</td>
+                              <td>{decimal.format(selectedScenario.baseline.standardDeviation)}</td>
+                              <td>{selectedScenario.baseline.successCount}</td>
+                            </tr>
+                            <tr>
+                              <td>{t("Current")}</td>
+                              <td>{selectedScenario.current.count}</td>
+                              <td>{decimal.format(selectedScenario.current.median)}</td>
+                              <td>{decimal.format(selectedScenario.current.mean)}</td>
+                              <td>{decimal.format(selectedScenario.current.min)}</td>
+                              <td>{decimal.format(selectedScenario.current.max)}</td>
+                              <td>{decimal.format(selectedScenario.current.standardDeviation)}</td>
+                              <td>{selectedScenario.current.successCount}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel-header"><div><h2>{t("Regression reasons")}</h2></div></div>
+              {regressedScenarios.length === 0 ? (
+                <p>{t("No regressions in this report.")}</p>
+              ) : (
+                <ul className="benchmark-regression-list">
+                  {regressedScenarios.map((scenario) => (
+                    <li key={`${scenario.scenarioId}/${scenario.mode}`}>
+                      <strong>{scenario.scenarioId} · {scenario.mode}</strong>
+                      <ul className="benchmark-reasons">{scenario.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel-header"><div><h2>{t("Methodology and limitations")}</h2></div></div>
+              <ul className="benchmark-reasons">{report.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
+              <p className="benchmark-reproduction"><span>{t("Reproduction")}</span><code>{report.reproduction.command}</code></p>
+            </section>
+          </div>
+        )}
+      </main>
+    </>
+  );
+}
+
+function BenchmarkKpi({
+  label,
+  row,
+  format,
+  delta,
+}: {
+  label: string;
+  row: BenchmarkMetricRow | undefined;
+  format: (value: number | undefined) => string;
+  delta: (row: BenchmarkMetricRow | undefined) => string | undefined;
+}) {
+  const deltaText = delta(row);
+  return (
+    <article className="benchmark-kpi">
+      <span>{label}</span>
+      <strong>{format(row?.current)}</strong>
+      <small>{deltaText ? `${deltaText} vs. ${format(row?.baseline)}` : format(row?.baseline)}</small>
+    </article>
+  );
+}
+
+function RunFactsCard({ title, facts, t }: { title: string; facts: BenchmarkReportRunFacts; t: (text: string) => string }) {
+  return (
+    <div className="benchmark-run-fact-card">
+      <strong>{title}</strong>
+      <p><span>{t("AG commit")}</span><code>{abbreviateCommit(facts.identity.agCommit)}</code></p>
+      <p><span>{t("Samples")}</span>{facts.sampleCount}</p>
+      <p><span>{t("Modes")}</span>{facts.modes.length > 0 ? facts.modes.join(", ") : "—"}</p>
+    </div>
+  );
+}

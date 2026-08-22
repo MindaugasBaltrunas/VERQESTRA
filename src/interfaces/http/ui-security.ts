@@ -18,6 +18,38 @@ import path from "node:path";
 
 export const UI_TOKEN_HEADER = "x-vq-ui-token";
 
+/**
+ * `<meta>` vardas, per kurį per-start token'as pasiekia SPA.
+ *
+ * Kodėl meta, o ne cookie ar atskiras `/api/token` maršrutas: cookie keliautų su KIEKVIENA
+ * užklausa (įskaitant `<img>` iš svetimo puslapio), o atskiras maršrutas turėtų būti be token'o
+ * — t. y. atiduotų paslaptį bet kam, kas pasiekia prievadą. Meta reikšmė gyvena TAME PAČIAME
+ * dokumente, kurį serveris ką tik pats atidavė, ir jos negali perskaityti kita kilmė.
+ *
+ * Vardas privalo sutapti su `ui-app/index.html` ir `ui-app/src/model/api.ts` — tai kliento ir
+ * serverio kontraktas, tad jis gyvena čia, o ne dviejose vietose po eilutę.
+ */
+export const UI_TOKEN_META_NAME = "vq-ui-token";
+
+const UI_TOKEN_META_EMPTY = `name="${UI_TOKEN_META_NAME}" content=""`;
+
+/**
+ * Įrašo token'ą į app shell'o `<meta>`.
+ *
+ * Reikšmė ekranuojama, nors `createUiToken` gamina base64url (jame nėra nei kabučių, nei `<`):
+ * ekranavimas yra pigus, o prielaida „token'as visada saugus" yra būtent ta rūšis, kuri lūžta
+ * tyliai, kai token'o gamintojas kada nors pasikeis.
+ *
+ * Nerastas žymeklis grąžina dokumentą NEPAKEISTĄ — kvietėjas apie tai praneša atskirai. Tylus
+ * „įrašiau" būtų blogiausias variantas: puslapis atsidarytų, o kiekviena API užklausa grįžtų 401
+ * be jokios nuorodos, kodėl.
+ */
+export function injectUiToken(html: string, uiToken: string): { html: string; injected: boolean } {
+  if (!html.includes(UI_TOKEN_META_EMPTY)) return { html, injected: false };
+  const escaped = uiToken.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
+  return { html: html.replace(UI_TOKEN_META_EMPTY, `name="${UI_TOKEN_META_NAME}" content="${escaped}"`), injected: true };
+}
+
 /** Per-server-start paslaptis. 32 baitai — jokio deterministinio šaltinio. */
 export function createUiToken(): string {
   return randomBytes(32).toString("base64url");
@@ -88,6 +120,11 @@ export function responseHeaders(contentType: string): Record<string, string> {
  * yra klasikinis path traversal.
  */
 export function resolveStaticPath(distDir: string, urlPath: string, sep: string = path.sep): string | undefined {
-  const resolved = path.resolve(distDir, `.${urlPath}`);
-  return resolved === distDir || resolved.startsWith(distDir + sep) ? resolved : undefined;
+  // Šaknis NORMALIZUOJAMA prieš lyginimą. Be to `D:/repo/ui/dist` (pasvirieji brūkšniai) niekada
+  // nesutaptų su `D:\repo\ui\dist\assets\app.js` prefiksu, ir KIEKVIENAS asset'as tyliai
+  // iškristų į SPA fallback'ą — puslapis atrodytų gyvas, o `app.js` grįžtų kaip HTML. Vartas
+  // negali priklausyti nuo to, kokia forma kvietėjas parašė kelią.
+  const root = path.resolve(distDir);
+  const resolved = path.resolve(root, `.${urlPath}`);
+  return resolved === root || resolved.startsWith(root + sep) ? resolved : undefined;
 }

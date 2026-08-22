@@ -1,0 +1,72 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getUiToken } from "../model/api";
+import type { UiWavesView } from "../model/types";
+
+// `GET /api/waves` DTO persikėlė į `model/types.ts`: tuos pačius laukus dabar skaito ir model
+// sluoksnis, o modelis kontrolerio importuoti negali. Re-eksportas paliktas, kad esami importai
+// (`WavesPanel`) nesulūžtų.
+export type {
+  UiWaveEvent,
+  UiWaveLease,
+  UiWaveRefillDecision,
+  UiWaveRejection,
+  UiWaveSlot,
+  UiWaveSlotFailure,
+  UiWaveSlotState,
+  UiWavesView,
+} from "../model/types";
+
+const WAVES_POLL_MS = 30_000;
+
+async function fetchWaves(): Promise<UiWavesView> {
+  const response = await fetch("/api/waves", {
+    headers: { "x-vq-ui-token": getUiToken() },
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      detail = typeof body.error === "string" ? body.error : "";
+    } catch {
+      // Kūno perskaityti nepavyko — lieka pats statusas.
+    }
+    throw new Error(detail || `HTTP ${response.status}`);
+  }
+  return (await response.json()) as UiWavesView;
+}
+
+/**
+ * `#/system` bangų vaizdas: slot'ų lease'ai, atmetimų priežastys ir įvykių uodega.
+ *
+ * `enabled: false` reiškia „šio ekrano nėra matomo" — tada nedaromas nei pirmas užklausimas, nei
+ * periodinis atnaujinimas. Be šios vėliavos kiekvienas duomenų vartotojas pridėtų dar vieną
+ * 30 s pollingo srautą net tada, kai jo panelė neatidaryta.
+ */
+export function useWavesController(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
+  const [data, setData] = useState<UiWavesView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
+
+  const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
+    try {
+      const view = await fetchWaves();
+      if (requestId !== requestSequence.current) return;
+      setData(view);
+      setError(null);
+    } catch (loadError) {
+      if (requestId !== requestSequence.current) return;
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    void load();
+    const timer = setInterval(() => void load(), WAVES_POLL_MS);
+    return () => clearInterval(timer);
+  }, [enabled, load]);
+
+  return { data, error, reload: load };
+}

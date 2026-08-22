@@ -10,7 +10,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { SseHub } from "../interfaces/http/sse-service.js";
 import type { UiRouteResponse } from "../interfaces/http/ui-router.js";
-import { UI_MAX_REQUEST_BODY_BYTES, createUiServer, listenUiServer } from "../composition/ui-server.js";
+import { UI_BUILD_COMMAND, UI_MAX_REQUEST_BODY_BYTES, createUiServer, listenUiServer } from "../composition/ui-server.js";
 
 /** Hub'o pakaitalas: kiautui rūpi tik tai, kad klientas jam perduodamas. */
 function fakeHub(): { hub: SseHub; clients: number } {
@@ -34,7 +34,7 @@ function fakeHub(): { hub: SseHub; clients: number } {
 
 async function withServer(
   route: (request: { method: string; url: string; body: string }) => UiRouteResponse,
-  options: { staticDir?: string } = {},
+  options: { staticDir?: string; uiToken?: string } = {},
   run: (base: string, hub: { clients: number }) => Promise<void> = async () => {},
 ): Promise<void> {
   const errors: string[] = [];
@@ -42,6 +42,7 @@ async function withServer(
   const server = createUiServer({
     route: (request) => Promise.resolve(route(request)),
     ...(options.staticDir === undefined ? {} : { staticDir: options.staticDir }),
+    uiToken: options.uiToken ?? "test-token",
     sse: hub.hub,
     logError: (message) => errors.push(message),
   });
@@ -51,6 +52,30 @@ async function withServer(
   } finally {
     await listening.close();
   }
+}
+
+/** Kaip `withServer`, tik GRĄŽINA žurnalo eilutes: kai kurie kontraktai gyvena būtent jose. */
+async function withServerErrors(
+  route: (request: { method: string; url: string; body: string }) => UiRouteResponse,
+  options: { staticDir?: string; uiToken?: string },
+  run: (base: string) => Promise<void>,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const hub = fakeHub();
+  const server = createUiServer({
+    route: (request) => Promise.resolve(route(request)),
+    ...(options.staticDir === undefined ? {} : { staticDir: options.staticDir }),
+    uiToken: options.uiToken ?? "test-token",
+    sse: hub.hub,
+    logError: (message) => errors.push(message),
+  });
+  const listening = await listenUiServer(server, 0);
+  try {
+    await run(`http://127.0.0.1:${listening.port}`);
+  } finally {
+    await listening.close();
+  }
+  return errors;
 }
 
 test("json/text/empty atsakymai gauna saugumo antraštes", async () => {
@@ -181,4 +206,86 @@ test("maršrutizatoriaus išimtis virsta 500 BE detalių", async () => {
       assert.match(text, /internal error/);
     },
   );
+});
+
+// VQ-601: dashboard'as yra SPA — maršrutus (`/waves`) aptarnauja tas pats `index.html`, o
+// token'as į naršyklę keliauja VIENINTELIU keliu: to dokumento `<meta>`. Abu dalykai iki šiol
+// neegzistavo, tad `verqestra ui` būtų atidavęs 404 ties `/`, o net ir atsidaręs puslapis būtų
+// gavęs 401 kiekvienoje API užklausoje.
+test("SPA: maršrutas gauna app shell'ą su įrašytu token'u, o trūkstamas asset'as — 404", async () => {
+  const sandbox = await mkdtemp(path.join(tmpdir(), "vq-ui-shell-"));
+  try {
+    const distDir = path.join(sandbox, "dist");
+    await mkdir(path.join(distDir, "assets"), { recursive: true });
+    await writeFile(
+      path.join(distDir, "index.html"),
+      '<!doctype html><meta name="vq-ui-token" content="" /><div id="root"></div>',
+      "utf8",
+    );
+    await writeFile(path.join(distDir, "assets", "app.js"), "export const x = 1;\n", "utf8");
+
+    await withServer(
+      (request) => ({ kind: "static", urlPath: new URL(request.url, "http://127.0.0.1").pathname }),
+      { staticDir: distDir, uiToken: "SLAPTAS-TOKENAS" },
+      async (base) => {
+        for (const route of ["/", "/waves", "/benchmark"]) {
+          const response = await fetch(base + route);
+          assert.equal(response.status, 200, `${route} privalo atiduoti shell'ą`);
+          assert.match(response.headers.get("content-type") ?? "", /text\/html/);
+          assert.match(await response.text(), /content="SLAPTAS-TOKENAS"/, `${route}: token'as neįrašytas`);
+        }
+
+        // Realus asset'as ateina TOKS, koks yra — be jokio token'o įrašymo.
+        const asset = await fetch(`${base}/assets/app.js`);
+        assert.equal(asset.status, 200);
+        assert.match(asset.headers.get("content-type") ?? "", /javascript/);
+        assert.doesNotMatch(await asset.text(), /SLAPTAS-TOKENAS/);
+
+        // O trūkstamas asset'as NEVIRSTA HTML puslapiu: klientas kitaip matytų `ok === true` ir
+        // suklustų ties „Unexpected token '<'".
+        const missing = await fetch(`${base}/assets/nera.js`);
+        assert.equal(missing.status, 404);
+        assert.doesNotMatch(missing.headers.get("content-type") ?? "", /text\/html/);
+      },
+    );
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("SPA: be build'o atsakoma 503 su komanda, o shell be `<meta>` praneša į žurnalą", async () => {
+  const sandbox = await mkdtemp(path.join(tmpdir(), "vq-ui-noshell-"));
+  try {
+    const distDir = path.join(sandbox, "dist");
+    await mkdir(distDir, { recursive: true });
+
+    await withServer(
+      (request) => ({ kind: "static", urlPath: new URL(request.url, "http://127.0.0.1").pathname }),
+      { staticDir: distDir },
+      async (base) => {
+        const response = await fetch(`${base}/`);
+        assert.equal(response.status, 503);
+        // Pranešime privalo būti KOMANDA, o ne vien „nerasta": operatorius uždaro gedimą ja.
+        assert.ok((await response.text()).includes(UI_BUILD_COMMAND));
+      },
+    );
+
+    // Shell'as BE žymeklio: puslapis atiduodamas, bet tylėti negalima — be token'o kiekviena
+    // API užklausa grįš 401, ir be šios eilutės niekas nesuprastų kodėl.
+    await writeFile(path.join(distDir, "index.html"), "<!doctype html><div id=\"root\"></div>", "utf8");
+    const errors = await withServerErrors(
+      (request) => ({ kind: "static", urlPath: new URL(request.url, "http://127.0.0.1").pathname }),
+      { staticDir: distDir },
+      async (base) => {
+        assert.equal((await fetch(`${base}/`)).status, 200);
+      },
+    );
+    assert.equal(
+      errors.some((line) => line.includes("vq-ui-token")),
+      true,
+      "trūkstamas žymeklis privalo palikti pėdsaką",
+    );
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });

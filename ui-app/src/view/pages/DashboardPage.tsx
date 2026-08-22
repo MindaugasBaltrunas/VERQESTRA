@@ -1,0 +1,321 @@
+import { useMemo, useState } from "react";
+import { PolicyProposalsPanel } from "../../App";
+import { useDashboardController } from "../../controller/useDashboardController";
+import { useWavesController } from "../../controller/useWavesController";
+import { fixableTaskIds } from "../../model/loopControlsViewModel";
+import { buildQueuePipeline } from "../../model/queuePipelineViewModel";
+import { buildSlotProgressViews, correlateActivity } from "../../model/slotProgressViewModel";
+import { AgentChainProgress } from "../components/AgentChainProgress";
+import { Header, type Route } from "../components/Header";
+import { HumanReviewPanel } from "../components/HumanReviewPanel";
+import { LearningPanel } from "../components/LearningPanel";
+import { OverviewPanel } from "../components/OverviewPanel";
+import { PolicyControlsPanel } from "../components/PolicyControlsPanel";
+import { QueuePipelineBoard } from "../components/QueuePipelineBoard";
+import { RuntimePanel } from "../components/RuntimePanel";
+import { SlotStreamsOverview } from "../components/SlotStreamsOverview";
+import { ToastStack } from "../components/ToastStack";
+import { WavesPanel } from "../components/WavesPanel";
+import { WorkflowBoard } from "../components/WorkflowBoard";
+import { useI18n } from "../../i18n/I18nContext";
+
+type Props = {
+  activeRoute: Route;
+  onNavigate: (route: Route) => void;
+};
+
+export function DashboardPage({ activeRoute, onNavigate }: Props) {
+  const { t } = useI18n();
+  const {
+    dashboard,
+    error,
+    notice,
+    refreshError,
+    resumeLabel,
+    stopLabel,
+    agentActivity,
+    agentActivityStatus,
+    agentActivityError,
+    loopControls,
+    loopRunState,
+    pendingActions,
+    toasts,
+    dismissToast,
+    actions,
+  } = useDashboardController();
+  const [proposalRefreshToken, setProposalRefreshToken] = useState(0);
+  const refreshAll = () => {
+    setProposalRefreshToken((value) => value + 1);
+    void actions.reload();
+  };
+
+  // Bangų duomenys imami VIENĄ kartą ir tik ten, kur jie matomi: `#/` srautų santraukai ir
+  // `#/system` panelėms. Anksčiau juos siurbė pati `WavesPanel`, tad du vartotojai reikštų du
+  // 30 s pollingo srautus tam pačiam endpoint'ui.
+  const wavesEnabled = activeRoute === "overview" || activeRoute === "system";
+  const { data: waves, error: wavesError, reload: reloadWaves } = useWavesController({ enabled: wavesEnabled });
+
+  const loopControl = dashboard?.loopControl ?? null;
+  // `Date.now()` gyvena ČIA, o ne modelyje: gryna funkcija su savo laikrodžiu būtų netestuojama.
+  const slotProgress = useMemo(
+    () => loopControl === null
+      ? []
+      // `budgets`/`etas` sąmoningai neperduodami: tokio endpoint'o dar nėra, ir prasimanyta juosta
+      // meluotų labiau nei sąžiningas „duomenų nėra".
+      : buildSlotProgressViews({
+          now: Date.now(),
+          loopControl,
+          waveSlots: waves?.slots,
+          refillDecisions: waves?.refill_decisions,
+          activity: agentActivity,
+          activityStatus: agentActivityStatus,
+        }),
+    [loopControl, waves, agentActivity, agentActivityStatus],
+  );
+
+  // `Set` per `useMemo`: naujas rinkinys kiekvienam renderiui panaikintų `memo` naudą visoje
+  // srautų kortelių šakoje.
+  const fixable = useMemo(() => fixableTaskIds(dashboard?.humanReview ?? []), [dashboard?.humanReview]);
+
+  const pipeline = useMemo(
+    () => dashboard === null
+      ? null
+      : buildQueuePipeline({
+          now: Date.now(),
+          buckets: dashboard.buckets,
+          loopSlots: dashboard.loopControl.slots,
+          waveSlots: waves?.slots,
+          humanReview: dashboard.humanReview,
+          rejections: waves?.last_rejections ?? [],
+          refillDecisions: waves?.refill_decisions ?? [],
+        }),
+    [dashboard, waves],
+  );
+
+  // Kurio srauto grandinė rodoma. Dvi užduotys tuo pačiu vardu reiškia, kad priskirti NEĮMANOMA.
+  // Nutrūkęs gyvas srautas priskyrimą irgi panaikina: kortelės tada rodo „srautas nežinomas", ir
+  // grandinės panelė negali tuo pačiu metu tvirtinti, kad veikla priklauso konkrečiam srautui.
+  const correlated = correlateActivity(agentActivity, loopControl?.slots ?? []);
+  const chainOwner = agentActivityStatus === "disconnected"
+    ? ({ attachedTo: null, attribution: "unknown" } as const)
+    : correlated;
+  const chainStream = slotProgress.find((view) => view.workerId === chainOwner.attachedTo);
+
+  if (error) {
+    return (
+      <>
+        <Header root="" onRefresh={() => void actions.reload()} activeRoute={activeRoute} onNavigate={onNavigate} />
+        <main>
+          <div className="panel" style={{ color: "var(--error)" }} role="alert">
+            <strong>{t("Error")}:</strong> {error}
+            <br />
+            <button
+              className="button ghost small-button"
+              style={{ marginTop: "1rem" }}
+              type="button"
+              onClick={() => void actions.reload()}
+            >
+              {t("Try again")}
+            </button>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <>
+        <Header root="" onRefresh={() => void actions.reload()} activeRoute={activeRoute} onNavigate={onNavigate} />
+        <main>
+          <div className="panel" style={{ color: "var(--muted)" }}>{t("Loading...")}</div>
+        </main>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Header
+        root={dashboard.root}
+        onRefresh={refreshAll}
+        activeRoute={activeRoute}
+        onNavigate={onNavigate}
+        onResumeLoop={() => void actions.resumeLoop()}
+        resumeLoopLabel={resumeLabel}
+        onStopLoop={() => void actions.stopLoop()}
+        stopLoopLabel={stopLabel}
+        canResumeLoop={loopControls.canResume}
+        canStopLoop={loopControls.canStop}
+      />
+      <main>
+        <div className="page-heading">
+          <div>
+            <p className="page-eyebrow">{t(pageMeta(activeRoute).eyebrow)}</p>
+            <h2>{t(pageMeta(activeRoute).title)}</h2>
+            <p>{t(pageMeta(activeRoute).description)}</p>
+          </div>
+          <span className="freshness-indicator"><i /> {t("Live data")}</span>
+        </div>
+        {notice && (
+          <div className="notice notice-warning" role="status">
+            {notice}
+          </div>
+        )}
+        {refreshError && (
+          <div className="notice notice-warning" role="status">
+            {t("Refresh failed")}: {refreshError}
+          </div>
+        )}
+        {/* Veiksmų rezultatai rodomi VISUOSE route'uose: mutacija gali būti paleista iš `#/system`, o
+            atsakymas neturi dingti vien todėl, kad operatorius tuo metu perėjo į kitą skirtuką. */}
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        {agentActivityStatus === "disconnected" && (
+          <div className="notice notice-warning" role="status">
+            {t("Live activity stream disconnected — the agent chain below may be stale.")}
+            {agentActivityError ? ` (${agentActivityError})` : ""}
+          </div>
+        )}
+        {activeRoute === "overview" && (
+          <>
+            <OverviewPanel metrics={dashboard.overview.slice(0, 4)} />
+            <div className="command-grid">
+              {agentActivity && (
+                <AgentChainProgress
+                  activity={agentActivity}
+                  streamLabel={chainStream ? `${t("Stream")} ${chainStream.index}` : null}
+                  attribution={slotProgress.length > 0 ? chainOwner.attribution : undefined}
+                />
+              )}
+              {/* Srautų santrauka be mygtukų: valdymas turi vieną šeimininką `#/system`. */}
+              {/* `wavesError` irgi baigia laukimą: nepasiekiamas endpoint'as reiškia, kad daugiau
+                  duomenų nebus, ir amžinas skeleton'as tik slėptų tai, kas jau žinoma. */}
+              <SlotStreamsOverview
+                views={slotProgress}
+                awaitingData={!dashboard.loopControl.known && waves === null && wavesError === null}
+              />
+              <AttentionPanel buckets={dashboard.buckets} />
+            </div>
+            <QueueSnapshot buckets={dashboard.buckets} onNavigate={() => onNavigate("tasks")} />
+          </>
+        )}
+        {activeRoute === "tasks" && (
+          <WorkflowBoard
+            buckets={dashboard.buckets}
+            onOpenFolder={(bucket) => { void actions.openFolder(bucket); }}
+            onUpload={actions.uploadTaskFiles}
+            onLoadTasks={actions.loadWorkflowTasks}
+          />
+        )}
+        {activeRoute === "reviews" && (
+          <div className="content-stack">
+            <ReviewSummary buckets={dashboard.buckets} />
+            <HumanReviewPanel />
+            {dashboard.policyControls && dashboard.policyControls.length > 0 && (
+              <PolicyControlsPanel groups={dashboard.policyControls} onPropose={actions.proposePolicy} />
+            )}
+            <PolicyProposalsPanel refreshToken={proposalRefreshToken} />
+          </div>
+        )}
+        {activeRoute === "learning" && dashboard.learning && (
+          <LearningPanel
+            summary={dashboard.learning.summary}
+            recommendations={dashboard.learning.recommendations}
+            onApprove={actions.approveLearning}
+            onReject={actions.rejectLearning}
+          />
+        )}
+        {activeRoute === "system" && (
+          <RuntimePanel
+            processes={dashboard.runtime}
+            root={dashboard.root}
+            // `#/system` paleidimas eina per `/api/runtime/loop/start` (jis atstato ir srautų
+            // valdiklį), o Header'io „Paleisti" — per `/tasks/resume`. Suvienodinamas TIK šis ekranas.
+            onStartLoop={(workers) => void actions.startLoopWithWorkers(workers)}
+            onRefresh={() => void actions.reload()}
+            // Vienas ciklo būsenos šaltinis visam `#/system` ekranui: iš jo panelė skaičiuoja ir
+            // signalo kortelės, ir ciklo valdymo juostos mygtukus.
+            loopRunState={loopRunState}
+            workerControl={dashboard.workerControl}
+            onSetWorkers={(requested) => void actions.setRequestedWorkers(requested)}
+            loopControl={dashboard.loopControl}
+            onStopSlot={(workerId) => void actions.stopSlot(workerId)}
+            onResumeSlot={(workerId) => void actions.resumeSlot(workerId)}
+            onAbortSlot={(workerId) => void actions.abortSlot(workerId)}
+            onStopLoop={() => void actions.stopLoop()}
+            onRestartLoop={(workers) => void actions.restartLoop(workers)}
+            slotProgress={slotProgress}
+            pendingActions={pendingActions}
+            fixableTaskIds={fixable}
+            onFixTask={(taskId) => void actions.fixSlotTask(taskId)}
+          />
+        )}
+        {/* Eilės lenta yra ATSKIRA sekcija, o ne `WavesPanel` vidus: jos duomenys ateina daugiausia
+            iš `/api/dashboard`, tad paslėpta už bangų klaidos/įkėlimo ji dingtų dėl svetimo
+            endpoint'o gedimo, o įspėjimas „bangų duomenų nėra" niekada nepasiektų ekrano. */}
+        {activeRoute === "system" && pipeline && <QueuePipelineBoard board={pipeline} />}
+        {activeRoute === "system" && (
+          <WavesPanel data={waves} error={wavesError} onReload={() => void reloadWaves()} />
+        )}
+      </main>
+    </>
+  );
+}
+
+function pageMeta(route: Route) {
+  const pages = {
+    overview: { eyebrow: "Command center", title: "System overview", description: "Critical attention, active work, outcomes, and efficiency—in that order." },
+    tasks: { eyebrow: "Workflow", title: "Tasks", description: "Track work from queue to completion without losing operational context." },
+    reviews: { eyebrow: "Decision inbox", title: "Reviews", description: "Human decisions and policy changes that cannot be resolved automatically." },
+    learning: { eyebrow: "Continuous improvement", title: "Learning", description: "Review evidence-backed recommendations before they affect the workflow." },
+    system: { eyebrow: "Administration", title: "System", description: "Runtime health and process availability." },
+    analytics: { eyebrow: "Analytics", title: "Analytics", description: "" },
+    optimization: { eyebrow: "Optimization", title: "Optimization", description: "" },
+    reliability: { eyebrow: "Engineering intelligence", title: "Reliability", description: "File activity, failures, repairs, unresolved work, and deterministic token cost in one view." },
+    benchmark: { eyebrow: "Engineering intelligence", title: "Benchmark", description: "Authoritative benchmark verdict, reliability, and baseline comparison for VERQESTRA." },
+  };
+  return pages[route];
+}
+
+function AttentionPanel({ buckets }: { buckets: Array<{ name: string; totalTasks: number }> }) {
+  const { t } = useI18n();
+  const human = buckets.find((bucket) => bucket.name === "human-review")?.totalTasks ?? 0;
+  const failed = buckets.find((bucket) => bucket.name === "failed")?.totalTasks ?? 0;
+  const errors = buckets.find((bucket) => bucket.name === "error")?.totalTasks ?? 0;
+  const total = human + failed + errors;
+  return (
+    <section className="panel attention-panel">
+      <div className="panel-header">
+        <div><h2>{t("Needs attention")}</h2><p className="panel-subtitle">{t("Blocking signals and decisions requiring a human")}</p></div>
+        <span className={`badge ${total ? "status-warning" : "status-good"}`}>{total}</span>
+      </div>
+      <div className="attention-list">
+        <div><span>{t("Human review")}</span><strong>{human}</strong></div>
+        <div><span>{t("Recovering errors")}</span><strong>{errors}</strong></div>
+        <div><span>{t("Failed tasks")}</span><strong>{failed}</strong></div>
+      </div>
+    </section>
+  );
+}
+
+function QueueSnapshot({ buckets, onNavigate }: { buckets: Array<{ name: string; totalTasks: number }>; onNavigate: () => void }) {
+  const { t } = useI18n();
+  const visible = buckets.filter((bucket) => bucket.name !== "done");
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div><h2>{t("Workflow snapshot")}</h2><p className="panel-subtitle">{t("Distribution of active work")}</p></div>
+        <button className="button ghost small-button" type="button" onClick={onNavigate}>{t("Open tasks")} →</button>
+      </div>
+      <div className="queue-snapshot">
+        {visible.map((bucket) => <div key={bucket.name}><span>{bucket.name}</span><strong>{bucket.totalTasks}</strong></div>)}
+      </div>
+    </section>
+  );
+}
+
+function ReviewSummary({ buckets }: { buckets: Array<{ name: string; totalTasks: number }> }) {
+  const { t } = useI18n();
+  const human = buckets.find((bucket) => bucket.name === "human-review")?.totalTasks ?? 0;
+  return <section className="review-hero"><div><span>{t("Open decisions")}</span><strong>{human}</strong></div><p>{t(human ? "Review tasks that automation cannot complete without a human decision." : "No tasks currently require a human decision.")}</p></section>;
+}

@@ -344,8 +344,8 @@
       "module": "ui-app (ag-ui React)",
       "target": "atskiras workspace paketas (MVC forma)",
       "wave": "E6",
-      "status": "pending",
-      "note": "PAGAL PLANĄ atviras — VQ-601, E6. Vaizdo MODELIAI jau yra interfaces/ui-model, transporto kiautas — interfaces/http; trūksta pačios React aplikacijos kaip workspace paketo"
+      "status": "migrated",
+      "note": "VQ-601 (E6, 2026-08-22): React dashboard perkeltas 1:1 i saknies ui-app/ (126 failu, 46 test failai / 393 testai zali, vite build 92 moduliai). Kelias yra KONTRAKTAS: composition/ui-command sprendzia packageRoot()/ui-app/dist, tad paketas gyvena saknyje, ne po AG/. Pakeista tapatybe: ag-ui -> verqestra-ui, x-ag-ui-token -> x-vq-ui-token, meta ag-ui-token -> vq-ui-token, localStorage ag-ui-theme -> vq-ui-theme, UI tekstuose AG Loop -> VERQESTRA, dokumento antraste. PRIJUNGIMAS ATIDENGE TRIS REALIAS SPRAGAS serverio puseje, kuriu iki dashboard-o niekas negalejo pamatyti: (1) maršruto nuokrypis — VQ-503 metu slot rezimas buvo /api/runtime/slots/<id>/mode, o klientas ir etalonas naudoja /api/runtime/loop/slots/<id>; atstatyta; (2) nebuvo SPA fallback-o — / ir /waves grazindavo 404, tad dashboard-as apskritai nebutu atsidares; dabar marsrutai gauna app shell-a, o TRUKSTAMAS asset-as vis tiek 404 (HTML vietoj js yra tas pats gedimas, kuri etalonas uzrase 2026-08-06 audite); (3) nebuvo token-o irasymo i index.html — puslapis butu atsidares, o KIEKVIENA API uzklausa grizusi 401; naujas injectUiToken (ui-security) plius privalomas uiToken UiServerDeps lauke. Papildomai: resolveStaticPath dabar NORMALIZUOJA saknį — nenormalizuotas kelias (pasvirieji bruksniai Windows) tyliai versdavo KIEKVIENA asset-a i SPA fallback-a. CI gavo typecheck:ui + test:ui + build:ui zingsnius."
     },
     {
       "module": "commands/ 13 shim'ų (claude-diagnose, claude-dispatch, claude-loop, audit-director, context-pack, claude-preflight, dispatch, codex-dispatch, loop-guard, on-stop-bridge, preflight, restore-stable, rollback-stable)",

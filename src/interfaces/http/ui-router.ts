@@ -242,7 +242,11 @@ async function handlePost(
     return await withJsonBody(async (body) => json(await ports.decidePolicyProposal(verb, body)));
   }
 
-  const slotMode = /^\/api\/runtime\/slots\/([^/]+)\/mode$/.exec(pathname);
+  // Kelias yra KLIENTO kontraktas, ne serverio skonis: `ui-app/src/model/api.ts` kviečia būtent
+  // `/api/runtime/loop/slots/<workerId>`, ir tą patį daro etalonas. VQ-503 metu čia buvo atsiradęs
+  // `/api/runtime/slots/<workerId>/mode` — nedokumentuotas nuokrypis, kurio niekas nepamatė, nes
+  // dashboard'o dar nebuvo. VQ-601 jį atstatė: maršruto pervadinimas be kliento yra tylus lūžis.
+  const slotMode = /^\/api\/runtime\/loop\/slots\/([^/]+)$/.exec(pathname);
   if (slotMode?.[1]) {
     const workerId = decodeSegment(slotMode[1]);
     return await withJsonBody(async (body) => json(await ports.setSlotMode(workerId, body)));

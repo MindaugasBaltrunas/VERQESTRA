@@ -18,10 +18,12 @@
 //      jam socket'ą su teisingomis antraštėmis.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { extname } from "node:path";
+import { extname, join } from "node:path";
 import {
+  injectUiToken,
   resolveStaticPath,
   responseHeaders,
+  UI_TOKEN_META_NAME,
   type RequestHeaders,
 } from "../interfaces/http/ui-security.js";
 import type { SseHub } from "../interfaces/http/sse-service.js";
@@ -35,6 +37,9 @@ import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
  * Markdown. Riba tikrinama SKAITANT, ne iš `content-length`: antraštę klientas kontroliuoja.
  */
 export const UI_MAX_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
+
+/** Ką operatorius turi paleisti, kai dashboard'o build'o nėra. Vienas šaltinis pranešimams. */
+export const UI_BUILD_COMMAND = "pnpm build:ui";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -78,6 +83,11 @@ export type UiServerDeps = {
   route(request: { method: string; url: string; headers: RequestHeaders; body: string }): Promise<UiRouteResponse>;
   /** React dist katalogas; `undefined`, kai statinių failų nėra (tik API režimas). */
   staticDir?: string;
+  /**
+   * Per-start token'as. PRIVALOMAS, o ne pasirenkamas: shell'as be jo atrodo veikiantis, bet
+   * kiekviena API užklausa grįžta 401 — tyliausias įmanomas gedimas.
+   */
+  uiToken: string;
   sse: SseHub;
   logError(message: string): void;
 };
@@ -124,14 +134,47 @@ async function writeResponse(deps: UiServerDeps, response: ServerResponse, route
   // Kelio saugumą sprendžia `resolveStaticPath` (leksinis `..` sutraukimas plius šaknies
   // patikra) — čia jokios savos kelio aritmetikos, kad path traversal turėtų vieną namą.
   const filePath = resolveStaticPath(staticDir, route.urlPath);
-  const bytes = filePath === undefined ? undefined : await nodeFsAdapter.readFileBytes(filePath).catch(() => undefined);
-  if (filePath === undefined || bytes === undefined) {
+
+  // SPA maršrutas (`/`, `/waves`, `/benchmark`) diske failo neturi — jį aptarnauja app shell'as.
+  // Bet TIK maršrutas: trūkstamas `/assets/app.js` gauna 404, o ne HTML. Skirtumą sprendžia
+  // plėtinys, ne katalogo egzistavimas. Iki 2026-08-06 etalono UI audito būtent tai ir lūždavo —
+  // klientas matydavo `response.ok === true` ir suklupdavo ties `response.json()` su
+  // „Unexpected token '<'".
+  if (filePath === undefined || extname(route.urlPath) === "" || route.urlPath.endsWith("/index.html")) {
+    await writeAppShell(deps, response, staticDir);
+    return;
+  }
+
+  const bytes = await nodeFsAdapter.readFileBytes(filePath).catch(() => undefined);
+  if (bytes === undefined) {
     response.writeHead(404, responseHeaders("text/plain; charset=utf-8"));
     response.end("not found");
     return;
   }
   response.writeHead(200, responseHeaders(contentTypeFor(filePath)));
   response.end(Buffer.from(bytes));
+}
+
+/**
+ * App shell'as su įrašytu token'u.
+ *
+ * Token'as gyvena TIK šio proceso atmintyje ir keliauja į naršyklę VIENINTELIU keliu — šio
+ * dokumento `<meta>`. Nepavykęs įrašymas nėra kosmetika: puslapis atsidarytų, o kiekviena API
+ * užklausa grįžtų 401 be jokios nuorodos, kodėl, tad tai pranešama garsiai į žurnalą.
+ */
+async function writeAppShell(deps: UiServerDeps, response: ServerResponse, staticDir: string): Promise<void> {
+  const shell = await nodeFsAdapter.readTextFileIfExists(join(staticDir, "index.html"));
+  if (shell === undefined) {
+    response.writeHead(503, responseHeaders("text/plain; charset=utf-8"));
+    response.end(`dashboard build not found — run ${UI_BUILD_COMMAND}`);
+    return;
+  }
+  const injected = injectUiToken(shell, deps.uiToken);
+  if (!injected.injected) {
+    deps.logError(`[ui] index.html neturi <meta name="${UI_TOKEN_META_NAME}"> — API užklausos grįš 401`);
+  }
+  response.writeHead(200, responseHeaders("text/html; charset=utf-8"));
+  response.end(injected.html);
 }
 
 /**

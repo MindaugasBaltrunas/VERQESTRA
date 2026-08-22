@@ -134,6 +134,9 @@ export async function runUiCommand(deps: CliRegistryDeps, io: UiCommandIo): Prom
         },
       ),
     ...(staticDir === undefined ? {} : { staticDir }),
+    // Tas pats token'as, kurį tikrina maršrutizatorius: shell'as jį atiduoda naršyklei, o ji
+    // grąžina antraštėje. Dvi reikšmės čia reikštų, kad puslapis niekada neprisijungia.
+    uiToken,
     // Hub'as sukuriamas VIENAS: taimeriai ir stebimų failų žymės yra jo būsena, o du
     // egzemplioriai tą pačią eilutę transliuotų dukart.
     sse: sseHub,

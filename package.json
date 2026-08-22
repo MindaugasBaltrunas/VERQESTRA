@@ -27,7 +27,10 @@
     "lint:fix": "eslint src --fix",
     "build:benchmark": "pnpm --dir AG/benchmark build",
     "typecheck:benchmark": "pnpm --dir AG/benchmark typecheck",
-    "test:benchmark": "pnpm --dir AG/benchmark test"
+    "test:benchmark": "pnpm --dir AG/benchmark test",
+    "build:ui": "pnpm --dir ui-app build",
+    "typecheck:ui": "pnpm --dir ui-app typecheck",
+    "test:ui": "pnpm --dir ui-app test"
   },
   "dependencies": {
     "zod": "^4.4.3"

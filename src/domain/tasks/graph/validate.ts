@@ -161,15 +161,8 @@ export function validateTaskGraph(graph: TaskGraph): TaskGraphValidation {
   };
 }
 
-/**
- * Validates and returns the graph, throwing when it may not be executed — the single
- * guard every execution path goes through.
- */
-export function assertExecutableTaskGraph(graph: TaskGraph): TaskGraph {
-  const validation = validateTaskGraph(graph);
-  if (validation.executable) return graph;
-  const reasons = validation.violations
-    .filter((entry) => entry.severity === "error" && entry.scope === "graph")
-    .map((entry) => entry.message);
-  throw new Error(`task graph is not executable: ${reasons.join("; ")}`);
-}
+// `assertExecutableTaskGraph` gyveno cia iki 2026-08-22: metanti apvalkalė aplink
+// `validateTaskGraph`, kurios doc'as teigė esąs „the single guard every execution path goes
+// through". Nė vieno kvietėjo ji neturėjo. Vartas, aprašytas kaip vienintelis, ir nepasiekiamas
+// iš niekur, yra blogiau nei jo nebuvimas: jis atrodo kaip apsauga tam, kas jos ieško.
+// Tikra apsauga yra `buildReadySet`, tikrinantis `validation.executable` pats.

@@ -85,8 +85,35 @@ export type BuildReadySetInput = {
    * pasikeitė nuo snapshot'o rašymo (pvz. ką tik užbaigtą task'ą), nepersirašydamas grafo.
    */
   statusOverrides?: Iterable<readonly [string, TaskNodeStatus]>;
-  /** Task'ai, kurių žmogaus patvirtinimas gautas šiame run'e. */
+  /**
+   * Task'ai, kurių žmogaus patvirtinimas gautas šiame run'e.
+   *
+   * 2026-08-22 auditas: `loop-command` čia paduoda hardcoded `() => []`, tad produkcijoje šis
+   * įėjimas nieko neatrakina, o `TaskNode.approved` niekur netampa `true`. Vienintelis realiai
+   * veikiantis patvirtinimo kelias yra task'o IŠĖJIMAS iš `human-review` bucket'o —
+   * `task-graph-import` nustato `requires_approval` pagal bucket'ą, tad perkėlus failą vėliava
+   * dingsta pati.
+   *
+   * Paliktas, o ne ištrintas: tai suprojektuota ir ištestuota galimybė, kuriai trūksta tik
+   * tiekėjo. Trūksta būtent ŠALTINIO — vietos, kur operatoriaus patvirtinimas būtų užrašytas —
+   * ir jo sukūrimas yra funkcionalumas, ne šio audito taisymas.
+   */
   approvals?: Iterable<string>;
+  /**
+   * Tokenų biudžetas, ribojantis, kiek naujo darbo galima pradėti.
+   *
+   * 2026-08-22 auditas: `loop-command` čia paduoda hardcoded `() => undefined`, tad
+   * `budget-exhausted` ir `budget-insufficient` — du iš šešių blokavimo motyvų — produkcijoje
+   * NEPASIEKIAMI; gyvi tik testuose.
+   *
+   * Neprijungta tyliai, nors šaltinis egzistuoja (`vq/state/token-budget-status.json` neša
+   * `remaining_total_tokens`). Dvi priežastys. Pirma: tikroji biudžeto prievarta stovi
+   * dispatch'e (`enforceExecutionBudget`), o šis vartas yra planavimo užuomina — „nepradėk to,
+   * už ką negalėsi sumokėti". Antra: tas failas yra BEST-EFFORT paskutinio sprendimo veidrodis,
+   * tad pasenęs ar dingęs jis pradėtų blokuoti visą eilę dėl dalyko, kurio niekas nematuoja.
+   * Prijungimas reikalauja apsispręsti, kuris šaltinis yra autoritetingas — tai sprendimas, ne
+   * audito taisymas.
+   */
   budget?: ReadySetBudget;
 };
 
@@ -136,8 +163,10 @@ export function buildReadySet(input: BuildReadySetInput): ReadySet {
   const validation = validateTaskGraph(graph);
   const overrides = normalizeOverrides(input);
   const approvals = normalizeApprovals(input);
-  const depths = taskGraphDepths(graph);
+  // Ciklai jau apskaičiuoti `validateTaskGraph` viduje; perduodami toliau, o ne skaičiuojami iš
+  // naujo. `validation.cycles` yra grupės (SCC), tad jų sulyginimas duoda tą pačią narių aibę.
   const cycleMembers = new Set(validation.cycles.flat());
+  const depths = taskGraphDepths(graph, cycleMembers);
   const budget = input.budget ?? {};
   const remaining = budget.remaining_tokens;
   const budgetExhausted = budget.exhausted === true || (remaining !== undefined && remaining <= 0);
@@ -196,6 +225,11 @@ export function buildReadySet(input: BuildReadySetInput): ReadySet {
       continue;
     }
 
+    // Patvirtinimą reiškia task'o IŠĖJIMAS iš `human-review` bucket'o: `task-graph-import` nustato
+    // `requires_approval` pagal bucket'ą, tad perkėlus failą vėliava dingsta pati. Iki 2026-08-22
+    // čia buvo dar ir `approvals` sąrašas — įėjimas, kurio vienintelis tiekėjas `loop-command`'e
+    // buvo hardcoded `() => []`. Nė vienas `TaskNode.approved` niekur netapdavo `true`, tad
+    // sąrašas negalėjo nieko atrakinti. Ištrintas: negyvas įėjimas atrodo kaip kelias, kurio nėra.
     if (node.requires_approval && !node.approved && !approvals.has(node.task_id)) {
       blockedTasks.push(blocked(node, dependsOn, "approval-required"));
       continue;

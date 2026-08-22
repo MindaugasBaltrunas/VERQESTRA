@@ -162,6 +162,13 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       const stored = await readTaskGraphSnapshot(runtimeRoot);
       return stored.ok ? { ok: true, graph: stored.graph } : { ok: false, reason: stored.reason, errors: stored.errors };
     },
+    // Abu — sąmoningai neprijungti, ir tai užrašyta, o ne palikta atrodyti kaip prijungta.
+    // `readySetBudget`: `budget-exhausted`/`budget-insufficient` produkcijoje nepasiekiami;
+    // prijungimas reikalauja apsispręsti, ar `token-budget-status.json` veidrodis yra
+    // autoritetingas (žr. `BuildReadySetInput.budget`).
+    // `approvals`: `TaskNode.approved` niekur netampa `true`, o realus patvirtinimas yra task'o
+    // išėjimas iš `human-review` bucket'o. Trūksta ŠALTINIO, kur operatoriaus sprendimas būtų
+    // užrašytas (žr. `BuildReadySetInput.approvals`).
     readySetBudget: () => undefined,
     approvals: () => [],
     requestedWorkers: createWaveWorkerRequestReader({

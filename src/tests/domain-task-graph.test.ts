@@ -5,7 +5,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   TASK_GRAPH_SCHEMA_VERSION,
-  assertExecutableTaskGraph,
   buildTaskGraph,
   computeTaskGraphHash,
   dependenciesOf,
@@ -126,8 +125,11 @@ test("validate: every violation code fires and executable gates only on graph sc
   });
   const cyclicValidation = validateTaskGraph(cyclic);
   assert.ok(cyclicValidation.violations.some((entry) => entry.code === "dependency-cycle"));
+  // `executable: false` yra visa elgsena. Iki 2026-08-22 čia buvo dar ir
+  // `assertExecutableTaskGraph` — metanti apvalkalė, kurios doc'as teigė esąs „the single guard
+  // every execution path goes through" ir kurios nekvietė niekas. Ištrinta kartu su ja: eilutė
+  // aukščiau tikrina tą patį sprendimą, tik ties jo šaltiniu.
   assert.equal(cyclicValidation.executable, false);
-  assert.throws(() => assertExecutableTaskGraph(cyclic), /dependency cycle/);
 
   const nodeScoped = graphOf({
     nodes: [
@@ -143,7 +145,6 @@ test("validate: every violation code fires and executable gates only on graph sc
   assert.ok(codes.includes("missing-scope"));
   assert.equal(validation.ok, false, "node-scope errors still fail ok");
   assert.equal(validation.executable, true, "node-scope errors do not invalidate the graph");
-  assert.equal(assertExecutableTaskGraph(nodeScoped), nodeScoped);
 
   const tampered = { ...nodeScoped, graph_hash: "tg1:0000000000000000" };
   assert.ok(validateTaskGraph(tampered).violations.some((entry) => entry.code === "graph-hash-mismatch"));
@@ -159,4 +160,44 @@ test("bucket -> status mapping is the canonical one-way projection", () => {
   assert.equal(taskNodeStatusFromBucket("failed"), "failed");
   assert.equal(taskNodeStatusFromBucket("human-review"), "human-review");
   assert.equal(taskNodeStatusFromBucket("done"), "done");
+});
+
+/**
+ * Viena nuorodų atitikimo taisyklė, ne dvi.
+ *
+ * `resolveTaskNode` buvo vienkryptė (`node.startsWith(ref + "-")`), o domeno `dependencyMatches` —
+ * simetriška. Tas pats klausimas gaudavo du atsakymus: mazgui `1111` nuoroda `1111-fix-parser`
+ * planuotojui buvo `missing-dependency`, o `schedule-next-wave` ir `route-blocked` laikė ją
+ * atitikmeniu. Abu fail-closed, tad nesaugaus planavimo nebuvo — bet dvi taisyklės tam pačiam
+ * klausimui yra vieta, kur trečias kvietėjas pasirenka neteisingą.
+ */
+test("resolve: abi sutrumpinimo kryptys, o dviprasmybė atmetama", () => {
+  const abbreviated = graphOf({ nodes: [{ task_id: "1111", file: "AG/tasks/queue/1111.md" }] });
+  // Kryptis, kurios anksčiau nebuvo: mazgas trumpas, nuoroda pilna.
+  assert.equal(resolveTaskNode(abbreviated, "1111-fix-parser")?.task_id, "1111");
+  assert.equal(resolveTaskNode(abbreviated, "1111")?.task_id, "1111");
+
+  // Kryptis, kuri veikė ir anksčiau: mazgas pilnas, nuoroda trumpa.
+  const full = graphOf({ nodes: [{ task_id: "2222-rename-store", file: "AG/tasks/queue/2222-rename-store.md" }] });
+  assert.equal(resolveTaskNode(full, "2222")?.task_id, "2222-rename-store");
+
+  // Dviprasmybė: `3333` tinka ir `3333-a`, ir `3333-b`. Anksčiau tyliai laimėdavo pirmas pagal id.
+  // Klaidingas blokuotojas ATRAKINA task'ą, kuris turėjo laukti, tad teisingas atsakymas yra
+  // „nežinau" — o `buildReadySet` jį paverčia `missing-dependency` bloku.
+  const ambiguous = graphOf({
+    nodes: [
+      { task_id: "3333-a", file: "AG/tasks/queue/3333-a.md" },
+      { task_id: "3333-b", file: "AG/tasks/queue/3333-b.md" },
+    ],
+  });
+  assert.equal(resolveTaskNode(ambiguous, "3333"), undefined);
+
+  // Tikslus sutapimas visada nugali prefiksą, net kai prefiksas irgi tiktų.
+  const both = graphOf({
+    nodes: [
+      { task_id: "4444", file: "AG/tasks/queue/4444.md" },
+      { task_id: "4444-later", file: "AG/tasks/queue/4444-later.md" },
+    ],
+  });
+  assert.equal(resolveTaskNode(both, "4444")?.task_id, "4444");
 });

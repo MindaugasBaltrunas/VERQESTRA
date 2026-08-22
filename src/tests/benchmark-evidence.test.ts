@@ -55,6 +55,16 @@ function fakeFs(entries: Record<string, FakeEntry>): BenchmarkFsPort {
 /** Kelias iki run ledger'io; vardo forma yra kontraktas, tad testas jos nesugalvoja laisvai. */
 const runLedger = (stamp: string): string => `${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-${stamp}.jsonl`;
 
+/** Vienos ledger'io eilutės identifikuojantis minimumas — tiek, kiek vartai apie sample'ą žino. */
+const sampleLine = (mode: string, repetition: number): string =>
+  JSON.stringify({
+    sampleId: `scenario-${mode}-r${repetition}`,
+    scenarioId: "bugfix-i18n-missing-key",
+    mode,
+    repetition,
+    telemetry: { model: "claude-opus-5", inputTokens: 1, outputTokens: 1, llmCalls: 1 },
+  });
+
 const FULL_SHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
 function reportDoc(overrides: Record<string, unknown> = {}): string {
@@ -179,10 +189,50 @@ test("report-provenance: suite lock ir ledger skaitymo matricos", async () => {
   assert.equal((await countLedgerSamples(fakeFs({}), ROOT)).count, 0, "nesamas ledger'is = 0 sample'ų");
   const ledger = (content: string) =>
     fakeFs({ [abs(runLedger("20260822t141440313z"))]: { kind: "file", content } });
-  assert.equal((await countLedgerSamples(ledger('{"a":1}\n{"b":2}\n'), ROOT)).count, 2);
-  assert.match((await countLedgerSamples(ledger('{"a":1}\n{"b"'), ROOT)).problem ?? "", /ends mid-record/);
-  assert.match((await countLedgerSamples(ledger('{"a":1}\n\n{"b":2}\n'), ROOT)).problem ?? "", /blank line at record 2/);
-  assert.match((await countLedgerSamples(ledger("ne json\n"), ROOT)).problem ?? "", /unreadable record at line 1/);
+  const one = sampleLine("ag-loop", 1);
+  const two = sampleLine("agent-solo", 1);
+  assert.equal((await countLedgerSamples(ledger(`${one}${LF}${two}${LF}`), ROOT)).count, 2);
+  assert.match((await countLedgerSamples(ledger(`${one}${LF}{"b"`), ROOT)).problem ?? "", /ends mid-record/);
+  assert.match(
+    (await countLedgerSamples(ledger(`${one}${LF}${LF}${two}${LF}`), ROOT)).problem ?? "",
+    /blank line at record 2/,
+  );
+  assert.match((await countLedgerSamples(ledger(`ne json${LF}`), ROOT)).problem ?? "", /unreadable record at line 1/);
+});
+
+/**
+ * Bet koks JSON objektas NĖRA sample'as.
+ *
+ * Skaitiklis skaičiavo sėkmingus `JSON.parse`, tad ledger'is iš devyniasdešimt devynių `{"a":1}`
+ * eilučių atsakydavo „devyniasdešimt devyni sample'ai" ir atitikdavo raportą, teigiantį tiek pat.
+ * Oficialus skaitytojas (`readAuthoritativeSamples`) kiekvieną iš jų atmestų — vartai buvo
+ * griežtai SILPNESNI už įrankį, kurio išvestį jie tikrina. Tai vienintelė kryptis, kuria patikra
+ * negali būti silpnesnė.
+ */
+test("BENCH-12 provenance: eilutė, kuri nėra sample'as, nėra suskaičiuojama", async () => {
+  const ledger = (content: string) =>
+    fakeFs({ [abs(runLedger("20260822t141440313z"))]: { kind: "file", content } });
+
+  const forged = `{"a":1}${LF}`.repeat(99);
+  const counted = await countLedgerSamples(ledger(forged), ROOT);
+  assert.equal(counted.count, undefined, "99 objektų nėra 99 sample'ai");
+  assert.match(counted.problem ?? "", /line 1 that is not a stored sample/);
+
+  // Kiekvienas identifikuojantis laukas yra būtinas: praradus bet kurį, įrašas nustoja būti tuo,
+  // kuo apsimeta.
+  for (const missing of ["sampleId", "scenarioId", "mode", "repetition", "telemetry"]) {
+    const record = JSON.parse(sampleLine("ag-loop", 1)) as Record<string, unknown>;
+    delete record[missing];
+    const result = await countLedgerSamples(ledger(`${JSON.stringify(record)}${LF}`), ROOT);
+    assert.equal(result.count, undefined, `be "${missing}" įrašas vis dar praėjo`);
+  }
+
+  // Ir skaičiuojama pagal režimą, ne tik bendra suma: suma yra pakartojimu klastojama.
+  const mixed = `${sampleLine("ag-loop", 1)}${LF}${sampleLine("ag-loop", 2)}${LF}${sampleLine("agent-solo", 1)}${LF}`;
+  const tally = await countLedgerSamples(ledger(mixed), ROOT);
+  assert.equal(tally.count, 3);
+  assert.equal(tally.perMode.get("ag-loop"), 2);
+  assert.equal(tally.perMode.get("agent-solo"), 1);
 });
 
 /**
@@ -202,8 +252,11 @@ test("BENCH-12 provenance: vartai skaito TIKRĄ run ledger'į, ne pasenusį keli
   const record = (...records: readonly string[]): string =>
     records.map((json) => `${json}${LF}`).join("");
   const fs = fakeFs({
-    [abs(older)]: { kind: "file", content: record('{"a":1}') },
-    [abs(newest)]: { kind: "file", content: record('{"a":1}', '{"b":2}', '{"c":3}') },
+    [abs(older)]: { kind: "file", content: record(sampleLine("ag-loop", 1)) },
+    [abs(newest)]: {
+      kind: "file",
+      content: record(sampleLine("ag-loop", 1), sampleLine("ag-loop", 2), sampleLine("agent-solo", 1)),
+    },
     // Šalutinis pėdsakas, gulintis TAME PAČIAME kataloge: jo įrašai yra prarastos celės, ne
     // sample'ai. Suskaičiavus juos, run'as atrodytų pilnesnis, kuo daugiau jo nepavyko.
     [abs(`${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-20260822t141440313z.unmeasured.jsonl`)]: {
@@ -213,7 +266,7 @@ test("BENCH-12 provenance: vartai skaito TIKRĄ run ledger'į, ne pasenusį keli
     // Pasenęs kelias, kurio paketas nebeturi ir nebeprirašo.
     [abs(`${BENCHMARK_PACKAGE_RELATIVE_PATH}/results/samples.jsonl`)]: {
       kind: "file",
-      content: record(...Array.from({ length: 99 }, () => '{"stale":1}')),
+      content: record(...Array.from({ length: 99 }, () => sampleLine("ag-loop", 1))),
     },
   });
 
@@ -267,7 +320,9 @@ function evidenceFs(input: {
     }
     entries[abs(runLedger(LEDGER_STAMP))] = {
       kind: "file",
-      content: Array.from({ length: input.ledgerLines }, (_, index) => `{"sample":${index}}`).join("\n") + (input.ledgerLines > 0 ? "\n" : ""),
+      content: Array.from({ length: input.ledgerLines }, (_, index) => sampleLine("agent-solo", index + 1))
+        .map((line) => `${line}${LF}`)
+        .join(""),
     };
   }
   return fakeFs(entries);
@@ -399,7 +454,10 @@ test("BENCH-12 vartai: legacy ledger'is be sidecar'o praleidžiamas, sugadintas 
     ...packageWith({}),
     [abs(BENCHMARK_REPORT_RELATIVE_PATH)]: { kind: "file", content: reportDoc() },
     [abs(BENCHMARK_SUITE_LOCK_RELATIVE_PATH)]: { kind: "file", content: JSON.stringify({ suiteHash: "suite-1" }) },
-    [abs(runLedger(LEDGER_STAMP))]: { kind: "file", content: `{"sample":0}${LF}{"sample":1}${LF}` },
+    [abs(runLedger(LEDGER_STAMP))]: {
+      kind: "file",
+      content: `${sampleLine("agent-solo", 1)}${LF}${sampleLine("agent-solo", 2)}${LF}`,
+    },
     [abs(`${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-${LEDGER_STAMP}.identity.json`)]: {
       kind: "file",
       content: "{ ne json",

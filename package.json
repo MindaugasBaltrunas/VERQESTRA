@@ -37,6 +37,7 @@
     "typecheck:benchmark": "pnpm --dir AG/benchmark typecheck",
     "test:benchmark": "pnpm --dir AG/benchmark test",
     "smoke:benchmark": "pnpm --dir AG/benchmark benchmark:smoke",
+    "report:benchmark": "pnpm --dir AG/benchmark benchmark:report",
     "build:ui": "pnpm --dir ui-app build",
     "typecheck:ui": "pnpm --dir ui-app typecheck",
     "test:ui": "pnpm --dir ui-app test"

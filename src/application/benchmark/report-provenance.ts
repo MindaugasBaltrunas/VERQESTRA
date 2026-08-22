@@ -58,6 +58,36 @@ export interface SuiteLockRead {
   readonly problem: string | undefined;
 }
 
+/**
+ * The mode a stored sample declares, or `undefined` when the record is not one.
+ *
+ * The check counted `JSON.parse` successes, which made every JSON object a sample: a ledger of
+ * ninety-nine `{"a":1}` lines answered "ninety-nine samples" and matched a report claiming as
+ * many. The official reader (`readAuthoritativeSamples`) would refuse every one of them, so the
+ * gate was strictly weaker than the tool whose output it verifies — the one direction a
+ * verification may never be weaker in.
+ *
+ * The fields below are the identifying minimum, restated rather than imported: BENCH-1 forbids
+ * this package from reaching into the benchmark package's schema. It is deliberately NARROWER
+ * than that schema and makes no attempt to match it — a record passing here is not thereby a
+ * valid sample, only a record that could be one. Anything more would be this module recomputing
+ * what the benchmark package owns.
+ */
+function sampleMode(record: unknown): string | undefined {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) return undefined;
+  const value = record as Record<string, unknown>;
+  const identifying = ["sampleId", "scenarioId", "mode"] as const;
+  if (identifying.some((field) => typeof value[field] !== "string" || value[field] === "")) {
+    return undefined;
+  }
+  if (!Number.isInteger(value["repetition"])) return undefined;
+  // The cost record is what a benchmark sample exists to carry; a record without one is not a
+  // measurement whatever else it holds.
+  const telemetry = value["telemetry"];
+  if (typeof telemetry !== "object" || telemetry === null) return undefined;
+  return String(value["mode"]);
+}
+
 export interface LedgerSampleCount {
   /** Records the ledger holds. `undefined` only when the count could not be established. */
   readonly count: number | undefined;
@@ -71,6 +101,14 @@ export interface LedgerSampleCount {
    * which file it read — and the whole point of this check is to say what the evidence was.
    */
   readonly source: string | undefined;
+  /**
+   * How many samples the ledger holds per mode.
+   *
+   * Published because a total alone is forgeable by repetition: ninety-nine records of any shape
+   * make ninety-nine. The report states its own per-mode counts, and two independently produced
+   * distributions agreeing is a much narrower coincidence than two totals agreeing.
+   */
+  readonly perMode: ReadonlyMap<string, number>;
 }
 
 function absolute(projectRoot: string, relative: string): string {
@@ -143,27 +181,33 @@ export async function findNewestRunLedger(
  */
 export async function countLedgerSamples(fs: BenchmarkFsPort, projectRoot: string): Promise<LedgerSampleCount> {
   const relative = await findNewestRunLedger(fs, projectRoot);
-  if (relative === undefined) return { count: 0, problem: undefined, source: undefined };
+  if (relative === undefined) return { count: 0, problem: undefined, source: undefined, perMode: new Map() };
 
   const ledgerPath = absolute(projectRoot, relative);
   const stats = await fs.statPath(ledgerPath);
 
   if (stats.kind === "absent") {
-    return { count: 0, problem: undefined, source: relative };
+    return { count: 0, problem: undefined, source: relative, perMode: new Map() };
   }
   if (stats.kind !== "file") {
-    return { count: undefined, problem: `${relative} is not a regular file`, source: relative };
+    return {
+      count: undefined,
+      problem: `${relative} is not a regular file`,
+      source: relative,
+      perMode: new Map(),
+    };
   }
   if (stats.size > MAX_LEDGER_BYTES) {
     return {
       count: undefined,
       problem: `${relative} is larger than the ${MAX_LEDGER_BYTES}-byte maximum this check will read`,
       source: relative,
+      perMode: new Map(),
     };
   }
 
   const text = await fs.readTextFile(ledgerPath);
-  if (text === "") return { count: 0, problem: undefined, source: relative };
+  if (text === "") return { count: 0, problem: undefined, source: relative, perMode: new Map() };
 
   const lines = text.split(NEWLINE);
   const unterminated = lines.pop() ?? "";
@@ -172,30 +216,45 @@ export async function countLedgerSamples(fs: BenchmarkFsPort, projectRoot: strin
       count: undefined,
       problem: `${relative} ends mid-record: the append that wrote it did not complete`,
       source: relative,
+      perMode: new Map(),
     };
   }
 
   let count = 0;
+  const perMode = new Map<string, number>();
   for (const [index, line] of lines.entries()) {
     if (line.trim() === "") {
       return {
         count: undefined,
         problem: `${relative} holds a blank line at record ${index + 1}`,
         source: relative,
+        perMode: new Map(),
       };
     }
+    let parsed: unknown;
     try {
-      JSON.parse(line);
+      parsed = JSON.parse(line);
     } catch {
       return {
         count: undefined,
         problem: `${relative} holds an unreadable record at line ${index + 1}`,
         source: relative,
+        perMode: new Map(),
       };
     }
+    const mode = sampleMode(parsed);
+    if (mode === undefined) {
+      return {
+        count: undefined,
+        problem: `${relative} holds a record at line ${index + 1} that is not a stored sample`,
+        source: relative,
+        perMode: new Map(),
+      };
+    }
+    perMode.set(mode, (perMode.get(mode) ?? 0) + 1);
     count++;
   }
-  return { count, problem: undefined, source: relative };
+  return { count, problem: undefined, source: relative, perMode };
 }
 
 /**

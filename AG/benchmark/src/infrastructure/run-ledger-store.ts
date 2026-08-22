@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, open, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { BENCHMARK_PACKAGE_ROOT } from "./benchmark-workspace-paths.js";
@@ -63,25 +63,38 @@ export function createRunId(startedAt: Date): string {
 const MAX_RUN_ID_ADVANCE_MS = 1_000;
 
 /**
- * A run id whose ledger and identity sidecar do not exist yet.
+ * Suffix of the marker a run creates to claim its id.
  *
- * The id carries a millisecond timestamp and nothing else, which is enough to separate two runs
- * started by different processes in the same *second* and not enough to separate two started in
- * the same *millisecond*. The second of those loses: `JsonRunIdentityStore` opens the sidecar
- * `wx`, so it refuses rather than overwriting — correct, and no data is lost, because the identity
- * is recorded before the first cell runs and therefore before anything is spent. What is lost is a
- * legitimate run, killed for a reason its operator cannot see.
+ * A dedicated file rather than the ledger or the sidecar. The ledger cannot serve: an empty one
+ * created up front would become the newest run, and a run that crashed before storing anything
+ * would then mask the last good run from `compare` and `baseline create`. The sidecar cannot
+ * either: it is written later, with real content, by the pipeline itself.
  *
- * So the colliding start is advanced by a millisecond and tried again. Chronology survives: the
+ * Invisible to every reader: {@link findLatestRunLedger} accepts only names ending in the ledger
+ * suffix, the compression evidence scan reads only `.identity.json`, and the release gate's
+ * restated pattern matches neither. It is left behind deliberately — an id that was once used
+ * stays used, which is the whole job of an allocation marker.
+ */
+export const RUN_CLAIM_SUFFIX = ".claim";
+
+/**
+ * A run id claimed atomically, so two processes cannot be handed the same one.
+ *
+ * The id carries a millisecond timestamp and nothing else, which separates two runs started in the
+ * same *second* and not two started in the same *millisecond*. The loser used to be killed by the
+ * identity sidecar's `wx` — correct, and no data lost, since the identity is recorded before the
+ * first cell runs and therefore before anything is spent, but a legitimate run died for a reason
+ * its operator could not see.
+ *
+ * The first version of this function checked whether the id was free and then used it. That
+ * narrowed the window without closing it: two processes that both look before either writes both
+ * see a free millisecond. A check is not a claim.
+ *
+ * So the claim IS the write. `wx` on a marker file is atomic at the OS level — exactly one caller
+ * creates it, and every other gets `EEXIST` and advances a millisecond. Chronology survives: the
  * second run really did start after the first, and a millisecond is finer than the thing being
- * measured. Lexicographic order still equals chronological order, the name still matches
- * {@link LEDGER_NAME_PATTERN}, and nothing downstream learns a new shape.
- *
- * This narrows the window rather than closing it. Two processes that both check a free
- * millisecond before either writes will both pick it, and the `wx` still refuses one — the arbiter
- * has to be the atomic create, not this check. What the check removes is the ordinary case: two
- * runs launched together, which without it collide whenever the clock rounds them into one
- * millisecond.
+ * measured. The name keeps its shape, so lexicographic order still equals chronological order and
+ * nothing downstream learns anything new.
  */
 export async function reserveRunId(
   startedAt: Date,
@@ -90,15 +103,34 @@ export async function reserveRunId(
   for (let advance = 0; advance < MAX_RUN_ID_ADVANCE_MS; advance += 1) {
     const runId = createRunId(new Date(startedAt.getTime() + advance));
     const ledger = runLedgerPath(runId);
-    const taken =
-      (await pathExists(path.join(packageRoot, ...ledger.split("/")))) ||
-      (await pathExists(path.join(packageRoot, ...runIdentityPath(ledger).split("/"))));
-    if (!taken) return runId;
+    // A ledger or a sidecar already on disk means the id belongs to a run that finished, or to one
+    // whose marker was cleaned away. Neither is claimable, and neither needs an atomic test.
+    if (await pathExists(absolutePath(packageRoot, ledger))) continue;
+    if (await pathExists(absolutePath(packageRoot, runIdentityPath(ledger)))) continue;
+    if (await claimRunId(packageRoot, runId)) return runId;
   }
   throw new Error(
     `No free run id was available in the ${MAX_RUN_ID_ADVANCE_MS} millisecond(s) after ` +
-      `${startedAt.toISOString()}; "${RUN_LEDGER_DIRECTORY}" already holds a ledger for each of them.`,
+      `${startedAt.toISOString()}; "${RUN_LEDGER_DIRECTORY}" already holds a claim for each of them.`,
   );
+}
+
+/** True when this caller created the marker; false when someone else already had. Never throws. */
+async function claimRunId(packageRoot: string, runId: string): Promise<boolean> {
+  const marker = absolutePath(packageRoot, `${RUN_LEDGER_DIRECTORY}/${runId}${RUN_CLAIM_SUFFIX}`);
+  try {
+    await mkdir(path.dirname(marker), { recursive: true });
+    // `wx`: creates or fails. This is the whole mechanism — the atomicity is the filesystem's.
+    const handle = await open(marker, "wx");
+    await handle.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function absolutePath(packageRoot: string, relative: string): string {
+  return path.join(packageRoot, ...relative.split("/"));
 }
 
 async function pathExists(absolutePath: string): Promise<boolean> {

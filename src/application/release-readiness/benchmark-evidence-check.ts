@@ -163,6 +163,22 @@ export async function checkBenchmarkEvidence(
     );
   }
 
+  // Suma yra pakartojimu klastojama: devyniasdesimt devyni bet kokios formos irasai duoda
+  // devyniasdesimt devynis. Raportas skelbia SAVO per-rezimo skaicius, ir dvi nepriklausomai
+  // pagamintos pasiskirstymo lenteles, sutampancios visose eilutese, yra kur kas siauresnis
+  // sutapimas nei dvi sutampancios sumos.
+  if (ledger.count !== undefined && ledger.source !== undefined) {
+    for (const [mode, claimed] of reportModeCounts(report)) {
+      const held = ledger.perMode.get(mode) ?? 0;
+      if (held !== claimed) {
+        issues.push(
+          `benchmark evidence does not match its ledger: the report claims ${claimed} ` +
+            `${mode} sample(s) but ${ledger.source} holds ${held}`,
+        );
+      }
+    }
+  }
+
   // BENCH-17 antra pusė: raportas privalo aprašyti TĄ run'ą, kurio ledger'į ką tik suskaičiavome.
   //
   // `suiteHash` prieš `suite.lock.json` atsako į kitą klausimą — ar tai apskritai tracked rinkinys.
@@ -210,6 +226,28 @@ export async function checkBenchmarkEvidence(
 
   if (issues.length > 0) return blocked(issues, verdict);
   return { ok: true, status: "ok", report_state: view.state, verdict, issues: [] };
+}
+
+/**
+ * Per-mode sample counts as the report states them.
+ *
+ * The report's `modes` array is typed `unknown` on this side deliberately — the report layer owns
+ * its shape, and this gate reads only what it needs to compare. A row that does not carry both a
+ * mode name and a count contributes nothing rather than a zero: an absent claim is not a claim of
+ * none, and turning it into one would block a report for a field it never promised.
+ */
+function reportModeCounts(report: { readonly modes: readonly unknown[] }): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of report.modes) {
+    if (typeof row !== "object" || row === null) continue;
+    const value = row as Record<string, unknown>;
+    const mode = value["mode"];
+    const count = value["currentSampleCount"];
+    if (typeof mode === "string" && mode !== "" && Number.isInteger(count)) {
+      counts.set(mode, Number(count));
+    }
+  }
+  return counts;
 }
 
 /** The report's own reasons, as one trailing clause. Bounded: a gate line is read, not scrolled. */

@@ -29,6 +29,7 @@ import { JsonlSampleStore } from "../infrastructure/jsonl-sample-store.js";
 import { JsonRunIdentityStore } from "../infrastructure/run-identity-store.js";
 import {
   createRunId,
+  findLatestRunLedger,
   reserveRunId,
   runIdentityPath,
   runLedgerPath,
@@ -341,4 +342,39 @@ test("a ledger with no sidecar still holds its millisecond", async (t) => {
   await writeFile(path.join(root, "results", "runs", `${taken}.jsonl`), "", "utf8");
 
   assert.equal(await reserveRunId(startedAt, root), createRunId(new Date(startedAt.getTime() + 1)));
+});
+
+test("du kartu reikalaujantys tos pačios milisekundės gauna SKIRTINGUS id", async (t) => {
+  // Patikra nėra pretenzija. Pirmoji šios funkcijos versija pažiūrėdavo, ar milisekundė laisva, ir
+  // tada ją naudodavo — du procesai, abu pažiūrėję prieš bet kuriam įrašant, abu ją pasirinkdavo.
+  // Dabar pretenzija YRA įrašymas: `wx` ant žymos yra atominis, tad vienas kūrėjas laimi, o visi
+  // kiti gauna `EEXIST` ir pasistumia.
+  const root = await ledgerRoot(t);
+  const startedAt = new Date("2026-08-11T09:07:03.045Z");
+
+  const claimed = await Promise.all(
+    Array.from({ length: 8 }, () => reserveRunId(startedAt, root)),
+  );
+
+  assert.equal(new Set(claimed).size, claimed.length, `id pasikartojo: ${claimed.join(", ")}`);
+  for (const runId of claimed) {
+    assert.match(runLedgerPath(runId), /^results\/runs\/run-\d{8}t\d{9}z\.jsonl$/, "forma nesikeičia");
+  }
+
+  // Ir kiekvienas jų yra tikrai laisvas: visi aštuoni įrašo savo tapatybę be atmetimo.
+  for (const runId of claimed) {
+    await new JsonRunIdentityStore(runLedgerPath(runId), root).record(
+      runIdentityRecord({ runId, recordedAt: startedAt.toISOString() }),
+    );
+  }
+});
+
+test("užimtumo žyma nėra ledger'is: naujausio run'o paieška jos nemato", async (t) => {
+  const root = await ledgerRoot(t);
+  const runId = await reserveRunId(new Date("2026-08-11T09:07:03.045Z"), root);
+
+  // Žyma jau diske, ledger'io dar nėra. `findLatestRunLedger` privalo atsakyti „nėra paleidimo" —
+  // priešingu atveju rezervacija pati taptų run'u, kurio niekas nevykdė.
+  assert.equal(await findLatestRunLedger(root), undefined);
+  assert.ok(runId.startsWith("run-"));
 });

@@ -74,8 +74,12 @@ jobs:
       - run: pnpm smoke:benchmark
       - name: Visas rinkinys, tik deterministic-control
         run: node dist/cli.js benchmark run --mode deterministic-control --repetitions 3
+      # `benchmark:report`, ne `benchmark report`. CLI komanda be `--out` rašo TIK į stdout, tad
+      # artefakte naujo raporto nebūtų — būtų tik tai, kas gulėjo `reports/` prieš tai, o švariame
+      # bėgike ten nėra nieko. Ir net su `--out` ji rašo vieną failą be `compression` sekcijos,
+      # kurią skaito kompresijos release vartai. Kanoninis generatorius rašo abu failus pilnai.
       - name: Ataskaita iš to, kas ką tik buvo išmatuota
-        run: node dist/cli.js benchmark report --format markdown
+        run: pnpm report:benchmark
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -172,7 +176,7 @@ jobs:
           node dist/cli.js "${args[@]}"
       - name: Ataskaita
         if: always()
-        run: node dist/cli.js benchmark report --format markdown
+        run: pnpm report:benchmark
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -23,6 +23,11 @@ jobs:
       # šaknies `pnpm test` jo nemato. Be atskiro žingsnio jis tyliai pūtų: paketas, kurio
       # niekas nepaleidžia, nustoja būti įrodymu ir tampa archyvu.
       - run: pnpm test:benchmark
+      # BENCH-12: kiekvienas PR paleidžia offline smoke'ą. Jis NĖRA testų dublis — du iš penkių
+      # jo tikrinimų prašo tinklinio režimo BE leidimo ir reikalauja atmetimo, tad regresija,
+      # padariusi `--allow-network` neprivalomu, krenta čia, o ne pasirodo sąskaitoje. Vartas,
+      # kurio kontraktas parašytas README, bet nepaleidžiamas CI, yra pažadas, ne vartas.
+      - run: pnpm smoke:benchmark
       # Dashboard'as taip pat: savo tsconfig, savo vitest, savo testai. Be šio žingsnio
       # sulaužtas UI paaiškėtų tik operatoriui atsidarius naršyklę.
       - run: pnpm typecheck:ui

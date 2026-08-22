@@ -1,0 +1,136 @@
+name: benchmark-full
+
+# Pilnas benchmark rinkinys (BENCH-12). Atskirtas nuo `ci.yml` sąmoningai: PR eiga privalo būti
+# nemokama ir greita, o šis kelias yra lėtas ir, vienoje savo šakoje, mokamas.
+#
+# Du darbai, ne vienas su vėliava. Nemokamas rinkinys turi galėti suktis pagal tvarkaraštį be
+# jokių sąlygų; mokamas negali pasileisti niekaip kitaip, kaip tik žmogui paspaudus ir įrašius
+# `allow_network: true`. Sudėti juos į vieną darbą reikštų, kad viena `if` klaida paverčia
+# tvarkaraštį sąskaita.
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_network:
+        description: "Leisti MOKAMUS tinklinius režimus (ag-loop, agent-solo). Palikus false — tik deterministic-control."
+        type: boolean
+        required: true
+        default: false
+      modes:
+        description: "Režimai, kableliais. Naudojama tik kai allow_network=true."
+        type: string
+        required: false
+        default: "ag-loop,agent-solo"
+      scenarios:
+        description: "Scenarijų id, kableliais. Tuščia — visas rinkinys."
+        type: string
+        required: false
+        default: ""
+      repetitions:
+        description: "Pakartojimai vienam scenarijui ir režimui. BENCH-9 reikalauja bent 3 nedeterministiniams."
+        type: string
+        required: false
+        default: "3"
+      runner:
+        description: "Bėgikas mokamai šakai. Hosted runner NETURI autentifikuoto agento — reikia self-hosted."
+        type: string
+        required: false
+        default: "self-hosted"
+  schedule:
+    # Kas savaitę, pirmadienį 04:00 UTC. Tvarkaraštis liečia TIK nemokamą šaką.
+    - cron: "0 4 * * 1"
+
+jobs:
+  # Visas rinkinys be modelio: patikra, kad pipeline'as, izoliacija, verifikatorius, ledger'is ir
+  # ataskaita veikia nuo galo iki galo. Kritimas čia reiškia, kad mokamas paleidimas būtų
+  # sudeginęs pinigus dėl priežasties, kurią buvo galima pamatyti nemokamai.
+  offline-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm smoke:benchmark
+      - name: Visas rinkinys, tik deterministic-control
+        run: node dist/cli.js benchmark run --mode deterministic-control --repetitions 3
+      - name: Ataskaita iš to, kas ką tik buvo išmatuota
+        run: node dist/cli.js benchmark report --format markdown
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-offline-ledger
+          # Ledger'iai gitignore'inami, tad be šito paleidimo įrodymas dingtų kartu su bėgiku.
+          path: |
+            AG/benchmark/results/runs/
+            AG/benchmark/reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Mokama šaka. Trys nepriklausomos sąlygos, ir kiekviena viena pati sustabdo paleidimą:
+  # rankinis dispatch, aiškus `allow_network: true` ir apsaugota aplinka, kuri GitHub'e
+  # reikalauja patvirtinimo prieš darbo startą.
+  paid-suite:
+    if: github.event_name == 'workflow_dispatch' && inputs.allow_network
+    needs: offline-suite
+    runs-on: ${{ inputs.runner }}
+    environment: benchmark-paid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # Fail-closed prieš išleidžiant: paketas atmeta režimą be sukonfigūruoto agento kvietimo,
+      # bet tas atmetimas įvyktų jau paleidus. Čia pasakoma anksčiau ir aiškiau.
+      - name: Patikrinti, kad bėgikas turi agentą
+        run: |
+          if ! command -v claude >/dev/null 2>&1; then
+            echo '::error::Sis begikas neturi "claude" CLI. Mokami rezimai vykdomi per vietini'
+            echo '::error::autentifikuota Claude Code diegima, o hosted runner tokio neturi.'
+            exit 1
+          fi
+          claude --version
+      - name: Planas prieš vykdymą
+        run: |
+          node dist/cli.js benchmark run --dry-run --allow-network \
+            --mode "${{ inputs.modes }}" \
+            --repetitions "${{ inputs.repetitions }}" \
+            ${{ inputs.scenarios != '' && format('--scenario "{0}"', inputs.scenarios) || '' }}
+      - name: Pilnas paleidimas
+        env:
+          # Persiunčiami TIK tie kintamieji, kuriuos paketas deklaruoja
+          # (`FORWARDED_CREDENTIAL_VARIABLES`). Tuščias secret lieka tuščias: vietinis Claude Code
+          # diegimas autentifikuojasi pats, ir raktas čia nėra privalomas.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          node dist/cli.js benchmark run --allow-network \
+            --mode "${{ inputs.modes }}" \
+            --repetitions "${{ inputs.repetitions }}" \
+            ${{ inputs.scenarios != '' && format('--scenario "{0}"', inputs.scenarios) || '' }}
+      - name: Ataskaita
+        if: always()
+        run: node dist/cli.js benchmark report --format markdown
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-paid-ledger
+          # `always()`: nutrūkęs mokamas paleidimas yra būtent tas, kurio įrodymo labiausiai
+          # reikia — jis jau kainavo, ir prarastos celės yra radinys, ne šiukšlė.
+          path: |
+            AG/benchmark/results/runs/
+            AG/benchmark/reports/
+          if-no-files-found: warn
+          retention-days: 90

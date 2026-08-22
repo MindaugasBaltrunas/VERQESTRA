@@ -56,8 +56,8 @@ pnpm --dir AG/benchmark benchmark:report  # writes reports/benchmark-report.{jso
 
 | Where | What runs | Paid model |
 |---|---|---|
-| `.github/workflows/ci.yml` (push / pull request) | `pnpm --dir AG/benchmark test` (unit + fixture + suite validation) and `benchmark:smoke` | never — the smoke refuses to declare `--allow-network`, and both networked modes are asserted to be refused without it |
-| `.github/workflows/benchmark-full.yml` (manual / scheduled) | the full suite, network modes only when the operator opts in | only behind `workflow_dispatch`, a protected environment and an explicit input |
+| `.github/workflows/ci.yml` (push / pull request) | `pnpm test:benchmark` (unit + fixture + suite validation) and `pnpm smoke:benchmark` | never — the smoke refuses to declare `--allow-network`, and both networked modes are asserted to be refused without it |
+| `.github/workflows/benchmark-full.yml` (manual / scheduled) | two jobs: the whole suite offline (`deterministic-control`) on a schedule and on dispatch, and the networked modes only on dispatch | the paid job requires all three of `workflow_dispatch`, `allow_network: true` and the protected `benchmark-paid` environment; the schedule can never reach it |
 | `ag final-audit` | `benchmark_evidence` gate over `reports/benchmark-report.json` | never — it only reads the report |
 
 The smoke is `src/interfaces/cli/offline-smoke.ts`: a fixed list of invocations
@@ -65,30 +65,53 @@ and the exit code each must answer with. Two of them ask for a networked mode
 without permission and are required to be refused, so a regression that made
 `--allow-network` optional fails a pull request instead of producing a bill.
 
+Both rows above were written before either was true. `ci.yml` ran the package's
+tests but never the smoke, and `benchmark-full.yml` did not exist at all, so from
+2026-08-07 until 2026-08-22 this table described a CI contract nothing executed —
+and the one check whose whole purpose is to stop an accidental bill was the one
+not running. A gate stated in a README and absent from CI is a promise, not a
+gate; that is the reason this paragraph names the gap rather than quietly
+dropping it.
+
 ## Status
 
-Last verified 2026-08-07 (task 0017, HEAD `88a23a5`). Evidence:
-[`verification-2026-08-07.md`](../openspec/changes/ag-loop-benchmark-v1/verification-2026-08-07.md).
+Last verified 2026-08-22 (VQ-802). `pnpm --dir AG/benchmark test` is green:
+734 tests, 731 pass, 3 skipped — the symlink-containment cases, which this
+Windows host cannot create.
 
 Scenarios, the sample store, the isolated runner, the verifier, the metrics, the
 baseline, the reports, the read-only HTTP contract, the UI page and the CI and
-release gates are implemented, and `pnpm --dir AG/benchmark test` is green
-(540 pass, 0 fail, 3 skipped — the symlink-containment cases, which this Windows
-host cannot create).
+release gates are implemented. **The run pipeline is wired**: `run`,
+`baseline create`, `compare`, `report` and `verify` execute against the authored
+suite and the run ledgers of this package. That closes what this section
+described as open until 2026-08-22 — the text below it claimed those commands
+answered `BenchmarkCapabilityUnavailableError`, which stopped being true and was
+not noticed, because nothing fails when a README goes stale.
 
-The run pipeline is still not wired into the CLI composition root: `run`,
-`baseline create`, `compare`, `report` and `verify` answer
-`BenchmarkCapabilityUnavailableError`
-(`src/interfaces/cli/benchmark-cli-composition.ts`). So the sample ledger is
-empty, `reports/benchmark-report.json` covers **0 samples** with
-`verdictBasis: no-baseline`, and **no benchmark number exists yet — none may be
-quoted, and no claim about AG Loop's effectiveness may be made from this
-package.** Re-running `benchmark:report` does not change that: the generator
-renders the ledger, and the ledger has no record.
+### What has been measured
 
-Task `0017` verified this state; it did not close it, and it is not the task that
-will — closing it means wiring the run pipeline (BENCH-011). Until then the
-`benchmark_evidence` release gate blocks a completion claim, which is the
+A three-scenario pilot on 2026-08-22 (`bugfix-i18n-missing-key`,
+`refactor-summary-duplication`, `security-log-session-tokens`), both networked
+modes, three repetitions:
+
+| scenario | mode | accepted | billable tokens (median) |
+|---|---|---|---|
+| bugfix-i18n-missing-key | ag-loop | 3/3 | 41 183 |
+| bugfix-i18n-missing-key | agent-solo | 3/3 | 15 487 |
+| refactor-summary-duplication | ag-loop | 3/3 | 34 599 |
+| refactor-summary-duplication | agent-solo | 3/3 | 12 868 |
+| security-log-session-tokens | agent-solo | 0/3 | 15 959 |
+| security-log-session-tokens | ag-loop | refused before dispatch | 0 |
+
+These are three scenarios out of twenty-four. **They are not a suite result and
+no claim about the loop's effectiveness may be drawn from them** — they are the
+evidence that the pipeline measures what it says it measures. The full suite has
+not been run.
+
+No baseline is comparable yet: the two committed ones predate the manifest
+schema this build reads (`baselines/README.md` states why), so
+`benchmark-report.json` still renders with `verdictBasis: no-baseline` and the
+`benchmark_evidence` release gate still blocks a completion claim. That is the
 intended behaviour rather than a defect. Never hand-edit
 `reports/benchmark-report.json`, `scenarios/suite.lock.json` or a baseline
 manifest to move that gate.

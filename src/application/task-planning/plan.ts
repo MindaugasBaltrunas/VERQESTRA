@@ -88,11 +88,17 @@ function architectureContractFromSpec(relativeSpecPath: string): ArchitectureCon
         no_browser_scraper_mcp_by_default: true,
         tests_required_for_new_behavior: true,
       },
+      // VQ-703: kryptys aprašo VERQESTRA sluoksnius, o ne etalono `AG/orchestrator` išdėstymą.
+      // Sugeneruotas kontraktas, vardijantis katalogus, kurių projekte nėra, yra blogesnis už
+      // tuščią: jis atrodo autoritetingas ir siunčia agentą į neegzistuojančias ribas.
       dependency_direction: [
-        "AG/orchestrator/src/commands -> AG/orchestrator/src/core",
-        "AG/orchestrator/src/core -> node builtins and zod",
-        "AG/config -> AG/orchestrator/src/core/schema validation",
-        "AG/spec -> AG/orchestrator commands read-only unless task scope allows writes",
+        "src/domain -> src/domain, src/shared",
+        "src/application -> src/application, src/domain, src/shared",
+        "src/infrastructure -> src/infrastructure, src/application, src/domain, src/shared",
+        "src/interfaces -> src/interfaces, src/application, src/domain, src/shared (NOT infrastructure)",
+        "src/composition -> everything; nothing imports composition",
+        "vq/config -> read-only policy input, validated by application loaders",
+        "AG/spec -> read-only unless task scope allows writes",
       ],
       security_rules: {
         no_secrets_in_repo: true,

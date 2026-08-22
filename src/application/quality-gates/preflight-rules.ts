@@ -110,20 +110,34 @@ export const SOFT_SECTIONS = [...SCOPED_REQUIRED_SECTIONS, ...INFORMATIONAL_SECT
 // ALREADY_IMPLEMENTED markerį diagnosis 'done' kelias priima vietoj naujo commit'o.
 //
 // Sandbox taisyklių blokas (2026-08-04): dvi dispatch sesijos iš eilės sudegino dešimtis
-// turns bandydamos hook'ų atmetamas komandų formas. Tekstas paliktas BYTE-identiškas
-// etalonui (AG-formos komandos įskaitytai) — jis yra prompt'o parity dalis; VERQESTRA
-// self-hosting parametrizacija — E7 sprendimas.
-export const VERIFICATION_PREAMBLE = `## Žingsnis 0 — ar jau įgyvendinta?
+// turns bandydamos hook'ų atmetamas komandų formas. Tekstas išlieka, bet KOMANDOS nebe
+// įrašytos į jį — etalone jos buvo `npm run build --prefix AG/orchestrator` ir
+// `pnpm --dir AG/orchestrator ...`, o VERQESTRA tokių komandų NETURI.
+//
+// VQ-703: agentui duota komanda, kurios projekte nėra, yra blogesnė už jokią — jis ją paleis,
+// gaus klaidą ir sudegins būtent tuos turns, kuriuos šis blokas turi taupyti. Todėl komandos
+// dabar yra ĮVESTIS, o jų šaltinis — projekto kokybės politika ir kanoninė perstatymo komanda.
+export type VerificationCommands = {
+  /** Kanoninė perstatymo komanda (`DIST_REBUILD_COMMAND`). */
+  rebuild: string;
+  /** Patikros, kurias projektas realiai deklaruoja (`quality-policy` scope komandos). */
+  checks: readonly string[];
+};
+
+export function verificationPreamble(commands: VerificationCommands): string {
+  const checks = commands.checks.length > 0 ? commands.checks : [commands.rebuild];
+  return `## Žingsnis 0 — ar jau įgyvendinta?
 Prieš keisdamas kodą patikrink, ar ## Tikslas ir ## Patikra jau tenkinami esamame kode.
 Jei taip — NEDARYK jokių pakeitimų ir galutinę ataskaitą pradėk atskira eilute:
 ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 ## Sandbox taisyklės (privaloma — taupo turns)
-- Po BET KOKIO AG/orchestrator/src pakeitimo dist pasensta ir hook'ai blokuoja bash komandas. Pirma perbuild'ink TIKSLIA forma be pipe/redirect: \`npm run build --prefix AG/orchestrator\`
-- Patikroms naudok tik: \`pnpm --dir AG/orchestrator typecheck\` ir \`pnpm --dir AG/orchestrator test\` (be \`--\`, be pipe į kitas komandas).
+- Po BET KOKIO \`src\` pakeitimo \`dist\` pasensta ir hook'ai blokuoja bash komandas. Pirma perbuild'ink TIKSLIA forma be pipe/redirect: \`${commands.rebuild}\`
+- Patikroms naudok tik: ${checks.map((check) => `\`${check}\``).join(" ir ")} (be \`--\`, be pipe į kitas komandas).
 - \`echo\`, \`sed\`, \`node -e\` ir kompound komandos su neleistinais segmentais VISADA atmetamos — nekartok jų kitomis formomis; failams skaityti naudok Read/Grep tools.
 
 `;
+}
 
 export function missingTaskSections(task: string | undefined): { hard: string[]; soft: string[] } {
   const content = task ?? "";

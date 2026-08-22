@@ -8,6 +8,9 @@
 
 import path from "node:path";
 import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
+import { loadQualityPolicy, resolveQualityChecks } from "../application/policy-governance/quality-policy.js";
+import { DIST_REBUILD_COMMAND } from "../application/release-readiness/build-gate.js";
+import type { VerificationCommands } from "../application/quality-gates/preflight-rules.js";
 import { authorizeLlmCall, type LlmCallAuthorization } from "../application/token-governance/tool-budget-gates.js";
 import type { TaskPhase } from "../domain/tokens/usage-ledger.js";
 import { ensureFreshCodeIndexForExistingCodeTask } from "../application/code-intelligence/query/guard.js";
@@ -52,6 +55,21 @@ export const openSpecContextPorts: OpenSpecContextPorts = {
  * naudojamas tik `source_roots` užuominai, o jos nebuvimas nieko neatrakina — tik praplečia
  * paiešką. Klaida dėl neprivalomos užuominos sustabdytų visą preflight'ą.
  */
+/**
+ * Ką agentui vadinti „patikra" ir „perstatymas".
+ *
+ * `task` scope, o ne `milestone`: sandbox blokas kalba apie VIENOS užduoties ciklą, o milestone
+ * komandų rinkinys projektuose būna platesnis (release patikros, benchmark). Nepasiekiama arba
+ * tuščia politika grąžina tik perstatymo komandą — geriau viena tikra eilutė nei sąrašas
+ * komandų, kurių projekte nėra.
+ */
+export async function verificationCommands(runtimeRoot: string): Promise<VerificationCommands> {
+  const checks = await loadQualityPolicy(policyConfigFs, runtimeRoot)
+    .then((policy) => resolveQualityChecks(policy, "task").map((check) => check.display))
+    .catch(() => []);
+  return { rebuild: DIST_REBUILD_COMMAND, checks };
+}
+
 export async function loadProjectProfile(runtimeRoot: string): Promise<{ source_roots?: string[] } | undefined> {
   const raw = await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "project", "profile.json"));
   if (raw === undefined) return undefined;
@@ -103,6 +121,7 @@ export function claudePreflightPorts(input: ClaudePreflightAdapterInput): Claude
     listAgentFiles: () => listAgentFiles(input.projectRoot),
     loadAgentPolicy: () => loadAgentPolicy(policyConfigFs, input.runtimeRoot),
     loadProjectProfile: () => loadProjectProfile(input.runtimeRoot),
+    verificationCommands: () => verificationCommands(input.runtimeRoot),
 
     policyFs: policyConfigFs,
     openSpec: openSpecContextPorts,

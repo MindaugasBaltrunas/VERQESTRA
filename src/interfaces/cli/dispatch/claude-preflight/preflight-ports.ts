@@ -5,6 +5,7 @@
 // application (preflight-rules, preflight-fastpath, size, human-review gates, policy
 // loaderiai per policyFs).
 
+import type { VerificationCommands } from "../../../../application/quality-gates/preflight-rules.js";
 import type { AgentPolicy } from "../../../../domain/policies/agent-selection.js";
 import type { PolicyConfigFileSystemPort } from "../../../../application/policy-governance/ports.js";
 import type { OpenSpecContextPorts } from "../../../../application/task-planning/openspec-context.js";
@@ -86,6 +87,13 @@ export type ClaudePreflightPorts = {
   loadAgentPolicy(): Promise<AgentPolicy>;
   /** Persist'intas projekto profilis arba `undefined` (trūkstamas/sugadintas — saugu). */
   loadProjectProfile(): Promise<{ source_roots?: string[] } | undefined>;
+  /**
+   * Perstatymo ir patikrų komandos, kurias sandbox taisyklių blokas paduoda agentui.
+   *
+   * Portas, o ne konstanta: komanda, kurios projekte nėra, sudegina būtent tuos turns, kuriuos
+   * tas blokas turi taupyti. Šaltinis yra projekto kokybės politika, o ne šio modulio prielaida.
+   */
+  verificationCommands(): Promise<VerificationCommands>;
 
   /** Policy konfigų skaitymas (limits/budget/classification/style/enforcement loaderiams). */
   policyFs: PolicyConfigFileSystemPort;

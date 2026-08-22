@@ -9,7 +9,7 @@
 import path from "node:path";
 import { USAGE_ERROR_EXIT_CODE } from "../../../../shared/exit-codes.js";
 import {
-  VERIFICATION_PREAMBLE,
+  verificationPreamble,
   ensureReadmeGuardFirst,
   evaluateArchitectureAndPolicyGates,
   extractSpecSources,
@@ -276,7 +276,8 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
       };
       await writeDecision(decision, optimizedBudget.tier);
       // Requeue'inti delegated failai preamble jau turi — antrą kartą nepridedam.
-      const reformulatedBody = claudeTask.includes("## Žingsnis 0") ? claudeTask : `${VERIFICATION_PREAMBLE}${claudeTask}`;
+      const preamble = verificationPreamble(await ports.verificationCommands());
+      const reformulatedBody = claudeTask.includes("## Žingsnis 0") ? claudeTask : `${preamble}${claudeTask}`;
       await writeReformulatedTask(`${reformulatedBody.trimEnd()}\n`);
       await ports.recordResumeCheckpoint({
         actor: "supervisor",
@@ -460,7 +461,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
 
   claudeTask = wrapClaudeTask(claudeTask, decision.target_agent_chain ?? []);
 
-  await writeReformulatedTask(`${VERIFICATION_PREAMBLE}${claudeTask.trimEnd()}\n`);
+  await writeReformulatedTask(`${verificationPreamble(await ports.verificationCommands())}${claudeTask.trimEnd()}\n`);
   await ports.recordResumeCheckpoint({
     actor: "supervisor",
     phase: "preflight",

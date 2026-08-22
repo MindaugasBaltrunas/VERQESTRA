@@ -18,10 +18,19 @@ export function agentChainForTitle(title: string): string[] {
   return ["readme-guard", "coder", "reviewer"];
 }
 
+/**
+ * Variklio šaltinio šaknis sugeneruotų užduočių ribose.
+ *
+ * VQ-703: etalone čia buvo įrašytas `AG/orchestrator`, t. y. TO diegimo kelias. VERQESTRA
+ * variklis gyvena `src`, ir sugeneruota užduotis su `AG/orchestrator/**` riba būtų davusi
+ * agentui leidimą katalogui, kurio nėra — t. y. leidimą niekam.
+ */
+const ENGINE_SOURCE_ROOT = "src";
+
 export function inferAllowedPaths(title: string): { paths: string[]; isBroad: boolean } {
   const classification = classifyTask(title, ["AG/**"], defaultTaskClassificationPolicy);
   if (classification.reasons.includes("routine: default classification")) {
-    return { paths: ["AG/orchestrator/**"], isBroad: true };
+    return { paths: [`${ENGINE_SOURCE_ROOT}/**`], isBroad: true };
   }
   const paths: string[] = [];
   for (const category of classification.categories) {
@@ -29,11 +38,11 @@ export function inferAllowedPaths(title: string): { paths: string[]; isBroad: bo
     for (const p of rule.pathIncludes) {
       if (!p.includes("/")) continue;
       const clean = p.replace(/\/+$/, "");
-      paths.push(clean.startsWith("AG/") ? `${clean}/**` : `AG/orchestrator/${clean}/**`);
+      paths.push(clean.startsWith("AG/") ? `${clean}/**` : `${ENGINE_SOURCE_ROOT}/${clean}/**`);
     }
   }
   const unique = [...new Set(paths)];
-  return unique.length > 0 ? { paths: unique, isBroad: false } : { paths: ["AG/orchestrator/**"], isBroad: true };
+  return unique.length > 0 ? { paths: unique, isBroad: false } : { paths: [`${ENGINE_SOURCE_ROOT}/**`], isBroad: true };
 }
 
 export function renderQueueTask(

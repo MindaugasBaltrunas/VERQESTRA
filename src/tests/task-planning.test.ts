@@ -70,7 +70,9 @@ test("queue-task: klasifikacija parenka grandinę, o routine scope lieka broad",
   ]);
   const broad = inferAllowedPaths("Visiškai neutralus darbas be raktažodžių");
   assert.equal(broad.isBroad, true);
-  assert.deepEqual(broad.paths, ["AG/orchestrator/**"]);
+  // VQ-703: variklio šaknis yra `src`, ne etalono `AG/orchestrator`. Sugeneruota užduotis su
+  // riba į neegzistuojantį katalogą duotų agentui leidimą niekam.
+  assert.deepEqual(broad.paths, ["src/**"]);
 });
 
 test("taskGenerate: DUP-14 numeracija nuo cross-bucket maksimumo, pakartotinis run kolizijos negeneruoja", async () => {

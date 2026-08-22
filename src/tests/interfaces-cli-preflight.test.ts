@@ -152,6 +152,7 @@ function makeHarness(input: {
     listAgentFiles: async () => ["readme-guard.md", "coder.md", "tester.md", "ne-agentas.txt"],
     loadAgentPolicy: async () => POLICY,
     loadProjectProfile: async () => undefined,
+    verificationCommands: async () => ({ rebuild: "pnpm build", checks: ["pnpm test"] }),
     policyFs: { readTextFileIfExists: async () => undefined },
     openSpec: {
       fs: {

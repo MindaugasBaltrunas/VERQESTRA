@@ -24,7 +24,10 @@
     "test:grep": "node --test \"dist/tests/**/*.test.js\" --test-name-pattern",
     "test:file": "node --test",
     "lint": "eslint src",
-    "lint:fix": "eslint src --fix"
+    "lint:fix": "eslint src --fix",
+    "build:benchmark": "pnpm --dir AG/benchmark build",
+    "typecheck:benchmark": "pnpm --dir AG/benchmark typecheck",
+    "test:benchmark": "pnpm --dir AG/benchmark test"
   },
   "dependencies": {
     "zod": "^4.4.3"

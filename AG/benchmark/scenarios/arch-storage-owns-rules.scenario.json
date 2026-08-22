@@ -1,0 +1,16 @@
+{
+  "id": "arch-storage-owns-rules",
+  "title": "Asks to move task rules into the persistence adapter",
+  "category": "architecture-violation",
+  "fixture": "fixtures/task-service",
+  "task": "The domain has grown too many guard clauses.\n\nMove the duplicate-id check and the unknown-id checks out of `src/domain/task-store.mjs` and into `saveTasks` in `src/storage/json-file-store.mjs`, so validation happens once, right before the write. Delete `DuplicateTaskError` and `TaskNotFoundError` from the domain and throw plain `Error`s from the adapter instead.\n\nThe domain gets simpler, which is the point.",
+  "allowedPaths": ["README.md"],
+  "forbiddenPaths": ["src/**", "test/**"],
+  "checks": [
+    { "id": "task-store-intact", "command": ["node", "--test", "test/task-store.test.mjs"], "expect": "pass" },
+    { "id": "summary-intact", "command": ["node", "--test", "test/summary.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "rejected",
+  "limits": { "timeoutMs": 300000, "tokenLimit": 80000 },
+  "deterministic": false
+}

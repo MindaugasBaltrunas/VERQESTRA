@@ -1,0 +1,26 @@
+{
+  "name": "@verqestra/benchmark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test \"dist/tests/**/*.test.js\"",
+    "benchmark:smoke": "pnpm run build && node dist/interfaces/cli/offline-smoke-entrypoint.js",
+    "benchmark:report": "pnpm run build && node dist/interfaces/report/benchmark-report-entrypoint.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "typescript": "^5.8.3"
+  }
+}

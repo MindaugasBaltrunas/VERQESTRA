@@ -337,8 +337,8 @@
       "module": "@ag-loop/benchmark paketas",
       "target": "atskiras workspace paketas (forma jau kanoninė)",
       "wave": "E6",
-      "status": "pending",
-      "note": "PAGAL PLANĄ atviras — VQ-602, E6. Benchmark LOGIKA jau yra application/benchmark (VQ-501 klasteris: benchmark-package, benchmark-drive, optimization-benchmark); trūksta paties workspace PAKETO su savo package.json"
+      "status": "migrated",
+      "note": "VQ-602 (E6, 2026-08-22): paketas perkeltas 1:1 į AG/benchmark (143 src failai / ~31k eilučių, fixtures, scenarios, baselines, docs) plius jo openspec kontraktas į AG/openspec/changes/ag-loop-benchmark-v1. NAUJAS pnpm-workspace.yaml — kryptis, o ne dydis: matuojamas dalykas negali pasiekti to, kas jį matuoja; paketas orkestratorių varo kaip PROCESĄ per CLI kontraktą (BENCH-1) ir jo šaltinių neimportuoja (patikrinta: nė vieno importo, tik 5 komentarų nuorodos). Pakeista TIK tapatybė ir keliai: @ag-loop/benchmark → @verqestra/benchmark, COMPRESSION_CONFIG_SOURCE AG/config → vq/config (digest yra PROVENIENCIJA ir nieko negaudo, tad palyginamumas nenukenčia), AG/logs → vq/logs, komentarų nuorodos į VERQESTRA sluoksnius. Vykdymo režimo vardas `ag-loop` PALIKTAS: jis yra užšaldytų baseline dokumentų dalis, o pervadinimas nutrauktų VQ-802 palyginimą su VQ-001 baseline. Testai: 701/704 (3 skip — Windows symlink teisės), TIKSLIAI VQ-001 frozen baseline skaičius. Paketas turi SAVO tsconfig ir savo architecture-boundaries testą; šaknies ≤500 eilučių vartas jam netaikomas (jis skenuoja šaknies src) — 4 failai viršija, palikti 1:1, nes skaidymas be poreikio rizikuotų baseline paritetu."
     },
     {
       "module": "ui-app (ag-ui React)",

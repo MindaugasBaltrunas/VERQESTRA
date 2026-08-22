@@ -1,0 +1,11 @@
+{
+  "comment": "Every setting the tool actually reads. Generated from the source at release time; docs are checked against it, never the other way round.",
+  "settings": [
+    "colour",
+    "defaultPriority",
+    "logLevel",
+    "pageSize",
+    "retryBackoffMs",
+    "store"
+  ]
+}

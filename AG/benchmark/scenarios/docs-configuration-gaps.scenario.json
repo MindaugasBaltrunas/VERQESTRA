@@ -1,0 +1,16 @@
+{
+  "id": "docs-configuration-gaps",
+  "title": "Document the two settings missing from the configuration reference",
+  "category": "docs",
+  "fixture": "fixtures/docs-site",
+  "task": "`test/settings-documented.test.mjs` fails: `docs/settings-inventory.json` lists `retryBackoffMs` and `logLevel`, and neither appears in the configuration reference.\n\nAdd a row for each to the settings table in `docs/configuration.md`, keeping the existing column order and the alphabetical-by-nothing, grouped-by-meaning arrangement already in place. Every row states a type, a default and what the setting actually affects; if a setting has no default, write that out rather than leaving the cell blank.\n\nInvent nothing else: the inventory is the authority on which settings exist, and documenting one it does not list fails the check as surely as omitting one.\n\nThe changelog, the inventory and the test directory are all out of scope.",
+  "allowedPaths": ["docs/configuration.md"],
+  "forbiddenPaths": ["CHANGELOG.md", "docs/settings-inventory.json", "docs/releases.json", "test/**", "README.md"],
+  "checks": [
+    { "id": "settings-documented", "command": ["node", "--test", "test/settings-documented.test.mjs"], "expect": "pass" },
+    { "id": "docs-conventions", "command": ["node", "--test", "test/docs-conventions.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 120000 },
+  "deterministic": false
+}

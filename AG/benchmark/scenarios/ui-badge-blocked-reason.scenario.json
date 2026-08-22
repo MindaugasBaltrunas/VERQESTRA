@@ -1,0 +1,16 @@
+{
+  "id": "ui-badge-blocked-reason",
+  "title": "Show why a task is blocked in the status badge",
+  "category": "ui",
+  "fixture": "fixtures/web-widget",
+  "task": "A blocked task shows only the word \"Blocked\", which tells a reader nothing.\n\n1. Let `renderStatusBadge` accept an optional `blockedReason` and, when the status is `blocked` and a reason is given, render it in a `<span class=\"badge__reason\">` inside the badge and expose it to assistive technology via `title`.\n2. A reason supplied for a non-blocked status is ignored rather than rendered.\n3. The reason label is a translated message, not an inlined sentence: add the key to BOTH `src/messages/en.json` and `src/messages/lt.json`.\n4. All interpolated data stays escaped.\n5. Add `test/badge-blocked-reason.test.mjs` covering: blocked with a reason, blocked without one, a non-blocked status with a reason, and a reason containing markup.\n\nDo not change `src/i18n.mjs`.",
+  "allowedPaths": ["src/render-status-badge.mjs", "src/messages/**", "test/badge-blocked-reason.test.mjs"],
+  "forbiddenPaths": ["src/i18n.mjs", "test/render-status-badge.test.mjs", "test/i18n.test.mjs", "README.md"],
+  "checks": [
+    { "id": "badge-blocked-reason", "command": ["node", "--test", "test/badge-blocked-reason.test.mjs"], "expect": "pass" },
+    { "id": "badge-regression", "command": ["node", "--test", "test/render-status-badge.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

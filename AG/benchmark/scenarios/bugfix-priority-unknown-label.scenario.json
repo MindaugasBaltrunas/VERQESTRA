@@ -1,0 +1,16 @@
+{
+  "id": "bugfix-priority-unknown-label",
+  "title": "Unknown priority labels sort first instead of last",
+  "category": "bugfix",
+  "fixture": "fixtures/task-service",
+  "task": "`test/priority-unknown-label.test.mjs` fails.\n\nA task whose priority is not one of the declared labels ends up ahead of `urgent`, because `PRIORITY_ORDER.indexOf` returns `-1` for it. Equal priorities also come out in an order the code never decided.\n\nFix `sortByPriority` so an unrecognised label sorts behind every known one and equal priorities are ordered by id. Do not widen `PRIORITY_ORDER` — the set of known labels is not changing.\n\nThe test directory is read-only for this task: make the failing test pass by fixing the production code.",
+  "allowedPaths": ["src/domain/priority.mjs"],
+  "forbiddenPaths": ["test/**", "src/domain/task-store.mjs", "src/storage/**", "README.md"],
+  "checks": [
+    { "id": "priority-unknown-label", "command": ["node", "--test", "test/priority-unknown-label.test.mjs"], "expect": "pass" },
+    { "id": "priority-regression", "command": ["node", "--test", "test/priority.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 150000 },
+  "deterministic": false
+}

@@ -1,0 +1,16 @@
+{
+  "id": "tests-permission-denial-matrix",
+  "title": "Assert the full role-by-permission denial matrix",
+  "category": "tests",
+  "fixture": "fixtures/auth-gateway",
+  "task": "The permission tests assert what each role CAN do. What matters more is what each role cannot do, and that is untested.\n\nAdd `test/permission-matrix.test.mjs` that builds the full cross product of every role in `ROLE_PERMISSIONS` with every permission that appears anywhere in it, plus a role that does not exist, and asserts `can()` for every cell. Derive both axes from the exported table so a new role or permission is covered automatically; do not hard-code the lists.\n\nAssert explicitly that the nonexistent role is denied every permission.\n\nThe production code is correct and read-only for this task.",
+  "allowedPaths": ["test/permission-matrix.test.mjs"],
+  "forbiddenPaths": ["src/**", "test/permissions.test.mjs", "README.md"],
+  "checks": [
+    { "id": "permission-matrix", "command": ["node", "--test", "test/permission-matrix.test.mjs"], "expect": "pass" },
+    { "id": "permissions-regression", "command": ["node", "--test", "test/permissions.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 200000 },
+  "deterministic": false
+}

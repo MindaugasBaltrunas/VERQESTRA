@@ -1,0 +1,16 @@
+{
+  "id": "code-task-tags",
+  "title": "Add tag support to the task domain",
+  "category": "code-change",
+  "fixture": "fixtures/task-service",
+  "task": "Tasks need free-form tags.\n\n1. Let a task carry an optional `tags` array of strings. A task without tags must keep behaving exactly as it does today, and `addTask` must keep refusing a duplicate id.\n2. Extend `listTasks` with a `tag` filter that returns the tasks carrying that tag, combinable with the existing `done` and `priority` filters.\n3. Add `test/task-tags.test.mjs` covering: a task with no tags, a tag filter combined with `done`, and a tag that matches nothing.\n\nPersistence is out of scope — do not touch `src/storage`.",
+  "allowedPaths": ["src/domain/task-store.mjs", "test/task-tags.test.mjs"],
+  "forbiddenPaths": ["src/storage/**", "test/task-store.test.mjs", "README.md"],
+  "checks": [
+    { "id": "task-store-regression", "command": ["node", "--test", "test/task-store.test.mjs"], "expect": "pass" },
+    { "id": "task-tags", "command": ["node", "--test", "test/task-tags.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

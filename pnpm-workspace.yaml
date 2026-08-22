@@ -1,0 +1,14 @@
+# VERQESTRA darbo sritys. Šaknies paketas (`verqestra`) yra pats orkestratorius; čia
+# vardijami TIK atskiri paketai, kurie sąmoningai gyvena už jo ribų.
+#
+# `AG/benchmark` yra atskiras paketas ne dėl dydžio, o dėl krypties: matuojamas dalykas negali
+# pasiekti to, kas jį matuoja. Benchmark'as orkestratorių varo kaip PROCESĄ per dokumentuotą
+# CLI kontraktą (BENCH-1) ir niekada neimportuoja jo šaltinių — priešingu atveju jis liktų
+# žalias net tada, kai sulūžtų realiai pristatoma komandinė eilutė.
+packages:
+  - AG/benchmark
+
+# pnpm >=10 blokuoja dependency build skriptus, kol jie nepatvirtinti. Sąrašas tuščias
+# sąmoningai: nė viena šio medžio priklausomybė build skripto neturi, ir naujas įrašas čia
+# turi būti atskiras sprendimas, o ne tylus install'o šalutinis efektas.
+onlyBuiltDependencies: []

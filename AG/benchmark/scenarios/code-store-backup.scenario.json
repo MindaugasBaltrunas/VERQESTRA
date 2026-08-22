@@ -1,0 +1,16 @@
+{
+  "id": "code-store-backup",
+  "title": "Keep a backup copy before overwriting the task file",
+  "category": "code-change",
+  "fixture": "fixtures/task-service",
+  "task": "A crash during `saveTasks` currently leaves a truncated `tasks.json` and no way back.\n\n1. Before overwriting an existing store file, copy it to `<file>.bak`. When no store file exists yet, write the new one without producing a backup.\n2. Keep `saveTasks` atomic from the reader's point of view: a reader must never observe a partially written `tasks.json`.\n3. Add `test/json-file-store.test.mjs` covering the first write, an overwrite that produces a backup, and `loadTasks` on a missing file.\n\nUse a temporary directory the test creates and removes; do not write anywhere else. Task rules stay untouched — this is an adapter change.",
+  "allowedPaths": ["src/storage/json-file-store.mjs", "test/json-file-store.test.mjs"],
+  "forbiddenPaths": ["src/domain/**", "test/task-store.test.mjs", "README.md"],
+  "checks": [
+    { "id": "json-file-store", "command": ["node", "--test", "test/json-file-store.test.mjs"], "expect": "pass" },
+    { "id": "task-store-regression", "command": ["node", "--test", "test/task-store.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

@@ -125,6 +125,7 @@ export const readinessRequirements: ReadinessRequirements = {
     "AG/spec",
     "AG/openspec",
     "AG/tasks/queue",
+    "AG/benchmark/src",
     "docs",
   ],
   configs: [

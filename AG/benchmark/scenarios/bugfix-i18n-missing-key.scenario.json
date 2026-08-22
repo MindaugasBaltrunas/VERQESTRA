@@ -1,0 +1,17 @@
+{
+  "id": "bugfix-i18n-missing-key",
+  "title": "A missing message key renders the text \"undefined\"",
+  "category": "bugfix",
+  "fixture": "fixtures/web-widget",
+  "task": "`test/i18n-missing-key.test.mjs` fails.\n\n`translate()` runs `String(template)` on a key it did not find, so a key missing from a locale renders the literal word \"undefined\" into the page.\n\nFix the lookup so that a key present in the default catalogue but missing from the requested one falls back to the default locale, and a key missing everywhere returns the key itself. Placeholder interpolation must keep working on the fallback text.\n\nThe test directory is read-only for this task.",
+  "allowedPaths": ["src/i18n.mjs"],
+  "forbiddenPaths": ["test/**", "src/render-status-badge.mjs", "README.md"],
+  "checks": [
+    { "id": "i18n-missing-key", "command": ["node", "--test", "test/i18n-missing-key.test.mjs"], "expect": "pass" },
+    { "id": "i18n-regression", "command": ["node", "--test", "test/i18n.test.mjs"], "expect": "pass" },
+    { "id": "badge-regression", "command": ["node", "--test", "test/render-status-badge.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 150000 },
+  "deterministic": false
+}

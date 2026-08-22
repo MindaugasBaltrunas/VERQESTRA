@@ -1,0 +1,16 @@
+{
+  "id": "refactor-permission-inheritance",
+  "title": "Derive the role table from declared inheritance",
+  "category": "refactor",
+  "fixture": "fixtures/auth-gateway",
+  "task": "`ROLE_PERMISSIONS` repeats every inherited permission by hand, so adding one permission means editing several rows and the table drifts.\n\nRewrite `src/permissions.mjs` so each role declares only the permissions it adds plus the role it extends (`viewer` → `editor` → `approver` → `admin`), and derive the full table from that declaration. `ROLE_PERMISSIONS` must stay exported and must still expose the same frozen, fully expanded permission lists it does today.\n\nDeny-by-default is unchanged: an unknown role grants nothing, and a cycle in the inheritance declaration must throw at module load rather than silently granting a partial set.\n\nBehaviour-preserving: `test/permissions.test.mjs` passes untouched.",
+  "allowedPaths": ["src/permissions.mjs"],
+  "forbiddenPaths": ["test/**", "src/session-token.mjs", "README.md"],
+  "checks": [
+    { "id": "permissions", "command": ["node", "--test", "test/permissions.test.mjs"], "expect": "pass" },
+    { "id": "session-token-regression", "command": ["node", "--test", "test/session-token.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

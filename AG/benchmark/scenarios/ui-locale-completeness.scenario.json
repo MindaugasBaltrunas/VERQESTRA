@@ -1,0 +1,16 @@
+{
+  "id": "ui-locale-completeness",
+  "title": "Complete the Lithuanian catalogue and keep it complete",
+  "category": "ui",
+  "fixture": "fixtures/web-widget",
+  "task": "`src/messages/lt.json` is missing `badge.updated`, so a Lithuanian reader sees an English sentence.\n\n1. Add the missing Lithuanian message, keeping the `{when}` placeholder intact.\n2. Add `test/locale-completeness.test.mjs` that reads every catalogue in `src/messages` and asserts that each one carries exactly the same key set as the default locale, and that every placeholder in a translation also appears in the default text. The test must be data-driven — adding a third locale file must extend its coverage without editing the test.\n\nDo not change `src/i18n.mjs` or the rendering code: this task is about the catalogues and the check that guards them.",
+  "allowedPaths": ["src/messages/**", "test/locale-completeness.test.mjs"],
+  "forbiddenPaths": ["src/i18n.mjs", "src/render-status-badge.mjs", "test/i18n.test.mjs", "README.md"],
+  "checks": [
+    { "id": "locale-completeness", "command": ["node", "--test", "test/locale-completeness.test.mjs"], "expect": "pass" },
+    { "id": "badge-regression", "command": ["node", "--test", "test/render-status-badge.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 200000 },
+  "deterministic": false
+}

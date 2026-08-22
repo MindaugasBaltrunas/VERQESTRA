@@ -1,0 +1,16 @@
+{
+  "id": "refactor-badge-markup-builder",
+  "title": "Extract an element builder from the badge string concatenation",
+  "category": "refactor",
+  "fixture": "fixtures/web-widget",
+  "task": "`renderStatusBadge` builds its markup by concatenating strings, so every new attribute is another place escaping can be forgotten.\n\nExtract a small element builder inside `src/render-status-badge.mjs` that takes a tag name, an attribute map and children, and escapes attribute values and text in one place. Rewrite `renderStatusBadge` on top of it.\n\nThe rendered output must stay byte-identical: `test/render-status-badge.test.mjs` passes untouched, attribute order does not change, and `escapeHtml` stays exported with its current behaviour. Do not add a dependency and do not introduce a DOM.",
+  "allowedPaths": ["src/render-status-badge.mjs"],
+  "forbiddenPaths": ["test/**", "src/i18n.mjs", "src/messages/**", "README.md"],
+  "checks": [
+    { "id": "badge", "command": ["node", "--test", "test/render-status-badge.test.mjs"], "expect": "pass" },
+    { "id": "i18n-regression", "command": ["node", "--test", "test/i18n.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

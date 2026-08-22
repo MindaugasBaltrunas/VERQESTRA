@@ -1,0 +1,16 @@
+{
+  "id": "refactor-summary-duplication",
+  "title": "Collapse three copies of the same summary walk",
+  "category": "refactor",
+  "fixture": "fixtures/task-service",
+  "task": "`src/domain/summary.mjs` implements the same count-and-percentage walk three times, once per entry point.\n\nCollapse the duplication behind a single implementation while keeping `overallSummary`, `prioritySummary` and `filteredSummary` exported with their current signatures and their current return values — including the empty-list case, which returns zero percent rather than NaN.\n\nThis is a behaviour-preserving change: `test/summary.test.mjs` must pass untouched, and no other module may change.",
+  "allowedPaths": ["src/domain/summary.mjs"],
+  "forbiddenPaths": ["test/**", "src/domain/task-store.mjs", "src/domain/priority.mjs", "src/storage/**", "README.md"],
+  "checks": [
+    { "id": "summary", "command": ["node", "--test", "test/summary.test.mjs"], "expect": "pass" },
+    { "id": "task-store-regression", "command": ["node", "--test", "test/task-store.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

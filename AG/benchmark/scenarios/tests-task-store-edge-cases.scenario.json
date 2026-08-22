@@ -1,0 +1,16 @@
+{
+  "id": "tests-task-store-edge-cases",
+  "title": "Cover the task store's edge cases without touching it",
+  "category": "tests",
+  "fixture": "fixtures/task-service",
+  "task": "`src/domain/task-store.mjs` is covered only on its happy paths.\n\nAdd `test/task-store-edge-cases.test.mjs` covering, at minimum:\n\n- every operation against an empty list;\n- `addTask` refusing a duplicate id, including when the duplicate is not the last entry;\n- `completeTask` on an already completed task;\n- `removeTask` leaving the other entries in their original order;\n- that none of the exported functions mutates the list it was given.\n\nThe production code is correct and read-only for this task. If a test you write fails, the test is wrong — do not change `src/`.",
+  "allowedPaths": ["test/task-store-edge-cases.test.mjs"],
+  "forbiddenPaths": ["src/**", "test/task-store.test.mjs", "README.md"],
+  "checks": [
+    { "id": "task-store-edge-cases", "command": ["node", "--test", "test/task-store-edge-cases.test.mjs"], "expect": "pass" },
+    { "id": "task-store-regression", "command": ["node", "--test", "test/task-store.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 200000 },
+  "deterministic": false
+}

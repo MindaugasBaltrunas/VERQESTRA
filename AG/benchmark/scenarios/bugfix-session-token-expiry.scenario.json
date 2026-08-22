@@ -1,0 +1,16 @@
+{
+  "id": "bugfix-session-token-expiry",
+  "title": "An expired session token is accepted at its expiry instant",
+  "category": "bugfix",
+  "fixture": "fixtures/auth-gateway",
+  "task": "`test/session-token-expiry.test.mjs` fails.\n\n`verifySessionToken` compares `claims.expiresAt < now`, so a token is still accepted at exactly the millisecond it expires. `expiresAt` is the first instant at which the token is no longer valid.\n\nFix the boundary. Do not change the token format, the signing algorithm or the constant-time signature comparison, and do not widen the accepted window in the other direction.\n\nThe test directory is read-only for this task.",
+  "allowedPaths": ["src/session-token.mjs"],
+  "forbiddenPaths": ["test/**", "src/permissions.mjs", "README.md"],
+  "checks": [
+    { "id": "session-token-expiry", "command": ["node", "--test", "test/session-token-expiry.test.mjs"], "expect": "pass" },
+    { "id": "session-token-regression", "command": ["node", "--test", "test/session-token.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 150000 },
+  "deterministic": false
+}

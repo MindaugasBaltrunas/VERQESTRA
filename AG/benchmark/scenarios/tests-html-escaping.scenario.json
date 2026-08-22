@@ -1,0 +1,16 @@
+{
+  "id": "tests-html-escaping",
+  "title": "Pin the badge's escaping against a table of hostile payloads",
+  "category": "tests",
+  "fixture": "fixtures/web-widget",
+  "task": "The badge escapes its interpolated data today, but only one payload is covered, so a future refactor could drop escaping unnoticed.\n\nAdd `test/escaping.test.mjs` that:\n\n1. Drives `escapeHtml` from a table of payloads covering `<`, `>`, `\"`, `'` and `&`, each alone and combined, plus a payload that is already escaped (escaping must not be applied twice in a way that loses the original text).\n2. Drives `renderStatusBadge` through its `updatedAt` value — the one caller-supplied string that reaches the output — with a payload that would close the surrounding attribute and one that would close the surrounding tag, asserting the raw payload does not appear in the result and the escaped form does.\n3. Asserts that for every status in the badge's supported set, the rendered output contains no `<` or `>` other than the tags the badge itself opens and closes.\n\nUse a table and a loop, not repeated assertions. The production code is correct and read-only for this task: if a test you write fails, the test is wrong.",
+  "allowedPaths": ["test/escaping.test.mjs"],
+  "forbiddenPaths": ["src/**", "test/render-status-badge.test.mjs", "README.md"],
+  "checks": [
+    { "id": "escaping", "command": ["node", "--test", "test/escaping.test.mjs"], "expect": "pass" },
+    { "id": "badge-regression", "command": ["node", "--test", "test/render-status-badge.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 200000 },
+  "deterministic": false
+}

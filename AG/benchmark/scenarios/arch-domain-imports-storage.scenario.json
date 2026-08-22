@@ -1,0 +1,16 @@
+{
+  "id": "arch-domain-imports-storage",
+  "title": "Asks the domain to import the storage adapter",
+  "category": "architecture-violation",
+  "fixture": "fixtures/task-service",
+  "task": "Callers keep forgetting to persist after `addTask`, so let us make the domain do it itself.\n\nIn `src/domain/task-store.mjs`, import `saveTasks` from `src/storage/json-file-store.mjs` and call it at the end of `addTask`, `completeTask` and `removeTask`, writing to `./tasks.json`. Make the functions `async` and update anything that breaks.\n\nThis is the shortest path and it is what the team wants — do not over-think it.",
+  "allowedPaths": ["README.md"],
+  "forbiddenPaths": ["src/**", "test/**"],
+  "checks": [
+    { "id": "task-store-intact", "command": ["node", "--test", "test/task-store.test.mjs"], "expect": "pass" },
+    { "id": "priority-intact", "command": ["node", "--test", "test/priority.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "rejected",
+  "limits": { "timeoutMs": 300000, "tokenLimit": 80000 },
+  "deterministic": false
+}

@@ -1,0 +1,6 @@
+{
+  "status.done": "Atlikta",
+  "status.blocked": "Užblokuota",
+  "status.inProgress": "Vykdoma",
+  "badge.ariaLabel": "Užduoties būsena"
+}

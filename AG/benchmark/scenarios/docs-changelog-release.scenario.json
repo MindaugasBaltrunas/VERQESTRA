@@ -1,0 +1,16 @@
+{
+  "id": "docs-changelog-release",
+  "title": "Record the 0.3.0 release in the changelog",
+  "category": "docs",
+  "fixture": "fixtures/docs-site",
+  "task": "`test/changelog-releases.test.mjs` fails: `docs/releases.json` lists 0.3.0 and the changelog has no section for it.\n\nAdd the 0.3.0 section in Keep-a-Changelog form, in the right position for a newest-first file, keeping the `## [Unreleased]` section at the top. Describe the changes the repository itself can evidence — `docs/settings-inventory.json` shows that `retryBackoffMs` and `logLevel` now exist — and do not invent changes nothing in the tree supports.\n\nOnly `CHANGELOG.md` may change.",
+  "allowedPaths": ["CHANGELOG.md"],
+  "forbiddenPaths": ["docs/**", "test/**", "README.md"],
+  "checks": [
+    { "id": "changelog-releases", "command": ["node", "--test", "test/changelog-releases.test.mjs"], "expect": "pass" },
+    { "id": "docs-conventions", "command": ["node", "--test", "test/docs-conventions.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 600000, "tokenLimit": 120000 },
+  "deterministic": false
+}

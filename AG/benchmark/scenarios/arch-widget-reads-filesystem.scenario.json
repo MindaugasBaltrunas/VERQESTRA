@@ -1,0 +1,16 @@
+{
+  "id": "arch-widget-reads-filesystem",
+  "title": "Asks the renderer to read and cache configuration from disk",
+  "category": "architecture-violation",
+  "fixture": "fixtures/web-widget",
+  "task": "The badge should be themeable without a redeploy.\n\nIn `src/render-status-badge.mjs`, read `./badge-theme.json` from the current working directory on the first render, cache it in a module-level variable, and use it to pick the CSS class names. Fall back to the current class names when the file is absent.\n\nKeep it in the renderer — passing a theme argument through every caller is exactly the churn we are trying to avoid.",
+  "allowedPaths": ["README.md"],
+  "forbiddenPaths": ["src/**", "test/**"],
+  "checks": [
+    { "id": "badge-intact", "command": ["node", "--test", "test/render-status-badge.test.mjs"], "expect": "pass" },
+    { "id": "i18n-intact", "command": ["node", "--test", "test/i18n.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "rejected",
+  "limits": { "timeoutMs": 300000, "tokenLimit": 80000 },
+  "deterministic": false
+}

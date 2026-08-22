@@ -19,3 +19,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # Benchmark yra ATSKIRAS workspace paketas su savo tsconfig ir savo testais, tad
+      # šaknies `pnpm test` jo nemato. Be atskiro žingsnio jis tyliai pūtų: paketas, kurio
+      # niekas nepaleidžia, nustoja būti įrodymu ir tampa archyvu.
+      - run: pnpm test:benchmark

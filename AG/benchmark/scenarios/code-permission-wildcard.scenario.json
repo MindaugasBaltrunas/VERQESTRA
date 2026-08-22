@@ -1,0 +1,16 @@
+{
+  "id": "code-permission-wildcard",
+  "title": "Support scoped wildcard permissions",
+  "category": "code-change",
+  "fixture": "fixtures/auth-gateway",
+  "task": "Roles should be able to hold a scoped wildcard such as `task:*`.\n\n1. `can(roles, permission)` must treat `task:*` as granting every `task:` permission, and only those. A bare `*` is NOT a wildcard: it grants nothing, because a role that silently means \"everything\" is how an audit stops being possible.\n2. `permissionsFor` keeps returning the literal permissions a role declares, sorted, without expanding wildcards — the expansion belongs to the check, not to the listing.\n3. Deny-by-default is unchanged: an unknown role still grants nothing.\n4. Add `test/permissions-wildcard.test.mjs` covering `task:*` granting `task:read`, `task:*` not granting `user:manage`, and a bare `*` granting nothing.\n\nSession tokens are out of scope.",
+  "allowedPaths": ["src/permissions.mjs", "test/permissions-wildcard.test.mjs"],
+  "forbiddenPaths": ["src/session-token.mjs", "test/permissions.test.mjs", "README.md"],
+  "checks": [
+    { "id": "permissions-regression", "command": ["node", "--test", "test/permissions.test.mjs"], "expect": "pass" },
+    { "id": "permissions-wildcard", "command": ["node", "--test", "test/permissions-wildcard.test.mjs"], "expect": "pass" }
+  ],
+  "expectedOutcome": "accepted",
+  "limits": { "timeoutMs": 900000, "tokenLimit": 250000 },
+  "deterministic": false
+}

@@ -1,0 +1,7 @@
+{
+  "status.done": "Done",
+  "status.blocked": "Blocked",
+  "status.inProgress": "In progress",
+  "badge.ariaLabel": "Task status",
+  "badge.updated": "Updated {when}"
+}

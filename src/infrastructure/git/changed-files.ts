@@ -10,7 +10,14 @@
 // Taisyklės (kas yra produkto kelias) gyvena `domain/git/changes` — čia tik skaitymas ir sąjunga.
 
 import path from "node:path";
-import { isOutsideProjectPath, isRuntimePath, normalizeGitPath, parseDirtyEntries } from "../../domain/git/changes.js";
+import {
+  changedFilesFromStatus,
+  isOutsideProjectPath,
+  isRuntimePath,
+  normalizeGitPath,
+  parseDirtyEntries,
+  type ChangedFile,
+} from "../../domain/git/changes.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { gitStatusPorcelain, isGitRepository } from "./git-client.js";
 
@@ -54,4 +61,30 @@ export async function collectChangedFiles(projectRoot: string, runtimeRoot: stri
     (file) => file.length > 0 && !isRuntimePath(file) && !isOutsideProjectPath(file),
   );
   return merged.sort();
+}
+
+/**
+ * Tas pats rinkinys su GIT STATUSU — package/migration guard'ams (etalonas: core/changes.ts
+ * `collectChangedFilesWithStatus`).
+ *
+ * Statusas yra sprendimo įvestis, ne dekoracija: package guard skiria ištrintą svetimą lockfile'ą
+ * (teisingas veiksmas) nuo pridėto (rizika), o migration guard — pakeistą migraciją nuo
+ * pervadintos. Todėl `changes.log` keliai, kurių git nemato, gauna TUŠČIĄ statusą, o ne spėjimą:
+ * hook'as užfiksavo rašymą, bet medyje jo pėdsako nebėra (revertintas ar jau commit'intas), ir
+ * apsimesti, kad žinome kuris, reikštų guard'ą, blokuojantį dėl savo telemetrijos.
+ */
+export async function collectChangedFilesWithStatus(projectRoot: string, runtimeRoot: string): Promise<ChangedFile[]> {
+  const root = path.resolve(projectRoot);
+  const [status, log] = await Promise.all([
+    (await isGitRepository(root)) ? gitStatusPorcelain(root) : Promise.resolve(undefined),
+    nodeFsAdapter.readTextFileIfExists(changesLogPath(runtimeRoot)),
+  ]);
+
+  const fromGit = changedFilesFromStatus(status ?? "");
+  const inGit = new Set(fromGit.map((entry) => entry.file));
+  const logOnly = parseChangesLogPaths(log, root)
+    .filter((file) => file.length > 0 && !inGit.has(file) && !isRuntimePath(file) && !isOutsideProjectPath(file))
+    .map((file) => ({ status: "", file }));
+
+  return [...logOnly, ...fromGit];
 }

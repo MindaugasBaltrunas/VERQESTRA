@@ -16,21 +16,34 @@ import type { CliRegistryDeps } from "./cli-registry-types.js";
 import { hookPreBash, hookPreWrite } from "../interfaces/hooks/pre-hooks.js";
 import { hookPostBash, hookPostBashSync, hookPostRead } from "../interfaces/hooks/post-hooks.js";
 import { hookPostWrite } from "../interfaces/hooks/post-write.js";
+import { hookSecretScan } from "../interfaces/hooks/secret-scan.js";
+import { hookPackageGuard } from "../interfaces/hooks/package-guard.js";
+import { hookMigrationGuard } from "../interfaces/hooks/migration-guard.js";
+import { hookBackendGuard, hookFrontendGuard, hookMobileGuard } from "../interfaces/hooks/scope-guards.js";
+import {
+  migrationGuardPorts,
+  packageGuardPorts,
+  postWriteGuardPorts,
+  scopeGuardPorts,
+  secretScanPorts,
+} from "./guard-hook-adapters.js";
 import { postHookPorts } from "./hook-adapters.js";
 import { preHookPorts } from "./pre-hook-adapters.js";
 
 export function hookCommands(deps: CliRegistryDeps): CliCommand[] {
   const io = deps.io;
+  const runtimeRoot = deps.roots.runtimeRoot;
   const shared = {
     projectRoot: deps.roots.projectRoot,
-    runtimeRoot: deps.roots.runtimeRoot,
+    runtimeRoot,
     ...(io === undefined ? {} : { io }),
   };
 
   // Portai kuriami VIENĄ kartą kiekvienam rinkiniui, o ne komandai: viename procese įvykdoma
   // lygiai viena hook komanda, tad antra kopija būtų tik dubliuotas objektas.
-  const preDeps = { ports: preHookPorts(deps.roots.runtimeRoot), ...shared };
+  const preDeps = { ports: preHookPorts(runtimeRoot), ...shared };
   const postDeps = { ports: postHookPorts(), ...shared };
+  const scopeDeps = { ports: scopeGuardPorts(runtimeRoot), ...shared };
 
   return [
     {
@@ -59,9 +72,54 @@ export function hookCommands(deps: CliRegistryDeps): CliCommand[] {
       run: () => hookPostRead(postDeps),
     },
     {
+      // `guards` PADUODAMI eksplicitiškai: be jų `hookPostWrite` guard'ų fan-out'ą praleidžia
+      // TYLIAI (portas neprivalomas), ir visi šeši guard'ai liktų negyvi, nors kiekvienas jų
+      // turi savo CLI įėjimą. Tai tas pats „neprijungto sluoksnio" defektas, tik viena pakopa
+      // giliau nei registro spraga, dėl kurios ši dalis apskritai atsirado.
       name: "hook-post-write",
-      description: "PostToolUse: sesijos rašymų ledger'is ir KPI įvykiai",
-      run: () => hookPostWrite(postDeps),
+      description: "PostToolUse: sesijos rašymų ledger'is, KPI įvykiai ir guard'ų fan-out",
+      run: () =>
+        hookPostWrite({
+          ...postDeps,
+          guards: { ports: postWriteGuardPorts(runtimeRoot), projectRoot: deps.roots.projectRoot, runtimeRoot },
+        }),
+    },
+    {
+      name: "hook-secret-scan",
+      description: "Guard: kredencialų skenavimas pakeistuose failuose (radinys → exit 1)",
+      run: () => hookSecretScan({ ports: secretScanPorts(runtimeRoot), ...shared }),
+    },
+    {
+      name: "hook-package-guard",
+      description: "Guard: package.json ir lockfile pakeitimų pagrindimas",
+      run: () => hookPackageGuard({ ports: packageGuardPorts(runtimeRoot), ...shared }),
+    },
+    {
+      name: "hook-migration-guard",
+      description: "Guard: DB migracijų pakeitimai ir destruktyvus SQL",
+      run: () => hookMigrationGuard({ ports: migrationGuardPorts(runtimeRoot), ...shared }),
+    },
+    {
+      name: "hook-backend-guard",
+      description: "Guard: Express backend saugumo taisyklės",
+      run: () => hookBackendGuard(scopeDeps),
+    },
+    {
+      // `args` PERDUODAMI: `args[0]` yra režimas, o jo numatytoji reikšmė šiuose dviejuose
+      // guard'uose yra `stop` — t. y. su lint/typecheck žingsniu. Nepersiuntus argumentų
+      // PostToolUse fan-out'as (jis siunčia `post`) gautų stop režimą po KIEKVIENO rašymo, ir
+      // pusiau parašytas failas blokuotų darbą eigoje. `hook-backend-guard` argumentų neima —
+      // jo režimas fiksuotas `post`.
+      name: "hook-frontend-guard",
+      usage: "[post|stop]",
+      description: "Guard: frontend komponentų taisyklės (stop režimu ir lint)",
+      run: (args) => hookFrontendGuard(scopeDeps, args),
+    },
+    {
+      name: "hook-mobile-guard",
+      usage: "[post|stop]",
+      description: "Guard: mobile aplikacijos taisyklės (stop režimu ir typecheck)",
+      run: (args) => hookMobileGuard(scopeDeps, args),
     },
   ];
 }

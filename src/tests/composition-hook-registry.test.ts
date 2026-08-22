@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildCliCommands } from "../composition/cli-registry.js";
 import { resolveRuntimeRoots } from "../composition/runtime-context.js";
+import { POST_WRITE_GUARDS } from "../interfaces/hooks/post-write-guards.js";
 import * as hooks from "../interfaces/hooks/index.js";
 
 /**
@@ -49,13 +50,7 @@ const ETALON_HOOK_COMMANDS = [
  * hook'ą, kurio dar nemigravome.
  */
 const PENDING_HOOK_COMMANDS = [
-  "hook-backend-guard",
-  "hook-frontend-guard",
-  "hook-migration-guard",
-  "hook-mobile-guard",
   "hook-on-stop",
-  "hook-package-guard",
-  "hook-secret-scan",
   "hook-session-end",
   "hook-session-start",
   "hook-session-summary",
@@ -87,6 +82,16 @@ test("hook registras: PENDING sąrašas negali dengti jau surištos komandos", (
   const wired = new Set(registryHookCommands());
   for (const name of PENDING_HOOK_COMMANDS) {
     assert.equal(wired.has(name), false, `${name} jau surištas — pašalink jį iš PENDING sąrašo`);
+  }
+});
+
+test("hook registras: PostToolUse fan-out'as spawnina TIK egzistuojančias komandas", () => {
+  // `POST_WRITE_GUARDS` nurodo guard'us VARDU ir paleidžia juos atskiru procesu, tad registro
+  // spraga čia nevirsta kompiliavimo klaida — ji virsta tyliu non-zero exit'u žurnale, kurio
+  // niekas neskaito. Šis testas paverčia tokį neatitikimą matomu.
+  const wired = new Set(registryHookCommands());
+  for (const guard of POST_WRITE_GUARDS) {
+    assert.equal(wired.has(guard.command), true, `${guard.command} spawninamas, bet registre jo nėra`);
   }
 });
 

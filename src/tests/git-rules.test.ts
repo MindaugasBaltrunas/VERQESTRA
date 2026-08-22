@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 import {
+  changedFilesFromStatus,
   isOutsideProjectPath,
   isRuntimePath,
   normalizeGitPath,
@@ -34,6 +35,19 @@ test("parseDirtyEntries: rename eilutė duoda abu kelius, statusas išsaugomas",
     { status: "R ", path: "senas.ts" },
     { status: "R ", path: "naujas.ts" },
     { status: "??", path: "naujas2.ts" },
+  ]);
+});
+
+test("changedFilesFromStatus: pervadinimas duoda TIK taikinį, katalogai ir runtime atkrenta", () => {
+  const files = changedFilesFromStatus(
+    ["R  senas.ts -> naujas.ts", "?? naujas-katalogas/", " M src/app.ts", "?? vq/logs/hooks.log", ""].join("\n"),
+  );
+
+  // Skirtumas nuo parseDirtyEntries yra sprendimas, ne formatavimas: guard'ui rūpi tik tai, kas
+  // DABAR yra medyje, tad `senas.ts` čia nepasirodo.
+  assert.deepEqual(files, [
+    { status: "R ", file: "naujas.ts" },
+    { status: " M", file: "src/app.ts" },
   ]);
 });
 

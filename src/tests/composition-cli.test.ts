@@ -188,6 +188,12 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "hook-post-bash-sync",
       "hook-post-read",
       "hook-post-write",
+      "hook-secret-scan",
+      "hook-package-guard",
+      "hook-migration-guard",
+      "hook-backend-guard",
+      "hook-frontend-guard",
+      "hook-mobile-guard",
     ],
   );
   // Rodyti komandą, kurios dispatch'as nepasiekia, reikštų meluoti operatoriui.

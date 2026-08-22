@@ -120,6 +120,29 @@ export function nonRuntimeDirtyEntriesFromStatus(statusOutput: string): DirtyEnt
   return parseDirtyEntries(statusOutput).filter((entry) => !isRuntimePath(entry.path));
 }
 
+/**
+ * `git status --porcelain` → pakeisti FAILAI su statusu (etalonas: core/changes.ts
+ * `gitStatusFiles`). Skiriasi nuo {@link parseDirtyEntries} trimis taisyklėmis, ir kiekviena jų
+ * yra sprendimas, ne formatavimas:
+ *
+ *   • pervadinimas duoda TIK taikinį. `parseDirtyEntries` grąžina abi puses, nes rollback'ui
+ *     svarbu ir tai, kas dingo; guard'ams svarbu tik tai, kas DABAR yra medyje, o šaltinio kelias
+ *     ten atrodytų kaip antras, neegzistuojantis pakeitimas.
+ *   • katalogo įrašas (`/` gale) praleidžiamas — untracked katalogas nėra failo pakeitimas.
+ *   • runtime keliai atkrenta: tai loop'o buhalterija, ne produkto darbas.
+ */
+export function changedFilesFromStatus(statusOutput: string): ChangedFile[] {
+  return statusOutput
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .flatMap((line) => {
+      const rawPath = line.slice(3).trim();
+      const file = normalizeGitPath(rawPath.includes(" -> ") ? (rawPath.split(" -> ").at(-1) ?? rawPath) : rawPath);
+      if (!file || file.endsWith("/") || isRuntimePath(file)) return [];
+      return [{ status: line.slice(0, 2), file }];
+    });
+}
+
 /** Grynas filtras diff --name-only išvestims: palieka netuščius ne-runtime kelius. */
 export function productPathsFromDiffNames(diffNameOutput: string): string[] {
   return diffNameOutput

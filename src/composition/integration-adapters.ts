@@ -32,7 +32,7 @@ import { runClaudeHeadless } from "../infrastructure/adapters/claude-headless.js
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { readStdin } from "./hook-adapters.js";
 import { run } from "../infrastructure/process/run-process.js";
-import { cliEntryPath, PROJECT_DIR_ENV } from "./runtime-context.js";
+import { cliEntryPath, packageRoot, PROJECT_DIR_ENV } from "./runtime-context.js";
 import { tryParseJson } from "../shared/json.js";
 import { policyConfigFs } from "./node-adapters.js";
 
@@ -199,7 +199,12 @@ export const benchmarkLoopCellPorts: LoopCellPorts = {
    * scenarijaus pakeitimas.
    */
   provisionLoopRuntime: async (workdir) => {
-    const projectRoot = process.cwd();
+    // `packageRoot()`, ne `process.cwd()`: harness'as celę paleidžia SU cwd kopijoje, tad cwd yra
+    // taikinys, o ne šaltinis. Tas pats argumentas kaip `install` komandos šablonams — kopijuojant
+    // iš paketo į svetimą medį, šaltinio kelio negalima vesti iš taikinio, kitaip kopijuotum
+    // taikinį pats į save ir rastum tuščia. 2026-08-22 pilotas: visos 9 `ag-loop` celės atmestos
+    // fail-closed vartų, nes roster'io šaltinis rodė į kopiją.
+    const projectRoot = packageRoot();
     const sourceDir = path.join(projectRoot, ".claude", "agents");
     const names = (await nodeFsAdapter.listFiles(sourceDir)).filter((name) => name.endsWith(".md"));
     let agents = 0;

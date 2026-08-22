@@ -20,7 +20,10 @@ import type {
   IsolatedSampleRequest,
 } from "../application/run/isolated-sample-runner.js";
 import type { IsolatedSampleRun } from "../application/run/isolated-run-record.js";
-import { NodeAgentProcessRunner } from "../infrastructure/adapters/node-agent-process-runner.js";
+import {
+  AgentProcessTreeAbandonedError,
+  NodeAgentProcessRunner,
+} from "../infrastructure/adapters/node-agent-process-runner.js";
 import { JsonlSampleStore } from "../infrastructure/jsonl-sample-store.js";
 import { findLatestRunLedger, runLedgerPath } from "../infrastructure/run-ledger-store.js";
 import { RecordingRunIdentityStore, scenario } from "./execution-fixtures.js";
@@ -128,36 +131,36 @@ test("a kill that does not take still settles: the timeout has a deadline of its
   const pidFile = path.join(dir, "grandchild.pid");
   const started = performance.now();
 
-  const result = await new NodeAgentProcessRunner().run({
-    command: process.execPath,
-    args: ["-e", SPAWNS_A_GRANDCHILD_AND_IGNORES_SIGTERM],
-    cwd: packageRoot,
-    timeoutMs: TIMEOUT_MS,
-    env: { GRANDCHILD_PID_FILE: pidFile },
-    stdin: "",
-  });
+  // Either outcome is allowed and both are bounded: on a host where the kill takes, this is an
+  // ordinary timed-out result; on one where something survives, it is an error. What may never
+  // happen is a wait without an end, and what may never happen is a survivor reported as an
+  // ordinary bounded run — the process behind it keeps calling a paid model.
+  let outcome: "result" | "abandoned";
+  try {
+    const result = await new NodeAgentProcessRunner().run({
+      command: process.execPath,
+      args: ["-e", SPAWNS_A_GRANDCHILD_AND_IGNORES_SIGTERM],
+      cwd: packageRoot,
+      timeoutMs: TIMEOUT_MS,
+      env: { GRANDCHILD_PID_FILE: pidFile },
+      stdin: "",
+    });
+    assert.equal(result.timedOut, true);
+    outcome = "result";
+  } catch (error) {
+    assert.ok(
+      error instanceof AgentProcessTreeAbandonedError,
+      `a timeout may end in a result or in an abandoned tree, not in ${String(error)}`,
+    );
+    assert.match((error as Error).message, /not confirmed gone/);
+    outcome = "abandoned";
+  }
 
   const elapsed = performance.now() - started;
   assert.ok(
     elapsed < SETTLE_CEILING_MS,
-    `the run took ${String(Math.round(elapsed))}ms to settle; a timeout without a deadline is not a timeout`,
+    `the run took ${String(Math.round(elapsed))}ms to ${outcome}; a timeout without a deadline is not a timeout`,
   );
-  assert.equal(result.timedOut, true);
-  // `treeAbandoned` is the honest half. Whether the kill took on this host is the host's business;
-  // what may never happen is reporting an unconfirmed tree as an ordinary bounded run, because the
-  // process behind it may still be spending.
-  assert.equal(
-    typeof result.treeAbandoned,
-    "boolean",
-    "a run that killed a tree must say whether the tree was confirmed gone",
-  );
-  if (result.treeAbandoned) {
-    assert.match(
-      result.stderr,
-      /process tree was not confirmed gone/,
-      "an abandoned tree must be legible in the sample, not only in a boolean",
-    );
-  }
 });
 
 test("a happy path that never times out is unaffected: no tree-kill, no extra wait", async (t) => {

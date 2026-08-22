@@ -27,6 +27,15 @@ const KILL_GRACE_MS = 5_000;
 const TASKKILL_TIMEOUT_MS = 5_000;
 
 /**
+ * How many descendants-first passes a Windows tree gets before the root is released.
+ *
+ * Three, because the case being defended against is a process spawned while the shutdown is
+ * running: one pass to kill what exists, a second to catch what appeared during the first, and a
+ * third to make "it kept appearing" a finding rather than a loop.
+ */
+const TREE_KILL_PASSES = 3;
+
+/**
  * How long the runner waits for the child's `close` AFTER the tree-kill has finished.
  *
  * `close` is the only event that used to settle a run, which made it a single point of failure:
@@ -219,14 +228,7 @@ async function endProcessTree(child: ChildProcess, signal: NodeJS.Signals): Prom
     return true;
   }
 
-  if (IS_WINDOWS) {
-    const tree = await windowsProcessTree(pid);
-    // Sequentially and awaited: the verification below is only worth running once every kill has
-    // actually been attempted. In parallel a slow enumeration would still be fine, but a bounded
-    // sequence keeps the worst case a number this module states rather than one it discovers.
-    for (const treePid of tree) await taskkillOne(treePid);
-    return await waitUntilGone(() => tree.some(isPidAlive), TREE_VERIFY_TIMEOUT_MS);
-  }
+  if (IS_WINDOWS) return await endWindowsTree(pid);
 
   try {
     // Negative pid: the process group the child leads, which is why it is spawned
@@ -249,6 +251,76 @@ async function endProcessTree(child: ChildProcess, signal: NodeJS.Signals): Prom
       return false;
     }
   }, TREE_VERIFY_TIMEOUT_MS);
+}
+
+/**
+ * Ends a Windows process tree descendants-first, with the root held back as the anchor.
+ *
+ * The previous order killed the root first and everything below it after, which reads as harmless
+ * — every pid is killed either way — and is not. Two things go wrong once the root is gone.
+ *
+ * A descendant that appears DURING the shutdown has no reachable ancestor: the enumeration walks
+ * `ParentProcessId` links from the root, and an agent that spawns one more process a millisecond
+ * after we killed its parent leaves a process nothing can find. That is not hypothetical for this
+ * harness — the thing being killed is an agent whose whole job is starting processes.
+ *
+ * And the enumeration itself is the weak link under load. It is a PowerShell call with a bound; on
+ * a busy host it can blow that bound and answer `[rootPid]` alone. With the root already dead by
+ * then, `taskkill /T` has no tree left to walk, and the descendants are simply lost. Full-suite
+ * runs reproduced exactly that: a live grandchild ~15.6 s after the cell ended — through both kill
+ * passes and out the far side of the settle deadline.
+ *
+ * So the root stays alive until nothing is below it. Each pass re-enumerates through the living
+ * anchor, so a process born mid-shutdown is found by the next pass; the root is released last,
+ * with `/T`, which lets the OS make its own final walk for anything born between our last look and
+ * that moment.
+ *
+ * Every pid ever seen is verified at the end, not just the last pass's: a process that was killed
+ * in pass one and is somehow still alive in pass three is exactly what this function must not
+ * report as success.
+ */
+async function endWindowsTree(rootPid: number): Promise<boolean> {
+  const seen = new Set<number>([rootPid]);
+
+  for (let pass = 0; pass < TREE_KILL_PASSES; pass += 1) {
+    const tree = await windowsProcessTree(rootPid);
+    for (const pid of tree) seen.add(pid);
+
+    // Deepest first. The enumeration is breadth-first from the root, so reversing it puts leaves
+    // ahead of the branches they hang from and the root at the very end — where it is skipped.
+    const descendants = [...tree].reverse().filter((pid) => pid !== rootPid && isPidAlive(pid));
+    if (descendants.length === 0) break;
+    for (const pid of descendants) await taskkillOne(pid);
+    await waitUntilGone(() => descendants.some(isPidAlive), TREE_VERIFY_TIMEOUT_MS);
+  }
+
+  // The anchor, released last and with `/T` so the OS walks whatever was born since our last look.
+  await taskkillOne(rootPid);
+  return await waitUntilGone(() => [...seen].some(isPidAlive), TREE_VERIFY_TIMEOUT_MS);
+}
+
+/**
+ * Raised when a killed process tree was not confirmed gone.
+ *
+ * An error rather than a field on the result, because of what the survivor is. The thing this
+ * harness kills is a paid agent, and one that outlives its cell keeps calling a model against a
+ * checkout nobody is reading any more — spending outside the sample it belonged to, and outside
+ * any bound at all. Recording that as an ordinary timeout and starting the next cell would add a
+ * second such process to the first.
+ *
+ * Nothing in `executeBenchmarkRun` catches this, which is the point: the run stops. A stopped run
+ * with a named pid is a smaller loss than a run that continued while an unknown number of agents
+ * kept billing behind it.
+ */
+export class AgentProcessTreeAbandonedError extends Error {
+  constructor(pid: number, waitedMs: number) {
+    super(
+      `The process tree of pid ${pid} was not confirmed gone within ${waitedMs}ms of the kill. ` +
+        "A surviving agent keeps calling a paid model outside the cell it belonged to, so the run " +
+        "stops here rather than starting another one beside it.",
+    );
+    this.name = "AgentProcessTreeAbandonedError";
+  }
 }
 
 /** Raised for a spec this package will not spawn. Never a process failure — a refusal to start one. */
@@ -393,15 +465,7 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
             `${String(CLOSE_AFTER_KILL_TIMEOUT_MS)}ms of the kill; pid ${String(child.pid ?? -1)} ` +
             `may still be running and may still be spending.\n`,
         );
-        resolve({
-          exitCode: null,
-          signal: null,
-          stdout: stdout.text(),
-          stderr: redactSecrets(stderr.text()),
-          timedOut,
-          outputTruncated: stdout.truncated || stderr.truncated,
-          treeAbandoned: true,
-        });
+        reject(new AgentProcessTreeAbandonedError(child.pid ?? -1, CLOSE_AFTER_KILL_TIMEOUT_MS));
       };
 
       /** Starts the abandon deadline once, when a kill has finished without producing an exit. */
@@ -448,6 +512,12 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
         settled = true;
         stopTimers();
         const finish = (confirmedGone: boolean): void => {
+          // The child's own exit says nothing about what it started. A `close` with descendants
+          // still alive is the same danger as no `close` at all, and gets the same answer.
+          if (!confirmedGone) {
+            reject(new AgentProcessTreeAbandonedError(child.pid ?? -1, TREE_VERIFY_TIMEOUT_MS));
+            return;
+          }
           resolve({
             exitCode,
             signal,
@@ -457,9 +527,6 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
             stderr: redactSecrets(stderr.text()),
             timedOut,
             outputTruncated: stdout.truncated || stderr.truncated,
-            // The child's own exit says nothing about the grandchildren it started, and those are
-            // the processes that keep calling a paid model. Only the verification does.
-            treeAbandoned: !confirmedGone,
           });
         };
         // Only a timeout ever starts a tree-kill, so only a timeout waits for one:

@@ -49,19 +49,13 @@ export interface AgentProcessResult {
   /** True when either stream reached the implementation's output ceiling and was cut. */
   readonly outputTruncated: boolean;
   /**
-   * True when the process tree was NOT confirmed gone.
+   * NOTE: a tree that could not be confirmed gone is not reported here.
    *
-   * Two paths reach it. The runner may have given up waiting for an exit that never came — a kill
-   * that did not take, a grandchild holding the pipes — and settled on its own deadline instead of
-   * waiting forever. Or the child's own exit arrived while something it started was still alive:
-   * a `close` describes one process, and the grandchildren are the ones that keep calling a paid
-   * model.
-   *
-   * The distinction is not bookkeeping. Either way a process may still be spending outside the
-   * sample it belonged to, which is the exact condition the timeout exists to prevent, and a
-   * caller that reads this as an ordinary timeout reports a bounded run where there was none.
+   * It was, briefly, and the field was wrong: `false` is the only value a caller could ever read,
+   * because the runner now rejects with `AgentProcessTreeAbandonedError` instead of returning. A
+   * surviving agent keeps calling a paid model outside its cell, and a boolean on a result the
+   * caller is free to ignore is not the shape that fact should take.
    */
-  readonly treeAbandoned: boolean;
 }
 
 export interface AgentProcessPort {

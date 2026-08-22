@@ -112,7 +112,6 @@ export function processResult(overrides: Partial<AgentProcessResult> = {}): Agen
     stderr: "",
     timedOut: false,
     outputTruncated: false,
-    treeAbandoned: false,
     ...overrides,
   };
 }

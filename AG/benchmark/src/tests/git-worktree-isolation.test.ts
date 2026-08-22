@@ -396,3 +396,34 @@ test("a whole sample lifecycle issues no force argument and no destructive subco
     }
   }
 });
+
+// 2026-08-22, pirmas mokamas `ag-loop` bėgimas: 45 % celių iškrito su
+// `stdout maxBuffer length exceeded`, nes vykdymo agentas įsidiegė savo Python runtime į
+// PROCESO darbinį katalogą — matuojamą scenarijaus kopiją — ir `capture` tai užcommit'ino.
+// Išgyvenusios celės buvo ne geresnės: jų `outOfScopeFiles` aprašinėjo įrankių grandinę, ne
+// atliktą darbą. Matavimas privalo gintis pats, o ne tikėtis, kad kiekvienas host'o įrankis
+// laikysis savo vietos.
+test("įrankių grandinės keliai nepatenka nei į changedFiles, nei į diff'ą", async (t) => {
+  const { manager } = await harness(t);
+  const worktree = await manager.create({ scenarioId: "docs-add-page", fixturePath: FIXTURE });
+  await performWork(worktree);
+
+  // Tikras vykdymo pėdsakas: 3.14-64 runtime medis ir įdiegtos priklausomybės.
+  for (const relative of ["Python/_cache/pythoncore.zip", "node_modules/lib/index.js", ".venv/pyvenv.cfg"]) {
+    const target = path.join(worktree.path, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, "SVETIMAS ĮRANKIŲ TURINYS\n", "utf8");
+  }
+
+  const capture = await manager.capture(worktree);
+
+  assert.deepEqual(
+    capture.changedFiles,
+    [FIXTURE_FILE, "docs/new-page.md"],
+    "įrankių keliai turi būti nematomi matavimui",
+  );
+  assert.doesNotMatch(capture.diff.text, /SVETIMAS ĮRANKIŲ TURINYS/);
+  assert.doesNotMatch(capture.diff.text, /pythoncore/);
+  // Scenarijaus darbas lieka matomas — išimtis yra siaura, o ne diff'o išjungimas.
+  assert.match(capture.diff.text, /\+# new page/);
+});

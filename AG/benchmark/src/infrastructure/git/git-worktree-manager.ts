@@ -74,6 +74,36 @@ const SAFE_IDENTIFIER = /^[a-z0-9][a-z0-9-]{0,79}$/;
 /** Recorded diff text is bounded; `changedFiles` stays complete regardless. */
 export const MAX_DIFF_CHARACTERS = 256 * 1024;
 
+/**
+ * Toolchain paths the measured diff never describes.
+ *
+ * 2026-08-22, first paid `ag-loop` run: 45 % of the cells were discarded with
+ * `stdout maxBuffer length exceeded`. The cause was not the buffer. The execution agent
+ * provisions its own Python runtime into the process working directory — the scenario
+ * checkout — and `capture` commits whatever the cell left behind, so a 36 MB archive landed
+ * inside the sample's diff. The cells that did survive were no better: their `outOfScopeFiles`
+ * described a toolchain, not an executed change.
+ *
+ * The exclusion belongs here, in the measuring instrument, rather than in a hope that every
+ * host tool will keep its files to itself.
+ *
+ * ## Why this list stays SHORT
+ *
+ * This same diff is the scope gate (BENCH-4): a path excluded here is invisible to
+ * `outOfScopeFiles`, so an agent writing there would not be caught. That is acceptable only for
+ * paths no scenario can legitimately name — a language runtime, an installed dependency tree,
+ * an agent's own configuration. A wildcard here would quietly turn the scope gate off, so every
+ * new entry needs the same argument: *the fixture could never be asked to change this.*
+ */
+export const TOOLCHAIN_EXCLUDED_PATHS = ["Python", "node_modules", ".venv", "__pycache__", ".claude"] as const;
+
+/** `-- . ':(exclude)<path>' …` — the pathspec both diff reads are scoped by. */
+const measuredPathspec = (): string[] => [
+  "--",
+  ".",
+  ...TOOLCHAIN_EXCLUDED_PATHS.map((path) => `:(exclude)${path}`),
+];
+
 export class UnsafeIdentifierError extends Error {
   constructor(kind: string, value: string) {
     super(
@@ -240,13 +270,13 @@ export class GitWorktreeManager implements IsolatedWorkspacePort {
     // violated by a file arriving there however it got there.
     const names = await runGit(
       this.#runner,
-      ["diff", "--no-renames", "--name-only", "-z", entry.startCommit, finalCommit],
+      ["diff", "--no-renames", "--name-only", "-z", entry.startCommit, finalCommit, ...measuredPathspec()],
       at,
       "Listing the changed files",
     );
     const raw = await runGit(
       this.#runner,
-      ["diff", "--no-renames", entry.startCommit, finalCommit],
+      ["diff", "--no-renames", entry.startCommit, finalCommit, ...measuredPathspec()],
       at,
       "Reading the executed diff",
     );

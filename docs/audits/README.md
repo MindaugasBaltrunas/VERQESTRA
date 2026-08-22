@@ -18,3 +18,4 @@ būsena pasikeis ar bus išvalyta.
 | [E6-audit.md](E6-audit.md) | E6 — UI app + benchmark paketas | 2026-08-22 |
 | [E7-audit.md](E7-audit.md) | E7 — Self-hosting | 2026-08-22 |
 | [E8-parity.md](E8-parity.md) | E8 — pilnas parity bėgimas (VQ-801) | 2026-08-22 |
+| [E8-benchmark-audit.md](E8-benchmark-audit.md) | E8 — benchmark auditas prieš mokamą bėgimą (VQ-802) | 2026-08-22 |

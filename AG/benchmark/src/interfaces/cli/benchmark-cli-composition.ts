@@ -1,11 +1,8 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 
 import {
   BenchmarkRunNotExecutedError,
   BenchmarkRunRefusedError,
   EXECUTION_MODES,
-  MINIMUM_NONDETERMINISTIC_OBSERVATIONS,
   type BenchmarkApplicationApi,
   type BenchmarkBaseline,
   type BenchmarkCompareRequest,
@@ -14,23 +11,13 @@ import {
   type BenchmarkRunRequest,
   type BenchmarkRunSummary,
   type BenchmarkSample,
-  type BenchmarkScenario,
   type ExecutionMode,
   type ScenarioSuite,
   type SuiteValidationReport,
 } from "../../application/benchmark-api.js";
-import {
-  createBaseline,
-  readBaseline,
-  serializeBaseline,
-} from "../../application/baseline/baseline-document.js";
+import { createBaseline } from "../../application/baseline/baseline-document.js";
 import { compareRuns } from "../../application/compare/compare-runs.js";
-import type { AgentExecutionPort } from "../../application/ports/agent-execution-port.js";
-import {
-  MODE_EXECUTION_PROFILES,
-  type ExecutionPlanSettings,
-  type NormalizedExecutionPlan,
-} from "../../application/ports/execution-plan.js";
+import type { NormalizedExecutionPlan } from "../../application/ports/execution-plan.js";
 import type { RunIdentityRecord } from "../../application/ports/run-identity-store-port.js";
 import { createBenchmarkReportCapability } from "../../application/report/benchmark-report.js";
 import {
@@ -41,41 +28,18 @@ import { executeBenchmarkRun } from "../../application/run/execute-benchmark-run
 import { IsolatedSampleRunner } from "../../application/run/isolated-sample-runner.js";
 import { readRecordedRunIdentity } from "../../application/run/recorded-run-identity.js";
 import {
-  buildRunConfiguration,
-  buildRunIdentity,
   buildRunIdentityRecord,
   buildRunManifest,
   summarizeSamples,
 } from "../../application/run/run-identity.js";
-import { computeRunPolicyHash } from "../../application/run/run-policy.js";
-import type { RunEnvironmentRecord } from "../../application/run-environment.js";
-import {
-  FIXTURE_ROOT,
-  toSuiteValidationReport,
-  validateBenchmarkSuite,
-  type ScenarioDocument,
-} from "../../application/validate-suite.js";
 import { IndependentAcceptanceVerifier } from "../../application/verify/independent-acceptance-verifier.js";
 import { rederiveAcceptance } from "../../application/verify/rederive-acceptance.js";
-import {
-  AG_LOOP_ADAPTER_VERSION,
-  createAgLoopExecutionAdapter,
-} from "../../infrastructure/adapters/ag-loop-execution-adapter.js";
-import {
-  AGENT_SOLO_ADAPTER_VERSION,
-  createAgentSoloExecutionAdapter,
-} from "../../infrastructure/adapters/agent-solo-execution-adapter.js";
-import {
-  DETERMINISTIC_CONTROL_ADAPTER_VERSION,
-  DeterministicControlAdapter,
-} from "../../infrastructure/adapters/deterministic-control-adapter.js";
+import { AG_LOOP_ADAPTER_VERSION } from "../../infrastructure/adapters/ag-loop-execution-adapter.js";
+import { AGENT_SOLO_ADAPTER_VERSION } from "../../infrastructure/adapters/agent-solo-execution-adapter.js";
+import { DETERMINISTIC_CONTROL_ADAPTER_VERSION } from "../../infrastructure/adapters/deterministic-control-adapter.js";
 import type { AgentInvocation } from "../../infrastructure/adapters/execution-adapter-support.js";
 import { NodeAgentProcessRunner } from "../../infrastructure/adapters/node-agent-process-runner.js";
-import { NodeWorkspaceFileWriter } from "../../infrastructure/adapters/node-workspace-file-writer.js";
-import {
-  BENCHMARK_PACKAGE_ROOT,
-  resolveInsideBenchmarkWorkspace,
-} from "../../infrastructure/benchmark-workspace-paths.js";
+import { BENCHMARK_PACKAGE_ROOT } from "../../infrastructure/benchmark-workspace-paths.js";
 import { ProcessCheckRunner } from "../../infrastructure/checks/process-check-runner.js";
 import { NodeCompressionConfigReader } from "../../infrastructure/compression-config-reader.js";
 import { HostEnvironmentAdapter } from "../../infrastructure/environment-capture.js";
@@ -88,6 +52,17 @@ import {
   runLedgerPath,
 } from "../../infrastructure/run-ledger-store.js";
 import { runBenchmarkCli, type BenchmarkCliIo, type BenchmarkCliPorts } from "./benchmark-cli.js";
+import {
+  describeLiveRun,
+  loadRecordedProvenance,
+  loadRecordedRunContext,
+  loadRecordedSummary,
+  type RunProvenanceDeps,
+  type StoredRunShape,
+} from "./benchmark-run-provenance.js";
+import { baselineIdFor, loadSuite, resolvePlan } from "./benchmark-suite-planning.js";
+import { createFilePorts } from "./benchmark-cli-file-ports.js";
+import { createAgentAdapters } from "./benchmark-agent-adapters.js";
 import type { BenchmarkExitCode } from "./benchmark-exit-codes.js";
 
 /**
@@ -113,13 +88,6 @@ import type { BenchmarkExitCode } from "./benchmark-exit-codes.js";
  * BENCH-5 exists to prevent, and it is the reason this file does not contain a
  * single value it did not read or compute.
  */
-
-const SCENARIO_DIRECTORY = "scenarios";
-const SUITE_MANIFEST_FILE = "suite.manifest.json";
-const SCENARIO_FILE_SUFFIX = ".scenario.json";
-
-/** Package-relative directory sealed baseline documents are written to. */
-export const BASELINE_DIRECTORY = "baselines";
 
 /**
  * Adapter version per mode, for every declared mode rather than only the
@@ -168,150 +136,6 @@ export {
   type AgentInvocationTemplate,
 } from "../../infrastructure/adapters/agent-invocation-builders.js";
 
-function describeThrown(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-interface LoadedSuite {
-  /** Present only when the suite validated; a refused suite yields no scenarios and no hash. */
-  readonly suite: ScenarioSuite | undefined;
-  readonly report: SuiteValidationReport;
-}
-
-async function readJson(file: string): Promise<unknown> {
-  return JSON.parse(await readFile(file, "utf8")) as unknown;
-}
-
-function refusedSuite(problem: string): LoadedSuite {
-  return { suite: undefined, report: { suiteHash: "", scenarioCount: 0, problems: [problem] } };
-}
-
-/**
- * Reads the authored suite from the package and validates it whole.
- *
- * Fail-closed: an unreadable `scenarios/` directory is reported as a problem
- * rather than as an empty suite, because an empty suite validates against
- * nothing and would let `validate` answer "no problems" for a package with no
- * scenarios in it at all.
- */
-async function loadSuite(packageRoot: string): Promise<LoadedSuite> {
-  const scenariosDirectory = path.join(packageRoot, SCENARIO_DIRECTORY);
-
-  let fileNames: readonly string[];
-  try {
-    const entries = await readdir(scenariosDirectory, { withFileTypes: true });
-    fileNames = entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(SCENARIO_FILE_SUFFIX))
-      .map((entry) => entry.name)
-      .sort();
-  } catch (error: unknown) {
-    return refusedSuite(`scenarios: the suite directory could not be read: ${describeThrown(error)}`);
-  }
-
-  let manifest: unknown;
-  try {
-    manifest = await readJson(path.join(scenariosDirectory, SUITE_MANIFEST_FILE));
-  } catch (error: unknown) {
-    return refusedSuite(`scenarios: ${SUITE_MANIFEST_FILE} could not be read: ${describeThrown(error)}`);
-  }
-
-  const documents: ScenarioDocument[] = [];
-  for (const name of fileNames) {
-    try {
-      documents.push({ source: name, value: await readJson(path.join(scenariosDirectory, name)) });
-    } catch (error: unknown) {
-      return refusedSuite(`scenarios/${name}: could not be read: ${describeThrown(error)}`);
-    }
-  }
-
-  let availableFixtures: readonly string[];
-  try {
-    const entries = await readdir(path.join(packageRoot, FIXTURE_ROOT), { withFileTypes: true });
-    availableFixtures = entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => `${FIXTURE_ROOT}/${entry.name}`);
-  } catch (error: unknown) {
-    return refusedSuite(`${FIXTURE_ROOT}: the fixture directory could not be read: ${describeThrown(error)}`);
-  }
-
-  const outcome = validateBenchmarkSuite(manifest, documents, { availableFixtures });
-  return { suite: outcome.suite, report: toSuiteValidationReport(outcome) };
-}
-
-/**
- * Resolves a request against the suite: which scenarios, which modes, how many
- * repetitions, and every reason the run would be refused. Nothing is executed
- * and nothing is written, which is what makes it safe to call before a live run
- * as well as for `--dry-run`.
- */
-function resolvePlan(
-  suite: ScenarioSuite,
-  suiteHash: string,
-  request: BenchmarkRunRequest,
-): BenchmarkRunPlan {
-  const problems: string[] = [];
-  const known = new Map(suite.scenarios.map((scenario) => [scenario.id, scenario]));
-
-  const requested = request.scenarioIds ?? [];
-  let selected: readonly BenchmarkScenario[];
-  if (requested.length === 0) {
-    selected = suite.scenarios;
-  } else {
-    const found: BenchmarkScenario[] = [];
-    for (const id of requested) {
-      const scenario = known.get(id);
-      if (scenario === undefined) {
-        problems.push(`"${id}" is not a scenario of this suite`);
-        continue;
-      }
-      found.push(scenario);
-    }
-    selected = found;
-  }
-
-  if (request.modes.length === 0) {
-    problems.push("no execution mode was selected, so there is nothing to compare");
-  }
-  for (const mode of request.modes) {
-    if (MODE_EXECUTION_PROFILES[mode].reachesNetwork && !request.allowNetworkModels) {
-      problems.push(
-        `mode "${mode}" reaches a paid model over the network; re-run with --allow-network to permit it`,
-      );
-    }
-  }
-
-  if (
-    request.repetitions < MINIMUM_NONDETERMINISTIC_OBSERVATIONS &&
-    selected.some((scenario) => !scenario.deterministic)
-  ) {
-    problems.push(
-      `the selection contains nondeterministic scenarios, which BENCH-9 requires to be repeated at least ${MINIMUM_NONDETERMINISTIC_OBSERVATIONS} times; --repetitions is ${request.repetitions}`,
-    );
-  }
-
-  const scenarioIds = selected.map((scenario) => scenario.id).sort();
-  return {
-    // A refused plan names no suite: reporting the hash of a suite the run will
-    // never execute invites a caller to record it as evidence of a measurement.
-    suiteHash: problems.length === 0 ? suiteHash : "",
-    scenarioIds,
-    modes: request.modes,
-    repetitions: request.repetitions,
-    allowNetworkModels: request.allowNetworkModels,
-    sampleCount: scenarioIds.length * request.modes.length * request.repetitions,
-    problems,
-  };
-}
-
-/**
- * `<date>-<suite digest prefix>`: lowercase kebab-case, which the stored
- * document requires, and readable enough that two baselines taken on one day
- * against different suites are visibly different files.
- */
-function baselineIdFor(createdAt: string, suiteHash: string): string {
-  const digest = suiteHash.replace("sha256:", "").slice(0, 12);
-  return `${createdAt.slice(0, 10)}-${digest === "" ? "unidentified" : digest}`;
-}
 
 export interface BenchmarkCliCompositionOptions {
   /** The benchmark package directory holding `scenarios/`, `fixtures/` and `results/`. */
@@ -330,34 +154,6 @@ export interface BenchmarkCliCompositionOptions {
    * timestamp. Defaults to the host clock.
    */
   readonly now?: () => Date;
-}
-
-/** What a run's samples are described under, derived from the samples themselves. */
-interface StoredRunShape {
-  readonly modes: readonly ExecutionMode[];
-  readonly repetitions: number;
-  readonly allowNetworkModels: boolean;
-}
-
-/**
- * The configuration a *stored* ledger is described under.
- *
- * A ledger does not record which modes or how many repetitions produced it, so
- * the description is read from the samples: the modes that actually occur, and
- * the largest repetition index reached. Derived from the evidence rather than
- * from a default, so `baseline create` and `compare` describe the run that
- * happened rather than the one the command line would have suggested.
- */
-function describeStoredRun(samples: readonly BenchmarkSample[]): StoredRunShape {
-  const present = new Set(samples.map((sample) => sample.mode));
-  const modes = EXECUTION_MODES.filter((mode) => present.has(mode));
-  return {
-    modes,
-    repetitions: samples.reduce((most, sample) => Math.max(most, sample.repetition), 1),
-    // A ledger's own samples state whether a networked mode ran; a control-only
-    // ledger is a run that needed no permission.
-    allowNetworkModels: modes.some((mode) => MODE_EXECUTION_PROFILES[mode].reachesNetwork),
-  };
 }
 
 /**
@@ -392,84 +188,26 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
     return { suite: loaded.suite, suiteHash: loaded.report.suiteHash };
   }
 
-  function configurationOf(suite: ScenarioSuite, shape: StoredRunShape) {
-    return buildRunConfiguration({
-      suiteVersion: suite.version,
-      modes: shape.modes,
-      repetitions: shape.repetitions,
-      allowNetworkModels: shape.allowNetworkModels,
-      modeAdapterVersions: MODE_ADAPTER_VERSIONS,
-    });
-  }
-
-  /**
-   * The provenance the current run is recorded under.
-   *
-   * Every field is read or computed now, from the suite as it stands and the
-   * host as it is. The ledger stores measurements; the methodology they were
-   * taken under is stated by the code that is asked about them, so a comparison
-   * across a suite edit fails the comparability gate instead of quietly
-   * comparing two different suites (BENCH-8).
-   */
-  async function describeCurrentRun(
-    suite: ScenarioSuite,
-    suiteHash: string,
-    shape: StoredRunShape,
-  ): Promise<{
-    readonly environment: RunEnvironmentRecord;
-    readonly config: ReturnType<typeof buildRunConfiguration>;
-    readonly identity: ReturnType<typeof buildRunIdentity>;
-  }> {
-    const environment = await environmentPort.captureRunEnvironment();
-    const config = configurationOf(suite, shape);
+  function provenanceDeps(): RunProvenanceDeps {
     return {
-      environment,
-      config,
-      identity: buildRunIdentity({
-        config,
-        suiteHash,
-        policyHash: computeRunPolicyHash(),
-        agCommit: environment.agCommit,
-      }),
+      findLedger: () => findLatestRunLedger(packageRoot),
+      readRecord: (ledgerPath) =>
+        readRecordedRunIdentity(new JsonRunIdentityStore(ledgerPath, packageRoot)),
+      readSamples: (ledgerPath) =>
+        readAuthoritativeSamples(new JsonlSampleStore(ledgerPath, packageRoot)),
+      requireSuite,
+      captureRunEnvironment: () => environmentPort.captureRunEnvironment(),
+      modeAdapterVersions: MODE_ADAPTER_VERSIONS,
+      warn: (message) => process.emitWarning(message),
+      notExecuted: (name) => new BenchmarkRunNotExecutedError(name),
     };
   }
 
-  /** The stored samples of the newest run ledger, or a refusal naming what is missing. */
-  async function readCurrentSamples(action: string): Promise<readonly BenchmarkSample[]> {
-    const ledger = await findLatestRunLedger(packageRoot);
-    if (ledger === undefined) throw new BenchmarkRunNotExecutedError(action);
-    const samples = await readAuthoritativeSamples(new JsonlSampleStore(ledger, packageRoot));
-    // A ledger that exists and holds nothing is a run that measured nothing;
-    // summarising it would publish zeroes that read as results.
-    if (samples.length === 0) throw new BenchmarkRunNotExecutedError(action);
-    return samples;
-  }
-
-  /** The summary the stored samples of the newest run add up to. */
-  async function loadCurrentSummary(action: string): Promise<BenchmarkRunSummary> {
-    const samples = await readCurrentSamples(action);
-    const { suite, suiteHash } = await requireSuite();
-    const described = await describeCurrentRun(suite, suiteHash, describeStoredRun(samples));
-    return summarizeSamples(samples, described.identity, described.environment.environment);
+  function loadCurrentSummary(action: string): Promise<BenchmarkRunSummary> {
+    return loadRecordedSummary(provenanceDeps(), action);
   }
 
   /** The adapters this installation can actually drive, one per executable mode. */
-  function createAgentAdapters(settings: ExecutionPlanSettings): readonly AgentExecutionPort[] {
-    const processes = new NodeAgentProcessRunner();
-    const adapters: AgentExecutionPort[] = [
-      new DeterministicControlAdapter({ settings, files: new NodeWorkspaceFileWriter() }),
-    ];
-    const agLoop = options.agentInvocations?.["ag-loop"];
-    if (agLoop !== undefined) {
-      adapters.push(createAgLoopExecutionAdapter({ settings, processes, invocation: agLoop }));
-    }
-    const agentSolo = options.agentInvocations?.["agent-solo"];
-    if (agentSolo !== undefined) {
-      adapters.push(createAgentSoloExecutionAdapter({ settings, processes, invocation: agentSolo }));
-    }
-    return adapters;
-  }
-
   const api: BenchmarkApplicationApi = {
     async validate(): Promise<SuiteValidationReport> {
       return (await loadSuite(packageRoot)).report;
@@ -517,7 +255,13 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
         repetitions: request.repetitions,
         allowNetworkModels: request.allowNetworkModels,
       };
-      const described = await describeCurrentRun(suite, suiteHash, shape);
+      const described = await describeLiveRun(
+        suite,
+        suiteHash,
+        shape,
+        MODE_ADAPTER_VERSIONS,
+        () => environmentPort.captureRunEnvironment(),
+      );
 
       const runId = createRunId(now());
       // One path, two stores: the samples and the statement about them are bound
@@ -547,10 +291,13 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
           {
             runner: new IsolatedSampleRunner({
               worktrees,
-              agents: createAgentAdapters({
-                modelSettings: described.config.modelSettings,
-                ceiling: described.config.limits,
-              }),
+              agents: createAgentAdapters(
+                {
+                  modelSettings: described.config.modelSettings,
+                  ceiling: described.config.limits,
+                },
+                options.agentInvocations,
+              ),
             }),
             verifier: new IndependentAcceptanceVerifier({
               checks: new ProcessCheckRunner(new NodeAgentProcessRunner()),
@@ -593,17 +340,20 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
 
     async createBaseline(summary: BenchmarkRunSummary): Promise<BenchmarkBaseline> {
       if (summary.samples.length === 0) throw new BenchmarkRunNotExecutedError("snapshot");
-      const { suite } = await requireSuite();
-      const environment = await environmentPort.captureRunEnvironment();
+      // Sealed under the methodology the run RECORDED. This used to read the suite version and the
+      // configuration from the package as it stands, so a baseline created after any edit stated a
+      // methodology its own samples were never taken under — and a baseline is precisely the
+      // artefact that outlives the ability to check.
+      const recorded = await loadRecordedRunContext(provenanceDeps(), "baseline create");
       const createdAt = now().toISOString();
       const created = createBaseline({
         baselineId: baselineIdFor(createdAt, summary.identity.suiteHash),
         createdAt,
         suiteHash: summary.identity.suiteHash,
-        suiteVersion: suite.version,
+        suiteVersion: recorded.config.suiteVersion,
         policyHash: summary.identity.policyHash,
-        config: configurationOf(suite, describeStoredRun(summary.samples)),
-        environment,
+        config: recorded.config,
+        environment: recorded.environment,
         samples: summary.samples,
       });
       if (!created.ok) {
@@ -618,12 +368,11 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
     },
 
     async compare(request: BenchmarkCompareRequest): Promise<BenchmarkComparison> {
-      const { suite, suiteHash } = await requireSuite();
-      const described = await describeCurrentRun(
-        suite,
-        suiteHash,
-        describeStoredRun(request.current.samples),
-      );
+      const { suite } = await requireSuite();
+      // The configuration and host the current run RECORDED, not the ones this package would
+      // choose today. Taking the hashes from the summary and the configuration from the present
+      // was how a comparison came to mix one run's identity with another run's methodology.
+      const described = await loadRecordedRunContext(provenanceDeps(), "compare");
       return compareRuns({
         scenarios: suite.scenarios,
         baselineManifest: request.baseline.manifest,
@@ -647,57 +396,17 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
     report: createBenchmarkReportCapability(),
 
     async verify(samples: readonly BenchmarkSample[]): Promise<BenchmarkRunSummary> {
-      const { suite, suiteHash } = await requireSuite();
+      // Acceptance is re-derived; the PROVENANCE is not. `verify` answers "would today's verifier
+      // still accept these samples", and re-labelling them with today's suite and host while it
+      // does would change the second half of the question without being asked to.
+      const { suite } = await requireSuite();
       const rederived = rederiveAcceptance(samples, suite.scenarios);
-      const described = await describeCurrentRun(suite, suiteHash, describeStoredRun(rederived));
-      return summarizeSamples(rederived, described.identity, described.environment.environment);
+      const provenance = await loadRecordedProvenance(provenanceDeps(), "verify");
+      return summarizeSamples(rederived, provenance.identity, provenance.environment.environment);
     },
   };
 
-  const ports: BenchmarkCliPorts = {
-    api,
-
-    async loadSamples(samplesPath) {
-      // Without a path: the newest run ledger, and an empty list when no run has
-      // been executed. Empty rather than a refusal, because this port also feeds
-      // the report generator, whose job is to publish "nothing was measured" as
-      // a readable finding rather than as a failure to produce a document.
-      const ledger = samplesPath ?? (await findLatestRunLedger(packageRoot));
-      if (ledger === undefined) return [];
-      // The path is data — a CLI flag — so it is resolved against the workspace
-      // root by the store rather than trusted as given.
-      return readAuthoritativeSamples(new JsonlSampleStore(ledger, packageRoot));
-    },
-
-    async loadBaseline(baselinePath) {
-      const absolute = resolveInsideBenchmarkWorkspace(baselinePath, packageRoot);
-      const document = readBaseline(JSON.parse(await readFile(absolute, "utf8")));
-      if (!document.ok) {
-        throw new BenchmarkRunRefusedError([
-          `"${baselinePath}" is not a readable baseline document`,
-          ...document.problems.map((problem) => describeValidationProblem(problem)),
-        ]);
-      }
-      return document.value;
-    },
-
-    loadCurrentSummary: () => loadCurrentSummary("summarize"),
-
-    async saveBaseline(baseline, outPath) {
-      const relative = outPath ?? `${BASELINE_DIRECTORY}/${baseline.manifest.baselineId}.json`;
-      const absolute = resolveInsideBenchmarkWorkspace(relative, packageRoot);
-      await mkdir(path.dirname(absolute), { recursive: true });
-      await writeFile(absolute, serializeBaseline(baseline), "utf8");
-      return relative;
-    },
-
-    async writeReport(content, outPath) {
-      const absolute = resolveInsideBenchmarkWorkspace(outPath, packageRoot);
-      await mkdir(path.dirname(absolute), { recursive: true });
-      await writeFile(absolute, content, "utf8");
-      return outPath;
-    },
-  };
+  const ports = createFilePorts(api, packageRoot, () => loadCurrentSummary("summarize"));
 
   return { api, ports };
 }

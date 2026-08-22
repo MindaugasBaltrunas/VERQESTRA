@@ -198,7 +198,22 @@ test("a baseline asked for before any run refuses, and writes nothing", async ()
   await assert.rejects(() => readFile(path.join(packageRoot, "baselines"), "utf8"));
 });
 
-test("a suite edited after the baseline makes the comparison inconclusive, not a difference", async () => {
+/**
+ * A suite edit is refused once it has been MEASURED, and not before.
+ *
+ * This test used to edit the suite and compare immediately, expecting a refusal. It got one, and
+ * for the wrong reason: `compare` re-derived the current run's methodology from the suite as it
+ * stood at that moment, so it labelled samples taken under 1.0.0 as having been taken under 2.0.0
+ * and then refused the mismatch it had just invented. The gate was catching the code's own false
+ * statement, and it looked like BENCH-8 working.
+ *
+ * Once the current run is described by the identity it actually recorded, editing a file changes
+ * nothing about samples already on disk — and so the two halves below are both required. The
+ * refusal must still happen when a run genuinely was taken under a different suite, and it must
+ * NOT happen when nothing has been re-measured. The second half is what the old test could not
+ * express, because the behaviour it pinned made every suite edit look like a measurement.
+ */
+test("a suite edit is a mismatch only once a run has been taken under it", async () => {
   const packageRoot = await createPackageRoot();
 
   assert.equal(
@@ -218,6 +233,23 @@ test("a suite edited after the baseline makes the comparison inconclusive, not a
     path.join(packageRoot, "scenarios", "suite.manifest.json"),
     JSON.stringify({ schemaVersion: 1, version: "2.0.0" }, null, 2),
     "utf8",
+  );
+
+  // Nothing has been re-measured yet. The stored samples were taken under 1.0.0 and still say so,
+  // so comparing them against a 1.0.0 baseline is a comparison of like with like.
+  const beforeRerun = await invoke(["compare", "--baseline", "baselines/before.json"], packageRoot);
+  assert.equal(
+    beforeRerun.code,
+    BENCHMARK_EXIT_CODES.ok,
+    "an edit to a file on disk must not re-attribute samples that were already recorded",
+  );
+  assert.doesNotMatch(beforeRerun.out, /methodology-mismatch/);
+
+  // Now the edited suite is actually executed, and the new run records 2.0.0 as its own.
+  assert.equal(
+    (await invoke(["run", "--mode", "deterministic-control", "--repetitions", "1"], packageRoot))
+      .code,
+    BENCHMARK_EXIT_CODES.ok,
   );
 
   const compared = await invoke(["compare", "--baseline", "baselines/before.json"], packageRoot);

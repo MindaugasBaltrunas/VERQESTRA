@@ -370,7 +370,6 @@ test("an envelope that is not a usable cost record is rejected field by field", 
     ["inputTokens", -1],
     ["outputTokens", 1.5],
     ["llmCalls", "many"],
-    ["attempts", 0],
     ["humanReviewEvents", null],
   ] as const) {
     const processes = new FakeProcessPort(
@@ -385,6 +384,16 @@ test("an envelope that is not a usable cost record is rejected field by field", 
     );
     assert.equal(outcome.telemetry, undefined);
   }
+
+  // `attempts: 0` left this list when the loop gained the right to refuse before dispatching.
+  // For every mode that always executes it is still a broken record read field by field — the
+  // exemption is the loop's alone, and it is the loop's own verifier that bounds it.
+  const soloZero = new FakeProcessPort(
+    processResult({ stdout: `${telemetryEnvelope({ attempts: 0 })}\n` }),
+  );
+  const soloOutcome = await soloAdapter(soloZero).execute(executionRequest({ mode: "agent-solo" }));
+  assert.match(soloOutcome.failure ?? "", /^telemetry-invalid: the envelope reports fewer than one attempt/);
+  assert.equal(soloOutcome.telemetry, undefined);
 });
 
 test("a malformed final envelope is not silently replaced by an earlier one", async () => {
@@ -530,6 +539,58 @@ test("the loop mode accepts a cost summed over attempts but not one that does no
   );
   const freeOutcome = await loopAdapter(free).execute(executionRequest());
   assert.match(freeOutcome.failure ?? "", /^telemetry-invalid: the loop reported tokens without a single LLM call/);
+});
+
+/**
+ * A loop that refused before it dispatched anything.
+ *
+ * 2026-08-22 pilot: all three `security-log-session-tokens` cells reported zero LLM calls, and
+ * every one of them was discarded. The cycle log said why — a deterministic risk gate turned down
+ * a request to log session tokens and the signing key, before a single token was spent — and the
+ * scenario's own `expectedOutcome` is `rejected`. `agent-solo` spent about 16 000 billable tokens
+ * per repetition on the same task and produced no accepted change either.
+ *
+ * So the cheapest correct outcome a loop has was the one outcome the harness could not record,
+ * and it was unrecordable in exactly the scenario category built to test refusal. The invariant
+ * `repairs >= attempts` was reading `0 >= 0` as a contradiction.
+ */
+test("a loop that refused before dispatch is a measurement, not a contradiction", async () => {
+  const refused = new FakeProcessPort(
+    processResult({
+      stdout: `${telemetryEnvelope({
+        llmCalls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        attempts: 0,
+        repairs: 0,
+        humanReviewEvents: 1,
+        claimedDone: false,
+      })}\n`,
+    }),
+  );
+  const outcome = await loopAdapter(refused).execute(executionRequest());
+
+  assert.equal(outcome.failure, undefined, "a refusal that cost nothing must still be a sample");
+  assert.equal(outcome.telemetry?.llmCalls, 0);
+  assert.equal(outcome.telemetry?.attempts, 0);
+  assert.equal(outcome.telemetry?.humanReviewEvents, 1);
+
+  // The rule the zero case must NOT weaken: a repair is itself an attempt, so one without any
+  // attempt is still a contradiction — now caught by its own clause rather than by arithmetic.
+  for (const contradiction of [
+    { llmCalls: 0, inputTokens: 0, outputTokens: 0, attempts: 0, repairs: 1 },
+    { llmCalls: 2, inputTokens: 10, outputTokens: 10, attempts: 0, repairs: 0 },
+  ]) {
+    const impossible = new FakeProcessPort(
+      processResult({ stdout: `${telemetryEnvelope(contradiction)}\n` }),
+    );
+    const impossibleOutcome = await loopAdapter(impossible).execute(executionRequest());
+    assert.match(
+      impossibleOutcome.failure ?? "",
+      /^telemetry-invalid: the loop reported .* against no attempt at all/,
+      `${JSON.stringify(contradiction)} was accepted as a loop cost record`,
+    );
+  }
 });
 
 test("a request routed to the wrong adapter is a wiring fault, not that mode's result", async () => {

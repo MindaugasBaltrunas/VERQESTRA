@@ -85,7 +85,19 @@ function verifyLoopTelemetry(telemetry: SampleTelemetry): string {
   if (telemetry.llmCalls === 0 && telemetry.inputTokens + telemetry.outputTokens > 0) {
     return "the loop reported tokens without a single LLM call, so the cost record does not add up";
   }
-  if (telemetry.repairs >= telemetry.attempts) {
+  if (telemetry.attempts === 0 && telemetry.llmCalls > 0) {
+    return `the loop reported ${telemetry.llmCalls} LLM call(s) against no attempt at all; a call is made inside an attempt`;
+  }
+  if (telemetry.attempts === 0 && telemetry.repairs > 0) {
+    return `the loop reported ${telemetry.repairs} repair(s) against no attempt at all; a repair is itself an attempt`;
+  }
+  // `repairs < attempts` is a rule about a loop that ran, and it is stated as `>=` so a repair
+  // without a preceding attempt is caught. Applied to zero attempts it caught something else: a
+  // loop that refused BEFORE dispatch — a deterministic risk gate turning down a request to log
+  // secrets, say — attempted nothing, repaired nothing, and spent nothing. `0 >= 0` read that as a
+  // contradiction and threw away the sample. It is not a contradiction; it is the cheapest correct
+  // outcome a loop has, and on a `security-violation` scenario it is the outcome under test.
+  if (telemetry.attempts > 0 && telemetry.repairs >= telemetry.attempts) {
     return `the loop reported ${telemetry.repairs} repairs against ${telemetry.attempts} attempts; repairs stay below attempts, because every repair is itself an attempt`;
   }
   return "";
@@ -101,6 +113,10 @@ export function createAgLoopExecutionAdapter(
     processes: options.processes,
     invocation: options.invocation,
     verifyTelemetry: verifyLoopTelemetry,
+    // The one mode that can reach a terminal decision without dispatching anything. Bounded by
+    // `verifyLoopTelemetry` above: a call or a repair reported against zero attempts is still a
+    // contradiction, and still refused.
+    allowRefusalWithoutAttempt: true,
     ...(options.monotonicMs === undefined ? {} : { monotonicMs: options.monotonicMs }),
   });
 }

@@ -289,19 +289,33 @@ export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonl
 
   const records = await deps.ports.readUsageRecords(workdirAbs);
   const telemetry = summarizeCellTelemetry(records, taskId);
-  if (telemetry.llmCalls === 0) {
-    // Ciklas gali baigtis be NĖ VIENO modelio kvietimo — pvz. preflight nukreipia į
-    // human-review. Tai tikra baigtis, bet ne matavimas: kaštų įrašo nėra, ir jo išgalvoti
-    // negalima, tad celė lieka NEIŠMATUOTA su savo priežastimi.
+  const humanReviewEvents = await deps.ports.humanReviewCount(workdirAbs);
+
+  // Nulis modelio kvietimų yra DVI skirtingos baigtys, ir jas skiria žmogaus peržiūros įrodymas.
+  //
+  // 2026-08-22 pilotas: visos trys `security-log-session-tokens` celės grąžino nulį kvietimų, ir
+  // celė jas įrašė kaip NEIŠMATUOTAS. Žiūrint į ciklo žurnalą, tai buvo geriausias įmanomas
+  // rezultatas: deterministinis rizikos vartas atmetė užduotį („auth/security/payment/secrets…
+  // require human-review after planning") PRIEŠ išleidžiant nė vieną toką. Scenarijaus
+  // `expectedOutcome` yra `rejected`, o `agent-solo` tame pačiame scenarijuje išleido ~16 000
+  // tokenų per pakartojimą ir nepriimto pakeitimo taip pat nepadarė.
+  //
+  // Vadinti tai „nematuota" reiškė sistemiškai ištrinti loop'o pranašumą būtent toje scenarijų
+  // kategorijoje, kuri sukurta atsisakymui tikrinti. Atsisakymas be išlaidų yra matavimas, ir
+  // nulis čia yra ŽINOMA kaina, ne trūkstama.
+  //
+  // Ciklas, pasibaigęs be kvietimų IR be peržiūros įrodymo, lieka neišmatuotas: taip atrodo
+  // sulūžęs ciklas (trūkstamas konfigas, kritęs procesas), ir jo tylus pavertimas nuliniu
+  // matavimu įrašytų harness'o gedimą kaip nemokamą sėkmę.
+  if (telemetry.llmCalls === 0 && humanReviewEvents === 0) {
     const detail = (result.stderr || result.stdout).trim().slice(0, 2000);
     io.error(
-      `verqestra benchmark-loop-cell: the cycle recorded no model call for ${taskId}` +
+      `verqestra benchmark-loop-cell: the cycle recorded no model call for ${taskId} ` +
+        `and left no human-review evidence, so it is a broken cycle rather than a refusal` +
         `${detail ? `: ${detail}` : ""}`,
     );
     return result.code === 0 ? 1 : result.code;
   }
-
-  const humanReviewEvents = await deps.ports.humanReviewCount(workdirAbs);
   const envelope: Record<string, unknown> = {
     [TELEMETRY_ENVELOPE_KEY]: TELEMETRY_ENVELOPE_VERSION,
     model,
@@ -315,7 +329,11 @@ export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonl
     // užduotis praėjo vartus. Tai ir yra loop'o „done".
     claimedDone: result.code === 0,
     usage: {
-      captured: telemetry.captured,
+      // Nulis kvietimų — ŽINOMA kaina, ne trūkstama. `summarizeCellTelemetry` teisingai sako
+      // „apskaitos nemačiau", nes ji nežino, ar žurnalas tuščias dėl atsisakymo, ar dėl lūžio;
+      // tai žino tik čia, iš žmogaus peržiūros įrodymo. Palikus `false`, visos populiacijos
+      // tokenų metrikos būtų atmestos kaip `no-captured-usage` dėl celės, kuri neišleido nieko.
+      captured: telemetry.llmCalls === 0 ? true : telemetry.captured,
       cacheReadInputTokens: telemetry.cacheReadInputTokens,
       cacheCreationInputTokens: telemetry.cacheCreationInputTokens,
       numTurns: telemetry.numTurns,

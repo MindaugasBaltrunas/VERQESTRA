@@ -243,7 +243,26 @@ function countField(record: Record<string, unknown>, field: string): number {
  * line stand in for the run that actually happened — a cost record silently
  * describing a different execution is worse than no cost record at all.
  */
-export function readTelemetryEnvelope(stdout: string): TelemetryEnvelopeReading {
+export interface TelemetryEnvelopeReadOptions {
+  /**
+   * Whether a zero-attempt envelope is a real outcome for this mode.
+   *
+   * Default `false`, which is right for every mode that always executes: an `agent-solo` run that
+   * reports no attempt is a broken record. The `ag-loop` mode is the exception, because it can
+   * reach a terminal decision WITHOUT dispatching anything — a deterministic risk gate turning
+   * down a request to log secrets, for instance. That refusal costs nothing, and refusing to read
+   * it made the cheapest correct outcome the one outcome the harness could not record.
+   *
+   * The looseness is bounded: a mode that opts in still has its own `verifyTelemetry`, and the
+   * loop's rejects a call or a repair reported against zero attempts.
+   */
+  readonly allowRefusalWithoutAttempt?: boolean;
+}
+
+export function readTelemetryEnvelope(
+  stdout: string,
+  options: TelemetryEnvelopeReadOptions = {},
+): TelemetryEnvelopeReading {
   const lines = stdout.split(/\r?\n/);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = (lines[index] ?? "").trim();
@@ -289,7 +308,7 @@ export function readTelemetryEnvelope(stdout: string): TelemetryEnvelopeReading 
         problem: `the envelope fields ${missing.join(", ")} are not non-negative integers`,
       };
     }
-    if (telemetry.attempts < 1) {
+    if (telemetry.attempts < 1 && options.allowRefusalWithoutAttempt !== true) {
       return {
         agentClaimedDone: false,
         problem: "the envelope reports fewer than one attempt, so nothing was executed",
@@ -357,6 +376,8 @@ export interface ProcessExecutionAdapterOptions {
    * contradiction otherwise.
    */
   readonly verifyTelemetry?: (telemetry: SampleTelemetry) => string;
+  /** See {@link TelemetryEnvelopeReadOptions.allowRefusalWithoutAttempt}. Only `ag-loop` sets it. */
+  readonly allowRefusalWithoutAttempt?: boolean;
   readonly monotonicMs?: () => number;
 }
 
@@ -440,7 +461,9 @@ export class ProcessExecutionAdapter implements AgentExecutionPort {
       stdin: invocation.stdin,
     });
 
-    const reading = readTelemetryEnvelope(result.stdout);
+    const reading = readTelemetryEnvelope(result.stdout, {
+      allowRefusalWithoutAttempt: this.#options.allowRefusalWithoutAttempt === true,
+    });
     const durationMs = elapsed();
     const differences = [...plan.differences, ...observedDifferences(plan, reading.telemetry)];
     const executedPlan: NormalizedExecutionPlan = { ...plan, differences };

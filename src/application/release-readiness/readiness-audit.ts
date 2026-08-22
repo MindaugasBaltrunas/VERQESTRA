@@ -59,10 +59,22 @@ export function parseReadmeMainCommands(readme: string): string[] {
   return [...commands];
 }
 
+/**
+ * Registro eilutes atpazistantis skaitytuvas.
+ *
+ * Ankstesnis sablonas reikalavo, kad `name:` eitu IS KARTO po `{`, tad kiekviena komanda su
+ * paaiskinamuoju komentaru viduje tapdavo NEMATOMA. Pasekme buvo apversta: auditas skelbdavo
+ * `implementation:<komanda>` truksta ir kaltindavo README melu, nors truko tik jo paties akiu.
+ * 2026-08-22 taip dingo trys realiai suristi hook-ai. Todel tarpas tarp `{` ir `name:` dabar
+ * leidzia komentarus — bet TIK juos: `name:` vis tiek privalo buti pirmas objekto laukas, kad
+ * svetimas `name:` kitoje strukturoje netaptu „komanda".
+ */
+const REGISTRY_ENTRY = /\{(?:\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)*name:\s*["']([a-z][a-z0-9-]*)["']/g;
+
 export function parseRegisteredCommands(sources: readonly string[]): string[] {
   const commands = new Set<string>();
   for (const source of sources) {
-    for (const match of source.matchAll(/\{\s*name:\s*["']([a-z][a-z0-9-]*)["']/g)) {
+    for (const match of source.matchAll(REGISTRY_ENTRY)) {
       if (match[1] !== undefined) commands.add(match[1]);
     }
   }

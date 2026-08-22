@@ -140,7 +140,7 @@ export const readinessRequirements: ReadinessRequirements = {
   tests: [
     "src/tests/architecture-gates.test.ts",
     "src/tests/composition-cli.test.ts",
-    "src/tests/cli-exit-contracts.test.ts",
+    "src/tests/characterization-cli-exit.test.ts",
   ],
   docs: ["README.md", "docs/getting-started.md", "docs/spec-workflow.md", "docs/context-pack.md", "docs/release.md"],
   // VISI registro pjūviai, ne vien surinkėjas. 11/N iškėlus komandas į teminius

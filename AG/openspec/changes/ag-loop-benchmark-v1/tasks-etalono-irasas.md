@@ -1,3 +1,11 @@
+> **ETALONO VYKDYMO ĮRAŠAS, ne VERQESTRA planas.**
+>
+> Šis failas yra AG_loop pusėje atlikto benchmark paketo darbo istorija, perkelta kartu su pačiu
+> paketu (VQ-602). Jis PAVADINTAS ne `tasks.md` sąmoningai: `verqestra converge` kiekvieną
+> `tasks.md` laiko šio projekto planu ir reikalauja, kad kiekviena jo eilutė turėtų atitikmenį
+> `AG/tasks` eilėje. Šios eilutės atitikmens neturi ir neturės — darbas jau padarytas kitoje
+> repozitorijoje, o failas paliktas kaip kilmės įrodymas.
+
 # Tasks: AG Loop benchmark v1
 
 > Checklist state last verified 2026-08-07 (queue task `0017`, HEAD `88a23a5`).

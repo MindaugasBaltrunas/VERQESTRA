@@ -386,7 +386,7 @@ test("statusCommand: pilna ataskaita — bucket'ai, einamasis task'as, analitika
   const exit = await statusCommand({ ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io });
 
   assert.equal(exit, 0);
-  assert.equal(out[0], "AG status");
+  assert.equal(out[0], "VERQESTRA status");
   assert.ok(out.some((line) => line.startsWith("  queue:") && line.endsWith("2")));
   assert.ok(out.includes("  - 0001.md"));
   assert.ok(out.includes("current_task_id: 0042"));

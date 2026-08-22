@@ -57,5 +57,5 @@ export function renderReleaseNotes(
     doneTasks.length > 0
       ? doneTasks.map(([taskId, entry]) => `- ${taskId}: ${entry.task_name ?? entry.file ?? "done task"}`).join("\n")
       : "- No done tasks recorded.";
-  return `# AG Release Notes\n\nGenerated: ${generatedAt}\n\n## Release check\n\nStatus: ${releaseStatus}\n\n## Project status\n\n${projectStatus || "No project status recorded."}\n\n## Completed tasks\n\n${tasks}\n`;
+  return `# VERQESTRA release notes\n\nGenerated: ${generatedAt}\n\n## Release check\n\nStatus: ${releaseStatus}\n\n## Project status\n\n${projectStatus || "No project status recorded."}\n\n## Completed tasks\n\n${tasks}\n`;
 }

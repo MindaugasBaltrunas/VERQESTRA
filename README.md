@@ -47,6 +47,8 @@ node dist/cli.js help # visos komandos
 ```
 
 Platesnis kelias — [`docs/getting-started.md`](docs/getting-started.md).
+Architektūra ir jos priežastys — [`docs/architecture.md`](docs/architecture.md).
+Auditų ataskaitos — [`docs/audits/`](docs/audits/README.md).
 
 ## Main Commands
 
@@ -161,6 +163,7 @@ Jie kviečiami NE ranka, o per `.claude/settings.json` (žr. `templates/.claude/
 | `verqestra hook-session-end` | SessionEnd: sesijos apimtis ir runtime įrašo atlaisvinimas |
 | `verqestra hook-session-summary` | Sesijos santrauka: patikros, pakeisti failai, guard'ų būsena |
 | `verqestra hook-user-prompt` | UserPromptSubmit: vienkartinis orkestratoriaus konteksto blokas |
+| `verqestra hook-on-stop` | Stop: vartai, commit ir push darbo eiga sesijos pabaigoje |
 
 
 ## Migration coverage

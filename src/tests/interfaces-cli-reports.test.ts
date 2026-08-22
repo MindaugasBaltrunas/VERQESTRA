@@ -242,7 +242,7 @@ test("projectStatusCommand: rašo status.md + next-tasks.md ir spausdina etalono
 
   const status = files.get(abs("vq/project/status.md"));
   assert.ok(status);
-  assert.ok(status.startsWith("# AG Project Status"));
+  assert.ok(status.startsWith("# VERQESTRA project status"));
   assert.ok(status.includes("- queue: 1"));
   assert.ok(status.includes("- human-review: 1"));
   assert.ok(status.includes("## Active Spec\n- spec-001"));

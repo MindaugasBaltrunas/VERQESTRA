@@ -228,7 +228,7 @@ function renderStatus(input: {
           `- nodes_total: ${input.architectureProgress.nodes_total}`,
         ].join("\n");
 
-  return `# AG Project Status
+  return `# VERQESTRA project status
 
 ## Task Folders
 ${taskBuckets.map((bucket) => `- ${bucket}: ${input.counts[bucket]}`).join("\n")}

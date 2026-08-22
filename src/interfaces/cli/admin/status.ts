@@ -86,7 +86,7 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<number> {
 
   await deps.ports.ensureDirs();
 
-  io.out("AG status");
+  io.out("VERQESTRA status");
   io.out(`root: ${root}`);
   io.out("");
   io.out("tasks:");

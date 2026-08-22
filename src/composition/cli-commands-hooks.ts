@@ -23,6 +23,8 @@ import { hookBackendGuard, hookFrontendGuard, hookMobileGuard } from "../interfa
 import { hookSessionStart } from "../interfaces/hooks/session-start.js";
 import { hookSessionEnd } from "../interfaces/hooks/session-end.js";
 import { hookSessionSummary } from "../interfaces/hooks/session-summary.js";
+import { hookOnStop } from "../interfaces/hooks/on-stop.js";
+import { stopHookPorts } from "./stop-hook-adapters.js";
 import { hookUserPrompt } from "../interfaces/hooks/user-prompt.js";
 import { sessionHookPorts, sessionSummaryPorts, userPromptDeps } from "./session-hook-adapters.js";
 import {
@@ -149,6 +151,15 @@ export function hookCommands(deps: CliRegistryDeps): CliCommand[] {
       name: "hook-user-prompt",
       description: "UserPromptSubmit: vienkartinis orkestratoriaus konteksto blokas",
       run: async () => hookUserPrompt(await userPromptDeps(runtimeRoot, io)),
+    },
+    {
+      // PASKUTINIS ir DIDZIAUSIAS: vienintelis hook'as, kuris RASO i git istorija. Iki VQ-701
+      // jis buvo perkeltas ir istestuotas, bet be CLI ijejimo -- t. y. `.claude/settings.json`
+      // Stop eilute butu kvietusi neegzistuojancia komanda, ir visa commit/push darbo eiga
+      // butu tyliai nedirbusi. Registre jis eina PO visu kitu, nes toks ir yra jo laikas.
+      name: "hook-on-stop",
+      description: "Stop: vartai, commit ir push darbo eiga sesijos pabaigoje",
+      run: () => hookOnStop({ ports: stopHookPorts(deps.roots.projectRoot, runtimeRoot), ...shared }),
     },
   ];
 }

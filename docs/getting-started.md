@@ -67,6 +67,26 @@ node dist/cli.js ui
 Serveris klauso TIK loopback'e ir kiekvieno starto metu generuoja naują token'ą, kurį įrašo į
 atiduodamą `index.html`. Perkrautas serveris nebepriima senų naršyklės skirtukų — tai savybė.
 
+## 6. Hook'ai (self-hosting)
+
+`.claude/settings.json` prijungia VERQESTRA vartus prie Claude Code gyvavimo ciklo. Kas iš to
+seka praktikoje:
+
+| Įvykis | Kas nutinka |
+|---|---|
+| `PreToolUse` Bash | komanda tikrinama prieš komandų politiką (`rm -rf` blokuojamas) |
+| `PreToolUse` Write/Edit | readme-guard: prieš kodo keitimą privaloma per Read perskaityti `README.md` |
+| `PostToolUse` | rašymų ledger'is, KPI įvykiai, guard'ų fan-out (neblokuoja niekada) |
+| `Stop` | kokybės vartai → guard'ai → **commit** |
+
+**Auto-push šiame repo IŠJUNGTAS** (`vq/config/git-automation-policy.json`,
+`auto_push_enabled: false`). Commit'as yra lokalus ir atšaukiamas (`git reset`), o push yra
+išorinis veiksmas, tad jis paliktas eksplicitiniam operatoriaus sprendimui — vienos eilutės
+pakeitimas tame pačiame faile.
+
+Kaip išjungti visus hook'us: ištrinti `.claude/settings.json`. Kaip išjungti vieną — pašalinti jo
+įvykio bloką. Failas yra konfigas, ne kodas.
+
 ## Toliau
 
 - [`spec-workflow.md`](spec-workflow.md) — nuo spec'ifikacijos iki eilės užduočių.

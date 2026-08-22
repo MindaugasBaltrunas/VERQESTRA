@@ -1,0 +1,99 @@
+{
+  "permissions": {
+    "allow": ["Write", "Edit", "Read", "Glob", "Grep", "Bash"]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-user-prompt"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-pre-write"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "async": true,
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "async": true,
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "async": true,
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-post-bash"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-on-stop"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook-session-end"
+          }
+        ]
+      }
+    ]
+  }
+}

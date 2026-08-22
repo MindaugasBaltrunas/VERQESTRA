@@ -48,8 +48,13 @@ const ETALON_HOOK_COMMANDS = [
  *
  * Sąrašas privalo TRUMPĖTI. Naujas įrašas čia leidžiamas tik tada, kai etalonas įgyja naują
  * hook'ą, kurio dar nemigravome.
+ *
+ * **TUŠČIAS nuo VQ-701 (2026-08-22).** Paskutinis įrašas buvo `hook-on-stop` — didžiausias
+ * visos šeimos vartas (commit ir push darbo eiga), perkeltas ir ištestuotas dar VQ-504, bet be
+ * CLI įėjimo. Tuščias sąrašas nėra kvietimas jį pildyti: nauja eilutė čia reiškia, kad etalonas
+ * įgijo hook'ą, kurio dar neturime, ir kad tai užrašyta, o ne pamiršta.
  */
-const PENDING_HOOK_COMMANDS = ["hook-on-stop"] as const;
+const PENDING_HOOK_COMMANDS: readonly string[] = [];
 
 function registryHookCommands(): string[] {
   const roots = resolveRuntimeRoots({ env: () => "/repo" });

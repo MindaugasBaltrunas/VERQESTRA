@@ -201,6 +201,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "hook-session-end",
       "hook-session-summary",
       "hook-user-prompt",
+      "hook-on-stop",
     ],
   );
   // Rodyti komandą, kurios dispatch'as nepasiekia, reikštų meluoti operatoriui.

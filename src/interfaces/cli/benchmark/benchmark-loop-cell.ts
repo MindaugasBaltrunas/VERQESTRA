@@ -195,6 +195,20 @@ export function cellQualityPolicy(checks: readonly string[]): string {
   return `${JSON.stringify({ task: scope, feature: scope, milestone: scope }, null, 2)}\n`;
 }
 
+/**
+ * Scenarijaus kopijos projekto profilis.
+ *
+ * Komandų politika leidžia `node --test` tik kai aktyvus `javascript` stack'as, o stack'ai
+ * išvedami iš profilio kalbos (`vq/project/profile.json`). Be jo aibė fail-safe būdu lieka tuščia
+ * ir loop'o vartai atmeta kiekvieną scenarijaus patikrą — 2026-08-22 piloto radinys.
+ *
+ * Kalba nėra spėjimas ir nėra atsakymo dalis: visi rinkinio fixture'ai yra JavaScript, ir tai
+ * matosi iš pačių scenarijų patikrų (`node --test …`). Deklaruojame tai, ką celė ir taip žino.
+ */
+export function cellProjectProfile(): string {
+  return `${JSON.stringify({ language: "javascript", selectedLanguage: "javascript" }, null, 2)}\n`;
+}
+
 export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonly string[]): Promise<number> {
   const io = deps.io ?? consoleCliIo;
   const parsed = parseLoopCellArgs(args);
@@ -260,6 +274,10 @@ export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonl
   await deps.ports.writeTextFile(
     path.join(workdirAbs, "vq", "config", "quality-policy.json"),
     cellQualityPolicy(checks),
+  );
+  await deps.ports.writeTextFile(
+    path.join(workdirAbs, "vq", "project", "profile.json"),
+    cellProjectProfile(),
   );
 
   const result = await deps.ports.runCycle({ workdir: workdirAbs, taskFile, model, stepLimit, timeoutMs });

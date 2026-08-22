@@ -305,3 +305,61 @@ test("runQualityGates: politikos užblokuota komanda gauna 126 be runner'io kvie
   assert.deepEqual(runnerCalls, ["pnpm test"], "užblokuota komanda nevykdoma");
   assert.match(renderChecksLog(status), /=== task-1 ===/);
 });
+
+test("check allowlist: `node --test <kelias>` leidžiamas, bet TIK ta forma", () => {
+  // 2026-08-22, VQ-802 pilotas: loop'o vartai atmesdavo kiekvieną benchmark scenarijaus patikrą
+  // (`spawn executable: node`), tad celė baigdavosi human-review net ištaisiusi bugą. JavaScript
+  // buvo vienintelis stack'as be jokio šablono — projektas be `package.json` neturėjo NĖ VIENO
+  // vartų kelio, o vartai, kurie niekada negali suveikti, yra blogiau nei viena leista forma.
+  const js: CheckCommandContext = { configuredSpawnChecks: [], activeStacks: ["javascript"] };
+
+  assert.equal(
+    evaluateSpawnCheckCommand("node", ["--test", "test/i18n.test.mjs"], js).blockedPattern,
+    undefined,
+    "scenarijaus patikros forma",
+  );
+  assert.equal(
+    evaluateSpawnCheckCommand("node", ["--test"], js).blockedPattern,
+    undefined,
+    "be kelio — visi projekto testai",
+  );
+
+  // Riba. Kiekviena eilutė žemiau yra atskiras kodo vykdymo kelias, ir nė vienas jų neatsidaro.
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["-e", "require('fs').rmSync('.', {recursive:true})"], js)
+      .blockedPattern,
+    "`-e` niekada nebuvo ir nėra leistinas",
+  );
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["--test", "-e", "payload"], js).blockedPattern,
+    "`-e` PO `--test` vis tiek įvykdytų kodą",
+  );
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["--test", "--import", "./payload.mjs"], js).blockedPattern,
+    "`--import` prikrauna modulį, kurio testai neįvardijo",
+  );
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["--require", "./payload.js", "--test"], js).blockedPattern,
+    "`--test` privalo būti PIRMAS argumentas",
+  );
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["script.js"], js).blockedPattern,
+    "paprastas skriptas nėra patikra",
+  );
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["--test", "test/x.mjs"], EMPTY_CHECK_COMMAND_CONTEXT)
+      .blockedPattern,
+    "neaktyvus JS stack'as — šablonas negalioja",
+  );
+
+  // Deklaravimas `quality-policy.json` NEATRAKINA `node`: šablonas yra vienintelis kelias, ir jis
+  // nekonfigūruojamas. Priešingu atveju politikos failo pakeitimas taptų kodo vykdymo vektoriumi.
+  const configured: CheckCommandContext = {
+    configuredSpawnChecks: [{ cmd: "node", args: ["-e", "payload"] }],
+    activeStacks: [],
+  };
+  assert.ok(
+    evaluateSpawnCheckCommand("node", ["-e", "payload"], configured).blockedPattern,
+    "code executor lieka blokuojamas ir deklaruotas",
+  );
+});

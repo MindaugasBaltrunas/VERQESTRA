@@ -175,12 +175,45 @@ export function isCodeExecutorCommand(cmd: string): boolean {
   return CODE_EXECUTOR_EXECUTABLES.has(baseExecutable(cmd));
 }
 
-type SpawnTemplate = { stack: CheckStack; executables: string[]; requiredLead: string[] };
+type SpawnTemplate = {
+  stack: CheckStack;
+  executables: string[];
+  requiredLead: string[];
+  /**
+   * `paths-only`: after the required lead, EVERY remaining argument must be a plain path — no
+   * argument may begin with `-`. Used where the executable is a general-purpose interpreter and
+   * only one of its modes is a test runner.
+   */
+  argShape?: "paths-only";
+};
 
-// Built-in safe command shapes, one per common non-JS stack. Each is activated ONLY when its
-// stack is in the active set. JavaScript keeps its stricter package-manager path in
-// quality-command-policy.ts and is intentionally absent here.
+// Built-in safe command shapes, one per common stack. Each is activated ONLY when its stack is in
+// the active set.
+//
+// ## Why `node --test` is here, and why it is shaped differently
+//
+// JavaScript used to have no template at all: its only path was the package-manager form in
+// `quality-command-policy.ts`, on the argument that `node` is a code executor. That argument is
+// sound for `node -e` and too broad for the stack as a whole — it left a JavaScript project
+// WITHOUT a `package.json` with no gate path whatsoever, while `pytest`, `go test`, `cargo test`
+// and the rest each got one. A project whose checks can never run is a project whose gate always
+// says the same thing, which is a worse failure than one more narrowly allowed shape.
+//
+// The shape is `node --test <path>…` and nothing else:
+//
+//   - `--test` must be the FIRST argument, so `node -e "…"`, `node script.js` and
+//     `node --require ./payload.js --test` never match the template;
+//   - `argShape: "paths-only"` rejects every remaining argument beginning with `-`, which is what
+//     closes `node --test -e "…"`, `--import`, `--require` and `--experimental-loader`: each of
+//     them evaluates or preloads code the test files never named;
+//   - `node` stays in `CODE_EXECUTOR_EXECUTABLES`, so the *configured* path in
+//     `quality-policy.json` still cannot unlock it. Only this built-in shape can, and it is not
+//     configurable.
+//
+// What remains reachable is exactly what `pytest` already grants: running the repository's own
+// test files. That is what a check is.
 const BUILTIN_SPAWN_TEMPLATES: SpawnTemplate[] = [
+  { stack: "javascript", executables: ["node"], requiredLead: ["--test"], argShape: "paths-only" },
   { stack: "python", executables: ["pytest"], requiredLead: [] },
   { stack: "go", executables: ["go"], requiredLead: ["test"] },
   { stack: "rust", executables: ["cargo"], requiredLead: ["test"] },
@@ -307,7 +340,12 @@ export function matchesActiveSpawnTemplate(
       (token, index) => args[index]?.toLowerCase() === token,
     );
     if (!leadMatches) continue;
-    if (argsAreSafeCheckArgs(args.slice(template.requiredLead.length))) return true;
+    const rest = args.slice(template.requiredLead.length);
+    if (!argsAreSafeCheckArgs(rest)) continue;
+    // A flag after the lead is the escalation surface of an interpreter template: `--test`
+    // selects the runner, and anything starting with `-` after it can re-select something else.
+    if (template.argShape === "paths-only" && rest.some((arg) => arg.startsWith("-"))) continue;
+    return true;
   }
   return false;
 }

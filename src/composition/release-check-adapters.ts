@@ -35,8 +35,14 @@ import { qualityGatesPorts } from "./quality-adapters.js";
 import { securityVerifyPorts } from "./readiness-adapters.js";
 import { specDriftPorts } from "./node-adapters.js";
 
-/** Kiek komandos išvesties patenka į verdiktą: pilnas build log'as verdikto failo neinformuoja. */
-const MAX_ISSUE_CHARS = 500;
+/**
+ * Kiek komandos išvesties patenka į verdiktą.
+ *
+ * Imama PABAIGA, ne pradžia: krentančios komandos pradžia yra pnpm antraštė ir pirmi žali testai,
+ * o priežastis — paskutinėse eilutėse. Pirmas šio varto paleidimas 2026-08-22 tai ir parodė:
+ * verdikte gulėjo 500 simbolių sėkmingo build'o log'o ir nė vienos eilutės apie tai, kas krito.
+ */
+const MAX_ISSUE_CHARS = 2000;
 
 /** `build-gate`: viena operacija — pasenusių artefaktų sąrašas. */
 export const buildGatePorts: BuildGatePorts = {
@@ -114,22 +120,30 @@ async function runPnpm(args: string[], projectRoot: string): Promise<{ exitCode:
   const result = await run(packageManagerExecutable("pnpm"), args, { cwd: projectRoot });
   if (result.code === 0) return { exitCode: 0, issues: [] };
   const detail = (result.stderr || result.stdout || `pnpm ${args.join(" ")} failed`).trim();
-  return { exitCode: result.code, issues: [detail.slice(0, MAX_ISSUE_CHARS)] };
+  return { exitCode: result.code, issues: [detail.slice(-MAX_ISSUE_CHARS)] };
 }
 
 /**
- * Paketo layout vartas.
+ * Pack-ready paketo forma.
  *
- * Tikrinama tai, ką paketas JAU deklaruoja: įėjimo taškas, bin vardas ir sugeneruotas CLI. `files`
- * laukas ir E6 darbo sričių artefaktai (`ui-app/dist`) į šį sąrašą ateina kartu su pačiais
- * paketais — vartas, reikalaujantis to, ko produktas dar neturi, praneša ne apie gedimą, o apie
- * neužbaigtą migraciją, ir tam yra `readiness-audit`.
+ * `files` sąrašas yra dalis kontrakto, o ne kosmetika: be jo `npm pack` išsiųstų ir `src`, ir
+ * testus, o be `!dist/tests` — dar ir sukompiliuotą testų balastą. Kiekvienas įrašas čia turi
+ * atitikmenį diske, nes deklaruotas, bet neegzistuojantis kelias tyliai iškrenta iš tarball'o.
+ *
+ * VQ-701: sąrašas gavo `templates` ir `ui-app/dist`, kai jie atsirado. Iki tol vartas jų
+ * NEREIKALAVO sąmoningai — vartas, reikalaujantis to, ko produktas dar neturi, praneša ne apie
+ * gedimą, o apie neužbaigtą migraciją, ir tam yra `readiness-audit`.
  */
+const EXPECTED_PACKAGE_FILES = ["dist", "!dist/tests", "templates", "ui-app/dist", "README.md"];
+
+/** Ką `files` įrašas reiškia diske; `!` prefiksas yra IŠĖMIMAS, tad jo egzistavimo netikriname. */
+const PACKAGE_LAYOUT_PATHS = ["dist/cli.js", "src/cli.ts", "templates/VERSION", "templates/.claude/settings.json"];
+
 async function verifyPackageLayout(projectRoot: string): Promise<ReleaseCheckPart> {
   const issues: string[] = [];
   const raw = await nodeFsAdapter.readTextFileIfExists(path.join(projectRoot, "package.json"));
   if (raw === undefined) return { status: "failed", issues: ["package.json is missing"] };
-  const parsed = tryParseJson<{ main?: string; bin?: Record<string, string> }>(raw);
+  const parsed = tryParseJson<{ main?: string; bin?: Record<string, string>; files?: string[] }>(raw);
   if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
     return { status: "failed", issues: ["package.json is not valid JSON"] };
   }
@@ -137,7 +151,10 @@ async function verifyPackageLayout(projectRoot: string): Promise<ReleaseCheckPar
   const pkg = parsed.value;
   if (pkg.main !== "./dist/cli.js") issues.push("package main must be ./dist/cli.js");
   if (pkg.bin?.["verqestra"] !== "./dist/cli.js") issues.push("package bin.verqestra must be ./dist/cli.js");
-  for (const relativePath of ["dist/cli.js", "src/cli.ts"]) {
+  if (JSON.stringify(pkg.files) !== JSON.stringify(EXPECTED_PACKAGE_FILES)) {
+    issues.push(`package files must be ${EXPECTED_PACKAGE_FILES.join(", ")}`);
+  }
+  for (const relativePath of PACKAGE_LAYOUT_PATHS) {
     if (!(await nodeFsAdapter.exists(path.join(projectRoot, relativePath)))) {
       issues.push(`package layout path is missing: ${relativePath}`);
     }
@@ -157,7 +174,11 @@ async function verifyReleaseDocs(projectRoot: string): Promise<ReleaseCheckPart>
 export function releaseCheckRunners(projectRoot: string, runtimeRoot: string): ReleaseCheckRunners {
   return {
     build: async () => ({ command: "pnpm build", ...(await runPnpm(["build"], projectRoot)) }),
-    tests: async () => ({ command: "pnpm test:only", ...(await runPnpm(["test:only"], projectRoot)) }),
+    // `test:compiled`, o NE `test:only`: pastarasis pats perstato `dist`, o `build` ką tik bėgo
+    // eilute aukščiau. Dvigubas build'as ne tik lėtas — jis perrašo `dist` PO tuo pačiu procesu,
+    // kuris iš jo ir vykdomas, ir 2026-08-22 pirmame šio varto paleidime būtent tai davė
+    // netikrą raudoną „tests failed" ant medžio, kurio suite atskirai buvo 1375/1375 žalias.
+    tests: async () => ({ command: "pnpm test:compiled", ...(await runPnpm(["test:compiled"], projectRoot)) }),
     milestone: (quality: QualityGatesStatus) =>
       runMilestoneWithQuality(projectRoot, runtimeRoot, quality),
     docs: () => verifyReleaseDocs(projectRoot),

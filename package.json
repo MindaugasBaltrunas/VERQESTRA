@@ -10,6 +10,13 @@
   "bin": {
     "verqestra": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "!dist/tests",
+    "templates",
+    "ui-app/dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -20,6 +27,7 @@
     "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch --preserveWatchOutput",
     "test": "pnpm run lint && pnpm run build && node --test \"dist/tests/**/*.test.js\"",
     "test:only": "pnpm run build && node --test \"dist/tests/**/*.test.js\"",
+    "test:compiled": "node --test \"dist/tests/**/*.test.js\"",
     "test:watch": "node --test --watch \"dist/tests/**/*.test.js\"",
     "test:grep": "node --test \"dist/tests/**/*.test.js\" --test-name-pattern",
     "test:file": "node --test",

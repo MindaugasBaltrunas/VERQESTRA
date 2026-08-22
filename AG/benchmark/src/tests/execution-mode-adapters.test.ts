@@ -154,7 +154,11 @@ test("the two modes that read a telemetry envelope record the version of it they
   // An adapter change alone can move every number in a report, so the version is
   // configuration: the two modes whose reading contract gained the v2 blocks
   // moved, and the control, which reads no envelope at all, did not.
-  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/2");
+  //
+  // `ag-loop` moved again to /3 on 2026-08-22, when the mode stopped being one bounded agent
+  // call and became a full cycle. The versions are deliberately NOT in step: the envelope
+  // contract both modes read is still v2, while what the loop mode DOES with it changed.
+  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/3");
   assert.equal(AGENT_SOLO_ADAPTER_VERSION, "agent-solo/2");
   assert.equal(DETERMINISTIC_CONTROL_ADAPTER_VERSION, "deterministic-control/1");
 });

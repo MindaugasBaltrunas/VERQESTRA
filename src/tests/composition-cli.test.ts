@@ -182,6 +182,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "architecture",
       "benchmark",
       "benchmark-drive",
+      "benchmark-loop-cell",
       "optimization-benchmark",
       "github-issue-import",
       "github-pr",

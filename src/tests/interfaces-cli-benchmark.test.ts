@@ -115,33 +115,18 @@ test("benchmarkCommand: sėkmė — argv persiunčiamas, ag-loop šablonas merge
   assert.deepEqual(seenConfig["agent-solo"], agentSoloInvocationTemplate("/usr/bin/node", CLI_ENTRY));
 });
 
-test("agentSoloInvocationTemplate: tas pats draiveris kaip ag-loop, skiriasi TIK leidimų režimas", () => {
-  const loop = agLoopInvocationTemplate("/usr/bin/node", CLI_ENTRY);
-  const solo = agentSoloInvocationTemplate("/usr/bin/node", CLI_ENTRY);
-
-  assert.equal(solo.command, loop.command);
-  assert.equal(solo.stdin, loop.stdin);
-  assert.equal(solo.stepLimit, loop.stepLimit);
-  assert.deepEqual([...solo.forwardedEnvironment], [...loop.forwardedEnvironment]);
-
-  // Bet koks KITAS skirtumas tarp dviejų draiverių pasirodytų rezultatuose kaip loop'o efektas,
-  // nors būtų matavimo artefaktas. Todėl argumentų vektoriai privalo skirtis lygiai vienu dalyku.
-  const soloArgs = [...solo.args];
-  const loopArgs = [...loop.args];
-  assert.equal(soloArgs.length, loopArgs.length);
-  const differences = soloArgs.filter((argument, index) => argument !== loopArgs[index]);
-  assert.deepEqual(differences, ["acceptEdits"]);
-  assert.ok(loopArgs.includes("auto"));
-  assert.ok(soloArgs.includes("--permission-mode"));
-});
-
-test("agLoopInvocationTemplate: promptas per stdin, limitai argumentais, kredencialai tik vardais", () => {
+test("agLoopInvocationTemplate: varo PILNĄ ciklą ir neša scenarijaus ribą bei patikras", () => {
   const template = agLoopInvocationTemplate("/usr/bin/node", CLI_ENTRY);
   assert.equal(template.command, "/usr/bin/node");
   assert.equal(template.args[0], CLI_ENTRY);
-  assert.equal(template.args[1], "benchmark-drive");
+  // Iki 2026-08-22 čia buvo `benchmark-drive` — vienas ribotas agento kvietimas, t. y. tas pats,
+  // ką matuoja `agent-solo`. Šis vienas argumentas ir yra visas režimo skirtumas.
+  assert.equal(template.args[1], "benchmark-loop-cell");
   assert.ok(template.args.includes("{{workingDirectory}}"));
   assert.ok(template.args.includes("{{timeoutMs}}"));
+  // Be ribos loop'as dirbtų be scope varto, be patikrų — be kokybės varto.
+  assert.ok(template.args.includes("{{allowedPaths}}"));
+  assert.ok(template.args.includes("{{checks}}"));
   // Promptas NIEKADA argumentų vektoriuje: kitaip jis matytųsi procesų sąraše.
   assert.ok(!template.args.includes("{{prompt}}"));
   assert.equal(template.stdin, "{{prompt}}");
@@ -152,6 +137,26 @@ test("agLoopInvocationTemplate: promptas per stdin, limitai argumentais, kredenc
   // veiktų. Jei tai ne sąmoningas OAuth-only sprendimas, grąžink ANTHROPIC_API_KEY.
   assert.deepEqual([...template.forwardedEnvironment], ["CLAUDE_CODE_OAUTH_TOKEN"]);
   assert.deepEqual(template.environment, {});
+});
+
+test("du režimai — DU skirtingi draiveriai, ir tai yra pats matavimas", () => {
+  const loop = agLoopInvocationTemplate("/usr/bin/node", CLI_ENTRY);
+  const solo = agentSoloInvocationTemplate("/usr/bin/node", CLI_ENTRY);
+
+  // `agent-solo` lieka vienas ribotas agento kvietimas; `ag-loop` varo pilną ciklą. Kol abu
+  // rodė į `benchmark-drive`, tas pats vokas tenkino ir `verifyLoopTelemetry`, ir
+  // `verifySoloTelemetry` — o tai negali būti teisinga vienu metu apie loop'ą ir apie tai, su
+  // kuo jis lyginamas. Palyginimas tada matavo tą patį agentą du kartus.
+  assert.equal(solo.args[1], "benchmark-drive");
+  assert.equal(loop.args[1], "benchmark-loop-cell");
+  assert.notDeepEqual([...loop.args], [...solo.args]);
+
+  // Kas privalo LIKTI vienoda: promptas (BENCH-3), žingsnių lubos ir kredencialai. Skirtumas
+  // tarp režimų turi būti loop'as, ne matavimo aplinka.
+  assert.equal(solo.stdin, loop.stdin);
+  assert.equal(solo.stepLimit, loop.stepLimit);
+  assert.deepEqual([...solo.forwardedEnvironment], [...loop.forwardedEnvironment]);
+  assert.deepEqual(solo.environment, loop.environment);
 });
 
 test("benchmarkCommand: metantis createAgentInvocations ir metantis runBenchmarkCommand — abu 5", async () => {

@@ -43,7 +43,20 @@ import {
  * `ag loop`: from that moment the marker changes what a sample measures, and a
  * baseline taken before it is no longer comparable with one taken after.
  */
-export const AG_LOOP_ADAPTER_VERSION = "ag-loop/2";
+/**
+ * `/3` (2026-08-22): the mode now drives a FULL cycle rather than one bounded agent call.
+ *
+ * Until then the same driver served both this mode and `agent-solo` — one headless `claude`
+ * invocation with `attempts`, `repairs` and `humanReviewEvents` written in as the constants
+ * 1, 0, 0. The evidence was in plain sight: that one envelope satisfied both
+ * `verifyLoopTelemetry` and `verifySoloTelemetry`, which cannot both be true of a loop and of
+ * the thing a loop is compared against. A comparison drawn then measured the same agent twice.
+ *
+ * The bump is not bookkeeping. An adapter change can move every number in a report, so it is
+ * part of the configuration a baseline is compared under, and a `/2` baseline must be refused
+ * here rather than silently subtracted from a `/3` run.
+ */
+export const AG_LOOP_ADAPTER_VERSION = "ag-loop/3";
 
 export interface AgLoopExecutionAdapterOptions {
   readonly settings: ExecutionPlanSettings;

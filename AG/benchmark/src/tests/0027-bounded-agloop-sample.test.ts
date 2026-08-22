@@ -157,13 +157,12 @@ test("a host that already sets the variable cannot leak it into agent-solo", () 
   assert.equal(loop.env[AG_LOOP_BOUNDED_CELL_VARIABLE], AG_LOOP_BOUNDED_CELL_VALUE);
 });
 
-test("the adapter version stays ag-loop/2, and the source records what would require ag-loop/3", async () => {
-  // The marker does not change what an ag-loop sample measures while the drive path
-  // cannot reach an empty queue, so a baseline taken before task 0027 stays comparable
-  // with one taken after and the version must NOT move. What has to survive is the
-  // condition under which it must move — otherwise the next change to the drive path
-  // silently makes two incomparable baselines look like one series.
-  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/2");
+test("the adapter version is ag-loop/3, and the source records why it moved", async () => {
+  // 2026-08-22: the mode stopped being one bounded agent call and became a full cycle, so the
+  // version HAD to move — a `/2` baseline measured a different thing and must be refused rather
+  // than silently subtracted from a `/3` run. What has to survive here is the reason, because
+  // the next change to the drive path is the one that will need the same judgement.
+  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/3");
 
   const source = await packageSource("src", "infrastructure", "adapters", "ag-loop-execution-adapter.ts");
   if (source === undefined) return; // Only the build is present; there is no source to pin.
@@ -172,12 +171,12 @@ test("the adapter version stays ag-loop/2, and the source records what would req
   assert.notEqual(documented, "", "AG_LOOP_ADAPTER_VERSION is no longer declared in this module");
   assert.match(
     documented,
-    /ag-loop\/3/,
-    "the bump trigger for the next version is no longer recorded beside the constant",
+    /full cycle/i,
+    "the reason the version moved to /3 is no longer recorded beside the constant",
   );
   assert.match(
     documented,
-    /ag loop/,
-    "the recorded trigger no longer names the drive path routing through `ag loop`",
+    /verifySoloTelemetry/,
+    "the evidence that the two modes had collapsed into one driver is no longer recorded",
   );
 });

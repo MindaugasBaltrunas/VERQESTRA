@@ -23,12 +23,17 @@ import {
 import type { GitHubIssueImportPorts } from "../interfaces/cli/github/issue-import.js";
 import type { GitHubPrPorts } from "../interfaces/cli/github/pull-request.js";
 import type { BenchmarkDrivePorts, BenchmarkDriveRunResult } from "../interfaces/cli/benchmark/benchmark-drive.js";
+import type { LoopCellPorts } from "../interfaces/cli/benchmark/benchmark-loop-cell.js";
+import type { CellUsageRecord } from "../interfaces/cli/benchmark/benchmark-cell.js";
 import type { BenchmarkPackagePort } from "../interfaces/cli/benchmark/benchmark-package.js";
 import type { BenchmarkCaptureFsPort } from "../application/benchmark/optimization-config.js";
 import { extractUsage, isUsageLimitOutput } from "../infrastructure/adapters/claude-usage.js";
 import { runClaudeHeadless } from "../infrastructure/adapters/claude-headless.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { readStdin } from "./hook-adapters.js";
+import { run } from "../infrastructure/process/run-process.js";
+import { cliEntryPath, PROJECT_DIR_ENV } from "./runtime-context.js";
+import { tryParseJson } from "../shared/json.js";
 import { policyConfigFs } from "./node-adapters.js";
 
 /**
@@ -140,4 +145,63 @@ export const benchmarkDrivePorts: BenchmarkDrivePorts = {
   runHeadless: (input) => runBenchmarkHeadless(input),
   isUsageLimitOutput: (stdout) => isUsageLimitOutput(stdout),
   extractUsage: (stdout) => extractUsage(stdout),
+};
+
+/**
+ * `benchmark-loop-cell` portai: pilnas eilės ciklas scenarijaus kopijoje.
+ *
+ * Ciklas paleidžiamas ATSKIRU procesu su `CLAUDE_PROJECT_DIR`, nukreiptu į kopiją, o ne per
+ * `process.chdir`: `process-queued-task` pats spawn'ina vaikus ir skaito runtime šaknį iš
+ * aplinkos, tad viso proceso cwd keitimas čia nuskintų ne tą medį — ir tai matytųsi tik tada,
+ * kai dvi celės sutaptų laike.
+ */
+export const benchmarkLoopCellPorts: LoopCellPorts = {
+  isDirectory: async (absolutePath) => (await nodeFsAdapter.statKind(absolutePath)) === "directory",
+  readStdin: () => readStdin(),
+  writeTextFile: (absolutePath, content) => nodeFsAdapter.writeTextFile(absolutePath, content),
+  runCycle: async (input) => {
+    const result = await run(
+      process.execPath,
+      [cliEntryPath(), "process-queued-task", input.taskFile],
+      {
+        cwd: input.workdir,
+        timeoutMs: input.timeoutMs,
+        env: {
+          ...process.env,
+          [PROJECT_DIR_ENV]: input.workdir,
+          CLAUDE_HEADLESS_TIMEOUT_MS: String(input.timeoutMs),
+          // Celės modelis ir turn lubos keliauja per aplinką: kopijoje nėra nei models.env, nei
+          // turn politikos, o įrašius juos į jos konfigą, jie taptų matuojamo medžio dalimi.
+          CLAUDE_SONNET_MODEL: input.model,
+          CLAUDE_OPUS_MODEL: input.model,
+          CLAUDE_HAIKU_MODEL: input.model,
+          AG_MAX_TURNS: String(input.stepLimit),
+        },
+      },
+    ).catch((error: unknown) => ({
+      code: 1,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : String(error),
+    }));
+    return { code: result.code, stdout: result.stdout, stderr: result.stderr };
+  },
+  readUsageRecords: async (workdir) => {
+    const raw = await nodeFsAdapter.readTextFileIfExists(
+      path.join(workdir, "vq", "logs", "token-usage.jsonl"),
+    );
+    if (raw === undefined) return [];
+    const records: CellUsageRecord[] = [];
+    for (const line of raw.split("\n")) {
+      if (line.trim() === "") continue;
+      const parsed = tryParseJson<CellUsageRecord>(line);
+      // Sugadinta eilutė praleidžiama, bet TYLIAI: žurnalas yra append-only, ir viena nutrūkusi
+      // eilutė neturi paversti viso ciklo neišmatuotu. Trūkstamas kvietimas matysis `captured`
+      // vėliavoje, kurią ciklas rašo pats.
+      if (parsed.ok && parsed.value !== null && typeof parsed.value === "object") records.push(parsed.value);
+    }
+    return records;
+  },
+  humanReviewCount: async (workdir) =>
+    (await nodeFsAdapter.listMarkdownFiles(path.join(workdir, "AG", "tasks", "human-review"))).length,
+  isUsageLimitOutput: (stdout) => isUsageLimitOutput(stdout),
 };

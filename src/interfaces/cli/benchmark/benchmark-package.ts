@@ -83,7 +83,34 @@ export type AgentInvocationTemplateShape = {
  * negali imti skambėti kaip „ag-loop nepavyko kiekviename scenarijuje".
  */
 export function agLoopInvocationTemplate(nodeExecPath: string, cliEntry: string): AgentInvocationTemplateShape {
-  return driveInvocationTemplate(nodeExecPath, cliEntry, "auto");
+  return Object.freeze({
+    command: nodeExecPath,
+    args: Object.freeze([
+      cliEntry,
+      "benchmark-loop-cell",
+      "--workdir",
+      "{{workingDirectory}}",
+      "--model",
+      "{{model}}",
+      "--step-limit",
+      "{{stepLimit}}",
+      "--timeout-ms",
+      "{{timeoutMs}}",
+      // Scenarijaus riba ir jo patikros: be pirmosios loop'as dirbtų be scope varto, be antrųjų —
+      // be kokybės varto, ir abiem atvejais matuotume loop'ą su išjungtu sluoksniu, vadindami tai
+      // loop'o kaina.
+      "--allowed-paths",
+      "{{allowedPaths}}",
+      "--checks",
+      "{{checks}}",
+      "--task-id",
+      "{{scenarioId}}",
+    ]),
+    stdin: "{{prompt}}",
+    forwardedEnvironment: FORWARDED_CREDENTIAL_VARIABLES,
+    environment: Object.freeze({}),
+    stepLimit: AG_LOOP_STEP_LIMIT,
+  });
 }
 
 /**

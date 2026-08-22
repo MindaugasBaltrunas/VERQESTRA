@@ -137,6 +137,7 @@ kita: `verqestra readiness-audit` krinta, jei komanda egzistuoja, bet nera dokum
 |---|---|
 | `verqestra benchmark [--mode <režimas>] [--json]` | Paleidžia @verqestra/benchmark paketą |
 | `verqestra benchmark-drive --workdir <d> --model <m> --step-limit <n> --timeout-ms <n> [--prompt-file <f>]` | Vienas ribotas headless agento bėgimas benchmark scenarijui |
+| `verqestra benchmark-loop-cell --workdir <d> --model <m> --step-limit <n> --timeout-ms <n> --allowed-paths <a|b> [--checks <a|b>]` | Viena ag-loop benchmark celė: pilnas eilės ciklas scenarijaus kopijoje |
 | `verqestra optimization-benchmark [--capture|--compare] [--json]` | Optimizacijos matavimas prieš baseline |
 | `verqestra github-issue-import --issue <numeris>` | Importuoja GitHub issue kaip užduoties juodraštį |
 | `verqestra github-pr [--create]` | Sudaro PR tekstą iš vartų būsenos (be --create tik juodraštis) |

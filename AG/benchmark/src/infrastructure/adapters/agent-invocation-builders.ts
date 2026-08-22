@@ -38,6 +38,10 @@ export const AGENT_INVOCATION_PLACEHOLDERS = [
   "stepLimit",
   "startCommit",
   "workingDirectory",
+  // Sarasai perduodami VIENA reiksme, atskirti `|`: sablonas yra fiksuotas argumentu vektorius,
+  // tad kartojamos veliavos jame isreiksti neimanoma.
+  "allowedPaths",
+  "checks",
 ] as const;
 
 export type AgentInvocationPlaceholder = (typeof AGENT_INVOCATION_PLACEHOLDERS)[number];
@@ -340,6 +344,8 @@ function buildInvocation(
     stepLimit: String(template.stepLimit),
     startCommit: plan.startCommit,
     workingDirectory: plan.workingDirectory,
+    allowedPaths: plan.allowedPaths.join("|"),
+    checks: plan.checkCommands.join("|"),
   };
 
   const env: Record<string, string> = { ...forwarded };

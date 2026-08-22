@@ -186,6 +186,15 @@ export interface NormalizedExecutionPlan {
   readonly workingDirectory: string;
   readonly startCommit: string;
   /**
+   * Scenarijaus deklaruota redagavimo riba ir jo patikrų komandos.
+   *
+   * Reikalingos rezimui, kuris ne tik paleidzia agenta, bet stato jam UZDUOTI: be ribos loop'as
+   * dirbtu be scope varto, o be patikru — be kokybes varto, ir abiem atvejais matuotume loop'a
+   * su isjungtu sluoksniu, vadindami tai loop'o kaina. Vieno kvietimo rezimams jos inertiskos.
+   */
+  readonly allowedPaths: readonly string[];
+  readonly checkCommands: readonly string[];
+  /**
    * Whether this execution may reach a model over the network. False for every
    * mode that does not need one, and false for a mode that does when the caller
    * did not opt in — the two cases are distinguished by the profile, never by
@@ -279,6 +288,8 @@ export function normalizeExecutionPlan(
     limits: normalizeLimits(input.scenario.limits, settings.ceiling),
     workingDirectory: input.workingDirectory,
     startCommit: input.startCommit,
+    allowedPaths: [...input.scenario.allowedPaths],
+    checkCommands: input.scenario.checks.map((check) => check.command.join(" ")),
     // A mode that needs no network never gets one, however the caller decided.
     networkPermitted: profile.reachesNetwork && input.allowNetworkModels,
     differences: profile.differences,

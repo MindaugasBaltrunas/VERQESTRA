@@ -15,6 +15,8 @@
 // | 0 sample'ų | blocked | raportas virš tuščio ledger'io realus ir sąžiningas — ir nieko
 //   nepamatavo |
 // | suiteHash/sampleCount neatitinka artefaktų | blocked | raportas neatribuotinas (BENCH-17) |
+// | raporto tapatybė neatitinka run'o sidecar'o | blocked | raportas aprašo KITĄ paleidimą nei tas,
+//   kurio ledger'is suskaičiuotas |
 // | verdictBasis no-baseline / verdict inconclusive | blocked | „negalėjom pasakyti" nėra
 //   „viskas gerai" |
 // | verdict regressed | blocked | matavimas sako, kad pablogėjo |
@@ -24,6 +26,7 @@ import {
   countLedgerSamples,
   readSuiteLockHash,
   BENCHMARK_RUN_LEDGER_DIRECTORY,
+  readRunIdentity,
   BENCHMARK_SUITE_LOCK_RELATIVE_PATH,
 } from "../benchmark/report-provenance.js";
 import {
@@ -158,6 +161,37 @@ export async function checkBenchmarkEvidence(
       `benchmark evidence does not match its ledger: the report claims ${report.current.sampleCount} ` +
         `sample(s) but ${named} holds ${ledger.count}`,
     );
+  }
+
+  // BENCH-17 antra pusė: raportas privalo aprašyti TĄ run'ą, kurio ledger'į ką tik suskaičiavome.
+  //
+  // `suiteHash` prieš `suite.lock.json` atsako į kitą klausimą — ar tai apskritai tracked rinkinys.
+  // Jis nieko nesako apie tai, KURIS paleidimas pagamino skaičius: `reports/` yra gitignore'intas
+  // ir generuojamas rankiniu paleidimu, o ledger'is keičiasi po kiekvieno run'o. Raportas,
+  // sugeneruotas iš run'o A, ir po jo įvykęs run'as B duoda tą patį `suiteHash`, o `sampleCount`
+  // gali sutapti — ir vartai praleistų raportą apie kitą paleidimą.
+  //
+  // Sidecar'as skaitomas TO PAČIO ledger'io, ne atskiru „rask naujausią": du nepriklausomi
+  // ieškojimai leistų skaičiui ir tapatybei aprašyti skirtingus run'us, t. y. tiksliai tą painiavą,
+  // kuriai spręsti sidecar'as ir egzistuoja.
+  //
+  // Nesantis sidecar'as NĖRA problema: taip atrodo ledger'is, rašytas prieš atsirandant įrašui, ir
+  // jų atmetimas iškart padarytų kiekvieną saugomą run'ą nepatikrinamą.
+  if (ledger.source !== undefined) {
+    const recorded = await readRunIdentity(fs, root, ledger.source);
+    if (recorded.problem !== undefined) {
+      issues.push(`benchmark evidence is incomplete: the run identity could not be read (${recorded.problem})`);
+    } else if (recorded.identity !== undefined) {
+      for (const [field, recordedValue] of Object.entries(recorded.identity)) {
+        const claimed = report.current.identity[field as keyof typeof recorded.identity] ?? "";
+        if (claimed !== recordedValue) {
+          issues.push(
+            `benchmark evidence describes another run: the report's ${field} ` +
+              `(${claimed || "<empty>"}) does not match ${ledger.source} (${recordedValue || "<empty>"})`,
+          );
+        }
+      }
+    }
   }
 
   if (report.verdictBasis === "no-baseline") {

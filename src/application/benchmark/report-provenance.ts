@@ -197,3 +197,95 @@ export async function countLedgerSamples(fs: BenchmarkFsPort, projectRoot: strin
   }
   return { count, problem: undefined, source: relative };
 }
+
+/**
+ * Suffix of the sidecar a run states its identity in. Mirrors the benchmark package's
+ * `RUN_IDENTITY_SUFFIX`, restated for the same reason the ledger name pattern is (BENCH-1).
+ */
+export const RUN_IDENTITY_SUFFIX = ".identity.json";
+
+/** A sidecar is a few hashes and a configuration; anything larger is refused before parsing. */
+const MAX_RUN_IDENTITY_BYTES = 1024 * 1024;
+
+/** The four hashes a run states about itself. Every one is a string the report must reproduce. */
+export interface RecordedRunIdentity {
+  readonly suiteHash: string;
+  readonly configHash: string;
+  readonly policyHash: string;
+  readonly agCommit: string;
+}
+
+export interface RunIdentityRead {
+  /** Absent when the run recorded no identity — a legacy ledger — or when one could not be read. */
+  readonly identity: RecordedRunIdentity | undefined;
+  /** Set only when a sidecar EXISTS and is unusable. A legacy ledger leaves both fields unset. */
+  readonly problem: string | undefined;
+}
+
+/**
+ * The identity the run behind `ledgerRelative` recorded about itself.
+ *
+ * Read from the sidecar of THAT ledger rather than by scanning the directory: the gate has
+ * already decided which ledger it counted, and a second, independent "find the newest" would let
+ * the count and the identity describe different runs — the very confusion the sidecar exists to
+ * settle.
+ *
+ * An absent sidecar is not a problem. It means a ledger written before runs recorded an identity,
+ * and refusing those would make every stored run unverifiable at once. A sidecar that exists and
+ * cannot be read IS a problem: a run that stated its identity and cannot be asked what it said is
+ * not evidence anything may be attributed to.
+ */
+export async function readRunIdentity(
+  fs: BenchmarkFsPort,
+  projectRoot: string,
+  ledgerRelative: string,
+): Promise<RunIdentityRead> {
+  const relative = `${ledgerRelative.replace(/\.jsonl$/, "")}${RUN_IDENTITY_SUFFIX}`;
+  const sidecarPath = absolute(projectRoot, relative);
+  const stats = await fs.statPath(sidecarPath);
+
+  if (stats.kind === "absent") return { identity: undefined, problem: undefined };
+  if (stats.kind !== "file") {
+    return { identity: undefined, problem: `${relative} is not a regular file` };
+  }
+  if (stats.size > MAX_RUN_IDENTITY_BYTES) {
+    return {
+      identity: undefined,
+      problem: `${relative} is larger than the ${MAX_RUN_IDENTITY_BYTES}-byte maximum this check will read`,
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await fs.readTextFile(sidecarPath));
+  } catch {
+    return { identity: undefined, problem: `${relative} is not valid JSON` };
+  }
+
+  const identity = (parsed as { identity?: unknown } | null)?.identity;
+  if (typeof identity !== "object" || identity === null) {
+    return { identity: undefined, problem: `${relative} declares no identity block` };
+  }
+
+  const read = identity as Record<string, unknown>;
+  const fields: readonly (keyof RecordedRunIdentity)[] = [
+    "suiteHash",
+    "configHash",
+    "policyHash",
+    "agCommit",
+  ];
+  const missing = fields.filter((field) => typeof read[field] !== "string");
+  if (missing.length > 0) {
+    return { identity: undefined, problem: `${relative} declares no ${missing.join(", ")}` };
+  }
+
+  return {
+    identity: {
+      suiteHash: String(read["suiteHash"]),
+      configHash: String(read["configHash"]),
+      policyHash: String(read["policyHash"]),
+      agCommit: String(read["agCommit"]),
+    },
+    problem: undefined,
+  };
+}

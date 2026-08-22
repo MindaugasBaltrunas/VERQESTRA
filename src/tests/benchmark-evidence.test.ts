@@ -228,14 +228,44 @@ test("BENCH-12 provenance: be nė vieno run'o skaičius yra nulis, o šaltinio n
   assert.equal(empty.source, undefined, "šaltinis negali būti įvardytas, kai jo nėra");
 });
 
-function evidenceFs(input: { report?: string; lockHash?: string; ledgerLines?: number }): BenchmarkFsPort {
+/**
+ * Tapatybė, kurią `reportDoc` skelbia. Sidecar'as ir raportas normaliame kelyje sutampa, nes
+ * raportas savo tapatybę ima BŪTENT iš įrašo — tad testas, kuriame jie skiriasi, yra testas apie
+ * raportą, atsilikusį nuo ledger'io.
+ */
+const RECORDED_IDENTITY: {
+  suiteHash: string;
+  configHash: string;
+  policyHash: string;
+  agCommit: string;
+} = {
+  suiteHash: "suite-1",
+  configHash: "",
+  policyHash: "",
+  agCommit: FULL_SHA,
+};
+
+const LEDGER_STAMP = "20260822t141440313z";
+
+function evidenceFs(input: {
+  report?: string;
+  lockHash?: string;
+  ledgerLines?: number;
+  sidecar?: Partial<typeof RECORDED_IDENTITY> | "absent";
+}): BenchmarkFsPort {
   const entries: Record<string, FakeEntry> = packageWith({});
   if (input.report !== undefined) entries[abs(BENCHMARK_REPORT_RELATIVE_PATH)] = { kind: "file", content: input.report };
   if (input.lockHash !== undefined) {
     entries[abs(BENCHMARK_SUITE_LOCK_RELATIVE_PATH)] = { kind: "file", content: JSON.stringify({ suiteHash: input.lockHash }) };
   }
   if (input.ledgerLines !== undefined) {
-    entries[abs(runLedger("20260822t141440313z"))] = {
+    if (input.sidecar !== "absent") {
+      entries[abs(`${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-${LEDGER_STAMP}.identity.json`)] = {
+        kind: "file",
+        content: JSON.stringify({ identity: { ...RECORDED_IDENTITY, ...input.sidecar } }),
+      };
+    }
+    entries[abs(runLedger(LEDGER_STAMP))] = {
       kind: "file",
       content: Array.from({ length: input.ledgerLines }, (_, index) => `{"sample":${index}}`).join("\n") + (input.ledgerLines > 0 ? "\n" : ""),
     };
@@ -320,4 +350,62 @@ test("BENCH-12 vartai: atribucijos ir verdikto blokai kaupiasi su tiksliomis pri
   );
   assert.ok(regressed.issues.some((issue) => issue.includes("reports a regression: p95 blogiau")));
   assert.match(describeBenchmarkEvidence(regressed), /^blocked: /);
+});
+
+/**
+ * Raportas privalo aprašyti TĄ paleidimą, kurio ledger'is suskaičiuotas.
+ *
+ * `suiteHash` prieš `suite.lock.json` atsako į kitą klausimą — ar tai apskritai tracked rinkinys.
+ * Jis nieko nesako apie tai, KURIS paleidimas pagamino skaičius, ir su vienu ledger'iu per run'ą
+ * tai nustojo būti smulkmena: `reports/` gitignore'intas ir generuojamas rankiniu paleidimu, o
+ * ledger'is pasikeičia po kiekvieno run'o. Sugeneruok raportą iš A, paleisk B — `suiteHash`
+ * sutampa, `sampleCount` gali sutapti, ir vartai praleistų raportą apie kitą paleidimą.
+ */
+test("BENCH-12 vartai: raportas, aprašantis kitą paleidimą, blokuojamas", async () => {
+  const drifted = await checkBenchmarkEvidence(
+    evidenceFs({
+      report: reportDoc(),
+      lockHash: "suite-1",
+      ledgerLines: 2,
+      // Tas pats rinkinys, tas pats sample'ų skaičius, KITA konfigūracija ir kitas commit'as:
+      // tiksliai tai, ką duoda raportas, atsilikęs per vieną paleidimą.
+      sidecar: { configHash: "sha256:kita-konfiguracija", agCommit: "b".repeat(40) },
+    }),
+    ROOT,
+    { currentAgCommit: HEAD },
+  );
+
+  assert.equal(drifted.ok, false, "sutampantis suiteHash ir sampleCount nedaro raporto atribuotinu");
+  const issues = drifted.issues.join("\n");
+  assert.match(issues, /describes another run: the report's configHash/);
+  assert.match(issues, /describes another run: the report's agCommit/);
+  // Įvardijamas ledger'is, su kuriuo lyginta — kitaip skaitytojas nežino, kur žiūrėti.
+  assert.match(issues, /run-20260822t141440313z\.jsonl/);
+});
+
+test("BENCH-12 vartai: legacy ledger'is be sidecar'o praleidžiamas, sugadintas — ne", async () => {
+  // Ledger'is, rašytas prieš atsirandant įrašui, yra vienintelis atvejis, kurį galima praleisti:
+  // jų atmetimas iškart padarytų kiekvieną saugomą run'ą nepatikrinamą.
+  const legacy = await checkBenchmarkEvidence(
+    evidenceFs({ report: reportDoc(), lockHash: "suite-1", ledgerLines: 2, sidecar: "absent" }),
+    ROOT,
+    { currentAgCommit: HEAD },
+  );
+  assert.equal(legacy.ok, true, "nesantis įrašas nėra neatitikimas");
+
+  // Bet įrašas, kuris EGZISTUOJA ir neperskaitomas, yra: run'as, pasakęs savo tapatybę ir
+  // nebegalintis jos pakartoti, nėra įrodymas, kuriam ką nors galima priskirti.
+  const damagedFs = fakeFs({
+    ...packageWith({}),
+    [abs(BENCHMARK_REPORT_RELATIVE_PATH)]: { kind: "file", content: reportDoc() },
+    [abs(BENCHMARK_SUITE_LOCK_RELATIVE_PATH)]: { kind: "file", content: JSON.stringify({ suiteHash: "suite-1" }) },
+    [abs(runLedger(LEDGER_STAMP))]: { kind: "file", content: `{"sample":0}${LF}{"sample":1}${LF}` },
+    [abs(`${BENCHMARK_RUN_LEDGER_DIRECTORY}/run-${LEDGER_STAMP}.identity.json`)]: {
+      kind: "file",
+      content: "{ ne json",
+    },
+  });
+  const damaged = await checkBenchmarkEvidence(damagedFs, ROOT, { currentAgCommit: HEAD });
+  assert.equal(damaged.ok, false);
+  assert.match(damaged.issues.join("\n"), /run identity could not be read .*is not valid JSON/);
 });

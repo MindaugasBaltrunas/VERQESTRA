@@ -56,7 +56,15 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # DU build'ai, ne vienas. Saknies `pnpm build` stato tik saknies paketa, o CLI benchmark
+      # komandas ikelia is `AG/benchmark/dist/index.js` — atskiro workspace paketo, kurio saknies
+      # tsconfig nemato. Be jo kiekviena `benchmark` komanda krenta su exit 5.
+      #
+      # Isreiksta, nors offline job'e `benchmark:smoke` ji ir taip pastatytu: veikimas per salutini
+      # kito zingsnio poveiki yra ta pati priklausomybe, tik nematoma — ir butent ji paliko mokama
+      # job'a be build'o, nes ten smoke nera.
       - run: pnpm build
+      - run: pnpm build:benchmark
       - run: pnpm smoke:benchmark
       - name: Visas rinkinys, tik deterministic-control
         run: node dist/cli.js benchmark run --mode deterministic-control --repetitions 3
@@ -91,7 +99,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Job'ai nesidalija failų sistema: `needs: offline-suite` laukia rezultato, o ne palieka jo
+      # build'o. Viskas, ko reikia, statoma cia is naujo.
       - run: pnpm build
+      - run: pnpm build:benchmark
       # Fail-closed prieš išleidžiant: paketas atmeta režimą be sukonfigūruoto agento kvietimo,
       # bet tas atmetimas įvyktų jau paleidus. Čia pasakoma anksčiau ir aiškiau.
       - name: Patikrinti, kad bėgikas turi agentą

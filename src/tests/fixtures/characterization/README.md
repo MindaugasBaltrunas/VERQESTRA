@@ -6,6 +6,15 @@ Duomenų failai čia yra PAŽODINĖS AG_loop etalono kopijos
 užšaldytą elgesį — taisomas kodas, ne fixture. Record režimo VERQESTRA runner'iai
 neturi ir negali turėti.
 
+**Viena išimtis — `context-pack-assembly.json` (VQ-003f).** Ji atsirado po E0, kai etalonas
+jau buvo read-only (`CLAUDE.md`: AG_loop liesti tik `tasks.md` anotacijas), tad fixture
+failo etalono pusėje NĖRA. `etalon` reikšmes užrašė `scripts/record-context-pack-assembly.mjs`,
+paleidęs AG_loop `dist` prieš tuos pačius workspace failus tmpdir'e — etalono repo
+neliečiamas. Ir dar viena forma: šis kelias turi SĄMONINGŲ VERQESTRA nukrypimų
+(2026-08-21 RAG auditas), tad fixture neša nukrypimų registrą, kurį runner'is uždeda ant
+etalono prieš lygindamas. Registras rašomas RANKOMIS; recorder jį perkelia nepakeistą ir
+niekada neskaito VERQESTRA elgsenos, tad taisyklė „lūkestis ateina iš etalono" galioja ir čia.
+
 | Failas | Sritis | Banga |
 |---|---|---|
 | `shared-primitives.json` | canonical JSON, normalizuotas sha256, shortDigest erdvė | E1 (VQ-101) |
@@ -18,3 +27,4 @@ neturi ir negali turėti.
 | `code-index-queries.json` | CodeIndex: inline workspace → build, graph/impact/semantic/boundary užklausos, manifest + JSONL byte kontraktas | E3 (VQ-301) |
 | `worker-task-ir.json` | task Markdown → WorkerTaskIR: canonical/decorated/residue atvejai + fail-closed klaidų kodai, pinned source_sha256 | E3 (VQ-302) |
 | `compact-worker-dsl.json` | WorkerTaskIR → compact DSL: byte-tikslūs render'iai (alias/dedup/block formos) + parse klaidos; ir_chars pin'ina IR raktų tvarką | E3 (VQ-302) |
+| `context-pack-assembly.json` | pilnas `assembleContextPack` kelias per tmpdir workspace: baseline, heading-miss, budget arbitražas, `--with-code-graph`, kešo `miss`→`hit` idempotencija; pack'as + raktų tvarka + artefaktų keliai + telemetrija, su nukrypimų registru | VQ-003f (atidėta E0, uždaryta po E5) |

@@ -1,0 +1,1223 @@
+{
+  "schema_version": 1,
+  "record": false,
+  "description": "Pilnas assembleContextPack kelias per tmpdir workspace (VQ-003f). `etalon` reikšmės užfiksuotos 2026-08-22 paleidus AG_loop etalono `assembleContextPack` prieš TUOS PAČIUS workspace failus; etalono repo NERAŠOMAS (skaitomas tik jo `dist`). Kur VERQESTRA sąmoningai nukrypsta, nukrypimas surašytas `deviations` ir runner'is jį UŽDEDA ant etalono prieš lygindamas — tylių skirtumų nėra, o nedeklaruotas skirtumas krenta kaip regresija. VERQESTRA runner'is record režimo NETURI (PAR-1).",
+  "provenance": {
+    "etalon_dist": "D:/React/AG_loop/AG/orchestrator/dist/application/context-pack/assemble.js",
+    "recorded": "2026-08-22",
+    "recorder": "scripts/record-context-pack-assembly.mjs",
+    "runtime_placeholder": {
+      "etalon": "AG",
+      "verqestra": "vq"
+    },
+    "note": "`{runtime}` keliuose ir reikšmėse pakeičiamas runtime šaknimi: etalone `AG`, VERQESTRA `vq`. `AG/tasks/**` lieka `AG/` abiejose pusėse (eilės kontraktas)."
+  },
+  "deviation_catalog": {
+    "rag-c3": "Antraščių sekcija baigiama ties tokio paties ar aukštesnio lygio antrašte (įdėtos posekcijos nebeprarandamos).",
+    "rag-c4": "`spec_fragment_truncated` — kirpimo būsena keliauja su fragmentu, ne atskirame įspėjimų bloke.",
+    "rag-c12": "`spec_dropped_count` ir `code_context_dropped_count` — atskiri skaičiai trims praradimų stadijoms."
+  },
+  "workspace": {
+    "files": {
+      "doc/spec.md": "# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas.\n\n# Beta\n\nBeta sekcijos tekstas: nesusijes su moduliu.\n",
+      "doc/nested.md": "# Modulio API\n\nIvadas.\n\n## API\n\nBendras API aprasas.\n\n### Request\n\nUzklausos laukai: id, mode.\n\n### Response\n\nAtsakymo laukai: ok, reason.\n\n# Kita\n\nKita sekcija.\n",
+      "doc/large.md": "# Gama\n\nGamos pastraipa 1: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 2: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 3: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 4: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 5: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 6: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 7: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 8: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 9: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 10: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 11: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 12: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\n\n# Delta\n\nDelta sekcija: trumpa.\n",
+      "src/module/a.ts": "export interface DemoInput {\n  id: string;\n}\n\nexport function demo(input: DemoInput): string {\n  return input.id;\n}\n",
+      "src/module/b.ts": "import { demo } from \"./a.js\";\n\nexport function callDemo(): string {\n  return demo({ id: \"x\" });\n}\n",
+      "src/tests/module-a.test.ts": "import { demo } from \"../module/a.js\";\n\nexport const checked = demo({ id: \"t\" }).length > 0;\n"
+    }
+  },
+  "cases": [
+    {
+      "id": "baseline",
+      "description": "Kanoninis kelias: du spec ref'ai (plokščia sekcija + įdėtos posekcijos), vienas leidžiamas failas, iš anksto pastatytas code index. Pack'as, jo raktų tvarka, artefaktų keliai ir telemetrija.",
+      "args": [
+        "AG/tasks/queue/0042-demo.md"
+      ],
+      "prebuild_index": true,
+      "files": {
+        "AG/tasks/queue/0042-demo.md": "# Task\n\n## Spec source\ndoc/spec.md#alfa\ndoc/nested.md#API\n\n## Tikslas\nIgyvendinti demo modulio pakeitima.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/module/a.ts`\nDraudziama:\n- `.env*`\n\n## Veiksmas\n- Pakeisti eksporta.\n- Padengti testu.\n\n## Patikra\n- `pnpm test`\n\n## Stop\nKai patikros zalios, sustok.\n"
+      },
+      "etalon": [
+        {
+          "output_path": "{runtime}/supervisor/context-pack.json",
+          "execution_context_path": "{runtime}/supervisor/execution-context.md",
+          "pack_chars": 2195,
+          "pack_key_order": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "pack": {
+            "task_id": "0042-demo",
+            "phase": "implementation",
+            "goal": "Igyvendinti demo modulio pakeitima.",
+            "allowed_paths": [
+              "src/module/a.ts"
+            ],
+            "agents": [
+              "readme-guard",
+              "coder",
+              "tester"
+            ],
+            "spec_fragments": [
+              "doc/spec.md#alfa\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas.",
+              "doc/nested.md#API\n## API\n\nBendras API aprasas."
+            ],
+            "spec_fragment_warnings": [],
+            "acceptance_criteria": [
+              "Pakeisti eksporta.",
+              "Padengti testu."
+            ],
+            "stop_condition": "Kai patikros zalios, sustok.",
+            "architecture_rules": [
+              "code_context is advisory only; allowed_paths remains the hard edit boundary"
+            ],
+            "checks": [
+              "pnpm test"
+            ],
+            "out_of_scope": [],
+            "code_context": {
+              "enabled": true,
+              "related_files": [
+                "src/module/a.ts",
+                "src/module/b.ts",
+                "src/tests/module-a.test.ts"
+              ],
+              "impacted_tests": [
+                "src/tests/module-a.test.ts"
+              ],
+              "architecture_nodes": [],
+              "priority_order": [
+                "spec_refs",
+                "code_graph_neighbors",
+                "impacted_tests"
+              ],
+              "summary": [
+                "target: src/module/a.ts",
+                "symbols: a.demo:5-7 (exported), a.DemoInput:1-3 (public)"
+              ],
+              "notes": [
+                "code_context is advisory only; allowed_paths remains the hard edit boundary"
+              ],
+              "symbol_fragments": [
+                {
+                  "id": "src/module/a.ts#demo",
+                  "file": "src/module/a.ts",
+                  "name": "demo",
+                  "line": 5,
+                  "endLine": 7,
+                  "signature": "export function demo(input: DemoInput): string",
+                  "exported": true,
+                  "reason": "exported",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/a.ts#DemoInput",
+                  "file": "src/module/a.ts",
+                  "name": "DemoInput",
+                  "line": 1,
+                  "endLine": 3,
+                  "signature": "export interface DemoInput",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                }
+              ]
+            },
+            "budget": {
+              "max_context_chars": 12000,
+              "max_llm_calls": 3,
+              "browser": false,
+              "scraper": false,
+              "mcp": false
+            },
+            "agent": {
+              "role": "coder",
+              "supporting": [
+                "coder",
+                "tester"
+              ],
+              "model_hint": "sonnet"
+            }
+          },
+          "metrics": {
+            "task_id": "0042-demo",
+            "cache_status": "miss",
+            "dropped_item_count": 0,
+            "code_context_rebuilt": false
+          }
+        }
+      ],
+      "deviations": [
+        {
+          "path": "0.pack_chars",
+          "op": "set",
+          "value": 2322,
+          "deviations": [
+            "rag-c3",
+            "rag-c4"
+          ],
+          "reason": "Išvestinė pasekmė: C4 laukas (33 simboliai) + C3 atkurtos posekcijos to paties dokumento fragmente."
+        },
+        {
+          "path": "0.pack_key_order",
+          "op": "set",
+          "value": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "spec_fragment_truncated",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas laukas įterptas iš karto po `spec_fragments`, tad viršutinio lygio raktų tvarka pailgėja vienu įrašu."
+        },
+        {
+          "path": "0.pack.spec_fragments",
+          "op": "set",
+          "value": [
+            "doc/spec.md#alfa\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas.",
+            "doc/nested.md#API\n## API\n\nBendras API aprasas.\n\n### Request\n\nUzklausos laukai: id, mode.\n\n### Response\n\nAtsakymo laukai: ok, reason."
+          ],
+          "deviations": [
+            "rag-c3"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C3: plokščias chunker'is nutraukdavo sekciją ties BET KURIA kita antrašte, tad `## API` ateidavo be `### Request`/`### Response` — nepilnas turinys atrodydavo kaip sėkmė. Sekcija dabar baigiama ties tokio paties ar aukštesnio lygio antrašte."
+        },
+        {
+          "path": "0.pack.spec_fragment_truncated",
+          "op": "add",
+          "value": [],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C4: kirpimo būsena keliauja SU fragmentu (`spec_fragment_truncated`), o ne atskirame `medium` įspėjimų bloke, kurį budgeter'is išmeta pirmiau už patį fragmentą. Etalone lauko nėra."
+        },
+        {
+          "path": "0.metrics.spec_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "0.metrics.code_context_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        }
+      ]
+    },
+    {
+      "id": "heading-miss",
+      "description": "Prašyta antraštė dokumente neegzistuoja: fragmentas pack'e YRA, bet kaip visas dokumentas, ir kartu keliauja `spec heading not found:` įspėjimas.",
+      "args": [
+        "AG/tasks/queue/0043-miss.md"
+      ],
+      "prebuild_index": true,
+      "files": {
+        "AG/tasks/queue/0043-miss.md": "# Task\n\n## Spec source\ndoc/spec.md#nera-tokios\n\n## Tikslas\nNepataikyta antraste.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/module/a.ts`\nDraudziama:\n- `.env*`\n\n## Veiksmas\n- Pakeisti eksporta.\n- Padengti testu.\n\n## Patikra\n- `pnpm test`\n\n## Stop\nKai patikros zalios, sustok.\n"
+      },
+      "etalon": [
+        {
+          "output_path": "{runtime}/supervisor/context-pack.json",
+          "execution_context_path": "{runtime}/supervisor/execution-context.md",
+          "pack_chars": 2303,
+          "pack_key_order": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "pack": {
+            "task_id": "0043-miss",
+            "phase": "implementation",
+            "goal": "Nepataikyta antraste.",
+            "allowed_paths": [
+              "src/module/a.ts"
+            ],
+            "agents": [
+              "readme-guard",
+              "coder",
+              "tester"
+            ],
+            "spec_fragments": [
+              "doc/spec.md#nera-tokios\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas.\n\n# Beta\n\nBeta sekcijos tekstas: nesusijes su moduliu."
+            ],
+            "spec_fragment_warnings": [
+              "spec heading not found: doc/spec.md#nera-tokios (fell back to whole-file text, bounded by context budget)"
+            ],
+            "acceptance_criteria": [
+              "Pakeisti eksporta.",
+              "Padengti testu."
+            ],
+            "stop_condition": "Kai patikros zalios, sustok.",
+            "architecture_rules": [
+              "code_context is advisory only; allowed_paths remains the hard edit boundary"
+            ],
+            "checks": [
+              "pnpm test"
+            ],
+            "out_of_scope": [],
+            "code_context": {
+              "enabled": true,
+              "related_files": [
+                "src/module/a.ts",
+                "src/module/b.ts",
+                "src/tests/module-a.test.ts"
+              ],
+              "impacted_tests": [
+                "src/tests/module-a.test.ts"
+              ],
+              "architecture_nodes": [],
+              "priority_order": [
+                "spec_refs",
+                "code_graph_neighbors",
+                "impacted_tests"
+              ],
+              "summary": [
+                "target: src/module/a.ts",
+                "symbols: a.demo:5-7 (exported), a.DemoInput:1-3 (public)"
+              ],
+              "notes": [
+                "code_context is advisory only; allowed_paths remains the hard edit boundary"
+              ],
+              "symbol_fragments": [
+                {
+                  "id": "src/module/a.ts#demo",
+                  "file": "src/module/a.ts",
+                  "name": "demo",
+                  "line": 5,
+                  "endLine": 7,
+                  "signature": "export function demo(input: DemoInput): string",
+                  "exported": true,
+                  "reason": "exported",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/a.ts#DemoInput",
+                  "file": "src/module/a.ts",
+                  "name": "DemoInput",
+                  "line": 1,
+                  "endLine": 3,
+                  "signature": "export interface DemoInput",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                }
+              ]
+            },
+            "budget": {
+              "max_context_chars": 6000,
+              "max_llm_calls": 3,
+              "browser": false,
+              "scraper": false,
+              "mcp": false
+            },
+            "agent": {
+              "role": "coder",
+              "supporting": [
+                "coder",
+                "tester"
+              ],
+              "model_hint": "sonnet"
+            }
+          },
+          "metrics": {
+            "task_id": "0043-miss",
+            "cache_status": "miss",
+            "dropped_item_count": 0,
+            "code_context_rebuilt": false
+          }
+        }
+      ],
+      "deviations": [
+        {
+          "path": "0.pack_chars",
+          "op": "set",
+          "value": 2336,
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e."
+        },
+        {
+          "path": "0.pack_key_order",
+          "op": "set",
+          "value": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "spec_fragment_truncated",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas laukas įterptas iš karto po `spec_fragments`, tad viršutinio lygio raktų tvarka pailgėja vienu įrašu."
+        },
+        {
+          "path": "0.pack.spec_fragment_truncated",
+          "op": "add",
+          "value": [],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C4: kirpimo būsena keliauja SU fragmentu (`spec_fragment_truncated`), o ne atskirame `medium` įspėjimų bloke, kurį budgeter'is išmeta pirmiau už patį fragmentą. Etalone lauko nėra."
+        },
+        {
+          "path": "0.metrics.spec_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "0.metrics.code_context_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        }
+      ]
+    },
+    {
+      "id": "budget-shrink",
+      "description": "Ankštas `max_context_chars`: vienas prioritetinis biudžeto sprendimas numeta žemiausio prioriteto šaltinius (code-graph kaimynai, impacted tests) ir palieka spec ref'us; pack'as telpa į ribą.",
+      "args": [
+        "AG/tasks/queue/0044-shrink.md"
+      ],
+      "prebuild_index": true,
+      "files": {
+        "{runtime}/config/context-budget.json": "{\n  \"max_context_chars\": 3650,\n  \"max_spec_fragments\": 8,\n  \"max_file_fragments\": 8,\n  \"max_files\": 8\n}\n",
+        "AG/tasks/queue/0044-shrink.md": "# Task\n\n## Spec source\ndoc/spec.md#alfa\ndoc/large.md#gama\ndoc/spec.md#beta\n\n## Tikslas\nAnkstas biudzetas: budgeteris privalo rinktis.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/module/a.ts`\n- `src/module/b.ts`\nDraudziama:\n- `.env*`\n\n## Veiksmas\n- Pakeisti eksporta.\n- Padengti testu.\n\n## Patikra\n- `pnpm test`\n\n## Stop\nKai patikros zalios, sustok.\n"
+      },
+      "etalon": [
+        {
+          "output_path": "{runtime}/supervisor/context-pack.json",
+          "execution_context_path": "{runtime}/supervisor/execution-context.md",
+          "pack_chars": 3595,
+          "pack_key_order": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "pack": {
+            "task_id": "0044-shrink",
+            "phase": "implementation",
+            "goal": "Ankstas biudzetas: budgeteris privalo rinktis.",
+            "allowed_paths": [
+              "src/module/a.ts",
+              "src/module/b.ts"
+            ],
+            "agents": [
+              "readme-guard",
+              "coder",
+              "tester"
+            ],
+            "spec_fragments": [
+              "doc/large.md#gama\n# Gama\n\nGamos pastraipa 1: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 2: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 3: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 4: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 5: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 6: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 7: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 8: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 9: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 10: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 11: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 12: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.",
+              "doc/spec.md#alfa\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas."
+            ],
+            "spec_fragment_warnings": [],
+            "acceptance_criteria": [
+              "Pakeisti eksporta.",
+              "Padengti testu."
+            ],
+            "stop_condition": "Kai patikros zalios, sustok.",
+            "architecture_rules": [
+              "code_context is advisory only; allowed_paths remains the hard edit boundary",
+              "context truncated by policy limits: dropped 5 item(s)"
+            ],
+            "checks": [
+              "pnpm test"
+            ],
+            "out_of_scope": [],
+            "code_context": {
+              "enabled": true,
+              "related_files": [],
+              "impacted_tests": [],
+              "architecture_nodes": [],
+              "priority_order": [
+                "spec_refs"
+              ],
+              "summary": [
+                "target: src/module/a.ts",
+                "symbols: a.demo:5-7 (exported), a.DemoInput:1-3 (public)",
+                "target: src/module/b.ts",
+                "symbols: b.callDemo:3-5 (public)"
+              ],
+              "notes": [
+                "code_context is advisory only; allowed_paths remains the hard edit boundary",
+                "context truncated by policy limits: dropped 5 item(s)"
+              ],
+              "symbol_fragments": [
+                {
+                  "id": "src/module/a.ts#demo",
+                  "file": "src/module/a.ts",
+                  "name": "demo",
+                  "line": 5,
+                  "endLine": 7,
+                  "signature": "export function demo(input: DemoInput): string",
+                  "exported": true,
+                  "reason": "exported",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/b.ts#callDemo",
+                  "file": "src/module/b.ts",
+                  "name": "callDemo",
+                  "line": 3,
+                  "endLine": 5,
+                  "signature": "export function callDemo(): string",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/a.ts#DemoInput",
+                  "file": "src/module/a.ts",
+                  "name": "DemoInput",
+                  "line": 1,
+                  "endLine": 3,
+                  "signature": "export interface DemoInput",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                }
+              ]
+            },
+            "budget": {
+              "max_context_chars": 3650,
+              "max_llm_calls": 3,
+              "browser": false,
+              "scraper": false,
+              "mcp": false
+            },
+            "agent": {
+              "role": "coder",
+              "supporting": [
+                "coder",
+                "tester"
+              ],
+              "model_hint": "sonnet"
+            }
+          },
+          "metrics": {
+            "task_id": "0044-shrink",
+            "cache_status": "miss",
+            "dropped_item_count": 5,
+            "code_context_rebuilt": false
+          }
+        }
+      ],
+      "deviations": [
+        {
+          "path": "0.pack_chars",
+          "op": "set",
+          "value": 3628,
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e."
+        },
+        {
+          "path": "0.pack_key_order",
+          "op": "set",
+          "value": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "spec_fragment_truncated",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas laukas įterptas iš karto po `spec_fragments`, tad viršutinio lygio raktų tvarka pailgėja vienu įrašu."
+        },
+        {
+          "path": "0.pack.spec_fragment_truncated",
+          "op": "add",
+          "value": [],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C4: kirpimo būsena keliauja SU fragmentu (`spec_fragment_truncated`), o ne atskirame `medium` įspėjimų bloke, kurį budgeter'is išmeta pirmiau už patį fragmentą. Etalone lauko nėra."
+        },
+        {
+          "path": "0.metrics.spec_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "0.metrics.code_context_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        }
+      ]
+    },
+    {
+      "id": "code-graph",
+      "description": "`--with-code-graph` be spec šaltinių: eksplicitinis grafo pjūvis — related files, impacted tests, priority order, simbolių fragmentai.",
+      "args": [
+        "AG/tasks/queue/0045-graph.md",
+        "--with-code-graph"
+      ],
+      "prebuild_index": true,
+      "files": {
+        "AG/tasks/queue/0045-graph.md": "# Task\n\n## Tikslas\nGrafo pjuvis be spec saltiniu.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/module/a.ts`\nDraudziama:\n- `.env*`\n\n## Veiksmas\n- Pakeisti eksporta.\n- Padengti testu.\n\n## Patikra\n- `pnpm test`\n\n## Stop\nKai patikros zalios, sustok.\n"
+      },
+      "etalon": [
+        {
+          "output_path": "{runtime}/supervisor/context-pack.json",
+          "execution_context_path": "{runtime}/supervisor/execution-context.md",
+          "pack_chars": 2034,
+          "pack_key_order": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "pack": {
+            "task_id": "0045-graph",
+            "phase": "implementation",
+            "goal": "Grafo pjuvis be spec saltiniu.",
+            "allowed_paths": [
+              "src/module/a.ts"
+            ],
+            "agents": [
+              "readme-guard",
+              "coder",
+              "tester"
+            ],
+            "spec_fragments": [],
+            "spec_fragment_warnings": [],
+            "acceptance_criteria": [
+              "Pakeisti eksporta.",
+              "Padengti testu."
+            ],
+            "stop_condition": "Kai patikros zalios, sustok.",
+            "architecture_rules": [
+              "code_context is advisory only; allowed_paths remains the hard edit boundary"
+            ],
+            "checks": [
+              "pnpm test"
+            ],
+            "out_of_scope": [],
+            "code_context": {
+              "enabled": true,
+              "related_files": [
+                "src/module/a.ts",
+                "src/module/b.ts",
+                "src/tests/module-a.test.ts"
+              ],
+              "impacted_tests": [
+                "src/tests/module-a.test.ts"
+              ],
+              "architecture_nodes": [],
+              "priority_order": [
+                "code_graph_neighbors",
+                "impacted_tests"
+              ],
+              "summary": [
+                "target: src/module/a.ts",
+                "symbols: a.demo:5-7 (exported), a.DemoInput:1-3 (public)"
+              ],
+              "notes": [
+                "code_context is advisory only; allowed_paths remains the hard edit boundary"
+              ],
+              "symbol_fragments": [
+                {
+                  "id": "src/module/a.ts#demo",
+                  "file": "src/module/a.ts",
+                  "name": "demo",
+                  "line": 5,
+                  "endLine": 7,
+                  "signature": "export function demo(input: DemoInput): string",
+                  "exported": true,
+                  "reason": "exported",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/a.ts#DemoInput",
+                  "file": "src/module/a.ts",
+                  "name": "DemoInput",
+                  "line": 1,
+                  "endLine": 3,
+                  "signature": "export interface DemoInput",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                }
+              ]
+            },
+            "budget": {
+              "max_context_chars": 6000,
+              "max_llm_calls": 3,
+              "browser": false,
+              "scraper": false,
+              "mcp": false
+            },
+            "agent": {
+              "role": "coder",
+              "supporting": [
+                "coder",
+                "tester"
+              ],
+              "model_hint": "sonnet"
+            }
+          },
+          "metrics": {
+            "task_id": "0045-graph",
+            "cache_status": "miss",
+            "dropped_item_count": 0,
+            "code_context_rebuilt": false
+          }
+        }
+      ],
+      "deviations": [
+        {
+          "path": "0.pack_chars",
+          "op": "set",
+          "value": 2067,
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e."
+        },
+        {
+          "path": "0.pack_key_order",
+          "op": "set",
+          "value": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "spec_fragment_truncated",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas laukas įterptas iš karto po `spec_fragments`, tad viršutinio lygio raktų tvarka pailgėja vienu įrašu."
+        },
+        {
+          "path": "0.pack.spec_fragment_truncated",
+          "op": "add",
+          "value": [],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C4: kirpimo būsena keliauja SU fragmentu (`spec_fragment_truncated`), o ne atskirame `medium` įspėjimų bloke, kurį budgeter'is išmeta pirmiau už patį fragmentą. Etalone lauko nėra."
+        },
+        {
+          "path": "0.metrics.spec_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "0.metrics.code_context_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        }
+      ]
+    },
+    {
+      "id": "cache-hit",
+      "description": "Du surinkimai nepakitusioje darbo kopijoje: pirmas `miss`, antras `hit`, pack'as byte-identiškas (kešo idempotencija).",
+      "args": [
+        "AG/tasks/queue/0046-cache.md"
+      ],
+      "prebuild_index": true,
+      "files": {
+        "AG/tasks/queue/0046-cache.md": "# Task\n\n## Spec source\ndoc/spec.md#alfa\n\n## Tikslas\nKeso idempotencija.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/module/a.ts`\nDraudziama:\n- `.env*`\n\n## Veiksmas\n- Pakeisti eksporta.\n- Padengti testu.\n\n## Patikra\n- `pnpm test`\n\n## Stop\nKai patikros zalios, sustok.\n"
+      },
+      "etalon": [
+        {
+          "output_path": "{runtime}/supervisor/context-pack.json",
+          "execution_context_path": "{runtime}/supervisor/execution-context.md",
+          "pack_chars": 2122,
+          "pack_key_order": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "pack": {
+            "task_id": "0046-cache",
+            "phase": "implementation",
+            "goal": "Keso idempotencija.",
+            "allowed_paths": [
+              "src/module/a.ts"
+            ],
+            "agents": [
+              "readme-guard",
+              "coder",
+              "tester"
+            ],
+            "spec_fragments": [
+              "doc/spec.md#alfa\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas."
+            ],
+            "spec_fragment_warnings": [],
+            "acceptance_criteria": [
+              "Pakeisti eksporta.",
+              "Padengti testu."
+            ],
+            "stop_condition": "Kai patikros zalios, sustok.",
+            "architecture_rules": [
+              "code_context is advisory only; allowed_paths remains the hard edit boundary"
+            ],
+            "checks": [
+              "pnpm test"
+            ],
+            "out_of_scope": [],
+            "code_context": {
+              "enabled": true,
+              "related_files": [
+                "src/module/a.ts",
+                "src/module/b.ts",
+                "src/tests/module-a.test.ts"
+              ],
+              "impacted_tests": [
+                "src/tests/module-a.test.ts"
+              ],
+              "architecture_nodes": [],
+              "priority_order": [
+                "spec_refs",
+                "code_graph_neighbors",
+                "impacted_tests"
+              ],
+              "summary": [
+                "target: src/module/a.ts",
+                "symbols: a.demo:5-7 (exported), a.DemoInput:1-3 (public)"
+              ],
+              "notes": [
+                "code_context is advisory only; allowed_paths remains the hard edit boundary"
+              ],
+              "symbol_fragments": [
+                {
+                  "id": "src/module/a.ts#demo",
+                  "file": "src/module/a.ts",
+                  "name": "demo",
+                  "line": 5,
+                  "endLine": 7,
+                  "signature": "export function demo(input: DemoInput): string",
+                  "exported": true,
+                  "reason": "exported",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/a.ts#DemoInput",
+                  "file": "src/module/a.ts",
+                  "name": "DemoInput",
+                  "line": 1,
+                  "endLine": 3,
+                  "signature": "export interface DemoInput",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                }
+              ]
+            },
+            "budget": {
+              "max_context_chars": 6000,
+              "max_llm_calls": 3,
+              "browser": false,
+              "scraper": false,
+              "mcp": false
+            },
+            "agent": {
+              "role": "coder",
+              "supporting": [
+                "coder",
+                "tester"
+              ],
+              "model_hint": "sonnet"
+            }
+          },
+          "metrics": {
+            "task_id": "0046-cache",
+            "cache_status": "miss",
+            "dropped_item_count": 0,
+            "code_context_rebuilt": false
+          }
+        },
+        {
+          "output_path": "{runtime}/supervisor/context-pack.json",
+          "execution_context_path": "{runtime}/supervisor/execution-context.md",
+          "pack_chars": 2122,
+          "pack_key_order": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "pack": {
+            "task_id": "0046-cache",
+            "phase": "implementation",
+            "goal": "Keso idempotencija.",
+            "allowed_paths": [
+              "src/module/a.ts"
+            ],
+            "agents": [
+              "readme-guard",
+              "coder",
+              "tester"
+            ],
+            "spec_fragments": [
+              "doc/spec.md#alfa\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas."
+            ],
+            "spec_fragment_warnings": [],
+            "acceptance_criteria": [
+              "Pakeisti eksporta.",
+              "Padengti testu."
+            ],
+            "stop_condition": "Kai patikros zalios, sustok.",
+            "architecture_rules": [
+              "code_context is advisory only; allowed_paths remains the hard edit boundary"
+            ],
+            "checks": [
+              "pnpm test"
+            ],
+            "out_of_scope": [],
+            "code_context": {
+              "enabled": true,
+              "related_files": [
+                "src/module/a.ts",
+                "src/module/b.ts",
+                "src/tests/module-a.test.ts"
+              ],
+              "impacted_tests": [
+                "src/tests/module-a.test.ts"
+              ],
+              "architecture_nodes": [],
+              "priority_order": [
+                "spec_refs",
+                "code_graph_neighbors",
+                "impacted_tests"
+              ],
+              "summary": [
+                "target: src/module/a.ts",
+                "symbols: a.demo:5-7 (exported), a.DemoInput:1-3 (public)"
+              ],
+              "notes": [
+                "code_context is advisory only; allowed_paths remains the hard edit boundary"
+              ],
+              "symbol_fragments": [
+                {
+                  "id": "src/module/a.ts#demo",
+                  "file": "src/module/a.ts",
+                  "name": "demo",
+                  "line": 5,
+                  "endLine": 7,
+                  "signature": "export function demo(input: DemoInput): string",
+                  "exported": true,
+                  "reason": "exported",
+                  "role": "target"
+                },
+                {
+                  "id": "src/module/a.ts#DemoInput",
+                  "file": "src/module/a.ts",
+                  "name": "DemoInput",
+                  "line": 1,
+                  "endLine": 3,
+                  "signature": "export interface DemoInput",
+                  "exported": true,
+                  "reason": "public",
+                  "role": "target"
+                }
+              ]
+            },
+            "budget": {
+              "max_context_chars": 6000,
+              "max_llm_calls": 3,
+              "browser": false,
+              "scraper": false,
+              "mcp": false
+            },
+            "agent": {
+              "role": "coder",
+              "supporting": [
+                "coder",
+                "tester"
+              ],
+              "model_hint": "sonnet"
+            }
+          },
+          "metrics": {
+            "task_id": "0046-cache",
+            "cache_status": "hit",
+            "dropped_item_count": 0,
+            "code_context_rebuilt": false
+          }
+        }
+      ],
+      "deviations": [
+        {
+          "path": "0.pack_chars",
+          "op": "set",
+          "value": 2155,
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e."
+        },
+        {
+          "path": "0.pack_key_order",
+          "op": "set",
+          "value": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "spec_fragment_truncated",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas laukas įterptas iš karto po `spec_fragments`, tad viršutinio lygio raktų tvarka pailgėja vienu įrašu."
+        },
+        {
+          "path": "0.pack.spec_fragment_truncated",
+          "op": "add",
+          "value": [],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C4: kirpimo būsena keliauja SU fragmentu (`spec_fragment_truncated`), o ne atskirame `medium` įspėjimų bloke, kurį budgeter'is išmeta pirmiau už patį fragmentą. Etalone lauko nėra."
+        },
+        {
+          "path": "0.metrics.spec_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "0.metrics.code_context_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "1.pack_chars",
+          "op": "set",
+          "value": 2155,
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e."
+        },
+        {
+          "path": "1.pack_key_order",
+          "op": "set",
+          "value": [
+            "task_id",
+            "phase",
+            "goal",
+            "allowed_paths",
+            "agents",
+            "spec_fragments",
+            "spec_fragment_warnings",
+            "spec_fragment_truncated",
+            "acceptance_criteria",
+            "stop_condition",
+            "architecture_rules",
+            "checks",
+            "out_of_scope",
+            "code_context",
+            "budget",
+            "agent"
+          ],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "Išvestinė C4 pasekmė: naujas laukas įterptas iš karto po `spec_fragments`, tad viršutinio lygio raktų tvarka pailgėja vienu įrašu."
+        },
+        {
+          "path": "1.pack.spec_fragment_truncated",
+          "op": "add",
+          "value": [],
+          "deviations": [
+            "rag-c4"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C4: kirpimo būsena keliauja SU fragmentu (`spec_fragment_truncated`), o ne atskirame `medium` įspėjimų bloke, kurį budgeter'is išmeta pirmiau už patį fragmentą. Etalone lauko nėra."
+        },
+        {
+          "path": "1.metrics.spec_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        },
+        {
+          "path": "1.metrics.code_context_dropped_count",
+          "op": "add",
+          "value": 0,
+          "deviations": [
+            "rag-c12"
+          ],
+          "reason": "RAG auditas 2026-08-21 / C12: `dropped_item_count` matavo tik graph-selection budgeter'į; retrieval ir code-context kopėčių praradimai neturėjo metrikos. Trys stadijos — trys atskiri skaičiai, kad išliktų priskyrimas."
+        }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@
 // klaidingų teigiamų. Stamp'as atsakymą duoda apie VISĄ build'ą.
 
 import path from "node:path";
+import { DIST_REBUILD_COMMAND } from "../../application/release-readiness/build-gate.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 
 export type StaleDistFile = {
@@ -105,7 +106,7 @@ export function staleDistQuarantineMessage(projectRoot: string, staleFiles: read
     .join("\n");
   return [
     `[${new Date().toISOString()}] DIST STALE — Stop hook absorbed, commit skipped (work left uncommitted for you to resolve).`,
-    "Resume normal commits with: pnpm build",
+    `Resume normal commits with: ${DIST_REBUILD_COMMAND}`,
     "Stale generated files:",
     files,
     "",

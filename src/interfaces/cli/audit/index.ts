@@ -14,3 +14,8 @@ export * from "./security-verify.js";
 export * from "./release-notes.js";
 export * from "./learning.js";
 export * from "./audit-director.js";
+// VQ-601 pirmtakas: paskutiniai trys E5 komandų įėjimai — dist šviežumo vartas ir du
+// release-readiness paviršiai, kurių logika jau gyveno application sluoksnyje be kvietėjo.
+export * from "./build-gate.js";
+export * from "./milestone-check.js";
+export * from "./release-check.js";

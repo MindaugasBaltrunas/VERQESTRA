@@ -330,8 +330,8 @@
       "module": "commands/ (5 gyvi įėjimai)",
       "target": "interfaces",
       "wave": "E5",
-      "status": "pending",
-      "note": "Komandų LOGIKA migruota į interfaces/cli (bootstrap, dispatch, code-intel, architecture, task-queue, admin, audit, github, hooks). LIKO ĮĖJIMAI — bin surišimas per composition/cli-registry. PATIKSLINTA 2026-08-22 (ankstesnė formuluotė teigė, kad eilutę uždaro VQ-50A; ji NEUŽDARĖ): iš 5 gyvų įėjimų surišti quality-gates ir retry-guard, LIKO build-gate, release-check ir milestone-check. release-check ir milestone-check LOGIKA jau yra application/release-readiness — trūksta tik registro eilutės; build-gate bazė yra infrastructure/process/dist-freshness — trūksta renderBuildGateReport ir komandos. claude-loop/run-claude-loop NEMIGRUOJAMI: tai `loop` aliasai, o VERQESTRA registre `loop` yra kanoninis vardas"
+      "status": "migrated",
+      "note": "Komandų LOGIKA migruota į interfaces/cli (bootstrap, dispatch, code-intel, architecture, task-queue, admin, audit, github, hooks). ĮĖJIMAI SURIŠTI (2026-08-22): visos penkios komandos yra registre. PATIKSLINTA 2026-08-22 (ankstesnė formuluotė teigė, kad eilutę uždaro VQ-50A; ji NEUŽDARĖ): iš 5 gyvų įėjimų anksčiau buvo surišti tik quality-gates ir retry-guard. UŽDARYTA: build-gate (NAUJAS application/release-readiness/build-gate — DIST_REBUILD_COMMAND vienas šaltinis su Stop hook karantinu, renderBuildGateReport, BuildGatePorts), release-check ir milestone-check (interfaces/cli/audit + composition/release-check-adapters: pnpm build/test:only runner-iai, README nuorodų vartas, paketo layout vartas, aktyvaus spec change resolveris; milestone release kelyje NEPERLEIDŽIA kokybės vartų — jie ką tik bėgo). NAUJAS nodeFsAdapter.listFilesRecursive (source-state hash-ui). Registre 58 komandos; pasiekiamumą pin-ina interfaces-cli-release-gates.test.ts. claude-loop/run-claude-loop NEMIGRUOJAMI: tai `loop` aliasai, o VERQESTRA registre `loop` yra kanoninis vardas"
     },
     {
       "module": "@ag-loop/benchmark paketas",

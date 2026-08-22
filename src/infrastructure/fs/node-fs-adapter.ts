@@ -127,6 +127,25 @@ export const nodeFsAdapter = {
     }
   },
 
+  /**
+   * Absoliutūs VISŲ failų keliai po katalogu, rūšiuoti; nesantis katalogas — tuščias sąrašas.
+   *
+   * Ėjimas iteratyvus, ne rekursinis: gilus medis rekursijoje pasiektų steko ribą, o čia
+   * gylį riboja tik atmintis. Tvarka deterministinė, nes kvietėjai (source-state hash'as)
+   * iš sąrašo daro TAPATYBĘ — nestabili tvarka duotų kitą hash'ą tam pačiam medžiui.
+   */
+  async listFilesRecursive(absoluteDir: string): Promise<string[]> {
+    const files: string[] = [];
+    const queue = [absoluteDir];
+    while (queue.length > 0) {
+      const dir = queue.shift();
+      if (dir === undefined) continue;
+      for (const name of await nodeFsAdapter.listFiles(dir)) files.push(path.join(dir, name));
+      for (const name of await nodeFsAdapter.listSubdirectories(dir)) queue.push(path.join(dir, name));
+    }
+    return files.sort();
+  },
+
   /** Absoliutūs `.md` keliai, rūšiuoti (BootstrapSpecPorts.listMarkdownFiles kontraktas). */
   async listMarkdownFiles(absoluteDir: string): Promise<string[]> {
     try {

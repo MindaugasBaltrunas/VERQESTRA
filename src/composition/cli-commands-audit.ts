@@ -20,6 +20,18 @@ import { securityVerifyCommand } from "../interfaces/cli/audit/security-verify.j
 import { projectStatusCommand } from "../interfaces/cli/reports/project-status.js";
 import { reportCommand } from "../interfaces/cli/reports/report.js";
 import { agentCommandPorts, gitHeadForProject, policyCommandPorts } from "./node-adapters.js";
+import { buildGateCommand } from "../interfaces/cli/audit/build-gate.js";
+import { milestoneCheckCommand } from "../interfaces/cli/audit/milestone-check.js";
+import { releaseCheckCommand } from "../interfaces/cli/audit/release-check.js";
+import {
+  buildGatePorts,
+  milestoneCheckPorts,
+  milestoneCheckRunners,
+  releaseCheckPorts,
+  releaseCheckRunners,
+  RELEASE_SOURCE_STATE_INPUTS,
+} from "./release-check-adapters.js";
+import { packageRoot } from "./runtime-context.js";
 import { finalAuditPorts } from "./final-audit-adapters.js";
 import { auditDirectorPorts, preflightPorts } from "./quality-adapters.js";
 import {
@@ -213,6 +225,50 @@ export function auditCommands(deps: CliRegistryDeps): CliCommand[] {
             adapterCapabilities: adapterCapabilityViews,
             projectRoot: deps.roots.projectRoot,
             runtimeRoot: deps.roots.runtimeRoot,
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "build-gate",
+      usage: "",
+      description: "Ar sugeneruotas dist atitinka src (hook'ai ir loop vykdo dist)",
+      run: (args) =>
+        buildGateCommand(
+          {
+            ports: buildGatePorts,
+            packageRoot: packageRoot(),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "milestone-check",
+      usage: "",
+      description: "Milestone vartai: kokybė, spec derėjimas, saugumo politika",
+      run: (args) =>
+        milestoneCheckCommand(
+          {
+            ports: milestoneCheckPorts(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            runners: milestoneCheckRunners(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            ...(io === undefined ? {} : { io }),
+          },
+          args,
+        ),
+    },
+    {
+      name: "release-check",
+      usage: "",
+      description: "Išleidimo vartai: build, testai, milestone, dokumentai, paketo forma",
+      run: (args) =>
+        releaseCheckCommand(
+          {
+            ports: releaseCheckPorts(deps.roots.runtimeRoot),
+            runners: releaseCheckRunners(deps.roots.projectRoot, deps.roots.runtimeRoot),
+            projectRoot: deps.roots.projectRoot,
+            sourceStateInputs: RELEASE_SOURCE_STATE_INPUTS,
             ...(io === undefined ? {} : { io }),
           },
           args,

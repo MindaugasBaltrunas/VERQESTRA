@@ -182,6 +182,8 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "optimization-benchmark",
       "github-issue-import",
       "github-pr",
+      "hook-pre-bash",
+      "hook-pre-write",
       "hook-post-bash",
       "hook-post-bash-sync",
       "hook-post-read",

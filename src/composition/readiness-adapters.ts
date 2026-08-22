@@ -152,6 +152,7 @@ export const readinessRequirements: ReadinessRequirements = {
     "src/composition/cli-commands-ops.ts",
     "src/composition/cli-commands-architecture.ts",
     "src/composition/cli-commands-integrations.ts",
+    "src/composition/cli-commands-hooks.ts",
     "src/cli.ts",
   ],
 };

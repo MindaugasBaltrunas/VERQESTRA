@@ -145,11 +145,23 @@ function renderSummary(summary: BenchmarkRunSummary): readonly string[] {
   for (const sample of summary.samples) {
     perMode.set(sample.mode, (perMode.get(sample.mode) ?? 0) + 1);
   }
+  const unmeasured = summary.unmeasured ?? [];
   return [
     `samples: ${summary.samples.length}`,
     ...[...perMode.entries()]
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([mode, count]) => `  ${mode}: ${count}`),
+    // Printed beside the sample count rather than below the fold: a suite that scored badly and a
+    // harness that did not run produce the same sample count, and this is the line that tells a
+    // reader which one they are looking at.
+    ...(unmeasured.length === 0
+      ? []
+      : [
+          `unmeasured: ${unmeasured.length} cell(s) produced no measurement`,
+          ...unmeasured.map(
+            (cell) => `  ${cell.scenarioId} (${cell.mode}, r${cell.repetition}): ${cell.reason}`,
+          ),
+        ]),
     `suite: ${summary.identity.suiteHash}`,
     `environment: ${summary.environment.platform}/${summary.environment.arch}, node ${summary.environment.nodeVersion}`,
   ];
@@ -232,6 +244,19 @@ async function runRun(
   io.out(invocation.json ? asJson(summary) : renderSummary(summary).join("\n"));
   if (summary.samples.length === 0) {
     io.err("the run produced no sample, so it measured nothing");
+    return BENCHMARK_EXIT_CODES.inconclusive;
+  }
+  // A run that lost cells is not a run that succeeded. `ok` means "no gate was violated", and a
+  // plan half of whose cells produced nothing has no verdict to violate one with: the modes are no
+  // longer sampled equally, so every per-mode number is drawn from a population the plan did not
+  // choose. Reporting `ok` here is how a scripted caller — CI above all — records a partial run as
+  // a finished one and compares it against a complete baseline.
+  const unmeasured = summary.unmeasured ?? [];
+  if (unmeasured.length > 0) {
+    io.err(
+      `${unmeasured.length} cell(s) of the plan produced no measurement, ` +
+        `so the ${summary.samples.length} stored sample(s) are not the population the run planned`,
+    );
     return BENCHMARK_EXIT_CODES.inconclusive;
   }
   return BENCHMARK_EXIT_CODES.ok;

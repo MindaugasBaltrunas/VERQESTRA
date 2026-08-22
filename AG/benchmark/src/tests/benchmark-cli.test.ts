@@ -264,6 +264,73 @@ test("a run that produced no sample is inconclusive, not a pass", async () => {
   assert.match(result.err, /measured nothing/);
 });
 
+/**
+ * A partial run is not a pass.
+ *
+ * The field incident: a run stored 6 samples and lost 9 cells, and the CLI exited 0. The cells
+ * were reported through `process.emitWarning` — invisible under `--json`, invisible to any caller
+ * reading the returned summary, and gone from the exit code entirely. A scripted caller therefore
+ * recorded a half-run as a finished one and compared it against a complete baseline.
+ *
+ * `ok` means "no gate was violated". A plan half of whose cells produced nothing has no verdict to
+ * violate one with: the modes are no longer sampled equally, so every per-mode number is drawn
+ * from a population the plan did not choose.
+ */
+test("a run that lost cells is inconclusive, and names every cell it lost", async () => {
+  const summary: BenchmarkRunSummary = {
+    ...summaryOf([validSample()]),
+    unmeasured: [
+      {
+        scenarioId: "bugfix-i18n-missing-key",
+        mode: "ag-loop",
+        repetition: 2,
+        reason: "no-cost-record: process-failed: exited 2",
+      },
+      {
+        scenarioId: "security-log-session-tokens",
+        mode: "agent-solo",
+        repetition: 1,
+        reason: "worktree-refused",
+      },
+    ],
+  };
+
+  const result = await invoke(
+    ["run", "--allow-network"],
+    stubPorts({
+      api: stubApi({ plan: () => Promise.resolve(CLEAN_PLAN), run: () => Promise.resolve(summary) }),
+    }),
+  );
+
+  assert.equal(result.code, BENCHMARK_EXIT_CODES.inconclusive, "exit 0 would report a half-run as finished");
+  assert.match(result.out, /unmeasured: 2 cell\(s\)/);
+  // Named, not counted: a caller has to be able to say WHICH cells are missing (BENCH-5).
+  assert.match(result.out, /bugfix-i18n-missing-key \(ag-loop, r2\): no-cost-record/);
+  assert.match(result.out, /security-log-session-tokens \(agent-solo, r1\): worktree-refused/);
+  assert.match(result.err, /not the population the run planned/);
+});
+
+test("the lost cells survive --json, where a warning never could", async () => {
+  const summary: BenchmarkRunSummary = {
+    ...summaryOf([validSample()]),
+    unmeasured: [
+      { scenarioId: "code-task-tags", mode: "ag-loop", repetition: 3, reason: "adapter-threw" },
+    ],
+  };
+
+  const result = await invoke(
+    ["run", "--allow-network", "--json"],
+    stubPorts({
+      api: stubApi({ plan: () => Promise.resolve(CLEAN_PLAN), run: () => Promise.resolve(summary) }),
+    }),
+  );
+
+  const parsed = JSON.parse(result.out) as BenchmarkRunSummary;
+  assert.equal(parsed.unmeasured?.length, 1, "machine-readable output is the only thing CI reads");
+  assert.equal(parsed.unmeasured?.[0]?.scenarioId, "code-task-tags");
+  assert.equal(result.code, BENCHMARK_EXIT_CODES.inconclusive);
+});
+
 // ---------------------------------------------------------------------------
 // compare, report
 // ---------------------------------------------------------------------------

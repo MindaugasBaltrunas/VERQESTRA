@@ -572,11 +572,16 @@ function createComposition(options: BenchmarkCliCompositionOptions) {
                 .join("\n"),
           );
         }
-        return summarizeSamples(
-          outcome.samples,
-          described.identity,
-          described.environment.environment,
-        );
+        // The unmeasured cells travel WITH the summary, not only in a warning. A warning is a
+        // side effect on this process's stderr: `--json` never carries it, a caller reading the
+        // returned object never sees it, and a partial run therefore reads as a complete one —
+        // which is exactly the confusion `BenchmarkRunSummary.unmeasured` was declared to prevent
+        // (BENCH-5). `summarizeSamples` cannot supply the field: it describes stored samples, and
+        // a cell that produced nothing left none.
+        return {
+          ...summarizeSamples(outcome.samples, described.identity, described.environment.environment),
+          ...(outcome.unmeasured.length === 0 ? {} : { unmeasured: outcome.unmeasured }),
+        };
       } finally {
         // Reported rather than thrown: a run's numbers are not less true because
         // its scratch directory outlived it, and a crash deliberately keeps its

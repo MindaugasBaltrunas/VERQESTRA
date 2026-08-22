@@ -471,7 +471,11 @@ export class ProcessExecutionAdapter implements AgentExecutionPort {
     if (result.timedOut) {
       return executionFailure(
         EXECUTION_FAILURE_CODES.timeout,
-        `the agent was killed after the scenario's ${plan.limits.timeoutMs} ms limit`,
+        result.treeAbandoned
+          ? `the agent was killed after the scenario's ${plan.limits.timeoutMs} ms limit, ` +
+            "but its process tree was never confirmed gone; a process from this cell may still " +
+            "be running and spending, so what it cost is a lower bound"
+          : `the agent was killed after the scenario's ${plan.limits.timeoutMs} ms limit`,
       );
     }
     if (result.exitCode !== 0 || result.signal !== null) {

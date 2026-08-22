@@ -108,6 +108,58 @@ test("a timed-out sample's whole process tree is confirmed dead, grandchild incl
   );
 });
 
+/**
+ * The bound the timeout itself needs.
+ *
+ * `close` used to be the only event that could settle a run, which made the whole timeout
+ * conditional on the kill working: on Windows `taskkill` was launched fire-and-forget with its
+ * error discarded, so a kill that did not take produced no exit to observe and the promise waited
+ * forever — with the suite behind it, and in the worst case a paid child still running. This test
+ * hung for over two minutes in exactly that way before there was a deadline.
+ *
+ * The number is the sum this module states: the sample's own timeout, the grace period before the
+ * unconditional kill, the tree verification, and the deadline after it — plus room for a slow
+ * host. What it pins is that the wait is a number at all.
+ */
+const SETTLE_CEILING_MS = 45_000;
+
+test("a kill that does not take still settles: the timeout has a deadline of its own", async (t) => {
+  const dir = await scratchDir(t);
+  const pidFile = path.join(dir, "grandchild.pid");
+  const started = performance.now();
+
+  const result = await new NodeAgentProcessRunner().run({
+    command: process.execPath,
+    args: ["-e", SPAWNS_A_GRANDCHILD_AND_IGNORES_SIGTERM],
+    cwd: packageRoot,
+    timeoutMs: TIMEOUT_MS,
+    env: { GRANDCHILD_PID_FILE: pidFile },
+    stdin: "",
+  });
+
+  const elapsed = performance.now() - started;
+  assert.ok(
+    elapsed < SETTLE_CEILING_MS,
+    `the run took ${String(Math.round(elapsed))}ms to settle; a timeout without a deadline is not a timeout`,
+  );
+  assert.equal(result.timedOut, true);
+  // `treeAbandoned` is the honest half. Whether the kill took on this host is the host's business;
+  // what may never happen is reporting an unconfirmed tree as an ordinary bounded run, because the
+  // process behind it may still be spending.
+  assert.equal(
+    typeof result.treeAbandoned,
+    "boolean",
+    "a run that killed a tree must say whether the tree was confirmed gone",
+  );
+  if (result.treeAbandoned) {
+    assert.match(
+      result.stderr,
+      /process tree was not confirmed gone/,
+      "an abandoned tree must be legible in the sample, not only in a boolean",
+    );
+  }
+});
+
 test("a happy path that never times out is unaffected: no tree-kill, no extra wait", async (t) => {
   const dir = await scratchDir(t);
   const started = performance.now();

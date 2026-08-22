@@ -23,6 +23,20 @@ const MAX_STREAM_BYTES = 8 * 1024 * 1024;
 /** A process that ignored the kill gets this long before it is killed unconditionally. */
 const KILL_GRACE_MS = 5_000;
 
+/** One `taskkill` invocation's own bound. A kill that hangs is not a kill. */
+const TASKKILL_TIMEOUT_MS = 5_000;
+
+/**
+ * How long the runner waits for the child's `close` AFTER the tree-kill has finished.
+ *
+ * `close` is the only event that used to settle a run, which made it a single point of failure:
+ * if the kill did not take, no `close` ever arrived and the promise waited forever — with the
+ * caller blocked and, in the worst case, a paid child still running. Past this the runner reports
+ * what it has and marks the tree abandoned. Generous enough that a tree which really is dying
+ * settles the normal way, short enough that a hung suite is a minute, not a morning.
+ */
+const CLOSE_AFTER_KILL_TIMEOUT_MS = 10_000;
+
 /**
  * The host variables a child needs merely to start: an interpreter to find, a
  * temporary directory to use, a stable locale to report in. Everything beyond
@@ -91,11 +105,13 @@ function isPidAlive(pid: number): boolean {
 }
 
 /** Polls `stillAlive` until it turns false or `timeoutMs` has passed. Never throws. */
-async function waitUntilGone(stillAlive: () => boolean, timeoutMs: number): Promise<void> {
+/** True when the tree was observed gone; false when the bound elapsed with something still alive. */
+async function waitUntilGone(stillAlive: () => boolean, timeoutMs: number): Promise<boolean> {
   const deadline = performance.now() + timeoutMs;
   while (stillAlive() && performance.now() < deadline) {
     await delay(TREE_VERIFY_POLL_MS);
   }
+  return !stillAlive();
 }
 
 /**
@@ -148,13 +164,32 @@ async function windowsProcessTree(rootPid: number): Promise<readonly number[]> {
   });
 }
 
-/** `taskkill /T /F` against one pid. Nothing here throws — a pid already gone is not a failure. */
-function taskkillOne(pid: number): void {
-  try {
-    execFile("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => undefined);
-  } catch {
-    // Already reaped: there is nothing left to end.
-  }
+/**
+ * `taskkill /T /F` against one pid, awaited and bounded.
+ *
+ * Awaited, because fire-and-forget made the verification below meaningless: the poll for a gone
+ * tree could start — and finish — before `taskkill` had run at all, so a kill that never took
+ * looked the same as one that did. Bounded, because `taskkill` itself can hang, and an unbounded
+ * kill inside a timeout handler is the failure the timeout was supposed to end.
+ *
+ * Never rejects: a pid already gone, a `taskkill` that is not installed, a call that timed out —
+ * none of them is a run that failed. Each is reported as "not confirmed", which the caller then
+ * has to carry rather than assume away.
+ */
+function taskkillOne(pid: number): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        "taskkill",
+        ["/pid", String(pid), "/T", "/F"],
+        { windowsHide: true, timeout: TASKKILL_TIMEOUT_MS },
+        () => resolve(),
+      );
+    } catch {
+      // Already reaped: there is nothing left to end.
+      resolve();
+    }
+  });
 }
 
 /**
@@ -173,7 +208,7 @@ function taskkillOne(pid: number): void {
  * installed, a pid the platform no longer knows — none of them is a run that
  * failed, and the `close` handler still reports `timedOut`.
  */
-async function endProcessTree(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
+async function endProcessTree(child: ChildProcess, signal: NodeJS.Signals): Promise<boolean> {
   const pid = child.pid;
   if (pid === undefined) {
     try {
@@ -181,14 +216,16 @@ async function endProcessTree(child: ChildProcess, signal: NodeJS.Signals): Prom
     } catch {
       // Already reaped: there is nothing left to end.
     }
-    return;
+    return true;
   }
 
   if (IS_WINDOWS) {
     const tree = await windowsProcessTree(pid);
-    for (const treePid of tree) taskkillOne(treePid);
-    await waitUntilGone(() => tree.some(isPidAlive), TREE_VERIFY_TIMEOUT_MS);
-    return;
+    // Sequentially and awaited: the verification below is only worth running once every kill has
+    // actually been attempted. In parallel a slow enumeration would still be fine, but a bounded
+    // sequence keeps the worst case a number this module states rather than one it discovers.
+    for (const treePid of tree) await taskkillOne(treePid);
+    return await waitUntilGone(() => tree.some(isPidAlive), TREE_VERIFY_TIMEOUT_MS);
   }
 
   try {
@@ -201,9 +238,9 @@ async function endProcessTree(child: ChildProcess, signal: NodeJS.Signals): Prom
     } catch {
       // Already reaped: there is nothing left to end.
     }
-    return;
+    return true;
   }
-  await waitUntilGone(() => {
+  return await waitUntilGone(() => {
     try {
       // Signal 0 to the group: throws once every member has exited.
       process.kill(-pid, 0);
@@ -320,16 +357,69 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
       // The most recent (or only) tree-kill in flight; `close` waits on whichever
       // this holds at the moment it fires, so a timeout never reports itself
       // resolved before the tree it killed is confirmed gone.
-      let pendingKill: Promise<void> = Promise.resolve();
+      let pendingKill: Promise<boolean> = Promise.resolve(true);
 
       let forceKillTimer: NodeJS.Timeout | undefined;
+      let abandonTimer: NodeJS.Timeout | undefined;
+
+      /**
+       * Settles the run without a `close`, once the kill has had its full chance.
+       *
+       * `close` used to be the only path out of this promise, which made the whole timeout
+       * conditional on the kill working: a `taskkill` that did not take left no exit to observe,
+       * and the promise — with the caller and the suite behind it — waited forever. The deadline
+       * makes the timeout mean what it says. What it cannot do is make the child gone, so the
+       * result carries `treeAbandoned` rather than passing this off as an ordinary timeout.
+       */
+      const abandon = (): void => {
+        if (settled) return;
+        settled = true;
+        stopTimers();
+        child.removeAllListeners("close");
+        child.removeAllListeners("error");
+        // Detaching from the promise is only half of it. A live child and its open pipes are
+        // handles on THIS process's event loop, so a surviving tree keeps the runner — and the
+        // whole `node --test` suite behind it — from ever exiting, long after the run it belonged
+        // to was reported. That is the shape the hang actually took: not a test that ran slowly,
+        // but a suite that could not finish.
+        childStdout.destroy();
+        childStderr.destroy();
+        childStdin.destroy();
+        child.unref();
+        // The child is detached from this promise but not from the machine. Saying so on the
+        // run's own stderr is the only place a reader of the sample will look.
+        stderr.append(
+          `\n[harness] the process tree was not confirmed gone within ` +
+            `${String(CLOSE_AFTER_KILL_TIMEOUT_MS)}ms of the kill; pid ${String(child.pid ?? -1)} ` +
+            `may still be running and may still be spending.\n`,
+        );
+        resolve({
+          exitCode: null,
+          signal: null,
+          stdout: stdout.text(),
+          stderr: redactSecrets(stderr.text()),
+          timedOut,
+          outputTruncated: stdout.truncated || stderr.truncated,
+          treeAbandoned: true,
+        });
+      };
+
+      /** Starts the abandon deadline once, when a kill has finished without producing an exit. */
+      const armAbandonDeadline = (): void => {
+        if (settled || abandonTimer !== undefined) return;
+        abandonTimer = setTimeout(abandon, CLOSE_AFTER_KILL_TIMEOUT_MS);
+        abandonTimer.unref();
+      };
+
       const killTimer = setTimeout(() => {
         timedOut = true;
         pendingKill = endProcessTree(child, "SIGTERM");
+        void pendingKill.then(armAbandonDeadline, armAbandonDeadline);
         // A child that ignores the polite signal must not outlive the sample it
         // belongs to; the grace period is the only chance it gets to flush.
         forceKillTimer = setTimeout(() => {
           pendingKill = endProcessTree(child, "SIGKILL");
+          void pendingKill.then(armAbandonDeadline, armAbandonDeadline);
         }, KILL_GRACE_MS);
         forceKillTimer.unref();
       }, spec.timeoutMs);
@@ -338,6 +428,7 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
       const stopTimers = (): void => {
         clearTimeout(killTimer);
         if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
+        if (abandonTimer !== undefined) clearTimeout(abandonTimer);
       };
 
       childStdout.setEncoding("utf8");
@@ -356,7 +447,7 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
         if (settled) return;
         settled = true;
         stopTimers();
-        const finish = (): void => {
+        const finish = (confirmedGone: boolean): void => {
           resolve({
             exitCode,
             signal,
@@ -366,14 +457,17 @@ export class NodeAgentProcessRunner implements AgentProcessPort {
             stderr: redactSecrets(stderr.text()),
             timedOut,
             outputTruncated: stdout.truncated || stderr.truncated,
+            // The child's own exit says nothing about the grandchildren it started, and those are
+            // the processes that keep calling a paid model. Only the verification does.
+            treeAbandoned: !confirmedGone,
           });
         };
         // Only a timeout ever starts a tree-kill, so only a timeout waits for one:
         // the happy path resolves exactly as fast as it always did.
         if (timedOut) {
-          pendingKill.then(finish, finish);
+          pendingKill.then(finish, () => finish(false));
         } else {
-          finish();
+          finish(true);
         }
       });
 

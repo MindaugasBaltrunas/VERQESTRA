@@ -8,6 +8,21 @@ import {
   type MetricValue,
   type UnmeasuredCause,
 } from "./metric-value.js";
+import { billableTokens, cacheReadTokens, type TokenCostTerms } from "./token-cost.js";
+
+/** The token terms of one sample, gathered from the two blocks that carry them. */
+function costTermsOf(sample: BenchmarkSample): TokenCostTerms {
+  return {
+    inputTokens: sample.telemetry.inputTokens,
+    outputTokens: sample.telemetry.outputTokens,
+    ...(sample.usage === undefined
+      ? {}
+      : {
+          cacheReadInputTokens: sample.usage.cacheReadInputTokens,
+          cacheCreationInputTokens: sample.usage.cacheCreationInputTokens,
+        }),
+  };
+}
 
 /**
  * Benchmark aggregation (BENCH-7).
@@ -191,11 +206,7 @@ function hasFailedCheckOfKind(sample: BenchmarkSample, kind: CheckKind): boolean
  * same illustrative numbers, and each test names its counterparts.
  */
 function sampleBillableTokens(sample: BenchmarkSample): number {
-  return (
-    sample.telemetry.inputTokens +
-    sample.telemetry.outputTokens +
-    (sample.usage?.cacheCreationInputTokens ?? 0)
-  );
+  return billableTokens(costTermsOf(sample));
 }
 
 /**
@@ -207,7 +218,7 @@ function sampleBillableTokens(sample: BenchmarkSample): number {
  * its volume here, and a comparison that never shows the column cannot be read as a cost claim.
  */
 function sampleCacheReadTokens(sample: BenchmarkSample): number {
-  return sample.usage?.cacheReadInputTokens ?? 0;
+  return cacheReadTokens(costTermsOf(sample));
 }
 
 /**

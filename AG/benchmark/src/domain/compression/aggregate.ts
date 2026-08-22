@@ -10,6 +10,12 @@ import {
   type MetricValue,
   type UnmeasuredCause,
 } from "../metrics/metric-value.js";
+import {
+  billableTokens,
+  cacheReadTokens,
+  totalTokens,
+  type TokenCostTerms,
+} from "../metrics/token-cost.js";
 import type { BenchmarkSample, SampleCompressionDiagnostics } from "../result.js";
 import type { CompressionVariant } from "./variant.js";
 
@@ -150,28 +156,39 @@ function hasCapturedUsage(sample: BenchmarkSample): boolean {
   return sample.usage?.captured === true;
 }
 
+/** The token terms of one sample, gathered from the two blocks that carry them. */
+function costTermsOf(sample: BenchmarkSample): TokenCostTerms {
+  return {
+    inputTokens: sample.telemetry.inputTokens,
+    outputTokens: sample.telemetry.outputTokens,
+    ...(sample.usage === undefined
+      ? {}
+      : {
+          cacheReadInputTokens: sample.usage.cacheReadInputTokens,
+          cacheCreationInputTokens: sample.usage.cacheCreationInputTokens,
+        }),
+  };
+}
+
 /** `telemetry` holds what the model was billed for; `usage` holds what the cache absorbed. */
 function sampleTotalTokens(sample: BenchmarkSample): number {
-  return (
-    sample.telemetry.inputTokens +
-    sample.telemetry.outputTokens +
-    (sample.usage?.cacheReadInputTokens ?? 0) +
-    (sample.usage?.cacheCreationInputTokens ?? 0)
-  );
+  return totalTokens(costTermsOf(sample));
 }
 
 /**
  * What one sample cost, on the same basis the live orchestrator bills at.
  *
- * Cache *reads* are excluded and cache *creation* is not: writing a prefix into
- * the cache is charged like input, re-reading it is charged at a fraction. The formula is
- * restated here rather than imported — BENCH-1 forbids this package from reaching into
- * orchestrator internals.
+ * The arithmetic itself lives in `domain/metrics/token-cost.ts`, shared with the mode aggregate,
+ * the per-scenario distributions and the adapter's token limit. It used to be restated in each of
+ * them, and that is precisely how `input + output` survived in one fold after being corrected in
+ * another: the terms are cheap to retype and the disagreement is invisible until two reports
+ * differ. What BENCH-1 forbids is importing the *orchestrator's* copy, not sharing this package's.
  *
- * ## What actually protects the pair
+ * ## What protects the pair that must stay restated
  *
- * Two tests, one on each side, pinning the SAME arithmetic on the same illustrative numbers
- * (140 input + 50 output + 10 cache creation = 200):
+ * The orchestrator computes the same quantity and cannot be imported. Two tests, one on each side,
+ * pin the SAME arithmetic on the same illustrative numbers (140 input + 50 output + 10 cache
+ * creation = 200):
  *
  * - here: `tests/compression-aggregate.test.ts`, "the restated formula matches the orchestrator";
  * - there: `src/tests/analytics-cohorts.test.ts`, "summarizeUsageByTask: billable be cache_read".
@@ -186,11 +203,7 @@ function sampleTotalTokens(sample: BenchmarkSample): number {
  * exist is worse than no comment: it is the reason nobody goes looking for the real one.
  */
 export function sampleBillableTokens(sample: BenchmarkSample): number {
-  return (
-    sample.telemetry.inputTokens +
-    sample.telemetry.outputTokens +
-    (sample.usage?.cacheCreationInputTokens ?? 0)
-  );
+  return billableTokens(costTermsOf(sample));
 }
 
 function sampleNonCachedTokens(sample: BenchmarkSample): number {
@@ -384,7 +397,7 @@ export function aggregateCompressionSamples(
         refusal,
         conclusive.length,
         emptyCause,
-        (sample) => sample.usage?.cacheReadInputTokens ?? 0,
+        (sample) => cacheReadTokens(costTermsOf(sample)),
       ),
       cacheCreationTokens: usageTotal(
         conclusive,

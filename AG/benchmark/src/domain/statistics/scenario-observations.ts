@@ -1,3 +1,8 @@
+import {
+  billableTokens,
+  cacheReadTokens,
+  type TokenCostTerms,
+} from "../metrics/token-cost.js";
 import type { BenchmarkSample } from "../result.js";
 import type { DistributionStatistics } from "../verdict.js";
 import { DISTRIBUTION_REFUSAL_REASONS, summarizeDistribution } from "./distribution.js";
@@ -121,6 +126,20 @@ function countOf(samples: readonly BenchmarkSample[], holds: (sample: BenchmarkS
   return samples.reduce((count, sample) => (holds(sample) ? count + 1 : count), 0);
 }
 
+/** The token terms of one sample, gathered from the two blocks that carry them. */
+function costTermsOf(sample: BenchmarkSample): TokenCostTerms {
+  return {
+    inputTokens: sample.telemetry.inputTokens,
+    outputTokens: sample.telemetry.outputTokens,
+    ...(sample.usage === undefined
+      ? {}
+      : {
+          cacheReadInputTokens: sample.usage.cacheReadInputTokens,
+          cacheCreationInputTokens: sample.usage.cacheCreationInputTokens,
+        }),
+  };
+}
+
 /**
  * The number one sample contributes to the distribution. Every quantity is what the adapter
  * reported, never an estimate — and `billableTokens` is the same arithmetic
@@ -130,13 +149,9 @@ function countOf(samples: readonly BenchmarkSample[], holds: (sample: BenchmarkS
 function measureOf(sample: BenchmarkSample, measure: ScenarioMeasureKey): number {
   switch (measure) {
     case "billableTokens":
-      return (
-        sample.telemetry.inputTokens +
-        sample.telemetry.outputTokens +
-        (sample.usage?.cacheCreationInputTokens ?? 0)
-      );
+      return billableTokens(costTermsOf(sample));
     case "cacheReadTokens":
-      return sample.usage?.cacheReadInputTokens ?? 0;
+      return cacheReadTokens(costTermsOf(sample));
     case "durationMs":
       return sample.durationMs;
     case "llmCalls":

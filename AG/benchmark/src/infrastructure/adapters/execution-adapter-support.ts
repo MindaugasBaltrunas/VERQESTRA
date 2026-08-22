@@ -24,6 +24,7 @@ import type {
   SampleTelemetry,
   SampleUsageRecord,
 } from "../../domain/result.js";
+import { billableTokens } from "../../domain/metrics/token-cost.js";
 import type { ValidationProblem, ValidationResult } from "../../domain/validation.js";
 
 /**
@@ -512,10 +513,11 @@ export class ProcessExecutionAdapter implements AgentExecutionPort {
 /**
  * What one execution spent, on the basis the scenario's `tokenLimit` bounds.
  *
- * `input + output + cacheCreation` — the same quantity
- * `domain/compression/aggregate.ts` calls billable and publishes as the primary cost KPI. A
- * limit and an objective that measure different things would let a cell pass the gate and then
- * dominate the report, which is the one contradiction a bound must not have.
+ * `input + output + cacheCreation`, computed by `domain/metrics/token-cost.ts` — the one
+ * definition the mode aggregate, the compression KPI and the per-scenario distributions also
+ * fold. A limit and an objective that measure different things would let a cell pass the gate
+ * and then dominate the report, which is the one contradiction a bound must not have, and a
+ * restated formula is how that contradiction gets reintroduced without anybody choosing it.
  *
  * ## Why the cache read is not in this sum
  *
@@ -538,7 +540,13 @@ export class ProcessExecutionAdapter implements AgentExecutionPort {
 function billableTokensOf(reading: TelemetryEnvelopeReading): number {
   const telemetry = reading.telemetry;
   if (telemetry === undefined) return 0;
-  return telemetry.inputTokens + telemetry.outputTokens + (reading.usage?.cacheCreationInputTokens ?? 0);
+  return billableTokens({
+    inputTokens: telemetry.inputTokens,
+    outputTokens: telemetry.outputTokens,
+    ...(reading.usage === undefined
+      ? {}
+      : { cacheCreationInputTokens: reading.usage.cacheCreationInputTokens }),
+  });
 }
 
 /**

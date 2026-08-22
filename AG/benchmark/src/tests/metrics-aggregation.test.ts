@@ -13,6 +13,11 @@ import {
   type BenchmarkMetricsReport,
   type CostMetricKey,
 } from "../domain/metrics/aggregate.js";
+import {
+  billableTokens,
+  cacheReadTokens,
+  totalTokens,
+} from "../domain/metrics/token-cost.js";
 import type { MetricValue, UnmeasuredReason } from "../domain/metrics/metric-value.js";
 import { isMeasured, UNMEASURED_REASONS } from "../domain/metrics/metric-value.js";
 import type {
@@ -847,4 +852,23 @@ test("an absent usage block is not a broken one", () => {
   const report = aggregateSamples([sample({ inputTokens: 100, outputTokens: 100 })]);
   assert.equal(report.perVerifiedAcceptedChange.billableTokens.value, 200);
   assert.equal(report.perVerifiedAcceptedChange.cacheReadTokens.value, 0);
+});
+
+test("one definition of the bill, not four spellings of it", () => {
+  // The reason this test exists: `input + output` survived in the mode fold for months after the
+  // compression fold had been corrected, because each restated the arithmetic. The folds now read
+  // one function, and a caller that starts restating it again is what this assertion catches.
+  const terms = { inputTokens: 140, outputTokens: 50, cacheCreationInputTokens: 10 } as const;
+  assert.equal(billableTokens(terms), 200);
+  assert.equal(cacheReadTokens({ ...terms, cacheReadInputTokens: 9_000 }), 9_000);
+  assert.equal(totalTokens({ ...terms, cacheReadInputTokens: 9_000 }), 9_200);
+
+  const report = aggregateSamples([
+    sample({ inputTokens: 140, outputTokens: 50, cacheCreationInputTokens: 10 }),
+  ]);
+  assert.equal(
+    report.perVerifiedAcceptedChange.billableTokens.value,
+    billableTokens(terms),
+    "the mode fold and the shared definition are the same number by construction",
+  );
 });

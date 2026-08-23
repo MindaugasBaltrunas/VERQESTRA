@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { integrationGatePort, preflightFailureMemoPort } from "../composition/coordinator-optional-adapters.js";
+import { integrationGatePort, preflightFailureMemoPort } from "../composition/loop/coordinator-optional-adapters.js";
 import { PolicyConfigError } from "../shared/errors.js";
 
 async function workspace(): Promise<{ projectRoot: string; runtimeRoot: string }> {

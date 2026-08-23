@@ -13,7 +13,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { benchmarkLoopCellPorts } from "../composition/integration-adapters.js";
+import { benchmarkLoopCellPorts } from "../composition/runtime/integration-adapters.js";
 
 let workdir = "";
 let originalCwd = "";

@@ -14,8 +14,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { buildCliCommands } from "../composition/cli-registry.js";
-import { resolveRuntimeRoots } from "../composition/runtime-context.js";
+import { buildCliCommands } from "../composition/cli/registry.js";
+import { resolveRuntimeRoots } from "../composition/runtime/context.js";
 
 /** Claude Code hook įvykiai, kuriuos šis produktas naudoja. Trūkstamas įvykis = neveikiantis vartas. */
 const REQUIRED_EVENTS = [

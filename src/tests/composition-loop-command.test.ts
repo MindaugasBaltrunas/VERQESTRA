@@ -10,7 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { buildLoopCyclePorts, type LoopCommandDeps } from "../composition/loop-command.js";
+import { buildLoopCyclePorts, type LoopCommandDeps } from "../composition/loop/command.js";
 import type { EmptyQueuePorts } from "../application/scheduling/loop-empty-queue.js";
 
 async function deps(): Promise<{ deps: LoopCommandDeps; root: string }> {

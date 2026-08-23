@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { uiRouterPorts } from "../composition/ui-router-adapters.js";
+import { uiRouterPorts } from "../composition/ui/router-adapters.js";
 import { createWorkerLease, workerLeaseFile } from "../application/scheduling/worker-lease-store.js";
 import { TaskAuthorityError } from "../interfaces/http/ui-task-actions.js";
 

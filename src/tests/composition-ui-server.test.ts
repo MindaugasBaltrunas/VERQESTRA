@@ -10,7 +10,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { SseHub } from "../interfaces/http/sse-service.js";
 import type { UiRouteResponse } from "../interfaces/http/ui-router.js";
-import { UI_BUILD_COMMAND, UI_MAX_REQUEST_BODY_BYTES, createUiServer, listenUiServer } from "../composition/ui-server.js";
+import { UI_BUILD_COMMAND, UI_MAX_REQUEST_BODY_BYTES, createUiServer, listenUiServer } from "../composition/ui/server.js";
 
 /** Hub'o pakaitalas: kiautui rūpi tik tai, kad klientas jam perduodamas. */
 function fakeHub(): { hub: SseHub; clients: number } {

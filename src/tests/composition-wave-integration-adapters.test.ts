@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { createWaveIntegrationAdapters } from "../composition/wave-integration-adapters.js";
+import { createWaveIntegrationAdapters } from "../composition/loop/wave-integration-adapters.js";
 import type { TaskStateStorePort } from "../application/task-execution/bucket-transition.js";
 
 let root = "";

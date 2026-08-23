@@ -16,7 +16,7 @@ import {
 import { buildGateCommand } from "../interfaces/cli/audit/build-gate.js";
 import { milestoneCheckCommand } from "../interfaces/cli/audit/milestone-check.js";
 import { releaseCheckCommand } from "../interfaces/cli/audit/release-check.js";
-import { buildCliCommands } from "../composition/cli-registry.js";
+import { buildCliCommands } from "../composition/cli/registry.js";
 import type { MilestoneCheckPorts, MilestoneCheckRunners } from "../application/release-readiness/milestone-check.js";
 import type { ReleaseCheckPorts, ReleaseCheckRunners } from "../application/release-readiness/release-check.js";
 import type { SecurityVerifyResult } from "../application/quality-gates/security-verify.js";

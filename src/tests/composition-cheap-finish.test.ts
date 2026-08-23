@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { cheapFinishPort, createCheapFinishEnvOverlay } from "../composition/cheap-finish-adapters.js";
+import { cheapFinishPort, createCheapFinishEnvOverlay } from "../composition/quality/cheap-finish-adapters.js";
 
 async function workspace(): Promise<{ projectRoot: string; runtimeRoot: string }> {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "vq-504-cheap-"));

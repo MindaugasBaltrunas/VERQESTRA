@@ -15,8 +15,8 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { runCli } from "../composition/cli-main.js";
-import { buildCliCommands } from "../composition/cli-registry.js";
+import { runCli } from "../composition/cli/main.js";
+import { buildCliCommands } from "../composition/cli/registry.js";
 import type { CliIo } from "../interfaces/cli/registry.js";
 
 type ExitContractCase = {

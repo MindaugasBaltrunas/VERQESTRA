@@ -16,7 +16,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { codeIntelligenceFs } from "../composition/node-adapters.js";
+import { codeIntelligenceFs } from "../composition/runtime/node-adapters.js";
 
 /**
  * Katalogo nuoroda, kurią pavyksta sukurti be papildomų teisių.

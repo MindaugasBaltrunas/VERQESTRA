@@ -6,9 +6,9 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
-import { CLI_VERSION, runCli } from "../composition/cli-main.js";
-import { buildCliCommands, renderCliHelp } from "../composition/cli-registry.js";
-import { PROJECT_DIR_ENV, resolveRuntimeRoots } from "../composition/runtime-context.js";
+import { CLI_VERSION, runCli } from "../composition/cli/main.js";
+import { buildCliCommands, renderCliHelp } from "../composition/cli/registry.js";
+import { PROJECT_DIR_ENV, resolveRuntimeRoots } from "../composition/runtime/context.js";
 import type { CliCommand, CliIo } from "../interfaces/cli/registry.js";
 import { INFRASTRUCTURE_IO_EXIT_CODE, USAGE_ERROR_EXIT_CODE } from "../shared/exit-codes.js";
 

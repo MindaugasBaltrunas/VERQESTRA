@@ -12,8 +12,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCliCommands } from "../composition/cli-registry.js";
-import { resolveRuntimeRoots } from "../composition/runtime-context.js";
+import { buildCliCommands } from "../composition/cli/registry.js";
+import { resolveRuntimeRoots } from "../composition/runtime/context.js";
 import { POST_WRITE_GUARDS } from "../interfaces/hooks/post-write-guards.js";
 import * as hooks from "../interfaces/hooks/index.js";
 

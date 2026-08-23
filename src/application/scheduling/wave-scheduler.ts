@@ -138,7 +138,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
   // tam pačiam sprendimui.
   let waveBudget: ReadySetBudget | undefined;
   // Kodėl kanoninio grafo nėra. `undefined` = grafas yra; eilutė = importas lūžo, ir tada NĖ VIENO
-  // task'o leidimo įrodyti neįmanoma (žr. `blockWaveWithoutGraph`).
+  // task'o leidimo įrodyti neįmanoma (žr. `planWaveWithoutGraph`).
   let graphUnavailableReason: string | undefined;
   /**
    * Planavimo įėjimas — VIENA vieta, kad įprastas ir resume keliai negalėtų išsiskirti. Grafas

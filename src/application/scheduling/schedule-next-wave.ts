@@ -74,7 +74,7 @@ export type WaveBlockedReason =
   | "dependency-cycle"
   /**
    * Kanoninio grafo perskaityti nepavyko, tad NĖ VIENO task'o leidimo įrodyti neįmanoma
-   * (žr. `apply-ready-set-gates#blockWaveWithoutGraph`). Atskiras nuo `gate:` priežasčių:
+   * (žr. `apply-ready-set-gates#planWaveWithoutGraph`). Atskiras nuo `gate:` priežasčių:
    * ten grafas pasakė „ne", o čia jis apskritai nieko nepasakė.
    */
   | "gate:graph-unavailable"
@@ -123,16 +123,19 @@ export type WavePlan = {
   ready: WaveReadyTask[];
   blocked: WaveBlockedTask[];
   /**
-   * Priklausomybės, kurių atitikmens NĖRA kandidatų rinkinyje. Laikomos įvykdytomis už
-   * bangos ribų (task'as, kuris jau paliko eilę), bet fiksuojamos snapshot'e, kad
-   * „missing dependency" liktų matomas diagnostikai (spec DAG-1).
+   * Nuorodos, kurių kanoniniame grafe išspręsti nepavyko: jų mazgo nėra arba prefiksas
+   * dviprasmiškas.
+   *
+   * Jos NĖRA laikomos įvykdytomis (taip buvo iki 2026-08-23 suvienodinimo) — task'as jų LAUKIA,
+   * o šis laukas lieka kaip diagnostika, kad „missing dependency" būtų matomas snapshot'e
+   * (spec DAG-1), o ne tik paslėptas `waiting_for` sąraše.
    */
   external_dependencies: string[];
   /** Aptikti ciklai; kiekvienas — surūšiuotas dalyvių ID rinkinys. */
   cycles: string[][];
   /**
    * Kodėl kanoninio grafo nebuvo, kai jis privalėjo būti. Užpildoma TIK fail-closed kelyje
-   * (`blockWaveWithoutGraph`), tad jos buvimas pats savaime yra „banga sustabdyta be verdikto".
+   * (`planWaveWithoutGraph`), tad jos buvimas pats savaime yra „banga sustabdyta be verdikto".
    */
   graph_unavailable_reason?: string;
 };
@@ -282,13 +285,18 @@ function resolveNodesFromGraph(
 }
 
 /**
- * Sudaro kitą bangą iš tuo metu prieinamo ready set'o.
+ * Sudaro kitą bangą iš KANONINIO grafo.
  *
- * Priklausomybė laikoma įvykdyta, kai ji nurodo į `completedTaskIds` įrašą, ARBA jos
- * atitikmens nėra kandidatų rinkinyje IR ji nepatenka į blokuotą šaką (eilėje nesantis
- * blokatorius beveik visada jau užbaigtas; „missing" faktas fiksuojamas
- * `external_dependencies` lauke). Blokuota šaka nustelbia viską — nei pats blokatorius,
- * nei jo priklausiniai į ready set'ą nepatenka.
+ * Priklausomybė laikoma įvykdyta TIK tada, kai blokatoriaus efektyvus statusas yra priimtas
+ * darbas (`completedTaskIds` arba grafo `done`). Neišsprendžiama arba dviprasmiška nuoroda
+ * NĖRA įvykdyta — ji laukiama ir fiksuojama `external_dependencies` lauke.
+ *
+ * Blokuota šaka nustelbia viską — nei pats blokatorius, nei jo priklausiniai į ready set'ą
+ * nepatenka.
+ *
+ * PASTABA (2026-08-23): iki suvienodinimo 3/3 čia buvo parašyta priešingai — „atitikmens nėra
+ * kandidatų rinkinyje ⇒ įvykdyta". Ta taisyklė ištrinta kartu su atlaidžiuoju varikliu, bet
+ * aprašas liko ir kurį laiką skelbė semantiką, kurios nebėra.
  */
 export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
   // `input.tasks` yra EILĖS SKAITYMAS iš FS — kryžminė patikra, o ne kandidatų šaltinis. Kandidatai

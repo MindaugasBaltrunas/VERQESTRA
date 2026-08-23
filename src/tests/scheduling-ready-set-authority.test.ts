@@ -10,6 +10,11 @@
 // Šie testai pin'ina atstatytą ribą: `scheduleNextWave` atsako „kokia TVARKA", o kanoninis grafas —
 // „ar apskritai LEIDŽIAMA". Atskiras failas nuo `scheduling-waves`, nes tai kito lygmens klausimas
 // (autoritetas, ne planavimo determinizmas) ir dėl 500 eilučių vartų.
+//
+// PASTABA (suvienodinimas 3/3): aukščiau aprašytas ATLAIDUS planuoklis yra ISTORIJA — jo variklis
+// ištrintas, o `scheduleNextWave` kandidatus ir rezoliuciją ima iš kanoninio grafo. Testai palikti,
+// nes jie ir toliau saugo tą pačią ribą; pasikeitė tik tai, kad dabar ją laiko abu sluoksniai, o ne
+// vien vartai. Kiekvienas atskirai perrašytas testas tai įvardija savo antraštėje.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildTaskGraph } from "../domain/tasks/graph/index.js";

@@ -53,7 +53,7 @@ export type WaveGraphDeps = {
 
 /**
  * Grafo perskaitymo baigtis. `unavailable` NĖRA „grafo neprireikė": tai gedimas, dėl kurio
- * kvietėjas nebegali įrodyti nė vieno task'o leidimo (žr. `blockWaveWithoutGraph`). Anksčiau abi
+ * kvietėjas nebegali įrodyti nė vieno task'o leidimo (žr. `planWaveWithoutGraph`). Anksčiau abi
  * baigtys buvo sulietos į `undefined`, ir būtent dėl to importo klaida tyliai atidarydavo bangą.
  */
 /**
@@ -93,8 +93,9 @@ export type WaveGraphCoordinator = {
    * Palygina ankstesnio proceso įrašytą grafą su ką tik importuotu ir RAPORTUOJA skirtumą.
    *
    * Vardas sąmoningai sako „report", o ne „restore": grąžinamos reikšmės nėra, ir iškvietėjas iš
-   * čia negauna nieko, ką galėtų vykdyti. Pavadinimas `reportSnapshot` klaidino — jis skambėjo kaip
-   * snapshot'o panaudojimas, nors tai tik proveniencijos eilutė žurnale.
+   * čia negauna nieko, ką galėtų vykdyti. Ankstesnis pavadinimas klaidino — jis skambėjo kaip
+   * snapshot'o PANAUDOJIMAS, nors tai tik proveniencijos eilutė žurnale.
+   * Pervadinta iš `reportSnapshot` 2026-08-23. (retired-name-ok)
    */
   reportStoredGraph: (stored: StoredGraphRead, graph: TaskGraph | undefined, waveId: string) => Promise<void>;
 };
@@ -116,7 +117,7 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
       } catch (error) {
         // Grafo nėra → NEĮMANOMA įrodyti, kad task'ą leidžiama vykdyti. Iki 2026-08-23 audito ši
         // šaka reiškė „draudimų nežinome, tad banga eina be jų"; dabar ji reiškia sustabdytą bangą
-        // su įvardyta priežastimi (kvietėjas — `blockWaveWithoutGraph`).
+        // su įvardyta priežastimi (kvietėjas — `planWaveWithoutGraph`).
         const reason = describe(error);
         await deps.log(`TASK GRAPH IMPORT FAILED: ${reason}`);
         events.push({ event: "graph_unavailable", reason, graphHash: "none" });

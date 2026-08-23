@@ -1,15 +1,18 @@
 // Priklausomybių grafo primityvai virš GRYNO gretimumo žemėlapio `task → jo blokatoriai`.
 //
-// Kodėl atskirai nuo `traverse.ts`: sistemoje yra DU grafo skaitytojai su sąmoningai skirtinga
-// briaunų politika — kanoninis (`traverse.internalEdges`, fail-closed rezoliucija) ir bangos
-// planuoklis (`schedule-next-wave.resolveNodes`, atlaidi rezoliucija eilės pjūviui). Skiriasi
-// tik tai, KAIP briaunos gaunamos; kas su jomis daroma — uždarinys, ciklai, gyliai — yra ta pati
-// matematika, ir iki 2026-08-23 ji egzistavo DVIEM kopijomis (`dependencyClosure` sutapo
-// pažodžiui). Dvi to paties algoritmo kopijos skirtinguose sluoksniuose yra vieta, kur pataisymas
-// pasiekia vieną pusę ir tyliai aplenkia kitą.
+// Kodėl atskirai nuo `traverse.ts`: tą pačią matematiką kviečia DU skirtingų sluoksnių skaitytojai —
+// domain `traverse` (kanoninio grafo ėjimas) ir application `schedule-next-wave` (bangos planas).
+// Iki 2026-08-23 ji egzistavo DVIEM kopijomis, o `dependencyClosure` sutapo pažodžiui. Dvi to
+// paties algoritmo kopijos skirtinguose sluoksniuose yra vieta, kur pataisymas pasiekia vieną pusę
+// ir tyliai aplenkia kitą.
+//
+// PASTABA (2026-08-23): ankstesnė šios antraštės redakcija kalbėjo apie „du grafo skaitytojus su
+// sąmoningai skirtinga briaunų politika" — kanoninę fail-closed ir ATLAIDŽIĄ bangos. Atlaidžiojo
+// variklio nebėra nuo suvienodinimo 3/3: briaunas abiem atvejais duoda kanoninis grafas, o
+// skiriasi tik APIMTIS (visas grafas ciklams ir gyliams; `queued` pjūvis kandidatams).
 //
 // Šie moduliai neturi nuomonės apie `TaskGraph` formą ar bucket'us: įeina žemėlapis, išeina
-// atsakymas. Todėl politika lieka ten, kur ji priklauso, o algoritmas — vienas.
+// atsakymas. Todėl apimtį renkasi kvietėjas, o algoritmas lieka vienas.
 //
 // Grafai yra eilės dydžio (dešimtys mazgų), todėl naudojama akivaizdi pasiekiamumo formuluotė, o
 // ne indeksinis SCC ėjimas: kaina nereikšminga, taisyklė perskaitoma.

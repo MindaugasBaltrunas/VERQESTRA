@@ -42,10 +42,15 @@ export type ReadySetGate = ReadySetBlockedReason;
  * apversta: numatytai galioja VISKAS, ką kanoninis grafas atmeta, o susiaurinti gali tik
  * eksplicitus `enforce` (pvz. testai, tiriantys vieną priežastį).
  *
- * Bangos semantikos skirtumas išlieka ir yra būtent tai, ką vartai uždaro: `scheduleNextWave`
- * sąmoningai atlaidus (savęs nuoroda nuimama, eilėje nesantis blokatorius laikomas įvykdytu,
- * dviprasmiškas prefiksas sprendžiamas pirmu kandidatu), tad be šių vartų atlaidžioji pusė turėjo
- * paskutinį žodį. Dabar planuoklis atsako „kokia TVARKA", o grafas — „ar apskritai LEIDŽIAMA".
+ * Tuo metu, kai vartai buvo įvesti, `scheduleNextWave` dar buvo sąmoningai atlaidus (savęs nuoroda
+ * nuimama, eilėje nesantis blokatorius laikomas įvykdytu, dviprasmiškas prefiksas sprendžiamas
+ * pirmu kandidatu), ir be vartų ta atlaidžioji pusė turėdavo paskutinį žodį.
+ *
+ * PATIKSLINTA (2026-08-23, suvienodinimas 3/3): atlaidžiojo variklio NEBĖRA — `scheduleNextWave`
+ * kandidatus ir rezoliuciją ima iš kanoninio grafo. Vartai lieka ANTRU sluoksniu, ne vieninteliu:
+ * jie tikrina ready-set verdiktą prieš planą ir suderina blokavimo priežastis. Kad sluoksniai
+ * sutaria, matyti iš to, jog sveikame repo šalinti nebelieka ko — ir tai yra sveika būsena, o ne
+ * požymis, kad vartai nereikalingi.
  */
 export const DEFAULT_READY_SET_GATES: readonly ReadySetGate[] = READY_SET_BLOCKED_REASONS;
 

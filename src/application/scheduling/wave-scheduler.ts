@@ -21,7 +21,6 @@ import {
   queueSliceFromGraph,
   scheduleNextWave,
   selectNextWaveTask,
-  waveIdFor,
   type SchedulableTask,
 } from "./schedule-next-wave.js";
 import { applyReadySetGates, formatWaveBlockedReason, planWaveWithoutGraph } from "./apply-ready-set-gates.js";
@@ -181,14 +180,16 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     // (`state.tasks`) po importo perimama iš grafo — kitaip vykdoma užduotis galėtų nebūti tame
     // sąraše, kuriuo remiasi šakos ir baigties logika (2026-08-23, operatoriaus radinys).
     const observedQueue = state.tasks;
-    // Provizorinis įvykių žymuo: kanoninis grafas dar neperskaitytas, tad vienintelė turima
-    // tapatybė yra eilės skaitymo. Galutinė bangos tapatybė nustatoma žemiau, jau iš grafo.
-    const provisionalWaveId = waveIdFor(state.waveSequence, computeGraphHash(observedQueue));
 
+    // DVI FAZĖS (2026-08-23, operatoriaus radinys). FAZĖ 1 — importas: `refresh()` grafo įvykių
+    // NERAŠO, tik grąžina juos laukiančius. Anksčiau jis gaudavo provizorinį `waveId`, sudėtą iš
+    // TUOMETINĖS sekos, o `startWaveIfGraphChanged` numerį pakelia tik po importo — tad naujos
+    // bangos `graph_unavailable` patekdavo į istoriją su ankstesniu numeriu
+    // (`graph_unavailable@w1-…` ir `wave_blocked@w2-…` toje pačioje bangoje).
+    //
     // Grafas atnaujinamas PRIEŠ planavimą (2026-08-23 suvienodinimas, 2/3): nuo šiol jis yra
-    // planavimo ĮĖJIMAS, o ne vėliau uždedamas vartas. Šalutinė nauda: eilės ir grafo skaitymus
-    // skiria mažesnis langas, tad `graph-state-mismatch` lieka tik tikram išsiskyrimui.
-    const refreshed = await graphCoordinator.refresh(provisionalWaveId);
+    // planavimo ĮĖJIMAS, o ne vėliau uždedamas vartas.
+    const refreshed = await graphCoordinator.refresh();
     state.canonicalGraph = refreshed.kind === "graph" ? refreshed.graph : undefined;
     graphUnavailableReason = refreshed.kind === "graph" ? undefined : refreshed.reason;
 
@@ -199,6 +200,10 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     state.startWaveIfGraphChanged(computeGraphHash(state.tasks));
 
     state.plan = currentPlan(observedQueue);
+
+    // FAZĖ 2 — įvykiai. Žymuo imamas iš PATIES plano, o ne perskaičiuojamas: dvi tapatybės,
+    // skaičiuojamos atskirai, anksčiau ar vėliau išsiskiria, o čia sutapimas ir yra visa prasmė.
+    await graphCoordinator.recordEvents(refreshed.events, state.plan.wave_id);
     return state.plan;
   };
 

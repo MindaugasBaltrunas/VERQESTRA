@@ -56,12 +56,33 @@ export type WaveGraphDeps = {
  * kvietėjas nebegali įrodyti nė vieno task'o leidimo (žr. `blockWaveWithoutGraph`). Anksčiau abi
  * baigtys buvo sulietos į `undefined`, ir būtent dėl to importo klaida tyliai atidarydavo bangą.
  */
+/**
+ * Grafo importo įvykis, LAUKIANTIS bangos tapatybės (2026-08-23, operatoriaus radinys).
+ *
+ * Iki tol `refresh` gaudavo `waveId` argumentu ir rašydavo įvykius iškart. Bet tapatybė tuo metu
+ * dar nėra galutinė: `startWaveIfGraphChanged` numerį pakelia TIK po importo, tad naujos bangos
+ * `graph_unavailable` patekdavo į istoriją su ankstesniu numeriu. Atkurta — tos pačios bangos
+ * įrašai: `graph_unavailable@w1-9bcf2a8d…` ir `wave_blocked@w2-9bcf2a8d…`.
+ *
+ * Vykdymui tai nieko nekeitė, bet audit trail tampa prieštaringas: klaida priskiriama bangai,
+ * kurios ji neliečia. Todėl importas ir įvykių rašymas atskirti į dvi fazes.
+ */
+export type PendingWaveGraphEvent = { event: string; reason: string; graphHash: string };
+
 export type WaveGraphRefresh =
-  | { kind: "graph"; graph: TaskGraph }
-  | { kind: "unavailable"; reason: string };
+  | { kind: "graph"; graph: TaskGraph; events: PendingWaveGraphEvent[] }
+  | { kind: "unavailable"; reason: string; events: PendingWaveGraphEvent[] };
 
 export type WaveGraphCoordinator = {
-  refresh: (waveId: string) => Promise<WaveGraphRefresh>;
+  /**
+   * FAZĖ 1: importuoja grafą ir grąžina laukiančius įvykius, jų NERAŠYDAMA.
+   *
+   * Žurnalo eilutės rašomos iškart — jos bangos tapatybės nenešioja. Įvykiai nešioja, tad jie
+   * laukia, kol iškvietėjas nustatys galutinę tapatybę (žr. `recordEvents`).
+   */
+  refresh: () => Promise<WaveGraphRefresh>;
+  /** FAZĖ 2: įrašo laukiančius įvykius su GALUTINE bangos tapatybe. */
+  recordEvents: (events: readonly PendingWaveGraphEvent[], waveId: string) => Promise<void>;
   /**
    * Biudžetas paduodamas, o ne skaitomas viduje: jo šaltinis yra failas, o šis metodas
    * sinchroninis ir kviečiamas planavimo viduryje. Skaitymas gyvena bangos perskaičiavime, kur
@@ -86,7 +107,9 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
   };
 
   return {
-    async refresh(waveId): Promise<WaveGraphRefresh> {
+    async refresh(): Promise<WaveGraphRefresh> {
+      // Įvykiai KAUPIAMI, o ne rašomi: galutinė bangos tapatybė paaiškėja tik po šio importo.
+      const events: PendingWaveGraphEvent[] = [];
       let graph: TaskGraph;
       try {
         graph = await deps.importGraph();
@@ -96,8 +119,8 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
         // su įvardyta priežastimi (kvietėjas — `blockWaveWithoutGraph`).
         const reason = describe(error);
         await deps.log(`TASK GRAPH IMPORT FAILED: ${reason}`);
-        await event("graph_unavailable", reason, "none", waveId);
-        return { kind: "unavailable", reason };
+        events.push({ event: "graph_unavailable", reason, graphHash: "none" });
+        return { kind: "unavailable", reason, events };
       }
 
       if (!persistedGraphHashes.has(graph.graph_hash)) {
@@ -118,9 +141,15 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
       const codes = graphErrorCodes(graph);
       if (codes !== "") {
         await deps.log(`TASK GRAPH UNEXECUTABLE: ${codes}`);
-        await event("graph_unexecutable", codes, graph.graph_hash, waveId);
+        events.push({ event: "graph_unexecutable", reason: codes, graphHash: graph.graph_hash });
       }
-      return { kind: "graph", graph };
+      return { kind: "graph", graph, events };
+    },
+
+    async recordEvents(pending, waveId): Promise<void> {
+      for (const entry of pending) {
+        await event(entry.event, entry.reason, entry.graphHash, waveId);
+      }
     },
 
     readySet(graph, budget): ReadySet | undefined {

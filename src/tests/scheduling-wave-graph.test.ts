@@ -63,16 +63,25 @@ function graphDeps(overrides: Partial<WaveGraphDeps> = {}): { deps: WaveGraphDep
 // buvo gynama; kai jis tapo vartais — tai fail-open. Testas pin'ina naują kryptį, o ne senąją.
 test("neimportuotas grafas grąžina ĮVARDYTĄ nebuvimą (fail-closed įvestis), o ne tylų undefined", async () => {
   const world = graphDeps({ importGraph: () => Promise.reject(new Error("markdown sugadintas")) });
-  const result = await createWaveGraphCoordinator(world.deps).refresh("w1");
+  const result = await createWaveGraphCoordinator(world.deps).refresh();
 
-  assert.deepEqual(result, { kind: "unavailable", reason: "markdown sugadintas" });
+  assert.equal(result.kind, "unavailable");
+  assert.equal(result.kind === "unavailable" ? result.reason : "", "markdown sugadintas");
   assert.ok(world.logs.some((line) => line.includes("TASK GRAPH IMPORT FAILED: markdown sugadintas")));
-  assert.ok(world.events.includes("graph_unavailable"), "nebuvimas yra ĮVYKIS, ne tik log eilutė");
+
+  // 2026-08-23: įvykis GRĄŽINAMAS, o ne rašomas iš karto. Žurnalo eilutė bangos tapatybės
+  // nenešioja, tad ji rašoma tuoj pat; įvykis nešioja, tad jis laukia galutinės tapatybės.
+  assert.deepEqual(
+    result.events.map((entry) => [entry.event, entry.graphHash]),
+    [["graph_unavailable", "none"]],
+    "nebuvimas yra ĮVYKIS, ne tik log eilutė — bet įrašomas antroje fazėje",
+  );
+  assert.deepEqual(world.events, [], "faze 1 įvykių NERAŠO");
 });
 
 test("sėkmingas importas grąžina grafą po `kind: graph`", async () => {
   const world = graphDeps();
-  const result = await createWaveGraphCoordinator(world.deps).refresh("w1");
+  const result = await createWaveGraphCoordinator(world.deps).refresh();
   assert.equal(result.kind, "graph");
   assert.equal(result.kind === "graph" ? result.graph.graph_hash : undefined, "g1");
 });
@@ -86,8 +95,8 @@ test("tas pats grafas rašomas VIENĄ kartą", async () => {
     },
   });
   const coordinator = createWaveGraphCoordinator(world.deps);
-  await coordinator.refresh("w1");
-  await coordinator.refresh("w1");
+  await coordinator.refresh();
+  await coordinator.refresh();
   assert.equal(writes, 1);
 });
 
@@ -100,8 +109,8 @@ test("nepavykęs rašymas rezervaciją GRĄŽINA", async () => {
     },
   });
   const coordinator = createWaveGraphCoordinator(world.deps);
-  await coordinator.refresh("w1");
-  await coordinator.refresh("w1");
+  await coordinator.refresh();
+  await coordinator.refresh();
 
   // Be grąžinimo vienas nepavykęs rašymas amžinai įtikintų, kad snapshot'as jau yra.
   assert.equal(writes, 2);

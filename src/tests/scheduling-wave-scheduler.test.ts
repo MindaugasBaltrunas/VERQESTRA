@@ -79,7 +79,9 @@ const provisioningCoordinator: WaveProvisioningCoordinator = {
 type World = {
   deps: WaveSchedulerDeps;
   logs: string[];
-  events: { event: string; task_id?: string | undefined; reason?: string | undefined }[];
+  // `wave_id` fiksuojamas nuo 2026-08-23: be jo nebuvo įmanoma pastebėti, kad grafo įvykiai
+  // gauna ne tos bangos tapatybę — ir būtent todėl tas perėjimas liko nepatikrintas.
+  events: { event: string; wave_id: string; task_id?: string | undefined; reason?: string | undefined }[];
   snapshots: number;
   checkpoints: { status: string; task_id?: string }[];
   /** Įrašyti snapshot'ai — iš jų matyti, kuria numeracija banga iš tikrųjų ėjo. */
@@ -126,7 +128,7 @@ function world(options: {
       return Promise.resolve();
     },
     recordEvent: (event) => {
-      events.push({ event: event.event, task_id: event.task_id, reason: event.reason });
+      events.push({ event: event.event, wave_id: event.wave_id, task_id: event.task_id, reason: event.reason });
       return Promise.resolve();
     },
     recordCheckpoint: (checkpoint) => {
@@ -252,6 +254,44 @@ test("nevykdytinas task'as blokuoja VISĄ šaką, bet nėra `failed`", async () 
   const next = await scheduler.nextTask();
   // 0002 priklauso nuo 0001 — jo vykdyti negalima.
   assert.equal(next.kind === "task" ? next.task.task_id : next.kind, "exhausted");
+});
+
+// 2026-08-23 (operatoriaus radinys): grafo įvykiai po pirmos bangos gaudavo ANKSTESNĮ numerį.
+//
+// `refresh` gaudavo provizorinį `waveId`, sudėtą iš TUOMETINĖS sekos, o `startWaveIfGraphChanged`
+// numerį pakelia tik PO importo. Tad tos pačios bangos istorijoje atsirasdavo
+// `graph_unavailable@w1-…` ir `wave_blocked@w2-…`. Vykdymui tai nieko nekeitė, bet audit trail
+// priskirdavo klaidą bangai, kurios ji neliečia — o testai šio perėjimo netikrino.
+test("grafo įvykiai gauna GALUTINĮ bangos numerį, ne provizorinį", async () => {
+  const first = [{ task_id: "0001", file: "AG/tasks/queue/0001.md", blocked_by: [] }];
+  const second = [...first, { task_id: "0002", file: "AG/tasks/queue/0002.md", blocked_by: [] }];
+  let taskList = first;
+
+  const w = world({ taskList: first });
+  const scheduler = createWaveScheduler({
+    ...w.deps,
+    readTasks: () => Promise.resolve(taskList),
+    // Importo nesėkmė yra pigiausias būdas gauti grafo įvykį kiekvienoje bangoje.
+    importGraph: () => Promise.reject(new Error("markdown sugadintas")),
+  });
+
+  await scheduler.nextTask();
+  const firstWave = w.events.filter((entry) => entry.event === "graph_unavailable").length;
+  assert.equal(firstWave, 1, "pirma banga irgi rašo įvykį");
+
+  // Eilė pasikeičia → grafo hash pasikeičia → seka pakyla į 2.
+  taskList = second;
+  await scheduler.nextTask();
+
+  const waveIds = w.events.filter((entry) => entry.event === "graph_unavailable").map((entry) => entry.wave_id);
+  assert.equal(waveIds.length, 2);
+  assert.ok(waveIds[1]?.startsWith("w2-"), `antros bangos įvykis privalo nešti w2, gauta ${String(waveIds[1])}`);
+  assert.notEqual(waveIds[0], waveIds[1], "dvi skirtingos bangos — dvi skirtingos tapatybės");
+
+  // Ir svarbiausia: TOS PAČIOS bangos įrašai privalo sutapti tarpusavyje. Būtent to ir nebuvo —
+  // `graph_unavailable@w1-…` gulėdavo šalia `wave_blocked@w2-…`.
+  const secondWave = w.events.filter((entry) => entry.wave_id === waveIds[1]).map((entry) => entry.event);
+  assert.ok(secondWave.includes("graph_unavailable") && secondWave.includes("wave_blocked"), secondWave.join(","));
 });
 
 // 2026-08-23 (operatoriaus radinys): atkūrimas lygino GRAFO, o ne SPRENDIMO atspaudą. Patvirtinimo

@@ -44,7 +44,7 @@ test("grafo koordinatorius su SAUGIAIS portais grąžina verdiktą, o ne klaidą
     statuses: () => ({ completed: new Set(), blocked: new Set(), running: new Set() }),
   });
 
-  const refreshed = await coordinator.refresh("w1");
+  const refreshed = await coordinator.refresh();
   assert.equal(refreshed.kind, "unavailable", "fail-closed kelias privalo IŠGYVENTI savo paties telemetriją");
   assert.match(refreshed.kind === "unavailable" ? refreshed.reason : "", /markdown sugadintas/, "priežastis — tikroji, ne žurnalo");
 });
@@ -78,7 +78,7 @@ test("saugomas grafas NĖRA fallback'as: validus snapshot'as neatstoja lūžusio
     statuses: () => ({ completed: new Set(), blocked: new Set(), running: new Set() }),
   });
 
-  const refreshed = await coordinator.refresh("w1");
+  const refreshed = await coordinator.refresh();
   assert.equal(refreshed.kind, "unavailable", "kešuotas grafas neatstoja neperskaityto autoriteto");
 
   // Raportavimas veikia ir be autoriteto — bet jis TIK raportuoja.

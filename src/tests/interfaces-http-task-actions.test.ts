@@ -10,6 +10,7 @@ import { test } from "node:test";
 import {
   InvalidUploadError,
   MAX_FILE_BYTES,
+  MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES,
   UploadTooLargeError,
   normalizeUploadPayload,
@@ -84,6 +85,11 @@ test("normalizeUploadPayload: ribos galioja ir kiekiui, ir vienam failui", () =>
 
   const big = { name: "a.md", content: "x".repeat(MAX_FILE_BYTES + 1) };
   assert.throws(() => normalizeUploadPayload(JSON.stringify({ files: [big] })), UploadTooLargeError);
+
+  // Bendra kūno riba (etalono 1:1): iki 2026-08-23 MAX_UPLOAD_BYTES buvo deklaruota, bet
+  // nevykdoma — 5–8 MiB krovinys praeidavo pro vienintelę realią (serverio 8 MiB) ribą.
+  const oversizedBody = `{"files":[]}${" ".repeat(MAX_UPLOAD_BYTES + 1)}`;
+  assert.throws(() => normalizeUploadPayload(oversizedBody), UploadTooLargeError);
 });
 
 test("uploadQueueMarkdownFiles: kolizija gauna sufiksą, o dalinio įrašymo nėra", async () => {

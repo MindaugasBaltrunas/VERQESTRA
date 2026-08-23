@@ -22,7 +22,8 @@ import {
   mapUploadError,
   type HttpErrorResponse,
 } from "./ui-error-mapping.js";
-import { UI_IDENTITY_ROUTE, UI_IDENTITY_SERVICE, projectFingerprint } from "./ui-port-rules.js";
+import { UI_IDENTITY_ROUTE, projectFingerprint, uiIdentityPayload } from "./ui-port-rules.js";
+import { UnknownTaskBucketError } from "./workflow-buckets.js";
 import { hasValidApiToken, isLoopbackHost, type RequestHeaders } from "./ui-security.js";
 import type { TaskTriageAction } from "./ui-task-actions.js";
 
@@ -56,6 +57,8 @@ export type UiRouterPorts = {
   reliabilityAnalytics(): Promise<unknown>;
   benchmarkReport(): Promise<unknown>;
   workflowBuckets(): Promise<unknown>;
+  /** Vieno bucket'o PILNAS sąrašas; nežinomas bucket'as META `UnknownTaskBucketError`. */
+  workflowBucketTasks(bucket: string): Promise<unknown>;
   wavesView(eventLimit: number): Promise<unknown>;
   decideLearningRecommendation(id: string, decision: "approved" | "rejected"): Promise<unknown>;
   openTaskBucketFolder(bucket: string): Promise<boolean>;
@@ -111,11 +114,8 @@ export async function handleUiRequest(deps: UiRouterDeps, request: UiRouteReques
   // 2) Projekto TAPATYBĖ — vienintelis maršrutas be token'o. Ne-GET metodas čia nesustoja ir
   //    krenta į token'ų vartus žemiau.
   if (method === "GET" && pathname === UI_IDENTITY_ROUTE) {
-    return json({
-      schema_version: 1,
-      service: UI_IDENTITY_SERVICE,
-      project_fingerprint: projectFingerprint(deps.projectRoot, deps.platform ?? process.platform),
-    });
+    // Forma statoma VIENOJE vietoje (`uiIdentityPayload`) — zondas ir maršrutas negali išsiskirti.
+    return json(uiIdentityPayload(projectFingerprint(deps.projectRoot, deps.platform ?? process.platform)));
   }
 
   const isApi = pathname.startsWith("/api/");
@@ -169,8 +169,22 @@ async function handleGet(deps: UiRouterDeps, pathname: string, url: URL): Promis
       return await guarded(() => ports.reliabilityAnalytics());
     case "/api/benchmark/report":
       return await guarded(() => ports.benchmarkReport());
-    case "/api/tasks":
-      return await guarded(() => ports.workflowBuckets());
+    case "/api/tasks": {
+      // Etalono (ir ui-app `fetchWorkflowTasks`) kontraktas: `?bucket=<b>` grąžina VIENO bucket'o
+      // pilną sąrašą, nežinomas bucket'as — 400. Iki 2026-08-23 parametras buvo IGNORUOJAMAS ir
+      // klientas vietoje `{name,tasks,totalCount}` gaudavo visų bucket'ų masyvą — tylus UI lūžis.
+      const bucket = url.searchParams.get("bucket");
+      if (bucket === null) return await guarded(() => ports.workflowBuckets());
+      try {
+        return json(await ports.workflowBucketTasks(bucket));
+      } catch (error) {
+        if (error instanceof UnknownTaskBucketError) {
+          return { kind: "json", status: 400, data: { error: "invalid task bucket" } };
+        }
+        ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
+        return toResponse(INTERNAL_ERROR_RESPONSE);
+      }
+    }
     case "/api/waves":
       return await guarded(() => ports.wavesView(deps.eventLimitFromQuery(url.searchParams)));
     default:

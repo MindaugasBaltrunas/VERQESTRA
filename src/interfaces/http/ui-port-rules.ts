@@ -138,7 +138,20 @@ export function identityFingerprint(body: string): string | undefined {
   return fingerprint;
 }
 
-/** Identifikacijos maršruto kūnas — vienintelė vieta, kur ši forma statoma. */
+/**
+ * Identifikacijos maršruto kūnas — VIENINTELĖ vieta, kur ši forma statoma. Iki 2026-08-23 tai
+ * buvo netiesa: router'is formą statė pats (su `schema_version`), o ši funkcija be kvietėjų
+ * gamino SIAURESNĘ kopiją — dvi formos vienam kontraktui. Dabar router'is eina per ją.
+ */
+export function uiIdentityPayload(fingerprint: string): {
+  schema_version: number;
+  service: string;
+  project_fingerprint: string;
+} {
+  return { schema_version: 1, service: UI_IDENTITY_SERVICE, project_fingerprint: fingerprint };
+}
+
+/** JSON eilutės forma zondų/testų pusei — ta pati `uiIdentityPayload` forma, ne kopija. */
 export function buildUiIdentityBody(fingerprint: string): string {
-  return JSON.stringify({ service: UI_IDENTITY_SERVICE, project_fingerprint: fingerprint });
+  return JSON.stringify(uiIdentityPayload(fingerprint));
 }

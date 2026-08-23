@@ -47,12 +47,10 @@ export function uiPidFile(stateDir: string): string {
   return path.join(stateDir, "ui.pid");
 }
 
-/** Šio proceso PID įrašas — kviečia pats serveris pakilęs. */
-export async function writeCurrentUiPid(deps: UiLifecycleDeps, pid: number): Promise<void> {
-  const stateDir = path.join(deps.runtimeRoot, "state");
-  await deps.ports.fs.makeDirectory(stateDir);
-  await deps.ports.fs.writeTextFile(uiPidFile(stateDir), `${pid}\n`);
-}
+// `writeCurrentUiPid` ištrinta 2026-08-23 audite: etalone serveris po `listen` rašydavo plikas
+// `ui.pid`, o VERQESTRA serveris save registruoja per `writeUiServerRecord` (ui-server.json su
+// pid + REALIU portu + fingerprint'u) — turtingesnį įrašą, kurį skaito porto rezoliucija.
+// Funkcija liko be kvietėjo, o jos doc'as („kviečia pats serveris pakilęs") nebeatitiko tiesos.
 
 /**
  * Serializuoja paleidimo kvietimus (tas pats šablonas kaip loop pusėje). Nuo porto zondavimo iki

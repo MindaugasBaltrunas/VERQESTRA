@@ -28,7 +28,7 @@ import {
 } from "../application/policy-governance/policy-proposals-log.js";
 import { loadUiControlPlaneData } from "../interfaces/ui-model/control-plane-model.js";
 import { buildWavesView, normalizeEventLimit } from "../interfaces/http/ui-waves-view.js";
-import { loadWorkflowBuckets, openTaskBucketFolder } from "../interfaces/http/workflow-buckets.js";
+import { loadWorkflowBuckets, loadWorkflowBucketTasks, openTaskBucketFolder } from "../interfaces/http/workflow-buckets.js";
 import { applyTaskTriage } from "../interfaces/http/ui-task-actions.js";
 import { uploadQueueMarkdownFiles } from "../interfaces/http/task-upload.js";
 import { ensureLoopRunning, requestLoopStop } from "../interfaces/http/loop-lifecycle.js";
@@ -143,6 +143,7 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
       ),
 
     workflowBuckets: () => loadWorkflowBuckets(workflowBucketPorts, input.agRoot),
+    workflowBucketTasks: (bucket) => loadWorkflowBucketTasks(workflowBucketPorts, input.agRoot, bucket),
     wavesView: (eventLimit) =>
       buildWavesView({
         ports: {

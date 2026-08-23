@@ -17,6 +17,7 @@ import { UI_IDENTITY_ROUTE, UI_IDENTITY_SERVICE, projectFingerprint } from "../i
 import { UI_TOKEN_HEADER } from "../interfaces/http/ui-security.js";
 import { InvalidUploadError } from "../interfaces/http/task-upload.js";
 import { TaskNotFoundError } from "../interfaces/http/ui-task-actions.js";
+import { UnknownTaskBucketError } from "../interfaces/http/workflow-buckets.js";
 
 const ROOT = path.resolve("/repo");
 const TOKEN = "sesijos-token";
@@ -60,6 +61,10 @@ function routerWorld(): RouterWorld {
     reliabilityAnalytics: () => record("reliability", {}),
     benchmarkReport: () => record("benchmark", {}),
     workflowBuckets: () => record("tasks", []),
+    workflowBucketTasks: (bucket) =>
+      bucket === "queue"
+        ? record(`tasks:${bucket}`, { name: bucket, tasks: [], totalCount: 0 })
+        : Promise.reject(new UnknownTaskBucketError(`Unknown task bucket: ${bucket}`)),
     wavesView: (limit) => record("waves", { limit }),
     decideLearningRecommendation: (id, decision) => record("learning", { id, decision }),
     openTaskBucketFolder: (bucket) => record(`folder:${bucket}`, world.folderOpened),
@@ -260,4 +265,20 @@ test("nežinomas kelias: `/api/**` duoda JSON 404, o statinis — dist arba tuš
   world.hasStatic = false;
   const missing = await handleUiRequest(world.deps, request({ url: "/" }));
   assert.deepEqual(missing, { kind: "empty", status: 404 });
+});
+
+// Etalono (ir ui-app `fetchWorkflowTasks`) kontraktas: iki 2026-08-23 `bucket` parametras buvo
+// ignoruojamas ir klientas vietoje vieno bucket'o objekto gaudavo visų bucket'ų masyvą.
+test("/api/tasks: be parametro — apžvalga, ?bucket= — vieno bucket'o sąrašas, nežinomas — 400", async () => {
+  const world = routerWorld();
+
+  const overview = await handleUiRequest(world.deps, request({ url: "/api/tasks" }));
+  assert.deepEqual(jsonBody(overview), []);
+  assert.ok(world.calls.includes("tasks"));
+
+  const single = await handleUiRequest(world.deps, request({ url: "/api/tasks?bucket=queue" }));
+  assert.deepEqual(jsonBody(single), { name: "queue", tasks: [], totalCount: 0 });
+
+  const unknown = await handleUiRequest(world.deps, request({ url: "/api/tasks?bucket=nope" }));
+  assert.deepEqual(unknown, { kind: "json", status: 400, data: { error: "invalid task bucket" } });
 });

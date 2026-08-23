@@ -87,6 +87,13 @@ export function normalizeUploadFile(file: unknown, now: Date = new Date()): Uplo
  * `-2` sufiksais.
  */
 export function normalizeUploadPayload(rawBody: string, now: Date = new Date()): UploadFile[] {
+  // Bendra kūno riba vykdoma ČIA (etalono task-upload-service 1:1): iki 2026-08-23 konstanta
+  // buvo deklaruota, bet NEVYKDOMA — realiai ribojo tik bendrinis 8 MiB serverio skaitymas, tad
+  // 5–8 MiB įkėlimas praeidavo, o dar didesnis virsdavo generiniu gedimu vietoje 413.
+  if (Buffer.byteLength(rawBody, "utf8") > MAX_UPLOAD_BYTES) {
+    throw new UploadTooLargeError("Upload is larger than 5 MB");
+  }
+
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);

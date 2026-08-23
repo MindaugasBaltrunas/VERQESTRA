@@ -514,6 +514,26 @@
       "direction": "grieztinantis — anksciau sekme buvo skelbiama besalygiskai. LUZTA: isoriniai skriptai, gatinantys `verqestra loop` pagal `$?`, blokuota sustojima nuo siol matys kaip nesekme. Repo viduje vartotoju NERA (patikrinta: tik README/docs mini komanda, o quality-gates politika `node dist/cli.js loop` net blokuoja), tad visa migracijos kaina yra operatoriaus pusėje ir buvo priimta samoningai.",
       "etalon_annotation": "NEIRASYTA — etalonas uzsaldytas 2026-08-22 (AG_loop a75f9fe3), tasks.md nebekeiciamas; nukrypimas fiksuojamas cia, commit'o ataskaitoje ir README komandu lenteleje",
       "tests": "src/tests/scheduling-loop-cycle.test.ts — 5 nauji testai, po viena KIEKVIENAM sustojimo keliui plius fantomas (jis eiles neblokuoja). Tikrinama BAIGTIS, ne exit kodas: kodo pavertimas kompozicijoje yra viena eilute, o sprendimas priimamas cia. `reason` laukas privalomas, tad naujas `return` be jo neuzsikompiliuos — kelias nebegali tyliai paveldeti numatytos sekmes"
+    },
+    {
+      "date": "2026-08-23",
+      "area": "mobile-gateway/src/domain/terminal-control-lease + naujas mobile-gateway/src/shared/ids (E9 1/N)",
+      "etalon_behaviour": "`domain/terminal-control-lease.ts` importuoja `randomUUID` tiesiai is `node:crypto` ir kvieciasi ji `createTerminalControlLease` viduje.",
+      "verqestra_behaviour": "`randomUUID` gyvena naujame `shared/ids.ts` (`newLeaseId`, `newSessionId`); domenas importuoja ji is `shared`. Reiksme, formatas ir kvietimo vieta nepakito — pasikeite tik sluoksnis, kuriame leidziamas platformos zinojimas.",
+      "reason": "VERQESTRA sluoksniu taisykle: domain neturi NE VIENO `node:` importo (docs/architecture.md), o `shared` juos turi (`src/shared/hash.ts` → `node:crypto`). Tai ne stiliaus pasirinkimas: vienas `node:` importas domene reiskia, kad taisykles nebegalima paleisti ten, kur nera platformos, ir kad ji nebeturi vieno testuojamo pavidalo. Sprendimas identiskas tam, kuri saknies paketas jau priemė tam paciam klausimui.",
+      "direction": "grieztinantis — domeno grynumas tampa struktura, ne susitarimu",
+      "etalon_annotation": "NEIRASYTA — etalonas uzsaldytas 2026-08-22 (AG_loop a75f9fe3), tasks.md nebekeiciamas; nukrypimas fiksuojamas cia ir commit'o ataskaitoje",
+      "tests": "PENDING — gateway tests (51 failas) migruojami velesneje E9 dalyje; siuo metu irodymas yra `pnpm --dir mobile-gateway typecheck` (0 klaidu)"
+    },
+    {
+      "date": "2026-08-23",
+      "area": "mobile-gateway/src/domain/terminal-output-sanitizer (E9 1/N)",
+      "etalon_behaviour": "C0/C1 valdymo taskai (ESC 0x1B, BEL 0x07, C1 0x90/0x98/0x9B/0x9C/0x9D/0x9E/0x9F) irasyti inline, NEAPDOROTAIS baitais string literaluose: `character === '<ESC>'`.",
+      "verqestra_behaviour": "Tie patys taskai deklaruoti ivardytomis konstantomis per `String.fromCharCode(0x1b)` ir t. t.; salygos lygina su vardu (`ESC`, `BEL`, `C1_CSI`, `C1_ST`, `C1_DCS`, `C1_SOS`, `C1_PM`, `C1_APC`, `C1_OSC`). Nei vienas bitas reiksmese nepakito.",
+      "reason": "Nematomas baitas .ts faile yra trapus dviem tyliais budais, ir abu pasitvirtino RASANT sita faila: (1) jis nepergyvena kiekvieno kopijavimo — tarpinis irankis gali ji praryti, o rezultatas kompiliuojasi ir tik NEBEAPTINKA ESC sekos, t. y. sanitizeris tyliai nustoja valyti; (2) failo, kurio salygu negali perskaityti akimi, negali ir perziureti — o tai saugumo modulis, kurio visa paskirtis yra neprapusti terminalo valdymo sekos. Grynas ASCII saltinis abu kelius uzdaro.",
+      "direction": "grieztinantis — elgesys nepakito, bet modulis tampa perziurimas ir atsparus kopijavimo praradimams; failas nebeturi NE VIENO neapdoroto valdymo baito (patikrinta grep'u)",
+      "etalon_annotation": "NEIRASYTA — etalonas uzsaldytas 2026-08-22 (AG_loop a75f9fe3), tasks.md nebekeiciamas; nukrypimas fiksuojamas cia ir commit'o ataskaitoje",
+      "tests": "PENDING — etalono `terminal-output-sanitizer` suite'as (iskaitant chunk-boundary leak testa, skaidanti kiekviena slaptuka ties kiekviena baito riba) migruojamas velesneje E9 dalyje"
     }
   ]
 }

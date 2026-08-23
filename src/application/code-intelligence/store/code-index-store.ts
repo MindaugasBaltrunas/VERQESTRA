@@ -15,6 +15,12 @@ import {
   type CodeIndexSymbol,
 } from "../indexing/types.js";
 import { parseJsonl, renderJsonl, renderManifestJson } from "./format.js";
+import {
+  codeIndexEdgeSchema,
+  codeIndexFileSchema,
+  codeIndexManifestSchema,
+  codeIndexSymbolSchema,
+} from "./code-index-schema.js";
 
 export function codeIndexDir(projectRoot: string): string {
   return path.join(projectRoot, "vq", "state", "code-index");
@@ -40,13 +46,32 @@ export async function readCodeIndex(
   fs: CodeIntelligenceFileSystemPort,
   projectRoot: string,
 ): Promise<CodeIndexData> {
-  const manifest = JSON.parse(await fs.readTextFile(codeIndexPath(projectRoot, "manifest.json"))) as CodeIndexManifest;
+  // Skaitymas VALIDUOJAMAS, o ne cast'inamas (2026-08-23, operatoriaus radinys). Anksčiau
+  // `JSON.parse(...) as CodeIndexManifest` ir `parseJsonl<CodeIndexEdge>` reiškė, kad bet kokia
+  // struktūriškai teisinga, bet neteisingo turinio saugykla atrodė kaip galiojantis indeksas.
+  const manifest = codeIndexManifestSchema.parse(
+    JSON.parse(await fs.readTextFile(codeIndexPath(projectRoot, "manifest.json"))),
+  ) as CodeIndexManifest;
   return {
     manifest,
-    files: parseJsonl<CodeIndexFile>(await fs.readTextFile(codeIndexPath(projectRoot, "files.jsonl"))),
-    symbols: parseJsonl<CodeIndexSymbol>(await fs.readTextFile(codeIndexPath(projectRoot, "symbols.jsonl"))),
-    edges: parseJsonl<CodeIndexEdge>(await fs.readTextFile(codeIndexPath(projectRoot, "edges.jsonl"))),
+    files: validateRecords(parseJsonl(await fs.readTextFile(codeIndexPath(projectRoot, "files.jsonl"))), codeIndexFileSchema, "files"),
+    symbols: validateRecords(
+      parseJsonl(await fs.readTextFile(codeIndexPath(projectRoot, "symbols.jsonl"))),
+      codeIndexSymbolSchema,
+      "symbols",
+    ),
+    edges: validateRecords(parseJsonl(await fs.readTextFile(codeIndexPath(projectRoot, "edges.jsonl"))), codeIndexEdgeSchema, "edges"),
   };
+}
+
+/** Kiekviena eilutė privalo atitikti schemą; pirmoji nepraėjusi įvardijama pagal numerį. */
+function validateRecords<T>(records: unknown[], schema: { safeParse: (value: unknown) => { success: boolean } }, label: string): T[] {
+  for (const [position, record] of records.entries()) {
+    if (!schema.safeParse(record).success) {
+      throw new Error(`code index ${label}.jsonl line ${position + 1} does not match the expected shape`);
+    }
+  }
+  return records as T[];
 }
 
 export async function codeIndexExists(fs: CodeIntelligenceFileSystemPort, projectRoot: string): Promise<boolean> {
@@ -61,11 +86,33 @@ export async function checkCodeIndexFreshness(
     return { ok: false, reason: "code index manifest is missing" };
   }
 
-  let currentManifest: CodeIndexManifest;
+  let stored: CodeIndexData;
   try {
-    currentManifest = (await readCodeIndex(fs, projectRoot)).manifest;
+    stored = await readCodeIndex(fs, projectRoot);
   } catch (error) {
     return { ok: false, reason: `code index is unreadable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const currentManifest = stored.manifest;
+
+  // VIENTISUMAS prieš šviežumą (2026-08-23, operatoriaus radinys). Manifeste užrašyti kiekiai su
+  // faktiniu turiniu nebuvo lyginami niekada, tad ištuštintas `edges.jsonl` praeidavo kaip
+  // `ok: true` — o architektūros ribų vartas, skaitantis būtent briaunas, tyliai nustodavo rasti
+  // pažeidimus. Sugadinta saugykla atrodydavo kaip švarus projektas.
+  //
+  // Tikrinama PRIEŠ `source_hash`, nes tai kito lygmens klausimas: šviežumas atsako „ar indeksas
+  // atitinka failus", o vientisumas — „ar indeksas apskritai yra tai, kuo sakosi esąs".
+  const counts: [string, number, number][] = [
+    ["file", currentManifest.file_count, stored.files.length],
+    ["symbol", currentManifest.symbol_count, stored.symbols.length],
+    ["edge", currentManifest.edge_count, stored.edges.length],
+  ];
+  const mismatch = counts.find(([, declared, actual]) => declared !== actual);
+  if (mismatch) {
+    return {
+      ok: false,
+      reason: `code index is corrupt: manifest declares ${mismatch[1]} ${mismatch[0]} records, storage holds ${mismatch[2]}`,
+      manifest: currentManifest,
+    };
   }
 
   if (currentManifest.version !== codeIndexVersion) {

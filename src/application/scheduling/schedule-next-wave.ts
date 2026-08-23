@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/json.js";
 import { toPosixPath as toPosix } from "../../shared/paths.js";
 import { dependencyMatches, isPlaceholderDependency, normalizeTaskReference } from "../../domain/tasks/dependencies.js";
+import { detectCyclesOverEdges, longestDependencyDepths } from "../../domain/tasks/graph/adjacency.js";
 import { RUNTIME_MAX_WORKERS } from "./worker-limits.js";
 import type { ReadySetBlockedReason } from "./build-ready-set.js";
 
@@ -66,6 +67,13 @@ export type WaveBlockedReason =
    * ten grafas pasakė „ne", o čia jis apskritai nieko nepasakė.
    */
   | "gate:graph-unavailable"
+  /**
+   * Task'as yra bangoje, bet kanoninis grafas jo nevardija NEI kaip leidžiamo, NEI kaip
+   * sustabdyto: eilės ir grafo būsenos išsiskyrė (task'as ne grafe, arba jame jau `done`,
+   * arba persikėlė tarp dviejų atskirų FS skaitymų). Atskiras nuo `gate:` priežasčių — ten
+   * grafas priėmė sprendimą, o čia sprendimo apskritai nėra, tad leidimo įrodyti negalime.
+   */
+  | "gate:graph-state-mismatch"
   /** Task'ą sustabdė kanoninio grafo vartas, o ne pati banga. */
   | WaveGateBlockedReason;
 
@@ -205,68 +213,6 @@ function resolveNodes(tasks: readonly SchedulableTask[]): ResolvedNode[] {
   });
 }
 
-/** Mazgai, pasiekiami iš `start` einant priklausomybių briaunomis (task → jo blokatoriai). */
-function dependencyClosure(start: string, edges: ReadonlyMap<string, string[]>): Set<string> {
-  const seen = new Set<string>();
-  const stack = [...(edges.get(start) ?? [])];
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    if (seen.has(current)) continue;
-    seen.add(current);
-    stack.push(...(edges.get(current) ?? []));
-  }
-  return seen;
-}
-
-/**
- * Ciklai per vidines briaunas. Grafai čia yra eilės dydžio (dešimtys mazgų), todėl naudojama
- * paprasta „ar mazgas pasiekiamas pats iš savęs" patikra ir dalyvių grupavimas pagal abipusį
- * pasiekiamumą — kodas lieka akivaizdus, o kaina nereikšminga.
- */
-function detectCycles(edges: ReadonlyMap<string, string[]>): { members: Set<string>; groups: string[][] } {
-  const closures = new Map<string, Set<string>>();
-  for (const node of edges.keys()) closures.set(node, dependencyClosure(node, edges));
-
-  const members = new Set<string>();
-  for (const [node, closure] of closures) {
-    if (closure.has(node)) members.add(node);
-  }
-
-  const groups: string[][] = [];
-  const grouped = new Set<string>();
-  for (const node of [...members].sort()) {
-    if (grouped.has(node)) continue;
-    const group = [...members].filter(
-      (other) => other === node || (closures.get(node)?.has(other) && closures.get(other)?.has(node)),
-    );
-    for (const member of group) grouped.add(member);
-    groups.push(group.sort());
-  }
-
-  return { members, groups };
-}
-
-/** Ilgiausias kelias iki mazgo per vidines briaunas; ciklo dalyviams — 0 (jie niekada nevykdomi). */
-function computeDepths(nodes: readonly ResolvedNode[], cycleMembers: ReadonlySet<string>): Map<string, number> {
-  const depths = new Map<string, number>();
-  const byId = new Map(nodes.map((node) => [node.task.task_id, node]));
-
-  const depthOf = (taskId: string, seen: Set<string>): number => {
-    if (depths.has(taskId)) return depths.get(taskId) as number;
-    if (cycleMembers.has(taskId) || seen.has(taskId)) return 0;
-    seen.add(taskId);
-    const node = byId.get(taskId);
-    const dependencyDepths = (node?.internal ?? []).map((dependency) => depthOf(dependency, seen) + 1);
-    const depth = dependencyDepths.length > 0 ? Math.max(...dependencyDepths) : 0;
-    seen.delete(taskId);
-    depths.set(taskId, depth);
-    return depth;
-  };
-
-  for (const node of nodes) depthOf(node.task.task_id, new Set());
-  return depths;
-}
-
 /**
  * Sudaro kitą bangą iš tuo metu prieinamo ready set'o.
  *
@@ -282,9 +228,12 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
   const blocked = new Set([...(input.blockedTaskIds ?? [])].map((value) => normalizeTaskReference(value)).filter(Boolean));
 
   const nodes = resolveNodes(tasks);
+  // Briaunų POLITIKA yra šio modulio (atlaidi rezoliucija eilės pjūviui), o algoritmas —
+  // bendras su kanoniniu grafu (`domain/tasks/graph/adjacency`). Iki 2026-08-23 uždarinys,
+  // ciklai ir gyliai čia buvo antra to paties kodo kopija.
   const edges = new Map(nodes.map((node) => [node.task.task_id, node.internal]));
-  const { members: cycleMembers, groups: cycles } = detectCycles(edges);
-  const depths = computeDepths(nodes, cycleMembers);
+  const { members: cycleMembers, groups: cycles } = detectCyclesOverEdges(edges);
+  const depths = longestDependencyDepths(edges, cycleMembers);
 
   const ready: WaveReadyTask[] = [];
   const blockedTasks: WaveBlockedTask[] = [];

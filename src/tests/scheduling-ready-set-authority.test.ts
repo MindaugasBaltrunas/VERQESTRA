@@ -107,3 +107,84 @@ test("neperskaitytas grafas SUSTABDO bangą, o ne atidaro ją be vartų", () => 
   const empty = scheduleNextWave({ tasks: [] });
   assert.equal(blockWaveWithoutGraph(empty, "x"), empty, "nesant ko šalinti — TAS PATS objektas");
 });
+
+// Trečias tos pačios fail-open klaidos pavidalas: vartai tik ATIMDAVO `readySet.blocked`, o
+// `readySet.ready` neskaitė. Task'as, kurio grafas nevardija NEI kaip leidžiamo, NEI kaip
+// sustabdyto, pralįsdavo pro VISUS vartus. Realu, nes `wave-scheduler` eilę ir kanoninį grafą
+// skaito atskirais FS skaitymais: tarp jų task'as spėja persikelti tarp bucket'ų.
+test("kanoninis grafas yra LEIDIMŲ sąrašas: bangos ir grafo nesutapimas blokuoja", () => {
+  const plan = scheduleNextWave({ tasks: [schedulable("a", "AG/tasks/queue/a.md")] });
+
+  // A. Task'o grafe apskritai nėra.
+  const absent = buildTaskGraph({
+    nodes: [{ task_id: "kitas", file: "AG/tasks/queue/kitas.md", checks: ["x"], scope: ["src/**"] }],
+  });
+  const absentReadySet = buildReadySet({ graph: absent });
+  assert.deepEqual(absentReadySet.blocked, [], "grafas apie `a` NIEKO nesako — todėl ir buvo pralaidu");
+  assert.deepEqual(gatedReadyIds(plan, absent), [], "nebuvimas grafe nėra leidimas");
+
+  // B. Grafe jau `done`. Blogesnis atvejis: užbaigtas mazgas nepatenka NĖ Į VIENĄ sąrašą
+  // (jis tenkina priklausomybes), tad be sankirtos jau atliktas task'as būtų vykdomas iš naujo.
+  const done = buildTaskGraph({
+    nodes: [{ task_id: "a", file: "AG/tasks/done/a.md", status: "done", checks: ["x"], scope: ["src/**"] }],
+  });
+  const doneReadySet = buildReadySet({ graph: done });
+  assert.deepEqual(doneReadySet.ready, [], "užbaigto mazgo `ready` sąraše nėra");
+  assert.deepEqual(doneReadySet.blocked, [], "ir `blocked` sąraše jo taip pat nėra");
+  const doneGated = applyReadySetGates(plan, doneReadySet);
+  assert.deepEqual(doneGated.ready, [], "jau atliktas task'as NEvykdomas iš naujo");
+  assert.equal(doneGated.blocked[0]?.reason, "gate:graph-state-mismatch", "atskira, įvardyta priežastis");
+
+  // C. Susiaurintas `enforce` gali išjungti grafo VERDIKTĄ, bet ne autoriteto trūkumą.
+  assert.deepEqual(
+    applyReadySetGates(plan, absentReadySet, { enforce: [] }).ready,
+    [],
+    "nesutapimas nėra politikos klausimas",
+  );
+
+  // D. Kontrolė: sutampanti būsena praeina, ir SUBTRACT-ONLY tapatybė išlieka.
+  const queued = buildTaskGraph({
+    nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", checks: ["x"], scope: ["src/**"] }],
+  });
+  assert.equal(applyReadySetGates(plan, buildReadySet({ graph: queued })), plan, "sutampant — TAS PATS objektas");
+});
+
+// Paskutinis nesutarimas tarp dviejų grafo skaitytojų: DVIPRASMIŠKAS PREFIKSAS. Kanoninis jį
+// atmeta (`resolveTaskNode` grąžina undefined, kai kandidatų daugiau nei vienas), bangos
+// planuoklis ima PIRMĄ kandidatą. Kol vienas iš kandidatų nebaigtas, abi pusės fail-closed ir
+// skirtumas nematomas; kai baigtas — pusės išsiskiria priešingomis kryptimis. Šis testas laiko
+// būtent tą tašką, nes jis vienintelis rodo skirtumą kaip VYKDYMO, o ne formuluotės klausimą.
+test("dviprasmiškas prefiksas: banga paleistų, kanoninis grafas sustabdo", () => {
+  const graph = buildTaskGraph({
+    nodes: [
+      { task_id: "1111-a", file: "AG/tasks/done/1111-a.md", status: "done", checks: ["x"], scope: ["src/a.ts"] },
+      { task_id: "1111-b", file: "AG/tasks/queue/1111-b.md", checks: ["x"], scope: ["src/b.ts"] },
+      { task_id: "2000", file: "AG/tasks/queue/2000.md", depends_on: ["1111"], checks: ["x"], scope: ["src/c.ts"] },
+    ],
+  });
+
+  // Eilė mato TIK queue bucket'ą, tad `1111-a` jai ateina kaip „completed".
+  const plan = scheduleNextWave({
+    tasks: [schedulable("1111-b", "AG/tasks/queue/1111-b.md"), schedulable("2000", "AG/tasks/queue/2000.md", ["1111"])],
+    completedTaskIds: ["1111-a"],
+  });
+  assert.ok(
+    plan.ready.some((task) => task.task_id === "2000"),
+    "planuoklis `1111` išsprendžia pirmu kandidatu ir laiko jį atliktu",
+  );
+
+  const readySet = buildReadySet({ graph });
+  assert.equal(
+    readySet.blocked.find((entry) => entry.task_id === "2000")?.reason,
+    "missing-dependency",
+    "kanoninis atsisako spėti, kuris `1111-*` turėtas omenyje",
+  );
+
+  const gated = applyReadySetGates(plan, readySet);
+  assert.deepEqual(
+    gated.ready.map((task) => task.task_id),
+    ["1111-b"],
+    "sprendžia kanoninis: `2000` nevykdomas, kol nuoroda dviprasmiška",
+  );
+  assert.equal(gated.blocked.find((task) => task.task_id === "2000")?.reason, "gate:missing-dependency");
+});

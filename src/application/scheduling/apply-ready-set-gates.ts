@@ -50,37 +50,71 @@ export type ReadySetGatePolicy = {
  *   - SUBTRACT-ONLY: task'as gali pereiti tik `ready → blocked`; grafas negali atrakinti
  *     lūžusios šakos.
  *   - Likusių `ready` tvarka nekeičiama; bangos tapatybė — irgi.
- *   - Task'as, kurio grafe NĖRA, nefiltruojamas: nebuvimas nėra draudimas, o nepilna
- *     informacija.
+ *   - SANKIRTA, ne atimtis: leidžiama tik tai, ką kanoninis grafas VARDIJA kaip `ready`.
  *   - Kai šalinamų nėra, grąžinamas TAS PATS objektas — nuorodos tapatybė yra įrodymas
  *     „vartai nieko nepakeitė".
+ *
+ * NUKRYPIMAS nuo etalono (griežtinantis, 2026-08-23 auditas, operatoriaus radinys). Iki šiol
+ * vartai tik ATIMDAVO `readySet.blocked` narius, o `readySet.ready` visai neskaitydavo. Trečias
+ * tos pačios klaidos pavidalas tame pačiame faile: numatytoji politika nieko nedraudė, neimportuotas
+ * grafas nieko nedraudė, o dabar paaiškėjo, kad ir pats grafas buvo tik DRAUDIMŲ sąrašas. Todėl
+ * task'as pralįsdavo pro VISUS vartus vien nebūdamas grafe. Atkurta realiai:
+ *
+ *   grafe task'o NĖRA  → canonical_ready=[], canonical_blocked=[], galutinis ready=["a"];
+ *   grafe jau `done`   → canonical_ready=[], canonical_blocked=[], galutinis ready=["a"].
+ *
+ * `done` atvejis yra blogesnis už „nėra": `buildReadySet` užbaigtą mazgą praleidžia (jis tenkina
+ * priklausomybes), tad jis nepatenka NĖ Į VIENĄ sąrašą — ir jau atliktas task'as būtų vykdomas iš
+ * naujo. Tai ne teorija: `wave-scheduler` eilės task'us (`readTasks`) ir kanoninį Markdown grafą
+ * (`refresh`) skaito ATSKIRAIS FS skaitymais skirtingu metu, tad tarp jų task'as spėja persikelti
+ * tarp bucket'ų.
+ *
+ * Buvęs pagrindimas — „nebuvimas nėra draudimas, o nepilna informacija" — yra tiksliai ta pati
+ * fail-open logika, kurią šiandien jau apvertėme dukart: nepilna informacija reiškia, kad leidimo
+ * ĮRODYTI negalime, o be įrodymo nevykdoma. Todėl toks task'as blokuojamas vardu
+ * `gate:graph-state-mismatch` — atskiru nuo grafo verdiktų, nes tai ne grafo sprendimas apie
+ * task'ą, o dviejų šaltinių NESUTAPIMAS, ir operatoriui tai skirtingas gedimas.
  */
 export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefined, policy?: ReadySetGatePolicy): WavePlan {
   if (!readySet) return plan;
 
   const enforced = new Set<ReadySetGate>(policy?.enforce ?? DEFAULT_READY_SET_GATES);
-  if (enforced.size === 0) return plan;
 
   const gates = new Map<string, BlockedTask>();
-  for (const entry of readySet.blocked) {
-    if (enforced.has(entry.reason)) gates.set(entry.task_id, entry);
-  }
-  if (gates.size === 0) return plan;
+  for (const entry of readySet.blocked) gates.set(entry.task_id, entry);
+  const permitted = new Set<string>(readySet.ready.map((task) => task.task_id));
 
   const removed: WaveBlockedTask[] = [];
   const ready = plan.ready.filter((task) => {
     const gate = gates.get(task.task_id);
-    if (!gate) return true;
+    if (gate !== undefined) {
+      // Grafe task'as YRA ir yra sustabdytas. Ar tai taikoma, sprendžia politika: susiaurintas
+      // `enforce` sąmoningai palieka dalį verdiktų neveikiančių (tuo naudojasi taikiniai testai).
+      if (!enforced.has(gate.reason)) return true;
+      removed.push({
+        task_id: task.task_id,
+        file: task.file,
+        // `blocked_by` imamas iš BANGOS įrašo: snapshot'o skaitytojui priklausomybės turi
+        // atrodyti taip pat, nesvarbu, kuris sluoksnis task'ą sustabdė.
+        blocked_by: [...task.blocked_by],
+        // `gate:` prefiksas atskiria grafo vartą nuo bangos taisyklės — dvi skirtingos
+        // priežastys niekada nesusilieja į vieną vardą.
+        reason: `gate:${gate.reason}`,
+        waiting_for: [...gate.waiting_for],
+      });
+      return false;
+    }
+
+    if (permitted.has(task.task_id)) return true;
+
+    // NĖ VIENAME sąraše: bangos ir grafo būsenos išsiskyrė. Tai NĖRA politikos klausimas, tad
+    // `enforce` šio varto nesusiaurina — susiaurinti galima verdiktą, bet ne autoriteto trūkumą.
     removed.push({
       task_id: task.task_id,
       file: task.file,
-      // `blocked_by` imamas iš BANGOS įrašo: snapshot'o skaitytojui priklausomybės turi
-      // atrodyti taip pat, nesvarbu, kuris sluoksnis task'ą sustabdė.
       blocked_by: [...task.blocked_by],
-      // `gate:` prefiksas atskiria grafo vartą nuo bangos taisyklės — dvi skirtingos
-      // priežastys niekada nesusilieja į vieną vardą.
-      reason: `gate:${gate.reason}`,
-      waiting_for: [...gate.waiting_for],
+      reason: "gate:graph-state-mismatch",
+      waiting_for: [],
     });
     return false;
   });

@@ -4,6 +4,7 @@
 // Behaviour etalon: AG_loop task-graph.ts traversal half.
 
 import { dependencyMatches, normalizeTaskReference } from "../dependencies.js";
+import { detectCyclesOverEdges, longestDependencyDepths } from "./adjacency.js";
 import type { TaskGraph, TaskNode } from "./model.js";
 
 /** First node whose id matches the reference, or undefined. Exact match wins over a prefix. */
@@ -48,45 +49,15 @@ export function internalEdges(graph: TaskGraph): Map<string, string[]> {
   return edges;
 }
 
-/** Nodes reachable from `start` by following dependency edges (task → its blockers). */
-function dependencyClosure(start: string, edges: ReadonlyMap<string, string[]>): Set<string> {
-  const seen = new Set<string>();
-  const stack = [...(edges.get(start) ?? [])];
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    if (seen.has(current)) continue;
-    seen.add(current);
-    stack.push(...(edges.get(current) ?? []));
-  }
-  return seen;
-}
-
 /**
  * Cycles over the internal edges: a node that can reach itself participates; groups are
  * mutually-reachable sets (strongly connected components).
+ *
+ * Algoritmas gyvena `adjacency.ts` ir yra BENDRAS su bangos planuokliu; čia lieka tik šio
+ * skaitytojo briaunų politika — fail-closed `internalEdges`.
  */
 export function detectTaskGraphCycles(graph: TaskGraph): { members: Set<string>; groups: string[][] } {
-  const edges = internalEdges(graph);
-  const closures = new Map<string, Set<string>>();
-  for (const node of edges.keys()) closures.set(node, dependencyClosure(node, edges));
-
-  const members = new Set<string>();
-  for (const [node, closure] of closures) {
-    if (closure.has(node)) members.add(node);
-  }
-
-  const groups: string[][] = [];
-  const grouped = new Set<string>();
-  for (const node of [...members].sort()) {
-    if (grouped.has(node)) continue;
-    const group = [...members]
-      .filter((other) => other === node || (closures.get(node)?.has(other) && closures.get(other)?.has(node)))
-      .sort();
-    for (const member of group) grouped.add(member);
-    groups.push(group);
-  }
-
-  return { members, groups };
+  return detectCyclesOverEdges(internalEdges(graph));
 }
 
 /**
@@ -101,21 +72,8 @@ export function taskGraphDepths(
   precomputedCycleMembers?: ReadonlySet<string>,
 ): Map<string, number> {
   const edges = internalEdges(graph);
-  const cycleMembers = precomputedCycleMembers ?? detectTaskGraphCycles(graph).members;
-  const depths = new Map<string, number>();
-
-  const depthOf = (taskId: string, seen: Set<string>): number => {
-    const cached = depths.get(taskId);
-    if (cached !== undefined) return cached;
-    if (cycleMembers.has(taskId) || seen.has(taskId)) return 0;
-    seen.add(taskId);
-    const blockerDepths = (edges.get(taskId) ?? []).map((blocker) => depthOf(blocker, seen) + 1);
-    const depth = blockerDepths.length > 0 ? Math.max(...blockerDepths) : 0;
-    seen.delete(taskId);
-    depths.set(taskId, depth);
-    return depth;
-  };
-
-  for (const node of graph.nodes) depthOf(node.task_id, new Set());
-  return depths;
+  // `internalEdges` užsėja KIEKVIENĄ mazgą, tad `edges.keys()` sutampa su `graph.nodes` ID
+  // rinkiniu — bendras primityvas apeina visus mazgus lygiai taip pat, kaip anksčiau darė ši
+  // funkcija.
+  return longestDependencyDepths(edges, precomputedCycleMembers ?? detectCyclesOverEdges(edges).members);
 }

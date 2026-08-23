@@ -14,6 +14,7 @@ import type { WaveProvisioningCoordinator } from "../application/scheduling/wave
 import type { WaveIntegrationIo } from "../application/scheduling/wave-scheduler.js";
 import type { SchedulerCheckpoint } from "../application/scheduling/wave-scheduler-contract.js";
 import type { TaskGraph } from "../domain/tasks/graph/model.js";
+import { buildTaskGraph } from "../domain/tasks/graph/build.js";
 
 const NOW = "2026-08-21T12:00:00.000Z";
 
@@ -24,8 +25,25 @@ function tasks(): SchedulableTask[] {
   ];
 }
 
-function emptyGraph(): TaskGraph {
-  return { graph_version: 1, graph_hash: "g0", generated_at: NOW, nodes: [], dependencies: [] } as unknown as TaskGraph;
+/**
+ * Kanoninis grafas, atitinkantis TĄ PATĮ task sąrašą, kurį grąžina `readTasks`.
+ *
+ * Anksčiau čia buvo tuščias `as unknown as TaskGraph` stub'as, ir jis darė testų pasaulį
+ * prieštaringą: eilėje task'ai yra, o kanoninis autoritetas apie juos nieko nežino. Kol vartai
+ * buvo atimtis, tai nieko nekeitė (tuščias grafas nieko nedraudė), bet būtent tokį nesutapimą
+ * dabar gaudo `gate:graph-state-mismatch`. Grafas statomas iš to paties sąrašo, tad pasaulis
+ * negali išsiderinti tyliai — ir cast'o nebereikia.
+ */
+function graphFor(list: readonly SchedulableTask[]): TaskGraph {
+  return buildTaskGraph({
+    nodes: list.map((task) => ({
+      task_id: task.task_id,
+      file: task.file,
+      checks: ["pnpm test"],
+      scope: [`src/${task.task_id}.ts`],
+      ...(task.blocked_by.length === 0 ? {} : { depends_on: [...task.blocked_by] }),
+    })),
+  });
 }
 
 const integrationIo: WaveIntegrationIo = {
@@ -78,6 +96,7 @@ function world(options: {
   const events: World["events"] = [];
   const checkpoints: World["checkpoints"] = [];
   const state = { snapshots: 0 };
+  const taskList = options.taskList ?? tasks();
 
   const deps: WaveSchedulerDeps = {
     projectRoot: "D:/repo",
@@ -88,7 +107,7 @@ function world(options: {
       return Promise.resolve();
     },
     absolutePath: (file) => `D:/repo/${file}`,
-    readTasks: () => Promise.resolve(options.taskList ?? tasks()),
+    readTasks: () => Promise.resolve(taskList),
     locateTask: options.locate ?? (() => Promise.resolve("queue")),
     hasAcceptedWork: () => Promise.resolve(options.accepted ?? false),
     readCheckpoint: () => Promise.resolve(options.checkpoint),
@@ -105,7 +124,7 @@ function world(options: {
       checkpoints.push({ status: checkpoint.status, ...(checkpoint.task_id === undefined ? {} : { task_id: checkpoint.task_id }) });
       return Promise.resolve();
     },
-    importGraph: () => Promise.resolve(emptyGraph()),
+    importGraph: () => Promise.resolve(graphFor(taskList)),
     writeGraphSnapshot: () => Promise.resolve(),
     readGraphSnapshot: () => Promise.resolve({ ok: false, reason: "missing", errors: [] }),
     readySetBudget: () => Promise.resolve(undefined),

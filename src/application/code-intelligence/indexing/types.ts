@@ -27,7 +27,10 @@
 // 3.3.0 (2026-08-23): CommonJS. `require()` ir `module.exports`/`exports.x` nebuvo atpažįstami —
 // jie yra kvietimas ir priskyrimas, o ne deklaracijos, tad `.cjs` (ir CJS stiliaus `.js`) failai
 // grąžindavo tuščius `imports`/`exports`. Keičiasi tų pačių failų importai, eksportai IR simboliai.
-export const codeIndexVersion = "3.3.0";
+// 3.4.0 (2026-08-23): `source_hash` apima KIEKVIENĄ indeksuotą failą (anksčiau JSON buvo išmestas,
+// o grįždavo tik per vardų heuristiką), o `vq/supervisor` ir `vq/generated` išimti iš skenavimo —
+// ten guli paties įrankio išvestis. Keičiasi ir atspaudas, ir failų sąrašas.
+export const codeIndexVersion = "3.4.0";
 
 export type CodeIndexLanguage =
   | "typescript"

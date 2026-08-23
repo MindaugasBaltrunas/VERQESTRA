@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { normalizeProjectPath, toPosixPath } from "../../../shared/paths.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
-import { indexedCodeExtensions, languageForExtension, sourceHashLanguages } from "./language-capabilities.js";
+import { indexedCodeExtensions, languageForExtension } from "./language-capabilities.js";
 import type { CodeIndexFile, CodeIndexFileKind } from "./types.js";
 
 const indexedExtensions = indexedCodeExtensions();
@@ -41,6 +41,16 @@ const ignoredRuntimePrefixes = [
   "AG/orchestrator/ui-app/node_modules",
   "vq/state",
   "vq/logs",
+  // 2026-08-23: `vq/supervisor` ir `vq/generated` truko — AG pusėje `AG/supervisor` buvo, o jo VQ
+  // atitikmuo migruojant neatsirado. Ten guli PAČIO įrankio išvestis (`context-pack.json`,
+  // `execution-context.md`), tad ji visą laiką buvo skenuojama kaip produkto kodas.
+  //
+  // Iki JSON įtraukimo į `source_hash` tai nesimatė: pack'o failas patekdavo į indeksą, bet
+  // atspaudo nejudino. Įtraukus JSON, pirmas pack'o rašymas iškart pasendindavo indeksą, kurį
+  // pats ką tik naudojo — įrankis būtų nuolat perstatinėjęs indeksą dėl savo paties išvesties.
+  // Tai pagavo `characterization-context-pack-assembly` kešo idempotencijos testas.
+  "vq/supervisor",
+  "vq/generated",
 ];
 
 export async function scanProjectFiles(
@@ -64,8 +74,23 @@ export function computeSourceHash(files: CodeIndexFile[]): Promise<string> {
   return Promise.resolve(hash.digest("hex"));
 }
 
-export function isSourceHashFile(file: CodeIndexFile): boolean {
-  return sourceHashLanguages().has(file.language) || file.kind === "config";
+/**
+ * Ar failas dalyvauja `source_hash` skaičiavime.
+ *
+ * TAIP KIEKVIENAM INDEKSUOTAM FAILUI (2026-08-23, operatoriaus radinys). Iki tol JSON buvo
+ * sąmoningai išmestas, o grįždavo tik per `kind === "config"` išimtį, kurią lemia VARDŲ heuristika
+ * (`config|package|tsconfig|eslint|…`). Todėl `data.json` ar `schema.json` turinio pakeitimas
+ * `source_hash`'o nejudino, ir `checkCodeIndexFreshness` grąžindavo `ok: true`.
+ *
+ * Tai buvo nenuoseklu su pačiu indeksu: tie failai indekse YRA ir neša savo `hash`, tad po
+ * pakeitimo indeksas laikė UŽRAŠYTĄ, bet nebegaliojantį hash'ą ir vis tiek vadinosi šviežiu.
+ * Invariantas dabar vienas ir patikrinamas: kas patenka į indeksą, tas patenka ir į jo atspaudą.
+ *
+ * Triukšmo rizikos nėra, nes generuoti medžiai į skenavimą apskritai nepatenka (`node_modules`,
+ * `dist`, `coverage`, `vendor`, `bin`, `obj`, runtime prefiksai — žr. sąrašus viršuje).
+ */
+export function isSourceHashFile(_file: CodeIndexFile): boolean {
+  return true;
 }
 
 export async function hashFile(fs: CodeIntelligenceFileSystemPort, filePath: string): Promise<string> {

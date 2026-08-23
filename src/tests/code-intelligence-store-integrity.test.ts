@@ -55,6 +55,56 @@ test("ištuštintas edges.jsonl NEBĖRA šviežias indeksas", async () => {
   }
 });
 
+// 2026-08-23 (operatoriaus radinys): JSON buvo sąmoningai išmestas iš `source_hash`, o grįždavo tik
+// per `kind === "config"` išimtį, kurią lemia VARDŲ heuristika. Todėl `data.json` turinio
+// pakeitimas indekso nepasendindavo — nors tas failas indekse YRA ir neša savo `hash`.
+test("KIEKVIENO indeksuoto failo pakeitimas pasendina indeksą", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-source-hash-"));
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await writeFile(path.join(root, "src", "main.ts"), "export const a = 1;\n", "utf8");
+    await writeFile(path.join(root, "src", "data.json"), JSON.stringify({ v: 1 }), "utf8");
+    await writeFile(path.join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }), "utf8");
+    await buildCodeIndex(nodeFsTestPort, root);
+
+    // `data.json` vardas neatitinka jokios config heuristikos — būtent tokie failai ir buvo akli.
+    await writeFile(path.join(root, "src", "data.json"), JSON.stringify({ v: 999 }), "utf8");
+    const afterData = await checkCodeIndexFreshness(nodeFsTestPort, root);
+    assert.equal(afterData.ok, false, "eilinio JSON pakeitimas privalo pasendinti indeksą");
+
+    await buildCodeIndex(nodeFsTestPort, root);
+    await writeFile(path.join(root, "src", "main.ts"), "export const a = 2;\n", "utf8");
+    assert.equal((await checkCodeIndexFreshness(nodeFsTestPort, root)).ok, false, "kontrolė: kodas irgi");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Kita to paties pakeitimo pusė: įtraukus JSON, PATIES įrankio išvestis būtų nuolat sendinusi
+// indeksą, kurį jis ką tik naudojo. `vq/supervisor` ir `vq/generated` skenavime trūko — AG pusėje
+// `AG/supervisor` buvo, o jo VQ atitikmuo migruojant neatsirado.
+test("įrankio išvestis NĖRA produkto kodas", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-runtime-scan-"));
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await mkdir(path.join(root, "vq", "supervisor"), { recursive: true });
+    await mkdir(path.join(root, "vq", "generated"), { recursive: true });
+    await writeFile(path.join(root, "src", "main.ts"), "export const a = 1;\n", "utf8");
+
+    const index = await buildCodeIndex(nodeFsTestPort, root);
+    const before = index.manifest.source_hash;
+    assert.deepEqual(index.files.map((file) => file.path), ["src/main.ts"], "skenuojamas TIK produkto medis");
+
+    await writeFile(path.join(root, "vq", "supervisor", "context-pack.json"), JSON.stringify({ big: "pack" }), "utf8");
+    await writeFile(path.join(root, "vq", "generated", "out.json"), JSON.stringify({ x: 1 }), "utf8");
+
+    assert.equal((await checkCodeIndexFreshness(nodeFsTestPort, root)).ok, true, "sava išvestis indekso NESENDINA");
+    assert.equal((await buildCodeIndex(nodeFsTestPort, root)).manifest.source_hash, before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("nukirstas files.jsonl ir sugadinta eilutė gaudomi atskirai", async () => {
   const root = await world();
   try {

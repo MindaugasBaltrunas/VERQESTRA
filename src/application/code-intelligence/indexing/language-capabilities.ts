@@ -111,10 +111,14 @@ export function indexedCodeExtensions(): Set<string> {
   return new Set(codeIndexLanguageCapabilities.flatMap((capability) => capability.extensions));
 }
 
-export function sourceHashLanguages(): Set<CodeIndexLanguage> {
-  return new Set(
-    codeIndexLanguageCapabilities
-      .filter((capability) => capability.extracts_files && capability.language !== "json")
-      .map((capability) => capability.language),
-  );
-}
+/*
+ * `sourceHashLanguages()` PAŠALINTA 2026-08-23 (operatoriaus radinys).
+ *
+ * Ji atrinkdavo kalbas, patenkančias į `source_hash`, ir sąmoningai išmesdavo JSON. Pasekmė:
+ * `data.json` turinio pakeitimas indekso nepasendindavo, nors tas failas indekse YRA ir neša savo
+ * `hash` — indeksas laikydavo nebegaliojantį atspaudą ir vis tiek vadindavosi šviežiu.
+ *
+ * Taisyklė dabar viena ir be išimčių: kas patenka į indeksą, tas patenka ir į jo atspaudą
+ * (`scanner.isSourceHashFile`). Atrankos pagal kalbą nebereikia, tad funkcija nebeegzistuoja — o ne
+ * lieka su vieninteliu kvietėju „dėl visa ko".
+ */

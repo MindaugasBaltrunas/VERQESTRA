@@ -16,7 +16,8 @@
 // skaitoma iš `process.pid` viduje — application sluoksnis proceso būsenos neskaito, ir dėl to
 // aprūpinimą galima patikrinti be tikro proceso.
 
-import { computeTaskWriteSet, type TaskWriteSet } from "./conflict-detector.js";
+import type { TaskWriteSet } from "./conflict-detector.js";
+import { candidateWriteSet } from "./wave-live-slots.js";
 import { formatWorkerId } from "./worker-limits.js";
 import {
   acquireWorkerLease,
@@ -86,22 +87,16 @@ export type WaveProvisioningCoordinator = {
     candidates: readonly WorkerCandidate[],
   ) => Promise<SlotProvisionTarget[]>;
   releaseWaveProvisionLease: (target: SlotProvisionTarget) => Promise<void>;
-  candidateWriteSet: (taskId: string) => TaskWriteSet;
 };
 
 /** Pirminis slot'as dirba pirminiame medyje BE lease'o — žr. `planSlotProvisioning` paaiškinimą. */
 export const PRIMARY_SLOT_CLAIM_SUPPORTED = false;
 
 export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): WaveProvisioningCoordinator {
-  const candidateWriteSet = (taskId: string): TaskWriteSet => {
-    const node = deps.graph()?.nodes.find((entry) => entry.task_id === taskId);
-    return computeTaskWriteSet({
-      task_id: taskId,
-      ...(node?.scope === undefined ? {} : { allowed_paths: node.scope }),
-      ...(node?.write_symbols === undefined ? {} : { write_symbols: node.write_symbols }),
-      ...(node?.architecture_nodes === undefined ? {} : { architecture_nodes: node.architecture_nodes }),
-    });
-  };
+  // Kandidato write-set taisyklė yra VIENA visai sistemai — `wave-live-slots.candidateWriteSet`.
+  // Iki 2026-08-23 čia gyveno jos pažodinė kopija (plius negyvas interface narys, kurio niekas
+  // nekvietė) — dvi kopijos išsiskirtų tyliai, kai grafo laukai keisis.
+  const writeSetOf = (taskId: string): TaskWriteSet => candidateWriteSet(taskId, deps.graph());
 
   const leases = async (): Promise<WorkerLease[]> => await listWorkerLeases(deps.leaseStore.fs, deps.workspaceRoot);
 
@@ -172,8 +167,6 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
   };
 
   return {
-    candidateWriteSet,
-
     toWorkerCandidates(tasks, held): WorkerCandidate[] {
       const liveAt = new Date(deps.now());
       return tasks.map((task) => {
@@ -189,7 +182,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
           task_id: task.task_id,
           file: task.file,
           depth: task.depth,
-          write_set: candidateWriteSet(task.task_id),
+          write_set: writeSetOf(task.task_id),
           ...(lease === undefined ? {} : { lease }),
           ...(lease?.worktree_path === undefined ? {} : { worktree_path: lease.worktree_path }),
         };

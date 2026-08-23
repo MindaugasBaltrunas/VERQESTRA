@@ -20,7 +20,6 @@ import {
   resolveWorkerLeaseClaim,
   resolveWorkerLeaseScope,
   scopeLockFile,
-  workerLeaseRuntimeEnabled,
   WorkerLeaseClaimError,
   type SchedulingFileSystemPort,
 } from "../application/scheduling/index.js";
@@ -165,14 +164,11 @@ test("worker lease store: acquire, idempotent reuse, foreign conflict, takeover 
   const deps = { fs: port };
   const identity = { owner_id: "loop-100", run_id: "r1", worker_id: "w1", task_id: "0001", attempt: 1 };
 
-  assert.equal(await workerLeaseRuntimeEnabled(port, ROOT), false);
-
   const acquired = await acquireWorkerLease({ deps, projectRoot: ROOT, identity, now: NOW });
   assert.equal(acquired.status, "acquired");
   if (acquired.status !== "acquired") return;
   assert.equal(acquired.lease.fencing_token, 1);
   assert.equal(acquired.takeover, false);
-  assert.equal(await workerLeaseRuntimeEnabled(port, ROOT), true);
 
   const reused = await acquireWorkerLease({ deps, projectRoot: ROOT, identity, now: new Date(NOW.getTime() + 1000) });
   assert.equal(reused.status, "reused", "same owner while active renews idempotently");

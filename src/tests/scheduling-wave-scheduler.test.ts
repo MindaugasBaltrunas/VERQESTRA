@@ -55,7 +55,6 @@ const provisioningCoordinator: WaveProvisioningCoordinator = {
   provisionSlotLease: () => Promise.resolve(false),
   provisionMissingSlotLeases: () => Promise.resolve([]),
   releaseWaveProvisionLease: () => Promise.resolve(),
-  candidateWriteSet: (taskId) => computeTaskWriteSet({ task_id: taskId, allowed_paths: [`src/${taskId}.ts`] }),
 };
 
 type World = {

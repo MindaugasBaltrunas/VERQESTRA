@@ -12,12 +12,10 @@ import path from "node:path";
 import {
   authorizeRuntimeMutation,
   isLeaseActive,
-  isLeaseExpired,
   releasedWorkerLease,
   renewWorkerLease,
   nextFencingToken,
   DEFAULT_LEASE_TTL_MS,
-  RELEASED_LEASE_RETENTION_MS,
   WORKER_LEASE_SCHEMA_VERSION,
   type RuntimeAuthority,
   type WorkerLease,
@@ -308,27 +306,16 @@ export async function releaseWorkerLease(input: {
   });
 }
 
-/** Ar lease store apskritai turi įrašų — pigus būdas atskirti legacy režimą nuo lease runtime. */
-export async function workerLeaseRuntimeEnabled(fs: SchedulingFileSystemPort, projectRoot: string): Promise<boolean> {
-  return await fs.exists(workerLeaseDir(projectRoot));
-}
-
-/**
- * Lease'ai, kurių savininko nebėra: `released` seniau nei retention arba `held`, bet
- * pasibaigę. Iš jų `worktree_path` išvedami orphan'ai (E4 worktree manager).
- */
-export function abandonedWorkerLeases(leases: readonly WorkerLease[], now: Date): WorkerLease[] {
-  return leases.filter((lease) => {
-    if (lease.status === "held") return isLeaseExpired(lease, now);
-    const releasedAt = lease.released_at === undefined ? Number.NaN : new Date(lease.released_at).getTime();
-    return !Number.isNaN(releasedAt) && now.getTime() - releasedAt > RELEASED_LEASE_RETENTION_MS;
-  });
-}
-
-/** Proceso tapatybė lease'ui. Kiekvienas paleidimas gauna naują reikšmę — restart'as niekada nepaveldi nuosavybės. */
-export function currentOwnerId(pid: number = process.pid, uuid: string = randomUUID()): string {
-  return `pid-${pid}-${uuid}`;
-}
+// Trys eksportai ištrinti 2026-08-23 orkestratoriaus audite — nė vienas neturėjo produkcinio
+// kvietėjo NEI čia, NEI etalone:
+//   - `workerLeaseRuntimeEnabled` — „legacy režimo" detektorius be skaitytojo;
+//   - `abandonedWorkerLeases` — doc'as teigė, kad iš jo orphan'us išveda E4 worktree manager;
+//     NETIESA: orphan reaper'is turi savo `findOrphanWorktrees` kelią, o mirusius lease'us
+//     tvarko `reapDeadWorkerLeases` (worker-lease-runtime);
+//   - `currentOwnerId` (`pid-<pid>-<uuid>`) — ne šiaip miręs, o SPĄSTAI: mirusio savininko
+//     aptikimas (`leaseOwnerLoopPid`/`isLeaseOwnerProcessDead`) atpažįsta TIK `loop-<pid>`
+//     formą, kurią composition ir naudoja. Prijungus „patobulintą" uuid formą, reaper'is
+//     nustotų matyti savininko mirtį ir lease'ai kabotų iki TTL.
 
 /**
  * Įrašo lease į store be nuosavybės patikros. Skirta lease'o SAVININKUI, kuris jau turi

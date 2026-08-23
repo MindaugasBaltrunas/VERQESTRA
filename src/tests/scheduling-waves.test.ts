@@ -17,7 +17,6 @@ import {
   evaluateWriteSetIndependence,
   formatWaveBlockedReason,
   normalizeSchedulableTasks,
-  resumeAllowsDispatch,
   scheduleNextWave,
   selectNextWaveTask,
   WAVE_MAX_WORKERS,
@@ -373,11 +372,6 @@ test("decideResume location branches and dispatch gate", () => {
   const interrupted = decideResume(checkpoint, RESUMABLE);
   assert.equal(interrupted.action, "resume-attempt");
   assert.equal(interrupted.replay_safe, true);
-
-  assert.equal(resumeAllowsDispatch(requeued), true);
-  assert.equal(resumeAllowsDispatch(interrupted), true);
-  assert.equal(resumeAllowsDispatch(startedAbsent), false);
-  assert.equal(resumeAllowsDispatch(finishedAbsent), false);
 });
 
 // ---------------------------------------------------------------------------

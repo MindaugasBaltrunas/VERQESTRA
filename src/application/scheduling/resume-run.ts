@@ -163,10 +163,9 @@ export function decideResume(
   return decision("resume-attempt", ["interrupted-attempt"], true, taskId);
 }
 
-/**
- * Ar šiam sprendimui task'ą apskritai galima dispatch'inti. Naudojama loop'e kaip vienas
- * vartas, kad nė vienas naujas kelias nepamirštų „skip-completed" atvejo.
- */
-export function resumeAllowsDispatch(decisionValue: ResumeDecision): boolean {
-  return decisionValue.action === "retry-task" || decisionValue.action === "resume-attempt";
-}
+// `resumeAllowsDispatch` gyveno čia iki 2026-08-23: doc'as teigė „naudojama loop'e kaip
+// vienas vartas", bet nė vieno produkcinio kvietėjo neturėjo NEI čia, NEI etalone — tik
+// testus. Tikroji apsauga nuo pakartotinio dispatch'o yra BŪSENA: `recoverFromCrash`
+// skip-completed atveju task'ą deda į `started`/`completed`, o `selectNextWaveTask`
+// startavusių nebeima. Vartas, aprašytas kaip vienintelis ir nepasiekiamas iš niekur,
+// yra blogiau nei jo nebuvimas (ta pati pamoka kaip `assertExecutableTaskGraph`).

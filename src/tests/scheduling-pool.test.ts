@@ -9,7 +9,6 @@ import type { WorkerLease } from "../domain/scheduling/index.js";
 import {
   computeTaskWriteSet,
   createWorkerLease,
-  currentOwnerId,
   evaluateIntegrationCheckpoint,
   measureParallelOverhead,
   planSlotProvisioning,
@@ -253,7 +252,7 @@ test("worker integration: incremental merge needs a proven-disjoint write set ag
   assert.equal(noProjection.mode, "waiting", "callers that pass no live projection keep the pre-incremental behavior");
 });
 
-test("measureParallelOverhead and currentOwnerId basics", () => {
+test("measureParallelOverhead basics", () => {
   const metric = measureParallelOverhead({
     sequential: { wall_clock_ms: 1000, tokens: 100 },
     parallel: { wall_clock_ms: 600, tokens: 110 },
@@ -263,6 +262,4 @@ test("measureParallelOverhead and currentOwnerId basics", () => {
 
   const noBase = measureParallelOverhead({ sequential: { wall_clock_ms: 0, tokens: 0 }, parallel: { wall_clock_ms: 1, tokens: 1 } });
   assert.equal(noBase.worthwhile, false, "no sequential baseline means no provable improvement");
-
-  assert.match(currentOwnerId(123, "uuid-1"), /^pid-123-uuid-1$/);
 });

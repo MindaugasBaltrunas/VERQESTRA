@@ -398,6 +398,10 @@ export type ParallelOverheadMetric = {
  * Gryna apskaita: matavimus paduoda iškvietėjas, funkcija tik verčia juos sprendimu.
  * Nulinis arba neigiamas sequential matavimas laikomas „nėra bazės" — tada `worthwhile`
  * yra `false`, nes pagerinimo be ko lyginti įrodyti neįmanoma.
+ *
+ * 2026-08-23 auditas: produkcinio kvietėjo NĖRA nei čia, nei etalone — matavimo kontraktas
+ * laukia benchmark vartotojo (E6, VQ-602). Paliktas kaip suprojektuota ir ištestuota
+ * galimybė; jei benchmark'as jo nepaims, trinti kartu su šia pastaba.
  */
 export function measureParallelOverhead(input: {
   sequential: ParallelOverheadSample;

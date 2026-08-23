@@ -38,6 +38,11 @@ export function indexCSharpSource(file: CodeIndexFile, text: string): LanguageIn
   const symbols: CodeIndexSymbol[] = [];
   const exports = new Set<string>();
   const declarations = [...clean.matchAll(TYPE_DECLARATION)];
+  // Įdėtinių tipų savininkų dėklas (2026-08-23, operatoriaus radinys). Iki tol `Outer.Inner` ir
+  // top-level `Inner` gaudavo VIENĄ ID `failas#Inner`, tad indekse jie susiliedavo, o `declares`
+  // briaunos rodydavo į tą patį mazgą. C# įdėtinis tipas yra tikras API paviršius (jis ir
+  // nurodomas kaip `Outer.Inner`), tad jis KVALIFIKUOJAMAS, o ne praleidžiamas kaip Python metodai.
+  const owners: { name: string; end: number }[] = [];
 
   for (const [position, match] of declarations.entries()) {
     const modifiers = match[0].slice(0, match[0].indexOf(match[2] ?? "")).toLowerCase();
@@ -49,19 +54,27 @@ export function indexCSharpSource(file: CodeIndexFile, text: string): LanguageIn
     // `exported` = matomas UŽ assembly ribų. `internal` yra numatytoji C# reikšmė, tad tylėjimas
     // reiškia „ne", o ne „taip" — priešingai nei PHP, kur top-level deklaracija visada vieša.
     const exported = /\bpublic\b/.test(modifiers) || /\bprotected\b/.test(modifiers);
-    // Pliki vardai, ne kvalifikuoti namespace'u (2026-08-23): iš `exports` statomos briaunos į
-    // `failas#vardas`, ir kvalifikuotas vardas rodytų į nesamą simbolio ID.
-    if (exported) exports.add(name);
-
     const start = match.index ?? 0;
+
+    // Savininkas nustatomas pagal KŪNŲ ribas: iškrenta visi, kurių kūnas jau baigėsi prieš šią
+    // deklaraciją. Deklaracijos eina failo tvarka, tad vieno praėjimo pakanka.
+    while (start > (owners[owners.length - 1]?.end ?? Number.POSITIVE_INFINITY)) owners.pop();
+    const qualified = [...owners.map((owner) => owner.name), name].join(".");
+    const end = bodyEnd(clean, start, declarations[position + 1]?.index ?? clean.length);
+    owners.push({ name, end });
+
+    // Kvalifikuotas vardas naudojamas IR ID, IR `exports` sąraše: `exports` briaunos rodo į
+    // `failas#vardas`, tad plikas `Inner` prie ID `failas#Outer.Inner` duotų kabančią briauną.
+    if (exported) exports.add(qualified);
+
     symbols.push({
-      id: `${file.path}#${name}`,
+      id: `${file.path}#${qualified}`,
       file: file.path,
-      name,
+      name: qualified,
       kind,
       exported,
       line: lineAt(offsets, start),
-      endLine: lineAt(offsets, bodyEnd(clean, start, declarations[position + 1]?.index ?? clean.length)),
+      endLine: lineAt(offsets, end),
     });
   }
 

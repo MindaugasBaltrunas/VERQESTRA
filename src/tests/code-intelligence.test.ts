@@ -17,19 +17,7 @@ import {
   retrieveSpecFragmentCandidates,
 } from "../application/code-intelligence/retrieval/spec-fragments.js";
 import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
-import {
-  extractImportEdges,
-  extractSymbolRecords,
-  layerForSourcePath,
-} from "../application/code-intelligence/code-map/ast-symbol-scanner.js";
-import {
-  classIdForFile,
-  generateCodeMapMermaid,
-  resolveImportTarget,
-} from "../application/code-intelligence/code-map/generator.js";
-import { computeCodeMapCoverage } from "../application/code-intelligence/code-map/coverage.js";
 import { requiresFreshCodeIndex } from "../application/code-intelligence/query/guard.js";
-import { loadTypeScript } from "../application/code-intelligence/indexing/ts-loader.js";
 import { nodeFsTestPort } from "./helpers/node-fs-port.js";
 
 test("mermaid parser: node shapes, edge labels, directive gate", () => {
@@ -114,6 +102,9 @@ test("markdown chunks: fenced code blokai nekuria fantominių antraščių", () 
   assert.ok(chunks[0]?.text.includes("po bloko"), "sekcija tęsiasi po uždaryto fence");
   assert.ok(chunks[0]?.text.includes("## ne antraštė tilde bloke"), "tilde fence irgi dengia");
 });
+
+// Antraščių normalizavimo testai gyvena `code-intelligence-heading-normalization` — iškelti
+// 2026-08-23 dėl 500 eilučių vartų.
 
 test("spec fragments: heading match, heading miss, change-dir expansion, char budget", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "vq-301-frag-"));
@@ -454,40 +445,7 @@ test("spec fragments: kirpimas ties pastraipos riba, su atsarga aklam pjūviui",
   assert.equal(clipToBoundary("bet koks", 0), "", "nulinis biudžetas duoda tuščią tekstą");
 });
 
-test("code-map: scanner records, mermaid render and coverage close the loop", async () => {
-  // `ts` paduodamas parametru (kaip ts-source-indexer): statinis typescript importas buvo
-  // vienintelis code-intelligence pažeidėjas prieš ts-loader design §6.
-  const ts = await loadTypeScript();
-  const source = [
-    'import { helper } from "./helper.js";',
-    "export class Engine {",
-    "  run(): string { return helper(); }",
-    "}",
-    "export const VERSION = 1;",
-  ].join("\n");
-  const symbols = extractSymbolRecords(ts, "src/application/engine.ts", source, "application");
-  assert.deepEqual(
-    symbols.map((record) => `${record.kind}:${record.name}`),
-    ["class:Engine", "method:Engine.run", "const:VERSION"],
-  );
-  const helperSymbols = extractSymbolRecords(ts, "src/application/helper.ts", "export function helper(): string { return \"x\"; }", "application");
-  const imports = extractImportEdges(ts, "src/application/engine.ts", source, "application");
-  assert.deepEqual(imports, [{ fromFile: "src/application/engine.ts", fromLayer: "application", toModule: "./helper.js" }]);
-
-  const mermaid = generateCodeMapMermaid([...symbols, ...helperSymbols], imports);
-  assert.match(mermaid, /class src_application_engine\["src\/application\/engine.ts"\]/);
-  assert.match(mermaid, /src_application_engine --> src_application_helper/);
-  const coverage = computeCodeMapCoverage([...symbols, ...helperSymbols], mermaid);
-  assert.equal(coverage.coverage_percent, 100);
-  assert.deepEqual(coverage.missing_symbols, []);
-
-  assert.equal(classIdForFile("src/a-b.ts"), "src_a_b");
-  assert.equal(resolveImportTarget("src/a.ts", "./b.js", new Set(["src/b.ts"])), "src/b.ts");
-  assert.equal(resolveImportTarget("src/a.ts", "zod", new Set(["src/b.ts"])), null);
-  assert.equal(layerForSourcePath("src/application/engine.ts", { relativeDir: "src" }), "application");
-  assert.equal(layerForSourcePath("src/cli.ts", { relativeDir: "src" }), "root");
-  assert.equal(layerForSourcePath("ui/src/x.ts", { relativeDir: "ui/src", fixedLayer: "ui-app" }), "ui-app");
-});
+// Code-map testai gyvena `code-intelligence-code-map` — iškelti 2026-08-23 dėl 500 eilučių vartų.
 
 test("guard rule: graph-aware task requires fresh index unless it builds one itself", () => {
   assert.ok(requiresFreshCodeIndex("Naudok code graph context analizei."));

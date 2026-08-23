@@ -368,10 +368,33 @@ function matchHeadingSection(markdown: string, headingRef: string): string | und
   return section.join("\n\n");
 }
 
+/**
+ * Antraštė → palyginimo raktas.
+ *
+ * UNICODE, o ne ASCII (2026-08-23, operatoriaus radinys). Iki tol raktas buvo `[^a-z0-9]+ → "-"`,
+ * tad viskas, kas ne lotyniška, iškrisdavo:
+ *
+ *   Интерфейс → ""           sekcija NERANDAMA, ir RAG grąžindavo VISĄ dokumentą kaip fallback
+ *   接口      → ""           tas pats
+ *   Sąsaja    → "s-saja"     lietuviška raidė iškrenta — repo, kurio dokumentai lietuviški
+ *   Überblick → "berblick"   pirma raidė iškrenta
+ *   Раздел 2  → "2"          susilietų su bet kuria „## 2" antrašte
+ *
+ * Tuščias raktas buvo blogiausias iš jų: `matchHeadingSection` grąžindavo `undefined`, ir vietoj
+ * vienos sekcijos į pack'ą patekdavo visas dokumentas — tyliai, biudžeto sąskaita, išstumdamas
+ * kitus įrodymus. Antrasis blogumas — SUSILIEJIMAI: skirtingos antraštės gaudavo tą patį raktą.
+ *
+ * NFC pirma, nes ta pati raidė gali ateiti sudėtine forma (`ą` = `a` + U+0328), ir be
+ * normalizacijos dvi vizualiai vienodos antraštės duotų skirtingus raktus.
+ *
+ * Diakritikos NEnuimame: `Sąsaja` ir `Sasaja` yra skirtingos antraštės, ir jų suliejimas būtų ta
+ * pati susiliejimo klaida kita kryptimi.
+ */
 function normalizeHeading(heading: string): string {
   return heading
+    .normalize("NFC")
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
 }

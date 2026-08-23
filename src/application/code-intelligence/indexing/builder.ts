@@ -30,7 +30,7 @@ export async function buildCodeIndex(
   // (`knownPaths`, PSR-4) paruošiamas VIENĄ kartą: per failą jis būtų N kartų tas pats.
   const context: LexicalIndexContext = {
     knownPaths: new Set(scanned.map((file) => file.path)),
-    psr4: parseComposerPsr4(await readOptional(fs, path.join(projectRoot, "composer.json"))),
+    psr4: parseComposerPsr4(await readOptionalConfig(fs, path.join(projectRoot, "composer.json"))),
   };
 
   for (const file of scanned) {
@@ -57,8 +57,16 @@ export async function buildCodeIndex(
   return data;
 }
 
-/** Failas, kurio nėra, NĖRA klaida: `composer.json` daugumoje projektų paprasčiausiai nėra. */
-async function readOptional(fs: CodeIntelligenceFileSystemPort, absolute: string): Promise<string | undefined> {
+/**
+ * NEPRIVALOMAS konfigo failas: jo nebuvimas nėra klaida (`composer.json` daugumoje projektų
+ * paprasčiausiai nėra).
+ *
+ * Ši tolerancija galioja TIK konfigui. Iki 2026-08-23 ta pati funkcija buvo naudojama ir ŠALTINIO
+ * failams, tad bet kokia skaitymo klaida virsdavo `undefined`, o failas likdavo indekse be importų
+ * ir simbolių — be jokios degradacijos žymos. Tuo pačiu metu TypeScript kelias tokiu atveju META.
+ * Dvi to paties gedimo elgsenos viename indekse reiškia, kad pusė jo gali būti tyliai tuščia.
+ */
+async function readOptionalConfig(fs: CodeIntelligenceFileSystemPort, absolute: string): Promise<string | undefined> {
   try {
     return await fs.readTextFile(absolute);
   } catch {
@@ -73,10 +81,11 @@ async function indexLexical(
   context: LexicalIndexContext,
 ): Promise<LanguageIndexResult | undefined> {
   if (!hasLexicalIndexer(file)) return undefined;
-  const text = await readOptional(fs, path.join(projectRoot, file.path));
-  // Neperskaitomas failas lieka be importų ir simbolių, bet PATS lieka indekse: dingęs failas
-  // atrodytų kaip ištrintas, o jis tik neperskaitytas.
-  return text === undefined ? undefined : indexLexicalSource(file, text, context);
+  // Skaitymo klaida PROPAGUOJAMA — lygiai kaip TypeScript kelyje. Failas, kurį ką tik nuskenavome,
+  // bet nebegalime perskaityti, reiškia arba lenktynę, arba teisių problemą; abiem atvejais
+  // pusiau tuščias indeksas, atrodantis pilnas, yra blogiau nei garsi klaida.
+  const text = await fs.readTextFile(path.join(projectRoot, file.path));
+  return indexLexicalSource(file, text, context);
 }
 
 function deriveTestEdges(files: CodeIndexFile[]): CodeIndexEdge[] {

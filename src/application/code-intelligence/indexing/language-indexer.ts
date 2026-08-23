@@ -12,7 +12,7 @@ import { indexDotnetProject } from "./dotnet-indexer.js";
 import { indexPhpSource, type Psr4Map } from "./php-indexer.js";
 import { indexPythonSource } from "./python-indexer.js";
 import type { LanguageIndexResult } from "./language-indexer-model.js";
-import type { CodeIndexEdge, CodeIndexFile } from "./types.js";
+import type { CodeIndexEdge, CodeIndexFile, CodeIndexSymbol } from "./types.js";
 
 export type LexicalIndexContext = {
   knownPaths: ReadonlySet<string>;
@@ -26,7 +26,33 @@ export function hasLexicalIndexer(file: CodeIndexFile): boolean {
 
 export function indexLexicalSource(file: CodeIndexFile, text: string, context: LexicalIndexContext): LanguageIndexResult | undefined {
   const extracted = extract(file, text, context);
-  return extracted === undefined ? undefined : { ...extracted, edges: [...extracted.edges, ...graphEdges(extracted)] };
+  if (extracted === undefined) return undefined;
+  const deduped = { ...extracted, symbols: uniqueSymbols(extracted.symbols) };
+  return { ...deduped, edges: [...deduped.edges, ...graphEdges(deduped)] };
+}
+
+/**
+ * Simbolio ID yra TAPATYBĖ, tad jis privalo būti unikalus faile (2026-08-23, operatoriaus radinys).
+ *
+ * Tinklas, o ne sprendimas: kai kalba tikrai turi įdėtas deklaracijas, teisingas atsakymas yra
+ * KVALIFIKUOTI vardą savininku (taip padaryta C# `Outer.Inner`), o ne sulieti du skirtingus dalykus.
+ * Bet dublikatas, prasprūdęs iki čia, yra blogesnis už suliejimą: dvi `declares` briaunos į tą patį
+ * mazgą reiškia, kad indeksas pats nesilaiko savo tapatybės taisyklės. Todėl čia paliktas
+ * paskutinis vartas, o testas tikrina jį visoms kalboms iš karto.
+ */
+function uniqueSymbols(symbols: readonly CodeIndexSymbol[]): CodeIndexSymbol[] {
+  const byId = new Map<string, CodeIndexSymbol>();
+  for (const symbol of symbols) {
+    const existing = byId.get(symbol.id);
+    if (existing === undefined) {
+      byId.set(symbol.id, symbol);
+      continue;
+    }
+    existing.exported = existing.exported || symbol.exported;
+    if (symbol.line !== undefined) existing.line = Math.min(existing.line ?? symbol.line, symbol.line);
+    if (symbol.endLine !== undefined) existing.endLine = Math.max(existing.endLine ?? symbol.endLine, symbol.endLine);
+  }
+  return [...byId.values()];
 }
 
 function extract(file: CodeIndexFile, text: string, context: LexicalIndexContext): LanguageIndexResult | undefined {
@@ -74,7 +100,7 @@ function graphEdges(result: LanguageIndexResult): CodeIndexEdge[] {
  * be žemėlapio PHP importai tiesiog lieka pilnai kvalifikuotais vardais.
  */
 export function parseComposerPsr4(composerJson: string | undefined): Psr4Map {
-  const map = new Map<string, string>();
+  const map = new Map<string, readonly string[]>();
   if (composerJson === undefined) return map;
 
   let parsed: unknown;
@@ -92,10 +118,13 @@ export function parseComposerPsr4(composerJson: string | undefined): Psr4Map {
     const psr4 = (block as Record<string, unknown>)["psr-4"];
     if (typeof psr4 !== "object" || psr4 === null) continue;
     for (const [prefix, target] of Object.entries(psr4 as Record<string, unknown>)) {
-      // PSR-4 leidžia masyvą kelių katalogų atvejui; imamas pirmas — antrasis būtų antra tiesa
-      // tam pačiam prefiksui, o rezoliucija vis tiek tikrinama prieš indekso failų sąrašą.
-      const directory: unknown = Array.isArray(target) ? (target as unknown[])[0] : target;
-      if (typeof directory === "string" && directory !== "") map.set(prefix, directory);
+      // PSR-4 masyvas yra PAIEŠKOS SEKA, o ne pasirinkimas (2026-08-23, operatoriaus radinys):
+      // `"App\\": ["src/", "app/"]` reiškia „ieškok `src/`, paskui `app/`". Anksčiau buvo imamas
+      // tik pirmas, tad tikras failas antrajame kataloge likdavo neišspręstas.
+      const directories = (Array.isArray(target) ? (target as unknown[]) : [target]).filter(
+        (entry): entry is string => typeof entry === "string" && entry !== "",
+      );
+      if (directories.length > 0) map.set(prefix, directories);
     }
   }
   return map;

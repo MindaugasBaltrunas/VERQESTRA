@@ -4,6 +4,7 @@
 
 import path from "node:path";
 import { toPosixPath } from "../../../shared/paths.js";
+import { sha256Hex } from "../../../shared/hash.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
 import type { ImportEdge, SymbolRecord } from "./ast-symbol-scanner.js";
 
@@ -16,11 +17,26 @@ const GENERATED_HEADER = [
   "%% regenerate via the code-map generator (application/code-intelligence/code-map/generator.ts).",
 ].join("\n");
 
-/** Deterministic Mermaid classDiagram class id for a source file path. */
+/**
+ * Deterministinis Mermaid `classDiagram` klasės ID failo keliui.
+ *
+ * INJEKTYVUS nuo 2026-08-23 (operatoriaus radinys). Iki tol ID buvo tik „nesaugius simbolius keisk
+ * pabraukimu", ir tai suliedavo nesusijusius failus į VIENĄ diagramos mazgą:
+ *
+ *   src/a-b.ts  src/a_b.ts  src/a.b.ts  src/a/b.ts  src/a b.ts   →  visi `src_a_b`
+ *   src/Ą-b.ts                                                    →  `src_b`
+ *
+ *   Ketvirtasis yra sunkiausias: tai KITAS katalogas, tad diagrama rodydavo neteisingą struktūrą,
+ *   o ne tik neteisingą vardą.
+ *
+ * Skaitomas prefiksas paliekamas, o tapatybę užtikrina kelio hash'as. Skaitomumo kaina nulinė:
+ * ID yra vidinis, o matomas žymuo yra PILNAS kelias (`class <id>["src/a-b.ts"]`).
+ */
 export function classIdForFile(filePath: string): string {
-  const withoutExtension = toPosixPath(filePath).replace(/\.(tsx?|jsx?)$/, "");
+  const posix = toPosixPath(filePath);
+  const withoutExtension = posix.replace(/\.(tsx?|jsx?)$/, "");
   const sanitized = withoutExtension.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return sanitized.length > 0 ? sanitized : "_";
+  return `${sanitized.length > 0 ? sanitized : "f"}_${sha256Hex(posix).slice(0, 8)}`;
 }
 
 export function memberLineForSymbol(record: SymbolRecord): string {

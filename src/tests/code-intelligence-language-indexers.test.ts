@@ -62,6 +62,45 @@ test("Python: absoliutūs ir reliatyvūs importai, `__all__` nugali konvenciją"
   assert.ok((cls?.endLine ?? 0) > (cls?.line ?? 0), "klasės blokas turi pabaigą");
 });
 
+// 2026-08-23 (operatoriaus radinys): absoliutus importas likdavo tekstiniu net tada, kai failas
+// projekte VIENAREIKŠMIŠKAI egzistuoja. Pagrindimas „be sys.path spėti reikštų išgalvoti briauną"
+// galioja tik esant keliems kandidatams; esant vienam, tai nebe spėjimas, o įrodymas.
+test("Python: absoliutus importas išsprendžiamas, kai kandidatas VIENAS", () => {
+  const known = new Set(["app/models.py", "app/views.py", "app/pkg/__init__.py"]);
+  const resolved = indexPythonSource(
+    fileOf("app/views.py", "python"),
+    "from app.models import X\nimport app.pkg\nimport os\n",
+    known,
+  );
+
+  assert.deepEqual(resolved.file.imports, ["app/models.py", "app/pkg/__init__.py", "os"], [
+    "modulis su vienu kandidatu virsta keliu;",
+    "pakuotė randama per __init__.py;",
+    "išorinis `os` lieka moduliu",
+  ].join(" "));
+
+  // Dviprasmybė atmetama — ta pati taisyklė kaip kanoninėje `resolveTaskNode` rezoliucijoje.
+  const ambiguous = indexPythonSource(
+    fileOf("x.py", "python"),
+    "from app.models import X\n",
+    new Set(["app/models.py", "src/app/models.py", "x.py"]),
+  );
+  assert.deepEqual(ambiguous.file.imports, ["app.models"], "du kandidatai — tyli teisinga pusė yra „nežinau\"");
+});
+
+test("PHP: PSR-4 masyvas yra PAIEŠKOS SEKA, ne pirmas kandidatas", () => {
+  // Laravel/Symfony projektuose tai reali forma: `"App\\": ["src/", "app/"]`.
+  const psr4 = parseComposerPsr4(JSON.stringify({ autoload: { "psr-4": { "App\\": ["src/", "app/"] } } }));
+  const result = indexPhpSource(
+    fileOf("c.php", "php"),
+    "<?php\nuse App\\Models\\User;\n",
+    new Set(["app/Models/User.php", "c.php"]),
+    psr4,
+  );
+
+  assert.deepEqual(result.file.imports, ["app/Models/User.php"], "failas antrajame kataloge irgi randamas");
+});
+
 test("PHP: PSR-4 `use` virsta repo keliu; eksportai — pliki vardai", () => {
   const composer = JSON.stringify({
     autoload: { "psr-4": { "App\\": "app/" } },
@@ -188,10 +227,13 @@ test("gate: galimybių lentelė atitinka tai, ką iš tikrųjų turime", () => {
       handled,
       `${capability.language}: extracts_symbols nesutampa su tikrove`,
     );
+    // `parser` irgi turi sakyti tiesą: vardas, aprašantis nebeegzistuojantį būdą, klaidina lygiai
+    // taip pat kaip pasenusi antraštė (2026-08-23 — TypeScript įrašas skelbė `regex-ts-indexer`,
+    // nors AST naudojamas nuo task 1105b).
     assert.equal(
-      capability.status === "active",
-      handled || capability.language === "json",
-      `${capability.language}: statusas "${capability.status}" nesutampa su tikrove`,
+      /regex/i.test(capability.parser),
+      false,
+      `${capability.language}: parseris pavadintas "${capability.parser}", nors regex ištraukimo nebėra`,
     );
   }
 });
@@ -199,5 +241,8 @@ test("gate: galimybių lentelė atitinka tai, ką iš tikrųjų turime", () => {
 test("sugadintas composer.json NĖRA klaida — tik nėra PSR-4 žemėlapio", () => {
   assert.equal(parseComposerPsr4("{ not json").size, 0);
   assert.equal(parseComposerPsr4(undefined).size, 0);
-  assert.equal(parseComposerPsr4(JSON.stringify({ autoload: { "psr-4": { "A\\": ["a/", "b/"] } } })).get("A\\"), "a/");
+  // PSR-4 masyvas yra PAIEŠKOS SEKA: išsaugomi VISI katalogai ir jų tvarka, nes failas gali gulėti
+  // antrajame (2026-08-23 — anksčiau buvo imamas tik pirmas).
+  assert.deepEqual(parseComposerPsr4(JSON.stringify({ autoload: { "psr-4": { "A\\": ["a/", "b/"] } } })).get("A\\"), ["a/", "b/"]);
+  assert.deepEqual(parseComposerPsr4(JSON.stringify({ autoload: { "psr-4": { "A\\": "a/" } } })).get("A\\"), ["a/"]);
 });

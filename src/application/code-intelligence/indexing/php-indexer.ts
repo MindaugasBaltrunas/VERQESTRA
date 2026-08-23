@@ -12,8 +12,14 @@ import { blankOutNoise, C_LIKE_QUOTES, lineAt, lineIndex } from "./lexical.js";
 import type { CodeIndexFile, CodeIndexSymbol, CodeIndexSymbolKind } from "./types.js";
 import type { LanguageIndexResult } from "./language-indexer-model.js";
 
-/** PSR-4 prefiksas → katalogas, kaip `composer.json` `autoload.psr-4`. */
-export type Psr4Map = ReadonlyMap<string, string>;
+/**
+ * PSR-4 prefiksas → katalogų PAIEŠKOS SEKA, kaip `composer.json` `autoload.psr-4`.
+ *
+ * Reikšmė yra sąrašas, o ne vienas katalogas (2026-08-23, operatoriaus radinys): standartas leidžia
+ * masyvą, ir jis reiškia eilės tvarka tikrinamas vietas. Anksčiau buvo imamas tik pirmas, tad
+ * `"App\\": ["src/", "app/"]` neišspręsdavo `app/Models/User.php`.
+ */
+export type Psr4Map = ReadonlyMap<string, readonly string[]>;
 
 const USE_STATEMENT = /^[ \t]*use[ \t]+(function[ \t]+|const[ \t]+)?([A-Za-z_\\][A-Za-z0-9_\\]*)/gm;
 const REQUIRE_STATEMENT = /\b(?:require|require_once|include|include_once)\b/g;
@@ -102,17 +108,22 @@ export function indexPhpSource(
  * `App\Domain\`), ir trumpesnis nukreiptų į neteisingą katalogą.
  */
 function resolvePsr4(target: string, psr4: Psr4Map, knownPaths: ReadonlySet<string>): string | undefined {
-  let best: { prefix: string; dir: string } | undefined;
-  for (const [prefix, dir] of psr4) {
+  let best: { prefix: string; dirs: readonly string[] } | undefined;
+  for (const [prefix, dirs] of psr4) {
     const normalized = prefix.endsWith("\\") ? prefix : `${prefix}\\`;
     if (!target.startsWith(normalized)) continue;
-    if (!best || normalized.length > best.prefix.length) best = { prefix: normalized, dir };
+    if (!best || normalized.length > best.prefix.length) best = { prefix: normalized, dirs };
   }
   if (!best) return undefined;
 
   const relative = target.slice(best.prefix.length).split("\\").join("/");
-  const base = `${best.dir.replace(/\/$/, "")}/${relative}`;
-  return knownPaths.has(`${base}.php`) ? `${base}.php` : undefined;
+  // Katalogai tikrinami EILĖS TVARKA — būtent tai reiškia PSR-4 masyvas. Pirmas, kuriame failas
+  // realiai yra, ir laimi; nesant nė viename, nuoroda lieka kvalifikuotu vardu.
+  for (const dir of best.dirs) {
+    const candidate = `${dir.replace(/\/$/, "")}/${relative}.php`;
+    if (knownPaths.has(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 /** Deklaracijos pabaiga: suderintas `}` arba kito deklaracijos pradžia, jei skliaustai nesueina. */

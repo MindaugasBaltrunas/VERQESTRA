@@ -15,6 +15,35 @@ export type TypeScriptIndexResult = {
   edges: CodeIndexEdge[];
 };
 
+/**
+ * Simboliai pagal ID, sulieti į vieną (2026-08-23, operatoriaus radinys).
+ *
+ * `function over(a: string): void; function over(a: number): void; function over(a: unknown) {}`
+ * yra TRYS deklaracijos ir VIENAS simbolis. Iki tol jos duodavo tris įrašus su identišku
+ * `failas#over` ID ir tris `declares` briaunas į tą patį mazgą — indeksas skelbė, kad ID yra
+ * tapatybė, ir pats jos nesilaikė.
+ *
+ * Suliejant imamas PLATESNIS eilučių intervalas: overload'o prasmė yra visa grupė, o ne
+ * paskutinė jos eilutė. `exported` — bet kuri deklaracija; TypeScript'e `export` gali stovėti tik
+ * prie vienos jų, ir tai eksportuoja visą grupę.
+ */
+function dedupeById(symbols: CodeIndexSymbol[]): CodeIndexSymbol[] {
+  const byId = new Map<string, CodeIndexSymbol>();
+  for (const symbol of symbols) {
+    const existing = byId.get(symbol.id);
+    if (existing === undefined) {
+      byId.set(symbol.id, symbol);
+      continue;
+    }
+    existing.exported = existing.exported || symbol.exported;
+    if (symbol.line !== undefined) existing.line = Math.min(existing.line ?? symbol.line, symbol.line);
+    if (symbol.endLine !== undefined) existing.endLine = Math.max(existing.endLine ?? symbol.endLine, symbol.endLine);
+    // Parašas imamas iš IMPLEMENTACIJOS — ji viena, o overload'ų yra keli, ir jų parašai skiriasi.
+    if (symbol.signature !== undefined) existing.signature = symbol.signature;
+  }
+  return [...byId.values()];
+}
+
 /** Plėtinys → `ScriptKind`. JSX variantai atskiri: be jų `<div/>` parsinamas kaip tipo asercija. */
 function scriptKindFor(ts: typeof TypeScriptApi, filePath: string): TypeScriptApi.ScriptKind {
   if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
@@ -232,7 +261,7 @@ export function indexSourceText(
     }
   }
 
-  const sortedSymbols = symbols.sort((left, right) => left.id.localeCompare(right.id));
+  const sortedSymbols = dedupeById(symbols).sort((left, right) => left.id.localeCompare(right.id));
   const exportList = Array.from(exportNames).sort();
   const enrichedFile: CodeIndexFile = {
     ...file,

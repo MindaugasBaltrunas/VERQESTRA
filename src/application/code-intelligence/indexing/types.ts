@@ -30,7 +30,13 @@
 // 3.4.0 (2026-08-23): `source_hash` apima KIEKVIENĄ indeksuotą failą (anksčiau JSON buvo išmestas,
 // o grįždavo tik per vardų heuristiką), o `vq/supervisor` ir `vq/generated` išimti iš skenavimo —
 // ten guli paties įrankio išvestis. Keičiasi ir atspaudas, ir failų sąrašas.
-export const codeIndexVersion = "3.4.0";
+// 3.5.0 (2026-08-23): simbolių ID tapo unikalūs. TypeScript overload'ai suliejami į vieną simbolį,
+// C# įdėtiniai tipai kvalifikuojami savininku (`Outer.Inner`). Keičiasi simbolių sąrašas, jų ID ir
+// `declares`/`exports` briaunos.
+// 3.6.0 (2026-08-23): pilnesnė vietinių paketų rezoliucija. Python absoliutus importas
+// išsprendžiamas į repo kelią, kai kandidatas VIENAS; PSR-4 masyvo reikšmė tikrinama kaip paieškos
+// seka, o ne tik pirmas katalogas. Keičiasi `imports` ir `imports` briaunos.
+export const codeIndexVersion = "3.6.0";
 
 export type CodeIndexLanguage =
   | "typescript"
@@ -50,8 +56,10 @@ export type CodeIndexEdgeType =
   | "exports"
   | "declares"
   | "testedBy"
-  | "allowedByTask"
-  | "relatedToSpec"
+  // `allowedByTask` ir `relatedToSpec` PAŠALINTI 2026-08-23 (operatoriaus radinys): jie neturėjo
+  // NEI gamintojo, NEI vartotojo. Code-index statomas TIK iš šaltinio failų, tad task'ų ir spec'ų
+  // ryšiai jame atsirasti negalėjo — juos žino konteksto pack'o sluoksnis, ne indeksuotojas.
+  // Tipas, kurio niekas negamina, skaitytojui atrodo kaip duomenys, kurių tiesiog dar nematė.
   | "reExports"
   | "references";
 

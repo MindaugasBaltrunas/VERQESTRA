@@ -40,7 +40,16 @@ import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 /** Saugomų įrašų lubos. Seniausi metami pirmi; cache yra išvestinis artefaktas. */
 export const DEFAULT_MAX_CONTEXT_CACHE_ENTRIES = 64;
 
-/** vq/config failai, keičiantys, ką context pack'as turi savyje. */
+/**
+ * vq/config failai, keičiantys, ką context pack'as turi savyje.
+ *
+ * ĮVARDYTA 2026-08-23 (operatoriaus radinys): `rag-policy.json` keičia kešo raktą, bet jo NESKAITO
+ * nė vienas loader'is ar retrieval kelias. Jis siunčiamas kaip šablonas su
+ * `extensionRetrieval.enabled` jungikliu, tad operatorius gali jį įjungti, pamatyti perskaičiavimą
+ * ir pagrįstai nuspręsti, kad suveikė — nors nepasikeičia niekas. Iš rakto NEIŠIMTAS sąmoningai:
+ * išėmimas paverstų jį visiškai tyliu. Tikras taisymas — prijungti arba nustoti siųsti šabloną —
+ * liečia operatoriui matomą konfigą, tad laukia sprendimo.
+ */
 export const CONTEXT_CACHE_POLICY_FILES = [
   "context-budget.json",
   "context-selection-policy.json",

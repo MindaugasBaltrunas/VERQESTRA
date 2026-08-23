@@ -1,11 +1,16 @@
 // Kalbų registras code-index'ui. Behaviour etalon: AG_loop code-index/language-capabilities.ts.
 import type { CodeIndexLanguage } from "./types.js";
 
-export type CodeIndexLanguageSupportStatus = "active" | "scanned" | "planned";
-
+/*
+ * `status` (`active | scanned | planned`) PAŠALINTAS 2026-08-23 (operatoriaus radinys).
+ *
+ * `scanned` ir `planned` neturėjo nė vieno įrašo po daugiakalbio praplėtimo, o `active` liko
+ * vienintele galima reikšme — laukas nustojo ką nors skirti. Ką jis kadaise reiškė, dabar tiksliau
+ * pasako `extracts_*` vėliavėlės: `json` yra „aktyvus", bet be importų ir simbolių, ir būtent tai
+ * skaitytojui svarbu. Laukas su viena galima reikšme yra ne kontraktas, o triukšmas.
+ */
 export type CodeIndexLanguageCapability = {
   language: CodeIndexLanguage;
-  status: CodeIndexLanguageSupportStatus;
   extensions: string[];
   parser: string;
   extracts_files: boolean;
@@ -18,9 +23,11 @@ export type CodeIndexLanguageCapability = {
 export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
   {
     language: "typescript",
-    status: "active",
     extensions: [".ts", ".tsx", ".mts", ".cts"],
-    parser: "regex-ts-indexer",
+    // 2026-08-23: buvo `regex-ts-indexer`, nors indeksavimas per `ts.createSourceFile` AST vyksta
+    // nuo task 1105b. Vardas, aprašantis nebeegzistuojantį būdą, klaidina lygiai taip pat kaip
+    // pasenusi antraštė.
+    parser: "ts-ast-indexer",
     extracts_files: true,
     extracts_imports: true,
     extracts_symbols: true,
@@ -34,7 +41,6 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
     // priskyrimas, o ne deklaracijos (2026-08-23: iki tol `.cjs` grąžindavo tuščius sąrašus, nors
     // lentelė jau skelbė pilną palaikymą).
     language: "javascript",
-    status: "active",
     extensions: [".js", ".jsx", ".mjs", ".cjs"],
     parser: "ts-ast-indexer",
     extracts_files: true,
@@ -45,7 +51,6 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
   },
   {
     language: "python",
-    status: "active",
     extensions: [".py"],
     parser: "lexical-python",
     extracts_files: true,
@@ -56,7 +61,6 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
   },
   {
     language: "php",
-    status: "active",
     extensions: [".php"],
     parser: "lexical-php-psr4",
     extracts_files: true,
@@ -67,7 +71,6 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
   },
   {
     language: "csharp",
-    status: "active",
     extensions: [".cs"],
     parser: "lexical-csharp",
     extracts_files: true,
@@ -78,7 +81,6 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
   },
   {
     language: "dotnet",
-    status: "active",
     extensions: [".csproj", ".sln", ".props", ".targets"],
     parser: "msbuild-project-graph",
     extracts_files: true,
@@ -89,7 +91,6 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
   },
   {
     language: "json",
-    status: "active",
     extensions: [".json"],
     parser: "json-config-scan",
     extracts_files: true,

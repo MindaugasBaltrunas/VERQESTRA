@@ -57,8 +57,13 @@ const nonEmptyString = z.string().trim().min(1);
  *      indekso kėlimai anuliuos iš jo sudėtus pack'us automatiškai, ir šios versijos kelti dėl
  *      indekso nebereikės. Šis kėlimas lieka dėl jau esamų v4 įrašų, kurie neša senąją
  *      deskriptoriaus formą.
+ *  6 — 2026-08-23: antraščių normalizavimas tapo Unicode. Iki tol ne lotyniškos antraštės virsdavo
+ *      TUŠČIU raktu, tad `#Интерфейс` sekcijos nerasdavo ir į pack'ą patekdavo VISAS dokumentas;
+ *      be to skirtingos antraštės susiliedavo (`Раздел 2` → `2`). Keičiasi ir tai, KAS patenka į
+ *      `spec_fragments`, ir `headingMiss` žymos, tad v5 įrašas grąžintų ne tą fragmentą.
+ *      Grynai loginis pakeitimas — `PACK_SEMANTICS_DESCRIPTOR` jo nemato.
  */
-export const CONTEXT_CACHE_VERSION = 5;
+export const CONTEXT_CACHE_VERSION = 6;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

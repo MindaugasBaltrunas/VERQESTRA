@@ -54,6 +54,51 @@ test("kiekviena leksinė kalba duoda imports/declares/exports briaunas", () => {
   }
 });
 
+// 2026-08-23 (operatoriaus radinys): simbolių ID nebuvo unikalūs. TypeScript overload'ai duodavo
+// TRIS identiškus `src/over.ts#over`, o C# įdėtinis ir top-level `Inner` — du `src/X.cs#Inner`.
+// ID yra TAPATYBĖ: du įrašai tuo pačiu ID reiškia dvi `declares` briaunas į tą patį mazgą, t. y.
+// indeksą, kuris pats nesilaiko savo taisyklės.
+//
+// Testas tikrina INVARIANTĄ visoms kalboms, o ne du pataisytus atvejus: kiekvienas naujas
+// ištraukėjas jį paveldi automatiškai.
+test("gate: simbolių ID unikalūs VISOSE kalbose", () => {
+  const cases: { path: string; language: CodeIndexLanguage; text: string }[] = [
+    {
+      path: "src/X.cs",
+      language: "csharp",
+      text: "public class Outer\n{\n    public class Inner { }\n}\n\npublic class Inner { }\n",
+    },
+    { path: "src/dup.py", language: "python", text: "def f():\n    pass\n\ndef f():\n    pass\n" },
+    { path: "src/Dup.php", language: "php", text: "<?php\nclass A {}\nconst A = 1;\n" },
+    {
+      path: "src/Dup.csproj",
+      language: "dotnet",
+      text: '<Project><Target Name="Build" /><Target Name="Build" /></Project>',
+    },
+  ];
+
+  for (const testCase of cases) {
+    const result = indexLexicalSource(fileOf(testCase.path, testCase.language), testCase.text, CONTEXT);
+    assert.ok(result, testCase.language);
+
+    const ids = result.symbols.map((symbol) => symbol.id);
+    assert.equal(new Set(ids).size, ids.length, `${testCase.language}: pasikartojantys ID ${ids.join(", ")}`);
+
+    // Ta pati taisyklė briaunoms: `declares` privalo būti po vieną kiekvienam simboliui.
+    const declares = result.edges.filter((edge) => edge.type === "declares").map((edge) => edge.to);
+    assert.equal(new Set(declares).size, declares.length, `${testCase.language}: dublikuotos declares briaunos`);
+  }
+
+  // C# atveju teisingas atsakymas yra KVALIFIKUOTI, o ne sulieti: `Outer.Inner` ir `Inner` yra
+  // du SKIRTINGI tipai, ir indeksas privalo juos atskirti.
+  const csharp = indexLexicalSource(fileOf("src/X.cs", "csharp"), cases[0]?.text ?? "", CONTEXT);
+  assert.deepEqual(
+    csharp?.symbols.map((symbol) => symbol.name),
+    ["Outer", "Outer.Inner", "Inner"],
+    "įdėtinis tipas kvalifikuojamas savininku, o ne suliejamas su bendravardžiu",
+  );
+});
+
 // 2026-08-23 (operatoriaus radinys): JavaScript buvo pažymėtas pilnai aktyviu, bet CommonJS
 // nepalaikomas. ESM `import`/`export` yra DEKLARACIJOS — indeksuotojas jas atpažįsta iš mazgo tipo;
 // `require()` yra kvietimas, o `module.exports =` — priskyrimas. Todėl `.cjs` failai grąžindavo

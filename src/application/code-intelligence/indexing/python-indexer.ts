@@ -26,7 +26,7 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
   for (const match of clean.matchAll(IMPORT_PLAIN)) {
     for (const part of splitList(match[1] ?? "")) {
       const module = part.split(/\s+as\s+/)[0]?.trim() ?? "";
-      if (module) imports.add(module);
+      if (module) imports.add(resolveAbsolute(module, knownPaths) ?? module);
     }
   }
 
@@ -34,7 +34,7 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
     const dots = (match[1] ?? "").length;
     const module = (match[2] ?? "").trim();
     if (dots === 0) {
-      if (module) imports.add(module);
+      if (module) imports.add(resolveAbsolute(module, knownPaths) ?? module);
       continue;
     }
     const resolved = resolveRelative(file.path, dots, module, knownPaths);
@@ -91,6 +91,32 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
     symbols,
     edges: [],
   };
+}
+
+/**
+ * Absoliutus importas → repo kelias, kai jis VIENAREIKŠMIS (2026-08-23, operatoriaus radinys).
+ *
+ * Iki tol `from app.models import X` likdavo tekstiniu `app.models`, net kai `app/models.py`
+ * projekte egzistavo. Pagrindimas buvo „be `sys.path` spėti reikštų išgalvoti briauną" — ir jis
+ * teisingas TIK tada, kai kandidatų daugiau nei vienas. Kai failas indekse yra vienas, tai nebe
+ * spėjimas, o įrodymas, ir briaunos atsisakymas praranda tikrą ryšį.
+ *
+ * Dviprasmybė (`app/models.py` IR `src/app/models.py`) atmetama — ta pati taisyklė kaip kanoninėje
+ * `resolveTaskNode` rezoliucijoje: tyli teisinga atsakymo pusė čia yra „nežinau".
+ *
+ * Ieškoma ir pakuotės (`app/models/__init__.py`), nes `import app.pkg` nurodo būtent ją.
+ */
+function resolveAbsolute(module: string, knownPaths: ReadonlySet<string>): string | undefined {
+  if (module === "") return undefined;
+  const base = module.split(".").join("/");
+
+  const matches: string[] = [];
+  for (const suffix of [`${base}.py`, `${base}/__init__.py`]) {
+    for (const candidate of knownPaths) {
+      if (candidate === suffix || candidate.endsWith(`/${suffix}`)) matches.push(candidate);
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /** Reliatyvus importas → repo kelias. `.` = šio failo paketas, `..` = tėvinis, ir t. t. */

@@ -31,6 +31,8 @@ import {
   moveTaskToBucket,
   taskBucketDir,
 } from "../application/task-execution/bucket-transition.js";
+import { shouldResetSessionWriteLedger } from "../application/task-execution/session-write-owners.js";
+import { clearSessionWriteLedger } from "../interfaces/hooks/session-write-ledger.js";
 import type { TaskLedgerEntry } from "../application/task-execution/task-ledger-rules.js";
 import { taskFileStem, taskLedgerKey } from "../domain/tasks/identity.js";
 
@@ -274,6 +276,39 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
         base_head: (await gitHead(input.projectRoot)) ?? "",
         started_at: new Date().toISOString(),
       };
+
+      // Per-TASK session-writes ledger'io pradžia (etalono task 1100 + 0049 + 0056). Iki
+      // 2026-08-23 čia buvo plikas `writeTextFile("[]")`: (1) BESĄLYGINIS — to paties task'o
+      // pakartotinis startas ištrindavo ankstesnio bandymo rašymus, kurių finalinis Stop
+      // nebestage'indavo; (2) BE LOCK'O — lenktyniavo su PostToolUse `read → push → rename`,
+      // ir pralaimėjęs valymas grąžindavo svetimą įrašą į ką tik išvalytą ledger'į;
+      // (3) palikdavo owners sidecar'ą ir KPI žurnalą rodyti į praeito task'o kelius.
+      // `clearSessionWriteLedger` visus tris uždaro — o jos pačios kvietėjo iki šiol nebuvo.
+      const previousRaw = await nodeFsAdapter.readTextFileIfExists(statePath("task-start-status.json"));
+      const previousParsed = previousRaw === undefined ? undefined : tryParseJson<unknown>(previousRaw);
+      const previousTaskId =
+        previousParsed?.ok && previousParsed.value !== null && typeof previousParsed.value === "object"
+          ? (previousParsed.value as { task_id?: unknown }).task_id
+          : undefined;
+      if (shouldResetSessionWriteLedger(typeof previousTaskId === "string" ? previousTaskId : undefined, taskId)) {
+        const cleared = await clearSessionWriteLedger(nodeFsAdapter, statePath("session-writes.json"), [
+          statePath("session-file-events.jsonl"),
+        ]);
+        if (!cleared.locked || cleared.failure) {
+          await appendLogLine(
+            input.runtimeRoot,
+            "orchestrator.log",
+            `WARNING: session-writes ledger clear degraded task=${taskId} locked=${cleared.locked} reason=${cleared.failure ?? "lock not acquired"}`,
+          );
+        }
+      } else {
+        await appendLogLine(
+          input.runtimeRoot,
+          "orchestrator.log",
+          `SESSION WRITES LEDGER KEPT: same task=${taskId} retry/repair — ledger not cleared`,
+        );
+      }
+
       const resolved = await input.resolution.resolveActiveAttempt(taskId);
       if (resolved.ok) {
         // Attempt-first: tas pats payload'as pirma į bandymo namespace'ą; jo nesėkmė yra
@@ -289,7 +324,6 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
         }
       }
       await nodeFsAdapter.writeTextFile(statePath("task-start-status.json"), toPrettyJson(payload));
-      await nodeFsAdapter.writeTextFile(statePath("session-writes.json"), "[]\n");
     },
     readClaudeLog: () => readOptionalFile(path.join(input.runtimeRoot, "logs", "claude-last.log")),
     logPath: (name) => path.join(input.runtimeRoot, "logs", name),

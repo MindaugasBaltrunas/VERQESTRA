@@ -6,12 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { HookFsPort } from "../interfaces/hooks/protocol.js";
-import {
-  PRE_COMMIT_STOP_GUARDS,
-  preCommitStopGuardCommands,
-  runStopGuards,
-  type StopGuardPorts,
-} from "../interfaces/hooks/stop-guards.js";
+import { PRE_COMMIT_STOP_GUARDS, runStopGuards, type StopGuardPorts } from "../interfaces/hooks/stop-guards.js";
 
 const ROOT = "/repo";
 
@@ -42,8 +37,8 @@ function guardWorld(options: { roots?: string[]; codes?: Record<string, number>;
   };
 }
 
-test("preCommitStopGuardCommands: deklaruota prioriteto tvarka yra kontraktas", () => {
-  assert.deepEqual(preCommitStopGuardCommands(), [
+test("PRE_COMMIT_STOP_GUARDS: deklaruota prioriteto tvarka yra kontraktas", () => {
+  assert.deepEqual(PRE_COMMIT_STOP_GUARDS.map((guard) => guard.command), [
     "hook-secret-scan",
     "hook-package-guard",
     "hook-migration-guard",

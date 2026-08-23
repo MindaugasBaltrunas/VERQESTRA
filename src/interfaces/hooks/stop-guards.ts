@@ -60,10 +60,9 @@ export const PRE_COMMIT_STOP_GUARDS: readonly StopGuard[] = [
   },
 ];
 
-/** Visas deklaruotas guard'ų sąrašas prioriteto tvarka — nepriklausomai nuo projekto formos. */
-export function preCommitStopGuardCommands(): string[] {
-  return PRE_COMMIT_STOP_GUARDS.map((guard) => guard.command);
-}
+// `preCommitStopGuardCommands` (registro projekcija į komandų sąrašą) ištrinta 2026-08-23
+// hooks audite: 0 kvietėjų — net etalone ją naudojo tik jo paties testas. Registras yra
+// `PRE_COMMIT_STOP_GUARDS`; projekcija rašoma vietoje, kai jos prireiks.
 
 export type StopGuardPorts = PostWriteGuardPorts & {
   /** Guard komandos paleidimas atskirame procese; grąžina exit kodą. */

@@ -59,6 +59,17 @@ export function mergeSessionWriteOwner(
   return { key, owner: { sessions: [...sessions], tasks: [...tasks] } };
 }
 
+/**
+ * Ar task'o aktyvacija turi teisę išvalyti session-writes ledger'į (etalono task 1100 1:1).
+ *
+ * Tik NAUJAS task'as valo: to paties task'o retry / repair / resume ciklas privalo matyti ir
+ * ankstesnių bandymų produkto rašymus — besąlyginis valymas ištrindavo pirmo bandymo rašymus,
+ * ir finalinis Stop hook'as jų nebestage'indavo.
+ */
+export function shouldResetSessionWriteLedger(previousTaskId: string | undefined, taskId: string): boolean {
+  return !previousTaskId || previousTaskId !== taskId;
+}
+
 export type StageOwnershipResult = {
   /** Keliai, kuriuos ši sesija turi teisę stage'inti / priskirti sau. */
   paths: string[];

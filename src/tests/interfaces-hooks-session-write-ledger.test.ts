@@ -9,6 +9,7 @@ import { test } from "node:test";
 import {
   mergeSessionWriteOwner,
   sessionWriteOwnersPath,
+  shouldResetSessionWriteLedger,
 } from "../application/task-execution/session-write-owners.js";
 import type { LedgerFsPort } from "../interfaces/hooks/ledger-lock.js";
 import {
@@ -206,6 +207,15 @@ test("mergeSessionWriteOwner: aibės jungiamos, tuščia sesija ir nieko nekeič
   // saugi būsena neturi virsti melagingu „žinau, ir tai ne tu".
   assert.equal(mergeSessionWriteOwner(owners, "src/a.ts", { session: "  ", taskId: "890" }), undefined);
   assert.equal(mergeSessionWriteOwner(owners, "src/a.ts", { session: "nonce-1", taskId: "890" }), undefined);
+});
+
+// Etalono task 1100: tik NAUJAS task'as valo ledger'į — to paties task'o retry/repair/resume
+// privalo matyti ankstesnių bandymų rašymus. Iki 2026-08-23 VERQESTRA valymas buvo besąlyginis
+// plikas "[]", o clearSessionWriteLedger neturėjo nė vieno produkcinio kvietėjo.
+test("shouldResetSessionWriteLedger: naujas task'as valo, tas pats — ne", () => {
+  assert.equal(shouldResetSessionWriteLedger(undefined, "0042"), true, "pirmas startas valo");
+  assert.equal(shouldResetSessionWriteLedger("0041", "0042"), true, "kitas task'as valo");
+  assert.equal(shouldResetSessionWriteLedger("0042", "0042"), false, "to paties task'o retry NEvalo");
 });
 
 test("recordSessionWriteOwner: sugadintas sidecar'as perrašomas, tuščia sesija nieko neliečia", async () => {

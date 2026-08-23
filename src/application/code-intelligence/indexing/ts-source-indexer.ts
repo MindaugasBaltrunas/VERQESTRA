@@ -14,6 +14,14 @@ export type TypeScriptIndexResult = {
   edges: CodeIndexEdge[];
 };
 
+/** Plėtinys → `ScriptKind`. JSX variantai atskiri: be jų `<div/>` parsinamas kaip tipo asercija. */
+function scriptKindFor(ts: typeof TypeScriptApi, filePath: string): TypeScriptApi.ScriptKind {
+  if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (filePath.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (filePath.endsWith(".js") || filePath.endsWith(".mjs") || filePath.endsWith(".cjs")) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
 export function indexSourceText(
   ts: typeof TypeScriptApi,
   projectRoot: string,
@@ -23,7 +31,11 @@ export function indexSourceText(
   cache: TypeScriptApi.ModuleResolutionCache,
   knownPaths: Set<string>,
 ): TypeScriptIndexResult {
-  const scriptKind = file.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  // ScriptKind pagal plėtinį, o ne konstanta (2026-08-23): tas pats indeksuotojas aptarnauja ir
+  // JavaScript'ą — `ts.createSourceFile` `.js/.jsx/.mjs/.cjs` parsina natūraliai, o
+  // `allowJs`/`NodeNext` rezoliucija jau įjungta `ts-indexer` opcijose. Rašyti antrą JS parserį
+  // reikštų antrą tiesą tam pačiam klausimui.
+  const scriptKind = scriptKindFor(ts, file.path);
   const absolute = path.join(projectRoot, file.path);
   const sourceFile = ts.createSourceFile(absolute, text, ts.ScriptTarget.Latest, false, scriptKind);
 

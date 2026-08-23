@@ -40,7 +40,10 @@ export async function indexTypeScriptFiles(
   const results = new Map<string, TypeScriptIndexResult>();
 
   for (const file of scanned) {
-    if (file.language !== "typescript") {
+    // JavaScript eina per TĄ PATĮ kelią (2026-08-23): `allowJs` ir `NodeNext` rezoliucija jau
+    // įjungtos žemiau, o `ts.createSourceFile` `.js/.jsx/.mjs/.cjs` parsina natūraliai. Antras JS
+    // parseris būtų antra tiesa tam pačiam klausimui.
+    if (file.language !== "typescript" && file.language !== "javascript") {
       continue;
     }
     const absolute = path.join(projectRoot, file.path);

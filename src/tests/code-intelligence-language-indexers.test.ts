@@ -1,0 +1,201 @@
+// 2026-08-23: importai ir simboliai NEBE tik TypeScript'ui.
+//
+// Pavyzdžiai imti iš tikrų framework'ų formų (Django/pytest, Laravel/PSR-4, ASP.NET Core, MSBuild),
+// o ne iš sintetinių eilučių: reikalavimas buvo „veikti ant visų framework'ų šiomis kalbomis", tad
+// testas turi rodyti būtent tas formas, kurias tie framework'ai rašo.
+import assert from "node:assert/strict";
+import test from "node:test";
+import { indexPythonSource } from "../application/code-intelligence/indexing/python-indexer.js";
+import { indexPhpSource } from "../application/code-intelligence/indexing/php-indexer.js";
+import { indexCSharpSource } from "../application/code-intelligence/indexing/csharp-indexer.js";
+import { indexDotnetProject } from "../application/code-intelligence/indexing/dotnet-indexer.js";
+import { hasLexicalIndexer, parseComposerPsr4 } from "../application/code-intelligence/indexing/language-indexer.js";
+import { codeIndexLanguageCapabilities } from "../application/code-intelligence/indexing/language-capabilities.js";
+import type { CodeIndexFile, CodeIndexLanguage } from "../application/code-intelligence/indexing/types.js";
+
+function fileOf(path: string, language: CodeIndexLanguage): CodeIndexFile {
+  return { path, hash: "h", size: 0, language, kind: "source", imports: [], exports: [], symbols: [], isTest: false };
+}
+
+test("Python: absoliutūs ir reliatyvūs importai, `__all__` nugali konvenciją", () => {
+  const source = [
+    "# import comment_should_not_count",
+    "import os",
+    "import django.db as db, json",
+    "from django.db import models",
+    "from .models import User",
+    "from ..shared.util import helper",
+    '"""from docstring import nothing"""',
+    "",
+    "__all__ = ['PublicThing', '_KeptPrivateByName']",
+    "",
+    "class PublicThing:",
+    "    def method_not_a_top_level_symbol(self):",
+    "        pass",
+    "",
+    "def _KeptPrivateByName():",
+    "    pass",
+    "",
+    "async def not_in_all():",
+    "    pass",
+  ].join("\n");
+
+  const known = new Set(["app/models.py", "shared/util.py"]);
+  const result = indexPythonSource(fileOf("app/views.py", "python"), source, known);
+
+  assert.deepEqual(result.file.imports, [
+    "app/models.py",
+    "django.db",
+    "json",
+    "os",
+    "shared/util.py",
+  ], "reliatyvūs virsta repo keliais; absoliutūs lieka moduliais; komentaras ir docstring'as neskaitomi");
+
+  assert.deepEqual(result.symbols.map((symbol) => [symbol.name, symbol.kind, symbol.exported]), [
+    ["PublicThing", "class", true],
+    ["_KeptPrivateByName", "function", true],
+    ["not_in_all", "function", false],
+  ], "`__all__` laimi prieš pabraukimo konvenciją abiem kryptimis");
+
+  const cls = result.symbols[0];
+  assert.equal(cls?.line, 11, "eilutės numeris tikras, nes komentarai keičiami tarpais, o ne trinami");
+  assert.ok((cls?.endLine ?? 0) > (cls?.line ?? 0), "klasės blokas turi pabaigą");
+});
+
+test("PHP: PSR-4 `use` virsta repo keliu; namespace patenka į eksportus", () => {
+  const composer = JSON.stringify({
+    autoload: { "psr-4": { "App\\": "app/" } },
+    "autoload-dev": { "psr-4": { "Tests\\": "tests/" } },
+  });
+  const psr4 = parseComposerPsr4(composer);
+
+  const source = [
+    "<?php",
+    "namespace App\\Http\\Controllers;",
+    "",
+    "use App\\Models\\User;",
+    "use Illuminate\\Http\\Request;",
+    "use function App\\Support\\helper;",
+    "// use App\\Models\\Ignored;",
+    "",
+    "final class UserController extends Controller {",
+    "    public function index() { return 1; }",
+    "}",
+    "",
+    "interface Marker {}",
+  ].join("\n");
+
+  const known = new Set(["app/Models/User.php"]);
+  const result = indexPhpSource(fileOf("app/Http/Controllers/UserController.php", "php"), source, known, psr4);
+
+  assert.ok(result.file.imports.includes("app/Models/User.php"), "PSR-4 prefiksas išspręstas į failą");
+  assert.ok(result.file.imports.includes("Illuminate\\Http\\Request"), "vendor nuoroda lieka vardu");
+  assert.equal(result.file.imports.includes("App\\Models\\Ignored"), false, "užkomentuotas `use` neskaitomas");
+
+  assert.deepEqual(result.symbols.map((symbol) => [symbol.name, symbol.kind]), [
+    ["UserController", "class"],
+    ["Marker", "interface"],
+  ]);
+  assert.ok(result.file.exports.includes("App\\Http\\Controllers\\UserController"), "eksportas kvalifikuotas namespace'u");
+});
+
+test("C#: visos `using` formos; `internal` NĖRA eksportas", () => {
+  const source = [
+    "global using System.Linq;",
+    "using System;",
+    "using static System.Math;",
+    "using Json = System.Text.Json;",
+    "// using Ignored.Namespace;",
+    "namespace Api.Controllers;",
+    "",
+    "[ApiController]",
+    "public sealed class UsersController : ControllerBase",
+    "{",
+    "    public int Count => 1;",
+    "}",
+    "",
+    "internal record UserDto(int Id);",
+    "",
+    "public enum Role { Admin, User }",
+  ].join("\n");
+
+  const result = indexCSharpSource(fileOf("src/Api/UsersController.cs", "csharp"), source);
+
+  assert.deepEqual(result.file.imports, ["System", "System.Linq", "System.Math", "System.Text.Json"], "alias'o atveju importas yra TAIKINYS");
+  assert.deepEqual(result.symbols.map((symbol) => [symbol.name, symbol.kind, symbol.exported]), [
+    ["UsersController", "class", true],
+    ["UserDto", "class", false],
+    ["Role", "enum", true],
+  ], "`internal` yra numatytoji reikšmė, tad tylėjimas reiškia „ne eksportas\"");
+});
+
+test(".NET: `.csproj` ir `.sln` duoda projektų grafą, o ne kalbos importus", () => {
+  const known = new Set(["src/Core/Core.csproj", "src/Api/Api.csproj"]);
+
+  const csproj = [
+    '<Project Sdk="Microsoft.NET.Sdk.Web">',
+    "  <ItemGroup>",
+    '    <ProjectReference Include="..\\Core\\Core.csproj" />',
+    '    <PackageReference Include="Serilog" Version="3.1.1" />',
+    "    <!-- <ProjectReference Include=\"..\\Disabled\\Disabled.csproj\" /> -->",
+    "  </ItemGroup>",
+    '  <Target Name="PostBuildCopy" AfterTargets="Build" />',
+    "  <PropertyGroup><AssemblyName>Company.Api</AssemblyName></PropertyGroup>",
+    "</Project>",
+  ].join("\n");
+
+  const project = indexDotnetProject(fileOf("src/Api/Api.csproj", "dotnet"), csproj, known);
+  assert.ok(project.file.imports.includes("src/Core/Core.csproj"), "ProjectReference išspręstas į repo kelią");
+  assert.ok(project.file.imports.includes("Serilog"), "PackageReference lieka NuGet vardu");
+  assert.ok(project.file.imports.includes("Microsoft.NET.Sdk.Web"), "SDK fiksuojamas — jis lemia framework'ą");
+  assert.equal(
+    project.file.imports.some((entry) => entry.includes("Disabled")),
+    false,
+    "XML komentare išjungta nuoroda NĖRA briauna",
+  );
+  assert.deepEqual(project.symbols.map((symbol) => symbol.name).sort(), ["Company.Api", "PostBuildCopy"]);
+
+  const sln = [
+    'Project("{FAE04EC0-0301-11D1-9B0E-00A0C91BC942}") = "Core", "src\\Core\\Core.csproj", "{111}"',
+    'Project("{FAE04EC0-0301-11D1-9B0E-00A0C91BC942}") = "Api", "src\\Api\\Api.csproj", "{222}"',
+  ].join("\n");
+
+  const solution = indexDotnetProject(fileOf("App.sln", "dotnet"), sln, known);
+  assert.deepEqual(solution.file.imports, ["src/Api/Api.csproj", "src/Core/Core.csproj"]);
+  assert.deepEqual(solution.symbols.map((symbol) => symbol.name), ["Core", "Api"]);
+});
+
+// Iki 2026-08-23 `codeIndexLanguageCapabilities` vėliavėlės neturėjo NĖ VIENO skaitytojo: jos buvo
+// dokumentacija kode, ir jos MELAVO (JavaScript buvo pažymėtas `extracts_imports: false`, nors tą
+// patį AST kelią jis galėjo eiti visą laiką). Deklaracija, kurios niekas netikrina, nėra garantija —
+// tad lentelė čia surišama su tikru dispečeriu.
+test("gate: galimybių lentelė atitinka tai, ką iš tikrųjų turime", () => {
+  const ecmaScript = new Set<CodeIndexLanguage>(["typescript", "javascript"]);
+
+  for (const capability of codeIndexLanguageCapabilities) {
+    const probe = fileOf(`probe${capability.extensions[0] ?? ".txt"}`, capability.language);
+    const handled = ecmaScript.has(capability.language) || hasLexicalIndexer(probe);
+
+    assert.equal(
+      capability.extracts_imports,
+      handled,
+      `${capability.language}: extracts_imports=${String(capability.extracts_imports)}, bet ištraukėjas ${handled ? "YRA" : "NĖRA"}`,
+    );
+    assert.equal(
+      capability.extracts_symbols,
+      handled,
+      `${capability.language}: extracts_symbols nesutampa su tikrove`,
+    );
+    assert.equal(
+      capability.status === "active",
+      handled || capability.language === "json",
+      `${capability.language}: statusas "${capability.status}" nesutampa su tikrove`,
+    );
+  }
+});
+
+test("sugadintas composer.json NĖRA klaida — tik nėra PSR-4 žemėlapio", () => {
+  assert.equal(parseComposerPsr4("{ not json").size, 0);
+  assert.equal(parseComposerPsr4(undefined).size, 0);
+  assert.equal(parseComposerPsr4(JSON.stringify({ autoload: { "psr-4": { "A\\": ["a/", "b/"] } } })).get("A\\"), "a/");
+});

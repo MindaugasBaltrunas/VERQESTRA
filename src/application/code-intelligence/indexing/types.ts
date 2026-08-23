@@ -10,7 +10,12 @@
 // the store is exact inequality, not semver-range, so this additive minor bump forces the
 // same single rebuild — a 2.0.0 index with a matching source_hash can never be served as
 // if it carried signatures.
-export const codeIndexVersion = "2.1.0";
+// 3.0.0 (2026-08-23): importai ir simboliai NEBE tik TypeScript'ui. JavaScript prijungtas prie to
+// paties AST kelio (`allowJs`), o Python, PHP, C# ir .NET projektų failai gavo leksinius
+// ištraukėjus. MAJOR, nes tas pats `source_hash` dabar reiškia visai kitą indekso turinį: 2.x
+// indeksas tiems patiems failams turėjo tuščius `imports`/`symbols`, ir be kėlimo jis grįžtų kaip
+// šviežias, o architektūros ribų patikra tyliai remtųsi nesamu grafu.
+export const codeIndexVersion = "3.0.0";
 
 export type CodeIndexLanguage =
   | "typescript"

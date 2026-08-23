@@ -1,11 +1,17 @@
 // Pilnas code-index build'as: scan → AST index → test briaunos → dedup → manifest → store.
 // Behaviour etalon: AG_loop code-index/builder.ts; FS — per portą (WBR VQ-301).
 
+import path from "node:path";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
 import { createManifest, writeCodeIndex } from "../store/code-index-store.js";
 import { computeSourceHash, scanProjectFiles } from "./scanner.js";
 import { indexTypeScriptFiles } from "./ts-indexer.js";
-import type { CodeIndexData, CodeIndexEdge, CodeIndexFile, CodeIndexSymbol } from "./types.js";
+import { hasLexicalIndexer, indexLexicalSource, parseComposerPsr4, type LexicalIndexContext } from "./language-indexer.js";
+import type { LanguageIndexResult } from "./language-indexer-model.js";
+import type { CodeIndexData, CodeIndexEdge, CodeIndexFile, CodeIndexLanguage, CodeIndexSymbol } from "./types.js";
+
+/** Kalbos, kurių failai yra ŠALTINIS testų briaunoms — t. y. visos, kurioms turime ištraukėją. */
+const INDEXED_SOURCE_LANGUAGES = new Set<CodeIndexLanguage>(["typescript", "javascript", "python", "php", "csharp", "dotnet"]);
 
 export async function buildCodeIndex(
   fs: CodeIntelligenceFileSystemPort,
@@ -17,10 +23,18 @@ export async function buildCodeIndex(
   const edges: CodeIndexEdge[] = [];
 
   // One batch call (design §2): tsconfig discovery, config parsing and the module
-  // resolution cache are built once per build, not once per file.
+  // resolution cache are built once per build, not once per file. Apima ir JavaScript'ą.
   const indexed = await indexTypeScriptFiles(fs, projectRoot, scanned);
+
+  // Leksinės kalbos (Python, PHP, C#, .NET projektai) — po failą, bet jų kontekstas
+  // (`knownPaths`, PSR-4) paruošiamas VIENĄ kartą: per failą jis būtų N kartų tas pats.
+  const context: LexicalIndexContext = {
+    knownPaths: new Set(scanned.map((file) => file.path)),
+    psr4: parseComposerPsr4(await readOptional(fs, path.join(projectRoot, "composer.json"))),
+  };
+
   for (const file of scanned) {
-    const result = indexed.get(file.path);
+    const result = indexed.get(file.path) ?? (await indexLexical(fs, projectRoot, file, context));
     if (!result) {
       files.push(file);
       continue;
@@ -43,8 +57,32 @@ export async function buildCodeIndex(
   return data;
 }
 
+/** Failas, kurio nėra, NĖRA klaida: `composer.json` daugumoje projektų paprasčiausiai nėra. */
+async function readOptional(fs: CodeIntelligenceFileSystemPort, absolute: string): Promise<string | undefined> {
+  try {
+    return await fs.readTextFile(absolute);
+  } catch {
+    return undefined;
+  }
+}
+
+async function indexLexical(
+  fs: CodeIntelligenceFileSystemPort,
+  projectRoot: string,
+  file: CodeIndexFile,
+  context: LexicalIndexContext,
+): Promise<LanguageIndexResult | undefined> {
+  if (!hasLexicalIndexer(file)) return undefined;
+  const text = await readOptional(fs, path.join(projectRoot, file.path));
+  // Neperskaitomas failas lieka be importų ir simbolių, bet PATS lieka indekse: dingęs failas
+  // atrodytų kaip ištrintas, o jis tik neperskaitytas.
+  return text === undefined ? undefined : indexLexicalSource(file, text, context);
+}
+
 function deriveTestEdges(files: CodeIndexFile[]): CodeIndexEdge[] {
-  const sourceFiles = files.filter((file) => !file.isTest && file.language === "typescript");
+  // Testų briaunos anksčiau buvo tik TypeScript'ui (2026-08-23): dabar jas gauna kiekviena kalba,
+  // kuri turi importus — kitaip `pytest` ar `xUnit` failas indekse liktų nesusietas su tuo, ką tikrina.
+  const sourceFiles = files.filter((file) => !file.isTest && INDEXED_SOURCE_LANGUAGES.has(file.language));
   const testFiles = files.filter((file) => file.isTest);
   const edges: CodeIndexEdge[] = [];
   for (const testFile of testFiles) {

@@ -190,7 +190,11 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 //
 // Kai krenta: jei pakeitimas sąmoningas — kelk versiją IR atnaujink šias eilutes.
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
-  assert.equal(CONTEXT_CACHE_VERSION, 4, "pakelta trečią kartą: fence-aware chunker (fantominės antraštės code blokuose)");
+  assert.equal(
+    CONTEXT_CACHE_VERSION,
+    5,
+    "pakelta ketvirtą kartą: daugiakalbis code-index (code_context turinys pakito, šaltinių hash'as — ne)",
+  );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,
     "tiers:direct_spec_reference>heading_match>general_docs" +

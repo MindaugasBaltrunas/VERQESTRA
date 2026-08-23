@@ -46,8 +46,19 @@ const nonEmptyString = z.string().trim().min(1);
  *      nebekerpa sekcijos) ir atitikimas (fantomas nebegali būti match'as), tad v3 įrašas
  *      grąžintų nukirptą arba ne tą sekciją. Grynai loginis pakeitimas — deskriptorius jo
  *      nemato.
+ *  5 — 2026-08-23 daugiakalbis code-index. `codeIndexVersion` pakelta 2.1.0 → 3.2.0: indeksas ėmė
+ *      duoti importus, simbolius ir grafo briaunas JavaScript, Python, PHP, C# ir .NET failams, o
+ *      testų atpažinimas pataisytas. Visa tai keičia `code_context` TURINĮ, bet NEKEIČIA šaltinių
+ *      hash'o — tie patys failai, kitas indeksas. Be šio kėlimo v4 įrašas, sudėtas iš skurdesnio
+ *      indekso, grįžtų kaip pilnavertis hit'as.
+ *
+ *      Kartu įvestas STRUKTŪRINIS taisymas: `code_index` deskriptorius nuo šiol yra
+ *      `fresh:<indekso versija>:<source_hash>`, o ne tik `fresh:<source_hash>`. Todėl BŪSIMI
+ *      indekso kėlimai anuliuos iš jo sudėtus pack'us automatiškai, ir šios versijos kelti dėl
+ *      indekso nebereikės. Šis kėlimas lieka dėl jau esamų v4 įrašų, kurie neša senąją
+ *      deskriptoriaus formą.
  */
-export const CONTEXT_CACHE_VERSION = 4;
+export const CONTEXT_CACHE_VERSION = 5;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

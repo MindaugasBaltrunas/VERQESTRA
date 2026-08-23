@@ -406,9 +406,23 @@ export async function assembleContextPack(
   });
 }
 
-// Identity of the code index a pack's code_context was derived from. `fresh:<source_hash>`
-// is a content identity; a stale or missing index yields the `stale` sentinel, which the
-// cache refuses to store or match.
+/**
+ * Identity of the code index a pack's `code_context` was derived from.
+ *
+ * Formatas: `fresh:<indekso versija>:<source_hash>`.
+ *
+ * VERSIJA ĮEINA SĄMONINGAI (2026-08-23, operatoriaus radinys). Iki tol deskriptorius buvo tik
+ * `fresh:<source_hash>` — grynai DUOMENŲ tapatybė. Pakėlus `codeIndexVersion` (2.1.0 → 3.x, kai
+ * indeksas ėmė duoti importus, simbolius ir briaunas Python/PHP/C#/.NET kalboms) šaltinių hash'as
+ * nepasikeičia, tad senas pack'as, sudėtas iš SKURDESNIO indekso, grįždavo kaip pilnavertis hit'as.
+ *
+ * Tai ta pati klasė, kurią aprašo `CONTEXT_CACHE_VERSION` doc'as: hash'ai mato duomenis, ne kodą.
+ * Skirtumas tas, kad čia sprendimas gali būti STRUKTŪRINIS, o ne rankinis: indekso versija jau yra
+ * manifeste, tad įtraukus ją į deskriptorių kiekvienas būsimas indekso kėlimas automatiškai
+ * anuliuoja iš jo sudėtus pack'us — nebereikia prisiminti kelti ir kešo versijos.
+ *
+ * Neperskaitomas arba pasenęs indeksas duoda `stale` sentinelį, kurio kešas nei saugo, nei atitinka.
+ */
 async function currentCodeIndexDescriptor(
   codeFs: CodeIntelligenceFileSystemPort,
   projectRoot: string,
@@ -421,7 +435,13 @@ async function currentCodeIndexDescriptor(
     freshness.manifest ??
     (await codeFs
       .readTextFile(codeIndexPath(projectRoot, "manifest.json"))
-      .then((raw) => JSON.parse(raw) as { source_hash?: string })
+      .then((raw) => JSON.parse(raw) as { source_hash?: string; version?: string })
       .catch(() => undefined));
-  return manifest && typeof manifest.source_hash === "string" ? `fresh:${manifest.source_hash}` : CODE_INDEX_STALE;
+  if (!manifest || typeof manifest.source_hash !== "string") return CODE_INDEX_STALE;
+  // Versija imama iš PATIES manifesto, o ne iš `codeIndexVersion` konstantos: deskriptorius turi
+  // aprašyti indeksą, iš kurio pack'as SUDĖTAS, o ne šio proceso build'ą. Manifesto be versijos
+  // (senesnė forma) negalime apibūdinti, tad jis laikomas pasenusiu.
+  return typeof manifest.version === "string" && manifest.version !== ""
+    ? `fresh:${manifest.version}:${manifest.source_hash}`
+    : CODE_INDEX_STALE;
 }

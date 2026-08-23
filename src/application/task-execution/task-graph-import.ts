@@ -70,6 +70,29 @@ export function taskNodeFromMarkdown(taskText: string, taskFile: string, bucket:
   };
 }
 
+/*
+ * KĄ PRODUKCINIS GRAFAS TURI, O KO NE (2026-08-23, operatoriaus auditas).
+ *
+ * Aukščiau esantis sąrašas yra IŠSAMUS: daugiau nieko iš Markdown neateina. Modelis, hash'as ir
+ * dalis vartų palaiko laukus, kurių šis importas neužpildo, tad tie vartai produkcijoje yra
+ * NEAKTYVŪS. Tai užrašyta čia, o ne palikta atrasti iš naujo:
+ *
+ *   `estimated_tokens` — neužpildomas, nes task failai įverčio nedeklaruoja. Pasekmė:
+ *      `budget-insufficient` (vieno task'o įvertis netelpa) realiai nesuveikia. `budget-exhausted`
+ *      (globalus likutis) VEIKIA — jis remiasi `run-budget.ts`, ne mazgo lauku.
+ *   `write_symbols`, `architecture_nodes` — neužpildomi, nors konflikto detektorius juos skaito
+ *      (`computeTaskWriteSet` identity dimensijos). Pasekmė: simbolių ir architektūros mazgų
+ *      lygmens konfliktai lygiagretumo NESERIALIZUOJA; veikia tik kelių lygmuo.
+ *   `runtime` kilmės briaunos — modelis jas palaiko (`dependencies[].origin`), bet čia grafas
+ *      statomas TIK su `{ nodes }`, tad kiekviena produkcinė briauna kyla iš mazgo `depends_on` ir
+ *      turi `origin: "markdown"`.
+ *
+ * Nė vienas iš jų NĖRA klaida: visi trys yra tiekėjo laukimas, ne spraga vartuose. Bet jie yra
+ * tiksliai tos formos, kuri šiame repo jau kartą suklaidino — mechanizmas egzistuoja, ištestuotas,
+ * o produkcinio šaltinio neturi. Prijungiant bet kurį iš jų, kartu privalo atsirasti ir jo vartų
+ * elgesio testas su REALIU importu, o ne tik su rankiniu fixture'u.
+ */
+
 /** Bucket'ų task metaduomenys (`## Dependencies` parseris) — rūšiuota pagal failą. */
 export async function readTaskDependencyMetadata(
   ports: TaskGraphImportPorts,

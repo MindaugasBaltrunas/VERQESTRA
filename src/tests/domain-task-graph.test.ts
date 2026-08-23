@@ -254,3 +254,26 @@ test("resolve: abi sutrumpinimo kryptys, o dviprasmybė atmetama", () => {
   });
   assert.equal(resolveTaskNode(both, "4444")?.task_id, "4444");
 });
+
+// 2026-08-23 (operatoriaus radinys): briauna iš NEEGZISTUOJANČIO mazgo buvo tyliai praleidžiama.
+// `ghost -> a` grafe, turinčiame tik mazgą `a`, grąžindavo `executable: true` ir NULINĮ pažeidimų
+// sąrašą. Produkcinis Markdown importas tokių briaunų nekuria — jos ten gimsta tik iš mazgų
+// `depends_on` — bet domeno kontraktas leido patvirtinti struktūriškai sugadintą grafą, o modelis
+// `runtime` kilmės briaunas palaiko, tad šaltinis atsirastų kartu su pirmu tokiu kvietėju.
+test("briauna iš nesamo mazgo yra GRAFO lygio klaida, o ne nutylėjimas", () => {
+  const graph = graphOf({
+    nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md" }],
+    dependencies: [{ task_id: "ghost", depends_on: "a" }],
+  });
+
+  const validation = validateTaskGraph(graph);
+  assert.equal(validation.executable, false, "grafas su briauna iš niekur nėra vykdomas");
+  assert.deepEqual(
+    validation.violations.filter((entry) => entry.code === "unknown-edge-source").map((entry) => [entry.scope, entry.task_id]),
+    [["graph", "ghost"]],
+    "įvardijamas ir kodas, ir nesamas šaltinis",
+  );
+
+  // Kontrolė: tas pats grafas be vaiduoklio briaunos lieka vykdomas — vartas nesugriežtėjo plačiau.
+  assert.equal(validateTaskGraph(graphOf({ nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md" }] })).executable, true);
+});

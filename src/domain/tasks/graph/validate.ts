@@ -24,7 +24,8 @@ export type TaskGraphViolationCode =
   | "missing-scope"
   | "graph-hash-mismatch"
   | "schema-version-mismatch"
-  | "rules-version-mismatch";
+  | "rules-version-mismatch"
+  | "unknown-edge-source";
 
 export type TaskGraphViolationSeverity = "error" | "warning";
 
@@ -133,7 +134,23 @@ export function validateTaskGraph(graph: TaskGraph): TaskGraphValidation {
   }
 
   for (const edge of graph.dependencies) {
-    if (!seen.has(edge.task_id)) continue;
+    // Briauna, kurios ŠALTINIO grafe nėra (2026-08-23, operatoriaus radinys). Iki tol ji buvo
+    // tyliai praleidžiama, tad `ghost -> a` grafe su vienu mazgu `a` grąžindavo `executable: true`
+    // ir NULINĮ pažeidimų sąrašą. Produkcinis Markdown importas tokių briaunų nekuria — briaunos
+    // ten gimsta tik iš mazgų `depends_on` — bet domeno kontraktas leido išsaugoti ir patvirtinti
+    // struktūriškai sugadintą grafą, o `runtime` kilmės briaunos modelyje palaikomos.
+    //
+    // Scope yra `graph`, ne `node`: nėra mazgo, kurį būtų galima nubausti, o grafas, kuriame
+    // briauna rodo į nesamą šaltinį, nėra „šiek tiek teisingas" — nežinome, kas dar prarasta.
+    if (!seen.has(edge.task_id)) {
+      violations.push(
+        violation("unknown-edge-source", "error", "graph", `dependency edge starts at unknown task ${edge.task_id}`, {
+          task_id: edge.task_id,
+          dependency: edge.depends_on,
+        }),
+      );
+      continue;
+    }
     const blocker = resolveTaskNode(graph, edge.depends_on);
     if (!blocker) {
       violations.push(

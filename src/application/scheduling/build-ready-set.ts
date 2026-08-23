@@ -71,6 +71,15 @@ export type BlockedTask = {
   waiting_for: string[];
 };
 
+/**
+ * Kanoninio grafo verdiktai.
+ *
+ * `ready` TVARKA nėra vykdymo tvarka (2026-08-23, operatoriaus auditas). Produkciniai skaitytojai
+ * ima tik NARYSTĘ: `applyReadySetGates` daro `new Set(ready.map(task_id))`, o `computeWaveDecisionHash`
+ * ID vis tiek perrūšiuoja. Vykdymo eiliškumą sprendžia `scheduleNextWave` per savo gylius. Todėl
+ * `ReadyTask.depth` ir čia atliekamas rūšiavimas yra DIAGNOSTIKA — jais remtis planuojant reikštų
+ * antrą tvarkos autoritetą, o tokių šiame repo jau buvo atsikratyta.
+ */
 export type ReadySet = {
   graph_hash: string;
   /** `false`, kai grafas turi grafo lygio klaidą; tada `ready` visada tuščias. */
@@ -184,6 +193,19 @@ export function buildReadySet(input: BuildReadySetInput): ReadySet {
     const dependsOn = dependenciesOf(graph, node.task_id);
     const status = statusOf(node);
 
+    // Ciklo dalyvis įvardijamas PIRMAS (2026-08-23, operatoriaus radinys). Iki tol ši šaka buvo
+    // NEPASIEKIAMA: ciklas yra `graph` scope klaida, tad `validation.executable` jau būdavo
+    // `false`, ir kiekvienas mazgas — įskaitant pačius ciklo dalyvius — gaudavo bendrą
+    // `graph-invalid`. Vykdymui tai nieko nekeitė (abu blokuoja), bet operatorius prarasdavo
+    // vienintelę žinią, kuri pasako, KURIE task'ai lūžį sukėlė.
+    //
+    // Tvarka apversta tik ciklui: visi kiti neįvykdomo grafo mazgai toliau gauna `graph-invalid`,
+    // nes jie nėra lūžio priežastis — jie tik gyvena grafe, kuriuo nebegalima pasitikėti.
+    if (cycleMembers.has(node.task_id)) {
+      blockedTasks.push(blocked(node, dependsOn, "dependency-cycle", dependsOn));
+      continue;
+    }
+
     if (!validation.executable) {
       blockedTasks.push(blocked(node, dependsOn, "graph-invalid"));
       continue;
@@ -193,11 +215,6 @@ export function buildReadySet(input: BuildReadySetInput): ReadySet {
 
     if (status !== "queued") {
       blockedTasks.push(blocked(node, dependsOn, "not-queued"));
-      continue;
-    }
-
-    if (cycleMembers.has(node.task_id)) {
-      blockedTasks.push(blocked(node, dependsOn, "dependency-cycle", dependsOn));
       continue;
     }
 

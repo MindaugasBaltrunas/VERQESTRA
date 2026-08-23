@@ -267,7 +267,20 @@ test("buildReadySet graph-level failures block every node", () => {
   const readySet = buildReadySet({ graph: cyclic });
   assert.equal(readySet.executable, false, "cycle is a graph-scope error");
   assert.equal(readySet.ready.length, 0, "nothing executes on an invalid graph");
-  assert.ok(readySet.blocked.every((task) => task.reason === "graph-invalid"));
+
+  // PATIKSLINTA 2026-08-23: anksčiau čia buvo `every(reason === "graph-invalid")`, ir tas teiginys
+  // slėpė nepasiekiamą `dependency-cycle` šaką — ciklo dalyviai gaudavo tą pačią bendrą priežastį
+  // kaip ir nesusiję mazgai. Vykdymui niekas nepakito (blokuoti visi), bet operatorius dabar mato,
+  // KURIE task'ai lūžį sukėlė.
+  assert.deepEqual(
+    readySet.blocked.map((task) => [task.task_id, task.reason]),
+    [
+      ["0001", "dependency-cycle"],
+      ["0002", "dependency-cycle"],
+      ["0003", "graph-invalid"],
+    ],
+    "lūžio priežastis įvardijama dalyviams; likusieji blokuojami dėl nepatikimo grafo",
+  );
 });
 
 test("buildReadySet node-level dependency failures: missing and invalid-terminal", () => {

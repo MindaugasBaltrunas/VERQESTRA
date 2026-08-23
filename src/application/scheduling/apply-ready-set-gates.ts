@@ -96,8 +96,17 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
   // sprendimą, ir planas privalo tai nešti. Priešingu atveju atspaudas sakytų „be vartų" ten, kur
   // vartai suveikė ir viską patvirtino — t. y. atkartotų būtent tą klaidą, kurią taiso.
   // SUBTRACT-ONLY galioja toliau; keičiasi tik tai, kad tapatybė nebėra įrodymas.
-  const decisionHash = computeWaveDecisionHash({ waveGraphHash: plan.graph_hash, readySet, enforced });
-  if (!readySet) return { ...plan, decision_hash: decisionHash };
+  if (!readySet) {
+    return {
+      ...plan,
+      decision_hash: computeWaveDecisionHash({
+        waveGraphHash: plan.graph_hash,
+        enforced,
+        ready: plan.ready,
+        blocked: plan.blocked,
+      }),
+    };
+  }
 
   const gates = new Map<string, BlockedTask>();
   for (const entry of readySet.blocked) gates.set(entry.task_id, entry);
@@ -145,17 +154,17 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
   // kuriuo atveju blokuotas, — bet operatoriaus pranešimai ir automatika, skaitanti priežasties
   // kodą, gaudavo mažiau tikslų atsakymą.
   const reconciled = plan.blocked.map((entry) => reconcileReason(entry, gates, enforced));
+  // Ta pati rūšiavimo taisyklė kaip `scheduleNextWave` (pagal failą), kad sujungtas sąrašas
+  // liktų vienoje deterministinėje tvarkoje.
+  const blocked = [...reconciled, ...removed].sort((a, b) => a.file.localeCompare(b.file));
+
+  // Atspaudas stampuojamas PO galutinio surinkimo: jis privalo aprašyti tą planą, kurį objektas
+  // neša, o ne tarpinę ready-set būseną.
+  const decisionHash = computeWaveDecisionHash({ waveGraphHash: plan.graph_hash, readySet, enforced, ready, blocked });
   const changed = reconciled.some((entry, position) => entry !== plan.blocked[position]);
   if (removed.length === 0 && !changed) return { ...plan, decision_hash: decisionHash };
 
-  return {
-    ...plan,
-    decision_hash: decisionHash,
-    ready,
-    // Ta pati rūšiavimo taisyklė kaip `scheduleNextWave` (pagal failą), kad sujungtas
-    // sąrašas liktų vienoje deterministinėje tvarkoje.
-    blocked: [...reconciled, ...removed].sort((a, b) => a.file.localeCompare(b.file)),
-  };
+  return { ...plan, decision_hash: decisionHash, ready, blocked };
 }
 
 /**
@@ -233,6 +242,15 @@ export function planWaveWithoutGraph(input: WaveWithoutGraphInput, detail: strin
   const tasks = normalizeSchedulableTasks(input.tasks);
   const graphHash = computeGraphHash(tasks);
   const waveSequence = Math.max(1, Math.trunc(input.waveSequence ?? 1));
+  const blocked: WaveBlockedTask[] = tasks
+    .map((task) => ({
+      task_id: task.task_id,
+      file: task.file,
+      blocked_by: [...task.blocked_by],
+      reason: "gate:graph-unavailable" as const,
+      waiting_for: [],
+    }))
+    .sort((a, b) => a.file.localeCompare(b.file));
 
   return {
     scheduler_version: WAVE_SCHEDULER_VERSION,
@@ -241,18 +259,10 @@ export function planWaveWithoutGraph(input: WaveWithoutGraphInput, detail: strin
     graph_hash: graphHash,
     // `unavailable` žyma daro šį atspaudą nesutampantį su JOKIU normaliu sprendimu: banga be
     // autoriteto niekada neturi atrodyti kaip banga, kurios vartai viską praleido.
-    decision_hash: computeWaveDecisionHash({ waveGraphHash: graphHash, unavailable: true }),
+    decision_hash: computeWaveDecisionHash({ waveGraphHash: graphHash, unavailable: true, ready: [], blocked }),
     max_workers: clampWaveWorkers(input.maxWorkers),
     ready: [],
-    blocked: tasks
-      .map((task) => ({
-        task_id: task.task_id,
-        file: task.file,
-        blocked_by: [...task.blocked_by],
-        reason: "gate:graph-unavailable" as const,
-        waiting_for: [],
-      }))
-      .sort((a, b) => a.file.localeCompare(b.file)),
+    blocked,
     // Be grafo NEĮMANOMA pasakyti, kurios nuorodos yra išorinės ar ciklinės — o spėti čia
     // draudžia ta pati taisyklė, dėl kurios banga sustabdyta.
     external_dependencies: [],

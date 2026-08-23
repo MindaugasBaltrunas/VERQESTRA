@@ -32,12 +32,16 @@ export const WAVE_DECISION_VERSION = 1;
 export type WaveDecisionInput = {
   /** Bangos pjūvio atspaudas (`wg…`) — kurie task'ai apskritai svarstomi. */
   waveGraphHash: string;
-  /** Kanoninio grafo verdiktai. `undefined` = sprendimas priimtas be autoriteto. */
+  /** Kanoninio grafo verdiktai — tik jų TAPATYBEI (`tg…`) ir `executable` žymai. */
   readySet?: ReadySet | undefined;
   /** Faktiškai taikytų vartų rinkinys. */
   enforced?: Iterable<ReadySetBlockedReason> | undefined;
   /** `true`, kai grafo perskaityti nepavyko: toks planas niekada neprilygsta jokiam kitam. */
   unavailable?: boolean;
+  /** GALUTINIS vykdytinų task'ų sąrašas. */
+  ready: readonly { task_id: string }[];
+  /** GALUTINIS sustabdytų task'ų sąrašas su priežastimis. */
+  blocked: readonly { task_id: string; reason: string }[];
 };
 
 /**
@@ -56,9 +60,18 @@ export function computeWaveDecisionHash(input: WaveDecisionInput): string {
     graph: input.unavailable === true ? null : (input.readySet?.graph_hash ?? null),
     unavailable: input.unavailable === true,
     executable: input.readySet?.executable ?? null,
-    // Verdiktai — vieta, kurioje pasimato runtime patvirtinimai, biudžetas ir statusų perrašymai.
-    ready: [...(input.readySet?.ready ?? [])].map((task) => task.task_id).sort(),
-    blocked: [...(input.readySet?.blocked ?? [])]
+    // GALUTINIS planas, o ne ready-set verdiktai (2026-08-23, operatoriaus radinys). Iki tol čia
+    // buvo `readySet.ready`/`readySet.blocked`, tad į atspaudą nepatekdavo priežastys, kurios kyla
+    // NE iš ready-set'o: `gate:graph-state-mismatch` gimsta palyginus `observedQueue` su grafu, o
+    // `branch-blocked` — iš run'o būsenos. Atkurta: `graph=[]` su `observedQueue=[]` ir su
+    // `observedQueue=[a]` duodavo tą patį `dh1:b999cacbb1049414`, nors antrasis planas turi
+    // sustabdytą task'ą.
+    //
+    // Imant GALUTINĮ rezultatą, joks būsimas priežasčių šaltinis iš atspaudo iškristi nebegali —
+    // ta pati priežastis, dėl kurios atspaudas ima verdiktus, o ne įėjimų sąrašą, tik vienu
+    // lygmeniu toliau.
+    ready: [...input.ready].map((task) => task.task_id).sort(),
+    blocked: [...input.blocked]
       .map((task) => [task.task_id, task.reason] as const)
       .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1])),
     gates: enforced,

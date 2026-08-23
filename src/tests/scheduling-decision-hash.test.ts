@@ -24,10 +24,12 @@ import type { TaskGraphNodeInput } from "../domain/tasks/graph/model.js";
 
 const TASKS: SchedulableTask[] = [{ task_id: "a", file: "AG/tasks/queue/a.md", blocked_by: [] }];
 
+function nodeOf(taskId: string, extra: Partial<TaskGraphNodeInput> = {}): TaskGraphNodeInput {
+  return { task_id: taskId, file: `AG/tasks/queue/${taskId}.md`, checks: ["x"], scope: [`src/${taskId}.ts`], ...extra };
+}
+
 function graphWith(extra: Partial<TaskGraphNodeInput>) {
-  return buildTaskGraph({
-    nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", checks: ["x"], scope: ["src/a.ts"], ...extra }],
-  });
+  return buildTaskGraph({ nodes: [nodeOf("a", extra)] });
 }
 
 function decide(
@@ -70,6 +72,46 @@ test("skirtingi vykdymo planai gauna skirtingus decision_hash — o wave_id liek
   // Būtent šitas sutapimas ir buvo spraga: du skirtingi planai, vienas `graph_hash`.
   assert.equal(plans[0]?.graph_hash, plans[1]?.graph_hash);
   assert.notEqual(plans[0]?.decision_hash, plans[1]?.decision_hash);
+});
+
+// 2026-08-23 (operatoriaus radinys): atspaudas buvo skaičiuojamas PRIEŠ galutinį surinkimą ir ėmė
+// `readySet.ready`/`readySet.blocked`. Todėl į jį nepatekdavo priežastys, kurios kyla NE iš
+// ready-set'o — `gate:graph-state-mismatch` gimsta palyginus `observedQueue` su grafu, o
+// `branch-blocked` ateina iš run'o būsenos.
+//
+// Taisyta imant GALUTINĮ planą: taip joks būsimas priežasčių šaltinis iš atspaudo iškristi nebegali.
+// Tai ta pati logika, dėl kurios atspaudas ima verdiktus, o ne įėjimų sąrašą — tik vienu lygmeniu
+// toliau.
+test("decision_hash apima priežastis, kurių ready-set'e NĖRA", () => {
+  const empty = buildTaskGraph({ nodes: [] });
+  const plan = (tasks: SchedulableTask[]) =>
+    applyReadySetGates(scheduleNextWave({ tasks, graph: empty }), buildReadySet({ graph: empty }));
+
+  const withoutQueue = plan([]);
+  const withOrphan = plan([{ task_id: "a", file: "AG/tasks/queue/a.md", blocked_by: [] }]);
+
+  assert.deepEqual(withoutQueue.blocked, [], "kontrolė: nieko nesustabdyta");
+  assert.deepEqual(
+    withOrphan.blocked.map((task) => task.reason),
+    ["gate:graph-state-mismatch"],
+    "eilės task'as be grafo mazgo sustabdomas",
+  );
+  assert.equal(withoutQueue.graph_hash, withOrphan.graph_hash, "bangos tapatybė ta pati — pjūvis abu kartus tuščias");
+  assert.notEqual(
+    withoutQueue.decision_hash,
+    withOrphan.decision_hash,
+    "skirtingi galutiniai planai NEGALI dalytis vienu sprendimo atspaudu",
+  );
+
+  // `branch-blocked` — antras šaltinis už ready-set'o ribų.
+  const open = buildTaskGraph({ nodes: [nodeOf("a")] });
+  const tasks = [{ task_id: "a", file: "AG/tasks/queue/a.md", blocked_by: [] }];
+  const running = applyReadySetGates(scheduleNextWave({ tasks, graph: open }), buildReadySet({ graph: open }));
+  const brokenBranch = applyReadySetGates(
+    scheduleNextWave({ tasks, graph: open, blockedTaskIds: ["a"] }),
+    buildReadySet({ graph: open }),
+  );
+  assert.notEqual(running.decision_hash, brokenBranch.decision_hash, "run'o būsena taip pat privalo patekti į atspaudą");
 });
 
 test("decision_hash yra deterministinis ir nepriklauso nuo verdiktų tvarkos", () => {

@@ -384,8 +384,9 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
     wave_sequence: waveSequence,
     graph_hash: graphHash,
     // Planas dar be vartų verdiktų: `applyReadySetGates` perstampuos. Reikšmė vis tiek tikra —
-    // ji apibūdina TĄ sprendimą, kurį šis objektas neša dabar.
-    decision_hash: computeWaveDecisionHash({ waveGraphHash: graphHash }),
+    // ji apibūdina TĄ sprendimą, kurį šis objektas neša dabar, įskaitant `gate:graph-state-mismatch`
+    // įrašus, kurie gimsta ČIA (iš `observedQueue` palyginimo) ir jokiame ready-set'e nefigūruoja.
+    decision_hash: computeWaveDecisionHash({ waveGraphHash: graphHash, ready, blocked: blockedTasks }),
     max_workers: clampWaveWorkers(input.maxWorkers),
     ready,
     blocked: blockedTasks,

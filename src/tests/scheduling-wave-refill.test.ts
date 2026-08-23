@@ -31,6 +31,7 @@ function plan(ready: WaveReadyTask[] = READY): WavePlan {
     wave_id: "w1",
     wave_sequence: 1,
     graph_hash: "h",
+    decision_hash: "dh1:test",
     max_workers: 2,
     ready,
     blocked: [],

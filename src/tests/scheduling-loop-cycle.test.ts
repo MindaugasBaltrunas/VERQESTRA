@@ -23,6 +23,7 @@ function taskSelection(options: { phantom?: PhantomWaveSlot[]; taskId?: string }
       wave_id: "w1",
       wave_sequence: 1,
       graph_hash: "h",
+      decision_hash: "dh1:test",
       max_workers: 1,
       ready: [{ task_id: taskId, file: `AG/tasks/queue/${taskId}.md`, blocked_by: [], depth: 0 }],
       blocked: [],

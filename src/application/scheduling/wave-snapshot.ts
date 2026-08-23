@@ -46,6 +46,12 @@ export const waveSnapshotSchema = z.looseObject({
   /** Grafo atspaudas. Nesutapimas su checkpoint'o hash'u reiškia stale checkpoint'ą. */
   graph_hash: nonEmpty,
   /**
+   * Sprendimo atspaudas (2026-08-23). Numatytoji reikšmė TUŠČIA sąmoningai: senas snapshot'as
+   * jo neturi, tad su jokiu einamuoju sprendimu nesutaps ir bus laikomas svetimu — fail-closed.
+   * Tylus „sutampa" čia būtų blogiausia galima numatytoji reikšmė.
+   */
+  decision_hash: z.string().default(""),
+  /**
    * Hard limitas: daugiau nei 2 yra NEGALIOJANTIS įrašas, o ne tyliai priimtas paralelizmas.
    * Sprendimą „kiek workerių" priima `worker-pool-plan` su visais izoliacijos vartais; schema
    * tik neleidžia jo peržengti nepastebimai.
@@ -208,6 +214,7 @@ export function buildWaveSnapshot(plan: WavePlan, options: BuildWaveSnapshotOpti
     wave_id: plan.wave_id,
     wave_sequence: plan.wave_sequence,
     graph_hash: plan.graph_hash,
+    decision_hash: plan.decision_hash,
     max_workers: plan.max_workers,
     created_at: options.createdAt,
     updated_at: options.updatedAt ?? options.createdAt,

@@ -291,7 +291,12 @@ test("buildReadySet node-level dependency failures: missing and invalid-terminal
 // applyReadySetGates + formatWaveBlockedReason
 // ---------------------------------------------------------------------------
 
-test("applyReadySetGates is subtract-only and returns the same object when nothing changes", () => {
+// PAKEISTAS INVARIANTAS 2026-08-23. Iki tol „vartai nieko nepakeitė" buvo tikrinama NUORODOS
+// TAPATYBE. Tai tiesiogiai prieštarauja `decision_hash` prasmei: vartai, praleidę visus task'us,
+// VIS TIEK priėmė sprendimą, ir planas privalo tai nešti — kitaip atspaudas sakytų „be vartų" ten,
+// kur vartai suveikė ir viską patvirtino, t. y. atkartotų būtent tą klaidą, kurią taiso.
+// SUBTRACT-ONLY galioja toliau ir tikrinamas TURINIU, kuris ir buvo tikroji invarianto prasmė.
+test("applyReadySetGates is subtract-only; the decision is always stamped", () => {
   const tasks = [schedulable("0001", "AG/tasks/queue/0001-a.md"), schedulable("0002", "AG/tasks/queue/0002-b.md")];
   const graph = buildTaskGraph({
     nodes: [
@@ -301,13 +306,14 @@ test("applyReadySetGates is subtract-only and returns the same object when nothi
   });
   const plan = scheduleNextWave({ tasks, graph });
 
-  assert.equal(applyReadySetGates(plan, undefined), plan, "no ready set = no gates");
   const unconstrained = buildReadySet({ graph });
-  assert.equal(applyReadySetGates(plan, unconstrained), plan, "no gated reasons = same object identity");
+  const passed = applyReadySetGates(plan, unconstrained);
+  assert.deepEqual(passed.ready, plan.ready, "nieko nepašalinta — sąrašas nepaliestas");
+  assert.deepEqual(passed.blocked, plan.blocked);
+  assert.notEqual(passed.decision_hash, plan.decision_hash, "praleidimas taip pat yra sprendimas");
 
   const budgeted = buildReadySet({ graph, budget: { remaining_tokens: 100 } });
   const gated = applyReadySetGates(plan, budgeted);
-  assert.notEqual(gated, plan);
   assert.deepEqual(
     gated.ready.map((task) => task.task_id),
     ["0002"],
@@ -316,10 +322,16 @@ test("applyReadySetGates is subtract-only and returns the same object when nothi
   const removed = gated.blocked.find((task) => task.task_id === "0001");
   assert.equal(removed?.reason, "gate:budget-insufficient", "graph gate keeps the gate: prefix");
   assert.equal(gated.wave_id, plan.wave_id, "wave identity never changes");
+  // Būtent tai ir buvo spraga: tas pats eilės pjūvis, skirtingas biudžetas, skirtingas planas.
+  assert.notEqual(gated.decision_hash, passed.decision_hash, "kitas biudžetas = kitas sprendimas");
 
-  assert.equal(applyReadySetGates(plan, budgeted, { enforce: [] }), plan, "empty policy disables all gates");
+  // Susiaurinta politika sąrašo nekeičia, bet yra KITAS sprendimas — ir atspaudas tai sako.
+  const unenforced = applyReadySetGates(plan, budgeted, { enforce: [] });
+  assert.deepEqual(unenforced.ready, plan.ready, "empty policy disables all gates");
+  assert.notEqual(unenforced.decision_hash, gated.decision_hash, "kita politika = kitas sprendimas");
+
   const notQueuedGate = applyReadySetGates(plan, unconstrained, { enforce: ["not-queued"] });
-  assert.equal(notQueuedGate, plan, "explicit non-default gate with no matching blocked entries is a no-op");
+  assert.deepEqual(notQueuedGate.ready, plan.ready, "explicit non-default gate with no matching entries is a no-op");
 });
 
 // Kanoninio grafo, kaip PRODUKCINIO autoriteto, vartai gyvena `scheduling-ready-set-authority`.

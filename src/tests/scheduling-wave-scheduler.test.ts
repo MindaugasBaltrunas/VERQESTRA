@@ -13,6 +13,7 @@ import type { WorkerCandidate } from "../application/scheduling/worker-pool-admi
 import type { WaveProvisioningCoordinator } from "../application/scheduling/wave-provisioning.js";
 import type { WaveIntegrationIo } from "../application/scheduling/wave-scheduler.js";
 import type { SchedulerCheckpoint } from "../application/scheduling/wave-scheduler-contract.js";
+import type { WaveSnapshot } from "../application/scheduling/wave-snapshot.js";
 import type { TaskGraph } from "../domain/tasks/graph/model.js";
 import { buildTaskGraph } from "../domain/tasks/graph/build.js";
 
@@ -81,6 +82,8 @@ type World = {
   events: { event: string; task_id?: string | undefined; reason?: string | undefined }[];
   snapshots: number;
   checkpoints: { status: string; task_id?: string }[];
+  /** Įrašyti snapshot'ai — iš jų matyti, kuria numeracija banga iš tikrųjų ėjo. */
+  written: WaveSnapshot[];
 };
 
 function world(options: {
@@ -91,10 +94,15 @@ function world(options: {
   locate?: () => Promise<"terminal-bucket" | "queue" | "resumable-bucket" | "absent">;
   accepted?: boolean;
   relocate?: () => Promise<"moved" | "already" | "kept" | "absent">;
+  /** Ankstesnio proceso bangos snapshot'as — resume tęsimo šaka. */
+  snapshot?: WaveSnapshot | undefined;
+  /** Task'ai, kuriems iškvietėjas paduoda patvirtinimą (keičia sprendimą, ne grafą). */
+  approvals?: string[];
 } = {}): World {
   const logs: string[] = [];
   const events: World["events"] = [];
   const checkpoints: World["checkpoints"] = [];
+  const written: WaveSnapshot[] = [];
   const state = { snapshots: 0 };
   const taskList = options.taskList ?? tasks();
 
@@ -111,9 +119,10 @@ function world(options: {
     locateTask: options.locate ?? (() => Promise.resolve("queue")),
     hasAcceptedWork: () => Promise.resolve(options.accepted ?? false),
     readCheckpoint: () => Promise.resolve(options.checkpoint),
-    readSnapshot: () => Promise.resolve(undefined),
-    writeSnapshot: () => {
+    readSnapshot: () => Promise.resolve(options.snapshot),
+    writeSnapshot: (snapshot) => {
       state.snapshots += 1;
+      written.push(snapshot);
       return Promise.resolve();
     },
     recordEvent: (event) => {
@@ -128,7 +137,7 @@ function world(options: {
     writeGraphSnapshot: () => Promise.resolve(),
     readGraphSnapshot: () => Promise.resolve({ ok: false, reason: "missing", errors: [] }),
     readySetBudget: () => Promise.resolve(undefined),
-    approvals: () => [],
+    approvals: () => options.approvals ?? [],
     requestedWorkers: () => Promise.resolve(options.workers ?? 1),
     ledgerDuplicate: () => Promise.resolve(options.duplicate ?? false),
     integration: { ...integrationIo, ...(options.relocate === undefined ? {} : { relocateTask: options.relocate }) },
@@ -142,6 +151,7 @@ function world(options: {
     logs,
     events,
     checkpoints,
+    written,
     get snapshots() {
       return state.snapshots;
     },
@@ -242,6 +252,60 @@ test("nevykdytinas task'as blokuoja VISĄ šaką, bet nėra `failed`", async () 
   const next = await scheduler.nextTask();
   // 0002 priklauso nuo 0001 — jo vykdyti negalima.
   assert.equal(next.kind === "task" ? next.task.task_id : next.kind, "exhausted");
+});
+
+// 2026-08-23 (operatoriaus radinys): atkūrimas lygino GRAFO, o ne SPRENDIMO atspaudą. Patvirtinimo
+// atšaukimas, biudžeto išsekimas ar statuso pasikeitimas `graph_hash`'o nejudina, tad po kritimo
+// banga buvo tęsiama pagal leidimą, kurio nebėra. Šis testas laiko abi puses: nepakitęs sprendimas
+// numeraciją TĘSIA, pakitęs — NE.
+test("resume tęsia numeraciją tik tada, kai SPRENDIMAS nepakito", async () => {
+  const tasks = [{ task_id: "0001", file: "AG/tasks/queue/0001.md", blocked_by: [] }];
+  const requiresApproval = buildTaskGraph({
+    nodes: [{ task_id: "0001", file: "AG/tasks/queue/0001.md", checks: ["pnpm test"], scope: ["src/0001.ts"], requires_approval: true }],
+  });
+
+  const runWith = async (snapshot: WaveSnapshot, approvals: string[]) => {
+    const w = world({ taskList: tasks, snapshot, approvals });
+    const scheduler = createWaveScheduler({ ...w.deps, importGraph: () => Promise.resolve(requiresApproval) });
+    await scheduler.recoverFromCrash();
+    return w.written.at(-1)?.wave_sequence;
+  };
+
+  // Einamosios reikšmės imamos iš tikro paleidimo SU patvirtinimu — ne sugalvojamos.
+  const probe = world({ taskList: tasks, approvals: ["0001"] });
+  await createWaveScheduler({ ...probe.deps, importGraph: () => Promise.resolve(requiresApproval) }).nextTask();
+  const current = probe.written.at(-1);
+  assert.ok(current?.decision_hash, "snapshot'as neša sprendimo atspaudą");
+
+  const snapshotWith = (decisionHash: string): WaveSnapshot => ({
+    schema_version: 1,
+    scheduler_version: 2,
+    run_id: "r1",
+    wave_id: "w1-x",
+    // Svetima numeracija: jei ji atsiras įrašytame snapshot'e, vadinasi banga buvo TĘSIAMA.
+    wave_sequence: 7,
+    // KRITIŠKA: grafo atspaudas SUTAMPA su einamuoju. Tik taip testas atskiria taisymą nuo
+    // senosios logikos — pastaroji lygino būtent šį lauką ir bangą būtų tęsusi.
+    graph_hash: current.graph_hash,
+    decision_hash: decisionHash,
+    max_workers: 1,
+    created_at: NOW,
+    updated_at: NOW,
+    tasks: [],
+    external_dependencies: [],
+    cycles: [],
+    live_slots: [],
+  });
+
+  // A. `graph_hash` sutampa, bet sprendimas kitas (snapshot'as darytas be patvirtinimo).
+  assert.equal(
+    await runWith(snapshotWith("dh1:0000000000000000"), ["0001"]),
+    1,
+    "sutampantis grafas su KITU sprendimu numeracijos NEtęsia",
+  );
+
+  // B. Sutampa ir grafas, ir sprendimas — banga tikrai ta pati.
+  assert.equal(await runWith(snapshotWith(current.decision_hash), ["0001"]), 7, "tas pats sprendimas — numeracija tęsiama");
 });
 
 test("resume be checkpoint'o nieko nerašo į žurnalą", async () => {

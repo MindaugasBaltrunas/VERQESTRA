@@ -17,6 +17,7 @@ import { dependencyMatches, isPlaceholderDependency, normalizeTaskReference } fr
 import { detectCyclesOverEdges, longestDependencyDepths } from "../../domain/tasks/graph/adjacency.js";
 import { dependenciesOf, internalEdges, resolveTaskNode } from "../../domain/tasks/graph/traverse.js";
 import { satisfiesDependency, type TaskGraph, type TaskNodeStatus } from "../../domain/tasks/graph/model.js";
+import { computeWaveDecisionHash } from "./wave-decision-hash.js";
 import { RUNTIME_MAX_WORKERS } from "./worker-limits.js";
 import type { ReadySetBlockedReason } from "./build-ready-set.js";
 
@@ -109,6 +110,14 @@ export type WavePlan = {
   wave_id: string;
   wave_sequence: number;
   graph_hash: string;
+  /**
+   * Ar tai TAS PATS sprendimas (2026-08-23, operatoriaus radinys). `graph_hash` atsako tik
+   * „kurie task'ai svarstomi", tad patvirtinimai, statusai, biudžetas ir vartų politika jame
+   * nesimato — keturi skirtingi planai gaudavo vieną tapatybę, o `recoverFromCrash` pagal ją
+   * tęsdavo bangą. Atspaudą stampuoja tas sluoksnis, kuris turi VISUS įėjimus: plano statymo
+   * metu jis „be vartų", o `applyReadySetGates` jį perstampuoja verdiktais.
+   */
+  decision_hash: string;
   max_workers: number;
   /** Vykdytini task'ai deterministine tvarka (depth, tada failo vardas). */
   ready: WaveReadyTask[];
@@ -352,6 +361,9 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
     wave_id: waveIdFor(waveSequence, graphHash),
     wave_sequence: waveSequence,
     graph_hash: graphHash,
+    // Planas dar be vartų verdiktų: `applyReadySetGates` perstampuos. Reikšmė vis tiek tikra —
+    // ji apibūdina TĄ sprendimą, kurį šis objektas neša dabar.
+    decision_hash: computeWaveDecisionHash({ waveGraphHash: graphHash }),
     max_workers: clampWaveWorkers(input.maxWorkers),
     ready,
     blocked: blockedTasks,

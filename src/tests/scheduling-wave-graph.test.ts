@@ -140,6 +140,7 @@ function plan(waveId = "w1"): WavePlan {
     wave_id: waveId,
     wave_sequence: 1,
     graph_hash: "h",
+    decision_hash: "dh1:test",
     max_workers: 2,
     ready: [{ task_id: "0001", file: "AG/tasks/queue/0001.md", blocked_by: [], depth: 0 }],
     blocked: [],

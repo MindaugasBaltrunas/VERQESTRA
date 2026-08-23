@@ -313,8 +313,12 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       await graphCoordinator.reportSnapshot(storedGraph, state.canonicalGraph, current.wave_id);
 
       const snapshot = await deps.readSnapshot();
-      if (snapshot !== undefined && snapshot.graph_hash === current.graph_hash && snapshot.wave_sequence >= state.waveSequence) {
-        // Tas pats grafas kaip prieš kritimą — numeracija tęsiama, kad įvykiai ir snapshot'ai
+      // Lyginamas SPRENDIMO, o ne grafo atspaudas (2026-08-23, operatoriaus radinys).
+      // `graph_hash` mato tik eilės pjūvį, tad patvirtinimo atšaukimas, biudžeto išsekimas ar
+      // statuso pasikeitimas jo nejudino — ir po kritimo atkurta banga galėjo remtis leidimu,
+      // kurio nebėra. `decision_hash` apima `graph_hash`, tad tai griežtinimas, ne mainai.
+      if (snapshot !== undefined && snapshot.decision_hash === current.decision_hash && snapshot.wave_sequence >= state.waveSequence) {
+        // Tas pats sprendimas kaip prieš kritimą — numeracija tęsiama, kad įvykiai ir snapshot'ai
         // liktų vienoje istorijoje. Vartai taikomi ir čia: abu keliai duoda tą patį planą.
         state.waveSequence = snapshot.wave_sequence;
         state.plan = currentPlan();

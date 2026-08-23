@@ -165,11 +165,12 @@ test("kanoninis grafas yra LEIDIMŲ sąrašas: bangos ir grafo nesutapimas bloku
     "nesutapimas nėra politikos klausimas",
   );
 
-  // D. Kontrolė: sutampanti būsena praeina, ir SUBTRACT-ONLY tapatybė išlieka.
+  // D. Kontrolė: sutampanti būsena praeina, ir SUBTRACT-ONLY galioja (tikrinama turiniu —
+  // `decision_hash` stampuojamas visada, nes praleidimas taip pat yra sprendimas).
   const queued = buildTaskGraph({
     nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", checks: ["x"], scope: ["src/**"] }],
   });
-  assert.equal(applyReadySetGates(plan, buildReadySet({ graph: queued })), plan, "sutampant — TAS PATS objektas");
+  assert.deepEqual(applyReadySetGates(plan, buildReadySet({ graph: queued })).ready, plan.ready, "sutampant — praleidžiama");
 });
 
 // PERRAŠYTAS 2026-08-23 (suvienodinimas 3/3). Iki tol šis testas rodė, kad dėl dviprasmiško
@@ -208,6 +209,9 @@ test("dviprasmiškas prefiksas: planuoklis ir vartai duoda tą patį verdiktą",
   );
 
   // Vartai nieko nebeturi šalinti — ir būtent tai yra sveika būsena: jie liko kaip antras
-  // sluoksnis, o ne kaip vienintelė vieta, kur sprendimas priimamas.
-  assert.equal(applyReadySetGates(plan, readySet), plan, "sluoksniai sutaria — TAS PATS objektas");
+  // sluoksnis, o ne kaip vienintelė vieta, kur sprendimas priimamas. Sąrašai nepaliesti; kinta
+  // tik `decision_hash`, nes praleidimas taip pat yra sprendimas (žr. `wave-decision-hash`).
+  const gated = applyReadySetGates(plan, readySet);
+  assert.deepEqual(gated.ready, plan.ready, "sluoksniai sutaria — šalinti nėra ko");
+  assert.deepEqual(gated.blocked, plan.blocked);
 });

@@ -33,6 +33,7 @@ function selection(options: {
       wave_id: "w1",
       wave_sequence: 1,
       graph_hash: "h",
+      decision_hash: "dh1:test",
       max_workers: 2,
       ready: slots.map((slot) => ({ task_id: slot.task_id, file: slot.file, blocked_by: [], depth: 0 })),
       blocked: [],

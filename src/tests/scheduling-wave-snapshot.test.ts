@@ -20,6 +20,7 @@ function plan(overrides: Partial<WavePlan> = {}): WavePlan {
     wave_id: "w1",
     wave_sequence: 1,
     graph_hash: "abc123",
+    decision_hash: "dh1:abc123",
     max_workers: 1,
     ready: [{ task_id: "0002", file: "AG/tasks/queue/0002.md", blocked_by: [], depth: 0 }],
     blocked: [

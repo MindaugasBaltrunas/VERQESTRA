@@ -17,6 +17,7 @@ import {
   type WaveBlockedTask,
   type WavePlan,
 } from "./schedule-next-wave.js";
+import { computeWaveDecisionHash } from "./wave-decision-hash.js";
 
 /** Grafo vartas, kurį leidžiama taikyti bangos planui. Vardai bendri su `buildReadySet`. */
 export type ReadySetGate = ReadySetBlockedReason;
@@ -85,9 +86,17 @@ export type ReadySetGatePolicy = {
  * task'ą, o dviejų šaltinių NESUTAPIMAS, ir operatoriui tai skirtingas gedimas.
  */
 export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefined, policy?: ReadySetGatePolicy): WavePlan {
-  if (!readySet) return plan;
-
   const enforced = new Set<ReadySetGate>(policy?.enforce ?? DEFAULT_READY_SET_GATES);
+  // Sprendimo atspaudas stampuojamas VISADA, net kai nieko nešalinama.
+  //
+  // Iki 2026-08-23 ši funkcija, nieko nepašalinusi, grąžindavo TĄ PATĮ objektą, ir nuorodos
+  // tapatybė buvo prikalta kaip invariantas „vartai nieko nepakeitė". Tas invariantas tiesiogiai
+  // prieštarauja `decision_hash` prasmei: vartai, praleidę visus task'us, VIS TIEK priėmė
+  // sprendimą, ir planas privalo tai nešti. Priešingu atveju atspaudas sakytų „be vartų" ten, kur
+  // vartai suveikė ir viską patvirtino — t. y. atkartotų būtent tą klaidą, kurią taiso.
+  // SUBTRACT-ONLY galioja toliau; keičiasi tik tai, kad tapatybė nebėra įrodymas.
+  const decisionHash = computeWaveDecisionHash({ waveGraphHash: plan.graph_hash, readySet, enforced });
+  if (!readySet) return { ...plan, decision_hash: decisionHash };
 
   const gates = new Map<string, BlockedTask>();
   for (const entry of readySet.blocked) gates.set(entry.task_id, entry);
@@ -128,10 +137,11 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
     return false;
   });
 
-  if (removed.length === 0) return plan;
+  if (removed.length === 0) return { ...plan, decision_hash: decisionHash };
 
   return {
     ...plan,
+    decision_hash: decisionHash,
     ready,
     // Ta pati rūšiavimo taisyklė kaip `scheduleNextWave` (pagal failą), kad sujungtas
     // sąrašas liktų vienoje deterministinėje tvarkoje.
@@ -174,6 +184,9 @@ export function planWaveWithoutGraph(input: WaveWithoutGraphInput, detail: strin
     wave_id: waveIdFor(waveSequence, graphHash),
     wave_sequence: waveSequence,
     graph_hash: graphHash,
+    // `unavailable` žyma daro šį atspaudą nesutampantį su JOKIU normaliu sprendimu: banga be
+    // autoriteto niekada neturi atrodyti kaip banga, kurios vartai viską praleido.
+    decision_hash: computeWaveDecisionHash({ waveGraphHash: graphHash, unavailable: true }),
     max_workers: clampWaveWorkers(input.maxWorkers),
     ready: [],
     blocked: tasks

@@ -11,12 +11,10 @@ import {
   clampWaveWorkers,
   collectBlockedBranch,
   computeGraphHash,
-  computeTaskWriteSet,
-  classifyWriteScopePath,
   decideResume,
-  evaluateWriteSetIndependence,
   formatWaveBlockedReason,
   normalizeSchedulableTasks,
+  WAVE_SCHEDULER_VERSION,
   scheduleNextWave,
   selectNextWaveTask,
   WAVE_MAX_WORKERS,
@@ -24,6 +22,7 @@ import {
   type SchedulableTask,
   type ResumeEvidence,
 } from "../application/scheduling/index.js";
+import { wavePlanInput } from "./helpers/wave-graph-fixture.js";
 
 function schedulable(taskId: string, file: string, blockedBy: readonly string[] = []): SchedulableTask {
   return { task_id: taskId, file, blocked_by: blockedBy };
@@ -58,39 +57,52 @@ test("scheduleNextWave is deterministic and stamps graph identity", () => {
     schedulable("0002", "AG/tasks/queue/0002-b.md", ["0001"]),
     schedulable("0001", "AG/tasks/queue/0001-a.md"),
   ];
-  const first = scheduleNextWave({ tasks, waveSequence: 2 });
-  const second = scheduleNextWave({ tasks: [...tasks].reverse(), waveSequence: 2 });
+  const first = scheduleNextWave(wavePlanInput({ tasks, waveSequence: 2 }));
+  const second = scheduleNextWave(wavePlanInput({ tasks: [...tasks].reverse(), waveSequence: 2 }));
 
-  assert.match(first.graph_hash, /^wg1:[0-9a-f]{16}$/, "graph hash format is wg1:<sha256/16>");
+  // Prefiksas seka `WAVE_SCHEDULER_VERSION`, o ne konstantą testo tekste: versija pakelta į 2, kai
+  // planavimas perėjo prie kanoninio grafo, ir būtent tas kėlimas paverčia senus snapshot'us stale.
+  assert.equal(WAVE_SCHEDULER_VERSION, 2, "grafo semantikos kėlimas užfiksuotas versijoje");
+  assert.match(first.graph_hash, /^wg2:[0-9a-f]{16}$/, "graph hash format is wg<rules>:<sha256/16>");
   assert.equal(first.graph_hash, computeGraphHash(tasks), "plan hash equals standalone hash");
   assert.equal(first.wave_id, `w2-${first.graph_hash.split(":")[1]}`, "wave id is sequence + hash suffix");
   assert.equal(first.wave_sequence, 2);
   assert.deepEqual(first, second, "input order does not change the plan");
 });
 
-test("scheduleNextWave dependency semantics: internal blocks, completed satisfies, external is recorded", () => {
+// APVERSTAS 2026-08-23 (suvienodinimas 3/3). Iki tol šis testas prikaldavo taisyklę „dingusi
+// priklausomybė laikoma įvykdyta už bangos ribų" — t. y. įtvirtindavo fail-open elgesį kaip
+// laukiamą. Taisyklė gyvavo todėl, kad banga matė tik eilės pjūvį ir negalėjo atskirti „blokatorius
+// jau atliktas" nuo „blokatoriaus išvis nėra". Su kanoniniu grafu tas skirtumas MATOMAS, tad
+// spėjimo nebereikia: neišsprendžiama nuoroda reiškia, kad leidimo įrodyti negalime.
+//
+// Testas neištrintas, o apverstas sąmoningai: jis lieka vieta, kur ši taisyklė yra pareikšta.
+test("scheduleNextWave dependency semantics: internal and unresolvable both block, completed satisfies", () => {
   const tasks = [
     schedulable("0001", "AG/tasks/queue/0001-a.md"),
     schedulable("0002", "AG/tasks/queue/0002-b.md", ["0001"]),
     schedulable("0003", "AG/tasks/queue/0003-c.md", ["0999"]),
   ];
 
-  const plan = scheduleNextWave({ tasks });
+  const plan = scheduleNextWave(wavePlanInput({ tasks }));
   assert.deepEqual(
     plan.ready.map((task) => task.task_id),
-    ["0001", "0003"],
-    "external dependency counts as satisfied outside the wave",
+    ["0001"],
+    "neišsprendžiama priklausomybė NEBĖRA laikoma įvykdyta",
   );
-  assert.deepEqual(plan.external_dependencies, ["0999"], "missing blocker stays visible for diagnostics");
+  assert.deepEqual(plan.external_dependencies, ["0999"], "laukas išlaikytas ir gauna missing reikšmes");
   const blockedB = plan.blocked.find((task) => task.task_id === "0002");
   assert.equal(blockedB?.reason, "unsatisfied-dependency");
   assert.deepEqual(blockedB?.waiting_for, ["0001"]);
+  const blockedC = plan.blocked.find((task) => task.task_id === "0003");
+  assert.equal(blockedC?.reason, "unsatisfied-dependency", "dingęs blokatorius stabdo, o ne praleidžia");
+  assert.deepEqual(blockedC?.waiting_for, ["0999"], "įvardijama TA PATI nuoroda, kurią parašė autorius");
 
-  const completedPlan = scheduleNextWave({ tasks, completedTaskIds: ["0001"] });
+  const completedPlan = scheduleNextWave(wavePlanInput({ tasks, completedTaskIds: ["0001"] }));
   assert.deepEqual(
     completedPlan.ready.map((task) => task.task_id),
-    ["0003", "0002"],
-    "completed blocker satisfies and drops out; depth order puts the shallower node first",
+    ["0002"],
+    "įvykdytas blokatorius atrakina savo priklausinį; `0003` toliau laukia neegzistuojančio `0999`",
   );
 });
 
@@ -104,7 +116,7 @@ test("scheduleNextWave blocked branch: root and transitive dependents never beco
   const branch = collectBlockedBranch(tasks, "0001");
   assert.deepEqual(branch, ["0001", "0002", "0003"], "branch closure is transitive");
 
-  const plan = scheduleNextWave({ tasks, blockedTaskIds: branch });
+  const plan = scheduleNextWave(wavePlanInput({ tasks, blockedTaskIds: branch }));
   assert.deepEqual(
     plan.ready.map((task) => task.task_id),
     ["0004"],
@@ -116,13 +128,15 @@ test("scheduleNextWave blocked branch: root and transitive dependents never beco
 });
 
 test("scheduleNextWave cycle detection blocks participants without stopping independent work", () => {
-  const plan = scheduleNextWave({
-    tasks: [
-      schedulable("0001", "AG/tasks/queue/0001-a.md", ["0002"]),
-      schedulable("0002", "AG/tasks/queue/0002-b.md", ["0001"]),
-      schedulable("0003", "AG/tasks/queue/0003-c.md"),
-    ],
-  });
+  const plan = scheduleNextWave(
+    wavePlanInput({
+      tasks: [
+        schedulable("0001", "AG/tasks/queue/0001-a.md", ["0002"]),
+        schedulable("0002", "AG/tasks/queue/0002-b.md", ["0001"]),
+        schedulable("0003", "AG/tasks/queue/0003-c.md"),
+      ],
+    }),
+  );
 
   assert.deepEqual(plan.cycles, [["0001", "0002"]], "cycle group is sorted");
   assert.equal(plan.blocked.filter((task) => task.reason === "dependency-cycle").length, 2);
@@ -133,14 +147,16 @@ test("scheduleNextWave cycle detection blocks participants without stopping inde
 });
 
 test("scheduleNextWave ready order: depth first, then file name", () => {
-  const plan = scheduleNextWave({
-    tasks: [
-      schedulable("0003", "AG/tasks/queue/0003-deep.md", ["0001"]),
-      schedulable("0002", "AG/tasks/queue/0002-b.md"),
-      schedulable("0001", "AG/tasks/queue/0001-a.md"),
-    ],
-    completedTaskIds: ["0001"],
-  });
+  const plan = scheduleNextWave(
+    wavePlanInput({
+      tasks: [
+        schedulable("0003", "AG/tasks/queue/0003-deep.md", ["0001"]),
+        schedulable("0002", "AG/tasks/queue/0002-b.md"),
+        schedulable("0001", "AG/tasks/queue/0001-a.md"),
+      ],
+      completedTaskIds: ["0001"],
+    }),
+  );
 
   assert.deepEqual(
     plan.ready.map((task) => [task.task_id, task.depth]),
@@ -163,9 +179,11 @@ test("clampWaveWorkers: default 1, hard cap 2", () => {
 });
 
 test("selectNextWaveTask skips tasks already started in this run", () => {
-  const plan = scheduleNextWave({
-    tasks: [schedulable("0001", "AG/tasks/queue/0001-a.md"), schedulable("0002", "AG/tasks/queue/0002-b.md")],
-  });
+  const plan = scheduleNextWave(
+    wavePlanInput({
+      tasks: [schedulable("0001", "AG/tasks/queue/0001-a.md"), schedulable("0002", "AG/tasks/queue/0002-b.md")],
+    }),
+  );
   assert.equal(selectNextWaveTask(plan)?.task_id, "0001");
   assert.equal(selectNextWaveTask(plan, { startedTaskIds: ["0001"] })?.task_id, "0002");
   assert.equal(selectNextWaveTask(plan, { startedTaskIds: ["0001", "0002"] }), undefined);
@@ -275,13 +293,13 @@ test("buildReadySet node-level dependency failures: missing and invalid-terminal
 
 test("applyReadySetGates is subtract-only and returns the same object when nothing changes", () => {
   const tasks = [schedulable("0001", "AG/tasks/queue/0001-a.md"), schedulable("0002", "AG/tasks/queue/0002-b.md")];
-  const plan = scheduleNextWave({ tasks });
   const graph = buildTaskGraph({
     nodes: [
       { task_id: "0001", file: "AG/tasks/queue/0001-a.md", checks: ["x"], scope: ["src"], estimated_tokens: 900 },
       { task_id: "0002", file: "AG/tasks/queue/0002-b.md", checks: ["x"], scope: ["src"], estimated_tokens: 10 },
     ],
   });
+  const plan = scheduleNextWave({ tasks, graph });
 
   assert.equal(applyReadySetGates(plan, undefined), plan, "no ready set = no gates");
   const unconstrained = buildReadySet({ graph });
@@ -380,104 +398,7 @@ test("decideResume location branches and dispatch gate", () => {
   assert.equal(interrupted.replay_safe, true);
 });
 
-// ---------------------------------------------------------------------------
-// conflict-detector
-// ---------------------------------------------------------------------------
+// conflict-detector testai gyvena `scheduling-conflict-detector` — iškelti 2026-08-23 dėl 500
+// eilučių vartų. Riba natūrali: ten sprendžiama, ar DU task'ai gali dirbti vienu metu, o ne kokia
+// yra bangos tvarka.
 
-test("classifyWriteScopePath: order of rules is the contract", () => {
-  assert.deepEqual(classifyWriteScopePath("src/app.ts"), { kind: "file", scope: "src/app.ts" });
-  assert.deepEqual(classifyWriteScopePath("src/utils"), { kind: "directory", scope: "src/utils" });
-  assert.deepEqual(classifyWriteScopePath("src/utils/"), { kind: "directory", scope: "src/utils" });
-  assert.deepEqual(classifyWriteScopePath("src/**/*.ts"), { kind: "glob", scope: "src/**/*.ts" });
-  assert.deepEqual(classifyWriteScopePath("prisma/migrations/0001_init.sql"), {
-    kind: "migration-chain",
-    scope: "prisma/migrations/0001_init.sql",
-  });
-  assert.deepEqual(classifyWriteScopePath("dist/index.js"), { kind: "generated", scope: "dist/index.js" });
-});
-
-test("computeTaskWriteSet: evidence gaps and deterministic fingerprint", () => {
-  const clean = computeTaskWriteSet({ task_id: "0001", allowed_paths: ["src/a.ts", "src/a.ts", "docs/"] });
-  assert.equal(clean.determinate, true);
-  assert.equal(clean.entries.length, 2, "duplicate paths dedupe");
-  assert.match(clean.write_set_hash, /^ws1:[0-9a-f]{16}$/);
-  assert.deepEqual(clean, computeTaskWriteSet({ task_id: "0001", allowed_paths: ["docs/", "src/a.ts"] }));
-
-  const empty = computeTaskWriteSet({ task_id: "0002" });
-  assert.equal(empty.determinate, false);
-  assert.deepEqual(empty.gaps.map((gap) => gap.code), ["no-declared-scope"]);
-
-  const wildcard = computeTaskWriteSet({ task_id: "0003", allowed_paths: ["src/**"] });
-  assert.ok(wildcard.gaps.some((gap) => gap.code === "wildcard-scope"));
-
-  const traversal = computeTaskWriteSet({ task_id: "0004", allowed_paths: ["../outside.ts"] });
-  assert.ok(traversal.gaps.some((gap) => gap.code === "unresolvable-scope"));
-
-  const symbolsOnly = computeTaskWriteSet({ task_id: "0005", write_symbols: ["src/a.ts#run"] });
-  assert.ok(
-    symbolsOnly.gaps.some((gap) => gap.code === "no-declared-scope"),
-    "identity entries alone never count as a declared path scope",
-  );
-
-  const unverified = computeTaskWriteSet({
-    task_id: "0006",
-    allowed_paths: ["src/a.ts"],
-    unverified_contract_paths: ["src/index.ts"],
-  });
-  assert.ok(unverified.gaps.some((gap) => gap.code === "unverified-contract"));
-  assert.equal(unverified.determinate, false);
-});
-
-test("evaluateWriteSetIndependence: only clean, disjoint write sets parallelize", () => {
-  const left = computeTaskWriteSet({ task_id: "0001", allowed_paths: ["src/moduleA/"] });
-  const right = computeTaskWriteSet({ task_id: "0002", allowed_paths: ["src/moduleB/"] });
-  const verdict = evaluateWriteSetIndependence(left, right);
-  assert.equal(verdict.independent, true);
-  assert.match(verdict.verdict_hash, /^iv1:[0-9a-f]{16}$/);
-  assert.equal(verdict.verdict_hash, evaluateWriteSetIndependence(right, left).verdict_hash, "verdict is symmetric");
-
-  const overlapping = evaluateWriteSetIndependence(
-    left,
-    computeTaskWriteSet({ task_id: "0003", allowed_paths: ["src/moduleA/inner.ts"] }),
-  );
-  assert.equal(overlapping.independent, false);
-  assert.equal(overlapping.conflicts.length, 1);
-  assert.equal(overlapping.conflicts[0]?.kind, "directory");
-
-  const sameTask = evaluateWriteSetIndependence(left, computeTaskWriteSet({ task_id: "0001", allowed_paths: ["docs/x.md"] }));
-  assert.equal(sameTask.independent, false, "the same task can never occupy two workers");
-  assert.equal(sameTask.conflicts.length, 0, "same-task refusal is not a scope conflict");
-
-  const gapped = evaluateWriteSetIndependence(left, computeTaskWriteSet({ task_id: "0004" }));
-  assert.equal(gapped.independent, false, "an evidence gap on either side forces serial execution");
-  assert.deepEqual(gapped.evidence_gaps.map((gap) => gap.task_id), ["0004"]);
-
-  const migrations = evaluateWriteSetIndependence(
-    computeTaskWriteSet({ task_id: "0005", allowed_paths: ["db/migrations/0001_a.sql"] }),
-    computeTaskWriteSet({ task_id: "0006", allowed_paths: ["db/migrations/0002_b.sql"] }),
-  );
-  assert.equal(migrations.independent, false, "migration chains serialize globally even without path overlap");
-  assert.equal(migrations.conflicts[0]?.kind, "migration-chain");
-});
-
-test("evaluateWriteSetIndependence: identity families compare exactly and never cross dimensions", () => {
-  const symbolLeft = computeTaskWriteSet({
-    task_id: "0001",
-    allowed_paths: ["src/a/"],
-    write_symbols: ["src/shared.ts#run"],
-  });
-  const symbolRight = computeTaskWriteSet({
-    task_id: "0002",
-    allowed_paths: ["src/b/"],
-    write_symbols: ["src/shared.ts#run"],
-  });
-  const sameSymbol = evaluateWriteSetIndependence(symbolLeft, symbolRight);
-  assert.equal(sameSymbol.independent, false);
-  assert.equal(sameSymbol.conflicts[0]?.kind, "symbol");
-
-  const crossDimension = evaluateWriteSetIndependence(
-    computeTaskWriteSet({ task_id: "0003", allowed_paths: ["src/a/"], contracts: ["pkg#api"] }),
-    computeTaskWriteSet({ task_id: "0004", allowed_paths: ["src/b/"], write_symbols: ["pkg#api"] }),
-  );
-  assert.equal(crossDimension.independent, true, "a contract and a symbol with the same name are different dimensions");
-});

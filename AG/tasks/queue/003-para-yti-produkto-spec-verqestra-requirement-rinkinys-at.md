@@ -26,6 +26,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Parašyti produkto spec: VERQESTRA requirement rinkinys atskirai nuo migracijos plano.
 

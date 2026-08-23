@@ -37,31 +37,64 @@ function consistentWorld(): { tasks: SchedulableTask[]; graph: ReturnType<typeof
   };
 }
 
-test("sutampantis pasaulis: grafo kelias duoda TĄ PATĮ planą kaip senasis", () => {
+// CHARACTERIZATION. Perėjimo metu (1/3, 2/3) šis testas buvo PALYGINIMAS: tas pats task sąrašas
+// per abu variklius privalėjo duoti identišką planą, ir būtent tai įrodė, kad tai perkėlimas, o ne
+// antra nauja semantika. 3/3 žingsnyje atlaidus variklis ištrintas, tad palyginti nebėra su kuo —
+// todėl to palyginimo REZULTATAS užrašytas reikšmėmis. Įrodymas neišnyksta kartu su antrąja puse.
+//
+// Vienintelis sąmoningai pakitęs laukas — `graph_hash` prefiksas: `WAVE_SCHEDULER_VERSION` pakeltas
+// į 2 būtent tam, kad seni snapshot'ai taptų stale.
+test("sutampantis pasaulis: planas toks pat, koks buvo iki suvienodinimo", () => {
   const { tasks, graph } = consistentWorld();
 
-  // Be run'o būsenos.
-  assert.deepEqual(
-    scheduleNextWave({ tasks, graph, waveSequence: 2, maxWorkers: 2 }),
-    scheduleNextWave({ tasks, waveSequence: 2, maxWorkers: 2 }),
-    "planas privalo sutapti visas — įskaitant depth tvarką, graph_hash ir wave_id",
-  );
+  const plan = scheduleNextWave({ tasks, graph, waveSequence: 2, maxWorkers: 2 });
+  assert.deepEqual(plan.ready.map((task) => [task.task_id, task.depth]), [["0001", 0], ["0004", 0]]);
+  assert.deepEqual(plan.blocked.map((task) => [task.task_id, task.reason, task.waiting_for]), [
+    ["0002", "unsatisfied-dependency", ["0001"]],
+    ["0003", "unsatisfied-dependency", ["0002"]],
+  ]);
+  assert.deepEqual(plan.cycles, []);
+  assert.deepEqual(plan.external_dependencies, []);
+  assert.equal(plan.wave_sequence, 2);
+  assert.equal(plan.max_workers, 2);
+  assert.match(plan.graph_hash, /^wg2:[0-9a-f]{16}$/);
+  assert.equal(plan.wave_id, `w2-${plan.graph_hash.split(":")[1]}`);
 
   // Su run'o būsena: `completed` ir lūžusi šaka yra būtent tai, ką kanoninis grafas gauna per
-  // statusOverrides, tad sutapimas čia yra sutapimo su `buildReadySet` prielaida.
-  const run = { completedTaskIds: ["0001"], blockedTaskIds: ["0004"] } as const;
-  const unified = scheduleNextWave({ tasks, graph, ...run });
-  assert.deepEqual(unified, scheduleNextWave({ tasks, ...run }));
-  assert.deepEqual(unified.ready.map((task) => [task.task_id, task.depth]), [["0002", 1]], "gylis skaičiuojamas per grafą");
-  assert.equal(unified.blocked.find((task) => task.task_id === "0004")?.reason, "branch-blocked", "lūžusi šaka lieka MATOMA");
+  // statusOverrides, tad šis atvejis yra sutapimo su `buildReadySet` prielaida.
+  const withRun = scheduleNextWave({ tasks, graph, completedTaskIds: ["0001"], blockedTaskIds: ["0004"] });
+  assert.deepEqual(withRun.ready.map((task) => [task.task_id, task.depth]), [["0002", 1]], "gylis skaičiuojamas per grafą");
+  assert.deepEqual(withRun.blocked.map((task) => [task.task_id, task.reason]), [
+    ["0003", "unsatisfied-dependency"],
+    ["0004", "branch-blocked"],
+  ]);
+});
+
+test("prefiksinės nuorodos: `waiting_for` lieka žalia nuoroda", () => {
+  // Realūs task failai nurodo blokatorių numeriu (`depends_on: 004`), o ne pilnu slug'u. Pirmoji
+  // perėjimo versija į `waiting_for` rašė IŠSPRĘSTĄ pilną ID, ir ekvivalencija tyliai lūžo —
+  // fixture'ai su tiksliai sutampančiais ID to nerodė, o gyvas repo parodė iškart. Forma turi
+  // sutapti su `buildReadySet`, nes abu sąrašai susitinka viename `blocked` per vartus.
+  const tasks = [queued("004-profile"), queued("005-contract", ["004"])];
+  const graph = buildTaskGraph({
+    nodes: [node("004-profile", "queue"), node("005-contract", "queue", { depends_on: ["004"] })],
+  });
+
+  const plan = scheduleNextWave({ tasks, graph });
+  assert.deepEqual(plan.ready.map((task) => task.task_id), ["004-profile"]);
+  assert.deepEqual(
+    plan.blocked.map((task) => [task.task_id, task.waiting_for]),
+    [["005-contract", ["004"]]],
+    "laukiama tai, ką parašė autorius — ne tai, į ką tai išsisprendė",
+  );
 });
 
 test("divergencija 1: dingusi priklausomybė nebelaikoma įvykdyta", () => {
   const tasks = [queued("0001", ["9999"])];
   const graph = buildTaskGraph({ nodes: [node("0001", "queue", { depends_on: ["9999"] })] });
 
-  assert.deepEqual(scheduleNextWave({ tasks }).ready.map((task) => task.task_id), ["0001"], "senasis kelias VYKDYTŲ");
-
+  // Iki suvienodinimo: `0001` buvo READY — nuorodos atitikmens eilėje nėra, tad ji buvo laikoma
+  // įvykdyta „už bangos ribų".
   const unified = scheduleNextWave({ tasks, graph });
   assert.deepEqual(unified.ready, [], "leidimo įrodyti negalime, tad nevykdoma");
   assert.deepEqual(unified.blocked.map((task) => [task.task_id, task.reason, task.waiting_for]), [
@@ -76,8 +109,8 @@ test("divergencija 2: savęs nuoroda lieka ciklu, o ne tyliai nuimama", () => {
   const tasks = [queued("0001", ["0001"])];
   const graph = buildTaskGraph({ nodes: [node("0001", "queue", { depends_on: ["0001"] })] });
 
-  assert.deepEqual(scheduleNextWave({ tasks }).ready.map((task) => task.task_id), ["0001"], "senasis kelias nuimdavo briauną");
-
+  // Iki suvienodinimo: `normalizeSchedulableTasks` savęs nuorodą NUIMDAVO, tad `0001` likdavo be
+  // priklausomybių ir būdavo READY.
   const unified = scheduleNextWave({ tasks, graph });
   assert.deepEqual(unified.ready, []);
   assert.equal(unified.blocked[0]?.reason, "dependency-cycle");
@@ -92,10 +125,9 @@ test("divergencija 3: dviprasmiškas prefiksas atmetamas, o ne sprendžiamas pir
   });
   const run = { completedTaskIds: ["1111-a"] } as const;
 
-  assert.ok(
-    scheduleNextWave({ tasks, ...run }).ready.some((task) => task.task_id === "2000"),
-    "senasis kelias išspręsdavo prefiksą pirmu kandidatu, o tas jau atliktas — task'as paleidžiamas",
-  );
+  // Iki suvienodinimo: prefiksas būdavo išsprendžiamas PIRMU kandidatu, o tas jau atliktas —
+  // tad `2000` būdavo paleidžiamas. Tai buvo aštriausias iš keturių skirtumų, nes vienintelis
+  // rodė skirtumą kaip VYKDYMO, o ne formuluotės klausimą.
 
   const unified = scheduleNextWave({ tasks, graph, ...run });
   assert.deepEqual(unified.ready.map((task) => task.task_id), ["1111-b"], "`2000` laukia, kol nuoroda taps vienareikšmė");

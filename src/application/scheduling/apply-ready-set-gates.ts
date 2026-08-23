@@ -7,7 +7,16 @@
 // taikomi IŠORĖJE ir tik viena kryptimi: šis modulis gali task'ą PAŠALINTI iš `plan.ready`,
 // bet niekada jo ten neįdeda ir niekada nekeičia likusiųjų tvarkos. Modulis grynas.
 import { READY_SET_BLOCKED_REASONS, type BlockedTask, type ReadySet, type ReadySetBlockedReason } from "./build-ready-set.js";
-import type { WaveBlockedTask, WavePlan } from "./schedule-next-wave.js";
+import {
+  clampWaveWorkers,
+  computeGraphHash,
+  normalizeSchedulableTasks,
+  waveIdFor,
+  WAVE_SCHEDULER_VERSION,
+  type SchedulableTask,
+  type WaveBlockedTask,
+  type WavePlan,
+} from "./schedule-next-wave.js";
 
 /** Grafo vartas, kurį leidžiama taikyti bangos planui. Vardai bendri su `buildReadySet`. */
 export type ReadySetGate = ReadySetBlockedReason;
@@ -130,8 +139,15 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
   };
 }
 
+/** `scheduleNextWave` įėjimas be grafo — tiek, kiek reikia bangos tapatybei ir sąrašui. */
+export type WaveWithoutGraphInput = {
+  tasks: readonly SchedulableTask[];
+  waveSequence?: number;
+  maxWorkers?: number;
+};
+
 /**
- * Banga be kanoninio grafo: VISI `ready` task'ai perkeliami į `blocked`.
+ * Banga be kanoninio grafo: NĖ VIENAS task'as nevykdomas.
  *
  * NUKRYPIMAS nuo etalono (griežtinantis, 2026-08-23 auditas). Iki šiol neimportuotas grafas
  * reiškė `readySet === undefined`, o tai — „vartų nėra", tad banga eidavo VISAI be kanoninių
@@ -143,22 +159,36 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
  * Importas nelūžta dėl to, kad bucket'o nėra (adapteris tokiu atveju grąžina tuščią sąrašą), tad
  * ši šaka reiškia tikrą gedimą: neperskaitomą task failą arba mazgą be panaudojamo id.
  *
- * Invariantas tas pats kaip `applyReadySetGates`: SUBTRACT-ONLY, bangos tapatybė nekinta, o
- * nesant ko šalinti grąžinamas TAS PATS objektas.
+ * Nuo 3/3 suvienodinimo žingsnio tai KONSTRUKTORIUS, o ne transformacija: `scheduleNextWave` be
+ * grafo nebeegzistuoja, tad plano, kurį būtų galima „apkarpyti", šioje šakoje paprasčiausiai nėra.
+ * Bangos tapatybė skaičiuojama iš to paties eilės pjūvio, tad snapshot'ai ir įvykiai lieka vienoje
+ * istorijoje su sėkmingomis bangomis.
  */
-export function blockWaveWithoutGraph(plan: WavePlan, detail: string): WavePlan {
-  if (plan.ready.length === 0) return plan;
-  const removed: WaveBlockedTask[] = plan.ready.map((task) => ({
-    task_id: task.task_id,
-    file: task.file,
-    blocked_by: [...task.blocked_by],
-    reason: "gate:graph-unavailable",
-    waiting_for: [],
-  }));
+export function planWaveWithoutGraph(input: WaveWithoutGraphInput, detail: string): WavePlan {
+  const tasks = normalizeSchedulableTasks(input.tasks);
+  const graphHash = computeGraphHash(tasks);
+  const waveSequence = Math.max(1, Math.trunc(input.waveSequence ?? 1));
+
   return {
-    ...plan,
+    scheduler_version: WAVE_SCHEDULER_VERSION,
+    wave_id: waveIdFor(waveSequence, graphHash),
+    wave_sequence: waveSequence,
+    graph_hash: graphHash,
+    max_workers: clampWaveWorkers(input.maxWorkers),
     ready: [],
-    blocked: [...plan.blocked, ...removed].sort((a, b) => a.file.localeCompare(b.file)),
+    blocked: tasks
+      .map((task) => ({
+        task_id: task.task_id,
+        file: task.file,
+        blocked_by: [...task.blocked_by],
+        reason: "gate:graph-unavailable" as const,
+        waiting_for: [],
+      }))
+      .sort((a, b) => a.file.localeCompare(b.file)),
+    // Be grafo NEĮMANOMA pasakyti, kurios nuorodos yra išorinės ar ciklinės — o spėti čia
+    // draudžia ta pati taisyklė, dėl kurios banga sustabdyta.
+    external_dependencies: [],
+    cycles: [],
     graph_unavailable_reason: detail,
   };
 }

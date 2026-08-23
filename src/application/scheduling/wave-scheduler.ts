@@ -16,7 +16,7 @@
 //      prarastas įrašas pigesnis nei nutraukta banga.
 
 import { collectBlockedBranch, computeGraphHash, scheduleNextWave, selectNextWaveTask, waveIdFor } from "./schedule-next-wave.js";
-import { applyReadySetGates, blockWaveWithoutGraph, formatWaveBlockedReason } from "./apply-ready-set-gates.js";
+import { applyReadySetGates, formatWaveBlockedReason, planWaveWithoutGraph } from "./apply-ready-set-gates.js";
 import { decideResume, type ResumeDecision } from "./resume-run.js";
 import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js";
 import { createWaveGraphCoordinator } from "./wave-graph.js";
@@ -147,18 +147,26 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
    * paduodamas visada, kai jis yra: nuo 2/3 žingsnio kanoninė rezoliucija yra produkcinis
    * numatytasis kelias, o ne pasirenkamas režimas.
    */
-  const planInput = (): Parameters<typeof scheduleNextWave>[0] => ({
+  const planInput = () => ({
     tasks: state.tasks,
     completedTaskIds: state.completed,
     blockedTaskIds: state.blockedBranch,
     waveSequence: state.waveSequence,
     maxWorkers: state.requestedWorkers,
-    ...(state.canonicalGraph === undefined ? {} : { graph: state.canonicalGraph }),
   });
-  const gatedPlan = (base: WavePlan): WavePlan =>
-    graphUnavailableReason === undefined
-      ? applyReadySetGates(base, graphCoordinator.readySet(state.canonicalGraph, waveBudget), deps.readySetPolicy)
-      : blockWaveWithoutGraph(base, graphUnavailableReason);
+  /**
+   * Vienintelė vieta, kur gimsta bangos planas. Be grafo planas net nesudaromas: nuo 3/3 žingsnio
+   * `scheduleNextWave` be jo neegzistuoja, tad „banga be autoriteto" yra atskiras konstruktorius,
+   * o ne apkarpytas planas.
+   */
+  const currentPlan = (): WavePlan => {
+    const graph = state.canonicalGraph;
+    if (graph === undefined || graphUnavailableReason !== undefined) {
+      return planWaveWithoutGraph(planInput(), graphUnavailableReason ?? "kanoninis grafas neprieinamas");
+    }
+    const base = scheduleNextWave({ ...planInput(), graph });
+    return applyReadySetGates(base, graphCoordinator.readySet(graph, waveBudget), deps.readySetPolicy);
+  };
 
   const replan = async (): Promise<WavePlan> => {
     state.tasks = await deps.readTasks();
@@ -178,7 +186,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     state.canonicalGraph = refreshed.kind === "graph" ? refreshed.graph : undefined;
     graphUnavailableReason = refreshed.kind === "graph" ? undefined : refreshed.reason;
 
-    state.plan = gatedPlan(scheduleNextWave(planInput()));
+    state.plan = currentPlan();
     return state.plan;
   };
 
@@ -309,7 +317,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
         // Tas pats grafas kaip prieš kritimą — numeracija tęsiama, kad įvykiai ir snapshot'ai
         // liktų vienoje istorijoje. Vartai taikomi ir čia: abu keliai duoda tą patį planą.
         state.waveSequence = snapshot.wave_sequence;
-        state.plan = gatedPlan(scheduleNextWave(planInput()));
+        state.plan = currentPlan();
       }
 
       const taskId = checkpoint?.task_id ?? "";

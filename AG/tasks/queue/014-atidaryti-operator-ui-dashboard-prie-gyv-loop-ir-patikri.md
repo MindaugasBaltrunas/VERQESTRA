@@ -26,6 +26,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: 007
+
 ## Veiksmas
 - Įgyvendinti: Atidaryti operator ui dashboard prieš gyvą loop'ą ir patikrinti SSE srautą.
 

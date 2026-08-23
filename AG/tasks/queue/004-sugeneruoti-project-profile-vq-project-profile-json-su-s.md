@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Sugeneruoti project profile: vq/project/profile.json su source roots ir default config.
 

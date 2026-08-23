@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Ištirti orchestrator queue lifecycle lenktynes: Stop hook commit'as nespėja iki dispatch pabaigos.
 

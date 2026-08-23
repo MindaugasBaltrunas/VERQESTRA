@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: 007
+
 ## Veiksmas
 - Įgyvendinti: Automatizuoti project status ir converge perleidimą po kiekvieno commit'o su telemetry įrašu.
 

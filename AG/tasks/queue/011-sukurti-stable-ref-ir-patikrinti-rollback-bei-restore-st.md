@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Sukurti stable ref ir patikrinti rollback bei restore stable kelius.
 

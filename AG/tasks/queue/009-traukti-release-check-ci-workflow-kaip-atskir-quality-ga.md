@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: 013
+
 ## Veiksmas
 - Įgyvendinti: Įtraukti release-check į ci workflow kaip atskirą quality gate žingsnį.
 

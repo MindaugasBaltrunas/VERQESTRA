@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: 002, 008, 010
+
 ## Veiksmas
 - Įgyvendinti: Paleisti pilną queue loop su keliomis užduotimis ir išmatuoti dispatch flow.
 

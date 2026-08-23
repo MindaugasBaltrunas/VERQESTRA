@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Suprojektuoti context pack retrieval neįvardytiems kandidatams po rag-lite pakopų trynimo.
 

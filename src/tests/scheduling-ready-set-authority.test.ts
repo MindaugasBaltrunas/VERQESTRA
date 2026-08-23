@@ -15,11 +15,12 @@ import test from "node:test";
 import { buildTaskGraph } from "../domain/tasks/graph/index.js";
 import {
   applyReadySetGates,
-  blockWaveWithoutGraph,
+  planWaveWithoutGraph,
   buildReadySet,
   scheduleNextWave,
   type SchedulableTask,
 } from "../application/scheduling/index.js";
+import { wavePlanInput } from "./helpers/wave-graph-fixture.js";
 
 function schedulable(taskId: string, file: string, blockedBy: readonly string[] = []): SchedulableTask {
   return { task_id: taskId, file, blocked_by: blockedBy };
@@ -32,25 +33,36 @@ function gatedReadyIds(
   return applyReadySetGates(plan, buildReadySet({ graph })).ready.map((task) => task.task_id);
 }
 
-test("kanoninis grafas NUGALI atlaidų bangos planuoklį: nesama priklausomybė, self-edge, ciklas per human-review", () => {
-  // A. Priklausomybė į task'ą, kurio grafe NĖRA. Planuokliui jis „external", t. y. įvykdytas.
+// PERRAŠYTAS 2026-08-23 (suvienodinimas 3/3). Iki tol trys scenarijai rodė, kad atlaidus
+// planuoklis PALEISTŲ tai, ką kanoninis grafas draudžia, ir vartai buvo VIENINTELĖ vieta, kur
+// skirtumas užsidarydavo. Antro variklio nebėra, tad tas pats scenarijų rinkinys dabar tikrina
+// stipresnį teiginį: planuoklis pats atsisako, O vartai su juo sutaria. Scenarijai palikti tie
+// patys sąmoningai — jie yra istorinis įrodymas, kurios būtent spragos buvo uždarytos.
+test("planuoklis PATS sustoja: nesama priklausomybė, self-edge, ciklas per human-review", () => {
+  const planFor = (graph: ReturnType<typeof buildTaskGraph>, dependsOn: readonly string[]) =>
+    scheduleNextWave({ tasks: [schedulable("a", "AG/tasks/queue/a.md", dependsOn)], graph });
+
+  // A. Priklausomybė į task'ą, kurio grafe NĖRA. Anksčiau planuokliui jis buvo „external",
+  // t. y. įvykdytas.
   const missing = buildTaskGraph({
     nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", depends_on: ["nera-tokio"], checks: ["x"], scope: ["src/**"] }],
   });
-  const missingPlan = scheduleNextWave({ tasks: [schedulable("a", "AG/tasks/queue/a.md", ["nera-tokio"])] });
-  assert.deepEqual(missingPlan.ready.map((task) => task.task_id), ["a"], "planuoklis vienas paleistų");
-  assert.deepEqual(gatedReadyIds(missingPlan, missing), [], "grafas: missing-dependency");
+  const missingPlan = planFor(missing, ["nera-tokio"]);
+  assert.deepEqual(missingPlan.ready, [], "planuoklis pats nebelaiko dingusios priklausomybės įvykdyta");
+  assert.deepEqual(gatedReadyIds(missingPlan, missing), [], "vartai sutaria");
 
-  // B. `a → a`. Planuoklis savęs nuorodą NUIMA, tad task'as lieka be priklausomybių.
+  // B. `a → a`. Anksčiau planuoklis savęs nuorodą NUIMDAVO, tad task'as likdavo be priklausomybių.
   const selfEdge = buildTaskGraph({
     nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", depends_on: ["a"], checks: ["x"], scope: ["src/**"] }],
   });
-  const selfPlan = scheduleNextWave({ tasks: [schedulable("a", "AG/tasks/queue/a.md", ["a"])] });
-  assert.deepEqual(selfPlan.ready.map((task) => task.task_id), ["a"], "planuoklis vienas paleistų");
+  const selfPlan = planFor(selfEdge, ["a"]);
+  assert.deepEqual(selfPlan.ready, [], "savęs nuoroda lieka ciklu");
+  assert.deepEqual(selfPlan.cycles, [["a"]], "ciklas įvardijamas plane");
   assert.equal(buildReadySet({ graph: selfEdge }).executable, false, "grafas: ciklas");
   assert.deepEqual(gatedReadyIds(selfPlan, selfEdge), [], "graph-invalid sustabdo VISKĄ");
 
-  // C. `a(queue) → b(human-review) → a`. Banga mato tik queue, tad `b` jai „external".
+  // C. `a(queue) → b(human-review) → a`. Anksčiau banga matė tik queue, tad `b` jai buvo
+  // „external" — ciklas per kitą bucket'ą jai buvo NEMATOMAS.
   const crossBucketCycle = buildTaskGraph({
     nodes: [
       { task_id: "a", file: "AG/tasks/queue/a.md", depends_on: ["b"], checks: ["x"], scope: ["src/**"] },
@@ -64,8 +76,8 @@ test("kanoninis grafas NUGALI atlaidų bangos planuoklį: nesama priklausomybė,
       },
     ],
   });
-  const cyclePlan = scheduleNextWave({ tasks: [schedulable("a", "AG/tasks/queue/a.md", ["b"])] });
-  assert.deepEqual(cyclePlan.ready.map((task) => task.task_id), ["a"], "planuoklis vienas paleistų");
+  const cyclePlan = planFor(crossBucketCycle, ["b"]);
+  assert.deepEqual(cyclePlan.ready, [], "ciklas per kitą bucket'ą dabar MATOMAS ir bangai");
   assert.deepEqual(gatedReadyIds(cyclePlan, crossBucketCycle), [], "graph-invalid sustabdo VISKĄ");
 });
 
@@ -78,6 +90,7 @@ test("numatytieji vartai gina ir žmogaus patvirtinimą (approval-required)", ()
   });
   const plan = scheduleNextWave({
     tasks: [schedulable("a", "AG/tasks/queue/a.md"), schedulable("b", "AG/tasks/queue/b.md")],
+    graph,
   });
   const gated = applyReadySetGates(plan, buildReadySet({ graph }));
 
@@ -90,10 +103,10 @@ test("numatytieji vartai gina ir žmogaus patvirtinimą (approval-required)", ()
 });
 
 test("neperskaitytas grafas SUSTABDO bangą, o ne atidaro ją be vartų", () => {
-  const plan = scheduleNextWave({
-    tasks: [schedulable("a", "AG/tasks/queue/a.md"), schedulable("b", "AG/tasks/queue/b.md")],
-  });
-  const blocked = blockWaveWithoutGraph(plan, "markdown sugadintas");
+  const tasks = [schedulable("a", "AG/tasks/queue/a.md"), schedulable("b", "AG/tasks/queue/b.md")];
+  // Nuo 3/3 žingsnio tai KONSTRUKTORIUS: be grafo `scheduleNextWave` neegzistuoja, tad plano,
+  // kurį būtų galima apkarpyti, šioje šakoje nėra iš viso.
+  const blocked = planWaveWithoutGraph({ tasks }, "markdown sugadintas");
 
   assert.deepEqual(blocked.ready, [], "be autoriteto neįrodomas NĖ VIENO task'o leidimas");
   assert.deepEqual(
@@ -102,10 +115,18 @@ test("neperskaitytas grafas SUSTABDO bangą, o ne atidaro ją be vartų", () => 
     'atskira priežastis: grafas nieko nepasakė, o ne pasakė "ne"',
   );
   assert.equal(blocked.graph_unavailable_reason, "markdown sugadintas");
-  assert.equal(blocked.wave_id, plan.wave_id, "bangos tapatybė nekinta");
-  // SUBTRACT-ONLY galioja ir čia: tuščias ready set reiškia, kad šalinti nėra ko.
-  const empty = scheduleNextWave({ tasks: [] });
-  assert.equal(blockWaveWithoutGraph(empty, "x"), empty, "nesant ko šalinti — TAS PATS objektas");
+  // Bangos tapatybė skaičiuojama iš to paties eilės pjūvio, tad sustabdyta banga lieka vienoje
+  // istorijoje su sėkmingomis — snapshot'ai ir įvykiai nesusimaišo.
+  assert.equal(
+    blocked.wave_id,
+    scheduleNextWave(wavePlanInput({ tasks })).wave_id,
+    "tas pats eilės pjūvis duoda tą pačią bangos tapatybę",
+  );
+  // Tuščia eilė: sustabdyti nėra ko, bet planas vis tiek turi būti tvarkingas.
+  const empty = planWaveWithoutGraph({ tasks: [] }, "x");
+  assert.deepEqual(empty.ready, []);
+  assert.deepEqual(empty.blocked, []);
+  assert.equal(empty.graph_unavailable_reason, "x");
 });
 
 // Trečias tos pačios fail-open klaidos pavidalas: vartai tik ATIMDAVO `readySet.blocked`, o
@@ -113,7 +134,9 @@ test("neperskaitytas grafas SUSTABDO bangą, o ne atidaro ją be vartų", () => 
 // sustabdyto, pralįsdavo pro VISUS vartus. Realu, nes `wave-scheduler` eilę ir kanoninį grafą
 // skaito atskirais FS skaitymais: tarp jų task'as spėja persikelti tarp bucket'ų.
 test("kanoninis grafas yra LEIDIMŲ sąrašas: bangos ir grafo nesutapimas blokuoja", () => {
-  const plan = scheduleNextWave({ tasks: [schedulable("a", "AG/tasks/queue/a.md")] });
+  // Planas statomas su SAVAIME SUDERINTU grafu; žemiau jam taikomi ready set'ai iš SKIRTINGŲ,
+  // tyčia nesutampančių grafų — būtent tai ir yra šio testo objektas.
+  const plan = scheduleNextWave(wavePlanInput({ tasks: [schedulable("a", "AG/tasks/queue/a.md")] }));
 
   // A. Task'o grafe apskritai nėra.
   const absent = buildTaskGraph({
@@ -149,12 +172,13 @@ test("kanoninis grafas yra LEIDIMŲ sąrašas: bangos ir grafo nesutapimas bloku
   assert.equal(applyReadySetGates(plan, buildReadySet({ graph: queued })), plan, "sutampant — TAS PATS objektas");
 });
 
-// Paskutinis nesutarimas tarp dviejų grafo skaitytojų: DVIPRASMIŠKAS PREFIKSAS. Kanoninis jį
-// atmeta (`resolveTaskNode` grąžina undefined, kai kandidatų daugiau nei vienas), bangos
-// planuoklis ima PIRMĄ kandidatą. Kol vienas iš kandidatų nebaigtas, abi pusės fail-closed ir
-// skirtumas nematomas; kai baigtas — pusės išsiskiria priešingomis kryptimis. Šis testas laiko
-// būtent tą tašką, nes jis vienintelis rodo skirtumą kaip VYKDYMO, o ne formuluotės klausimą.
-test("dviprasmiškas prefiksas: banga paleistų, kanoninis grafas sustabdo", () => {
+// PERRAŠYTAS 2026-08-23 (suvienodinimas 3/3). Iki tol šis testas rodė, kad dėl dviprasmiško
+// prefikso du varikliai išsiskiria priešingomis kryptimis: banga imdavo pirmą kandidatą (o tas
+// jau atliktas, tad task'ą PALEISDAVO), o kanoninis atsisakydavo spėti. Antro variklio nebėra,
+// tad nebėra ir ko lyginti — bet klausimas lieka vertingas kita forma: ar abu sluoksniai dabar
+// sako TĄ PATĮ. Sutapimas čia yra vartų prasmės sąlyga: jie turi būti antras įrodymas, o ne
+// vienintelis.
+test("dviprasmiškas prefiksas: planuoklis ir vartai duoda tą patį verdiktą", () => {
   const graph = buildTaskGraph({
     nodes: [
       { task_id: "1111-a", file: "AG/tasks/done/1111-a.md", status: "done", checks: ["x"], scope: ["src/a.ts"] },
@@ -167,24 +191,23 @@ test("dviprasmiškas prefiksas: banga paleistų, kanoninis grafas sustabdo", () 
   const plan = scheduleNextWave({
     tasks: [schedulable("1111-b", "AG/tasks/queue/1111-b.md"), schedulable("2000", "AG/tasks/queue/2000.md", ["1111"])],
     completedTaskIds: ["1111-a"],
+    graph,
   });
-  assert.ok(
-    plan.ready.some((task) => task.task_id === "2000"),
-    "planuoklis `1111` išsprendžia pirmu kandidatu ir laiko jį atliktu",
+  assert.deepEqual(
+    plan.ready.map((task) => task.task_id),
+    ["1111-b"],
+    "planuoklis PATS atsisako spėti, kuris `1111-*` turėtas omenyje",
   );
+  assert.equal(plan.blocked.find((task) => task.task_id === "2000")?.reason, "unsatisfied-dependency");
 
   const readySet = buildReadySet({ graph });
   assert.equal(
     readySet.blocked.find((entry) => entry.task_id === "2000")?.reason,
     "missing-dependency",
-    "kanoninis atsisako spėti, kuris `1111-*` turėtas omenyje",
+    "kanoninis verdiktas tas pats, tik tikslesniu vardu",
   );
 
-  const gated = applyReadySetGates(plan, readySet);
-  assert.deepEqual(
-    gated.ready.map((task) => task.task_id),
-    ["1111-b"],
-    "sprendžia kanoninis: `2000` nevykdomas, kol nuoroda dviprasmiška",
-  );
-  assert.equal(gated.blocked.find((task) => task.task_id === "2000")?.reason, "gate:missing-dependency");
+  // Vartai nieko nebeturi šalinti — ir būtent tai yra sveika būsena: jie liko kaip antras
+  // sluoksnis, o ne kaip vienintelė vieta, kur sprendimas priimamas.
+  assert.equal(applyReadySetGates(plan, readySet), plan, "sluoksniai sutaria — TAS PATS objektas");
 });

@@ -20,6 +20,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: 004
+
 ## Veiksmas
 - Įgyvendinti: Paleisti architecture contract patikrą šiam repo ir uždaryti boundary schema radinius.
 

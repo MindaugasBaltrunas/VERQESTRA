@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Parašyti agent-solo adapter draiverį, kuris spausdina telemetrijos voką benchmark celėse.
 

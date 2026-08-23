@@ -22,6 +22,9 @@ Draudžiama:
 - `node_modules/**`
 - `dist/**`
 
+## Dependencies
+depends_on: none
+
 ## Veiksmas
 - Įgyvendinti: Uždaryti preflight retry memo ribą: aplinkos pataisymas neturi atrodyti kaip human review kilpa.
 

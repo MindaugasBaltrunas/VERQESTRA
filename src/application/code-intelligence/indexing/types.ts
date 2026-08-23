@@ -15,7 +15,16 @@
 // ištraukėjus. MAJOR, nes tas pats `source_hash` dabar reiškia visai kitą indekso turinį: 2.x
 // indeksas tiems patiems failams turėjo tuščius `imports`/`symbols`, ir be kėlimo jis grįžtų kaip
 // šviežias, o architektūros ribų patikra tyliai remtųsi nesamu grafu.
-export const codeIndexVersion = "3.0.0";
+// 3.1.0 (2026-08-23): leksinės kalbos ėmė kurti GRAFO BRIAUNAS. 3.0.0 užpildė `file.imports` ir
+// simbolius, bet grąžino `edges: []`, tad `code-graph` ir architektūros ribų vartas naujų kalbų
+// nematė — jie skaito būtent `imports` briaunas. Kėlimas būtinas dėl tos pačios priežasties kaip
+// 3.0.0: lokaliai pastatytas 3.0.0 indeksas su tuo pačiu `source_hash` turi importus, bet neturi
+// briaunų, ir be kėlimo grįžtų kaip šviežias.
+// 3.2.0 (2026-08-23): pataisytas testų atpažinimas (`test_main.py` — dažniausia pytest forma —
+// testu NEBUVO laikoma; `.test.mjs`/`.test.cjs` irgi ne). Tai keičia `isTest`, `kind` IR `testedBy`
+// briaunas tiems patiems failams, tad seni indeksai su sutampančiu `source_hash` privalo tapti
+// nebegaliojantys.
+export const codeIndexVersion = "3.2.0";
 
 export type CodeIndexLanguage =
   | "typescript"

@@ -12,7 +12,6 @@ import type { CodeIndexFile, CodeIndexSymbol, CodeIndexSymbolKind } from "./type
 import type { LanguageIndexResult } from "./language-indexer-model.js";
 
 const USING = /^[ \t]*(?:global[ \t]+)?using[ \t]+(?:static[ \t]+)?(?:([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*)?([A-Za-z_][A-Za-z0-9_.<>, ]*?)[ \t]*;/gm;
-const NAMESPACE = /^[ \t]*namespace[ \t]+([A-Za-z_][A-Za-z0-9_.]*)/m;
 const TYPE_DECLARATION =
   /^[ \t]*(?:\[[^\]]*\][ \t]*)*((?:public|internal|private|protected|static|sealed|abstract|partial|readonly|ref|file)[ \t]+)*(class|interface|struct|record|enum|delegate)[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
 
@@ -36,7 +35,6 @@ export function indexCSharpSource(file: CodeIndexFile, text: string): LanguageIn
     if (target) imports.add(target);
   }
 
-  const namespaceName = NAMESPACE.exec(clean)?.[1] ?? "";
   const symbols: CodeIndexSymbol[] = [];
   const exports = new Set<string>();
   const declarations = [...clean.matchAll(TYPE_DECLARATION)];
@@ -51,7 +49,9 @@ export function indexCSharpSource(file: CodeIndexFile, text: string): LanguageIn
     // `exported` = matomas UŽ assembly ribų. `internal` yra numatytoji C# reikšmė, tad tylėjimas
     // reiškia „ne", o ne „taip" — priešingai nei PHP, kur top-level deklaracija visada vieša.
     const exported = /\bpublic\b/.test(modifiers) || /\bprotected\b/.test(modifiers);
-    if (exported) exports.add(namespaceName ? `${namespaceName}.${name}` : name);
+    // Pliki vardai, ne kvalifikuoti namespace'u (2026-08-23): iš `exports` statomos briaunos į
+    // `failas#vardas`, ir kvalifikuotas vardas rodytų į nesamą simbolio ID.
+    if (exported) exports.add(name);
 
     const start = match.index ?? 0;
     symbols.push({

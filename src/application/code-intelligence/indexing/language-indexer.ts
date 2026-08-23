@@ -12,7 +12,7 @@ import { indexDotnetProject } from "./dotnet-indexer.js";
 import { indexPhpSource, type Psr4Map } from "./php-indexer.js";
 import { indexPythonSource } from "./python-indexer.js";
 import type { LanguageIndexResult } from "./language-indexer-model.js";
-import type { CodeIndexFile } from "./types.js";
+import type { CodeIndexEdge, CodeIndexFile } from "./types.js";
 
 export type LexicalIndexContext = {
   knownPaths: ReadonlySet<string>;
@@ -25,6 +25,11 @@ export function hasLexicalIndexer(file: CodeIndexFile): boolean {
 }
 
 export function indexLexicalSource(file: CodeIndexFile, text: string, context: LexicalIndexContext): LanguageIndexResult | undefined {
+  const extracted = extract(file, text, context);
+  return extracted === undefined ? undefined : { ...extracted, edges: [...extracted.edges, ...graphEdges(extracted)] };
+}
+
+function extract(file: CodeIndexFile, text: string, context: LexicalIndexContext): LanguageIndexResult | undefined {
   switch (file.language) {
     case "python":
       return indexPythonSource(file, text, context.knownPaths);
@@ -37,6 +42,28 @@ export function indexLexicalSource(file: CodeIndexFile, text: string, context: L
     default:
       return undefined;
   }
+}
+
+/**
+ * Grafo briaunos iš ištraukto failo (2026-08-23, operatoriaus radinys).
+ *
+ * Iki tol leksiniai ištraukėjai grąžindavo `edges: []`: `file.imports` ir simboliai būdavo
+ * užpildyti, bet `code-graph` ir architektūros ribų vartas skaito BŪTENT `imports` briaunas
+ * (`architecture-boundary`: `if (edge.type !== "imports") continue`). Todėl naujos kalbos indekse
+ * matėsi, o grafe jų nebuvo — funkcionalumas veikė tik iš pusės.
+ *
+ * Briaunos statomos ČIA, o ne kiekviename ištraukėjuje, sąmoningai: žingsnis, kurį reikia prisiminti
+ * keturiose vietose, anksčiau ar vėliau pamirštamas ketvirtoje — būtent taip ši spraga ir atsirado.
+ * Forma 1:1 su `ts-source-indexer` (`imports` / `declares` su `detail: kind` / `exports`), nes
+ * skaitytojai kalbos neskiria ir neturi skirti.
+ */
+function graphEdges(result: LanguageIndexResult): CodeIndexEdge[] {
+  const { file, symbols } = result;
+  return [
+    ...file.imports.map((target) => ({ from: file.path, to: target, type: "imports" as const })),
+    ...symbols.map((symbol) => ({ from: file.path, to: symbol.id, type: "declares" as const, detail: symbol.kind })),
+    ...file.exports.map((name) => ({ from: file.path, to: `${file.path}#${name}`, type: "exports" as const })),
+  ];
 }
 
 /**

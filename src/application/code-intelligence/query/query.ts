@@ -41,9 +41,12 @@ export function queryCodeGraphData(
   const targetFiles = new Set([...matchedFiles.map((file) => file.path), ...matchedSymbols.map((symbol) => symbol.file)]);
   const imports = relatedTargets(data, targetFiles, "imports", "out");
   const importers = relatedTargets(data, targetFiles, "imports", "in");
-  const impactedTests = relatedTargets(data, targetFiles, "testedBy", "out").filter(
-    (file) => file.endsWith(".ts") || file.endsWith(".tsx"),
-  );
+  // Be plėtinių filtro (2026-08-23, operatoriaus radinys). Iki tol čia buvo
+  // `.filter(f => f.endsWith(".ts") || f.endsWith(".tsx"))` — likutis iš laiko, kai indeksas
+  // pažinojo tik TypeScript'ą. Po daugiakalbio praplėtimo jis tyliai išmesdavo KIEKVIENĄ Python,
+  // PHP, C# ir net JavaScript testą: `testedBy` briauna egzistuodavo, o `impacted_tests` grįždavo
+  // tuščias. Filtro nereikia iš principo — briaunos tipas jau sako, kad taikinys yra testas.
+  const impactedTests = relatedTargets(data, targetFiles, "testedBy", "out");
   const exportedSymbols = Array.from(
     new Set(data.symbols.filter((symbol) => targetFiles.has(symbol.file) && symbol.exported).map((symbol) => symbol.id)),
   ).sort();

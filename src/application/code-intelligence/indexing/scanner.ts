@@ -135,13 +135,27 @@ function kindForFile(relativePath: string): CodeIndexFileKind {
   return "source";
 }
 
-function isTestPath(relativePath: string): boolean {
+/**
+ * Ar failas yra testas.
+ *
+ * Šablonai seka kiekvienos kalbos ĮRANKIO numatytąją konvenciją, o ne mūsų skonį:
+ *   pytest   `test_*.py` IR `*_test.py` (`python_files` numatytoji reikšmė);
+ *   PHPUnit  `*Test.php`;
+ *   xUnit/NUnit/MSTest  `*Test.cs` / `*Tests.cs`;
+ *   JS/TS    `*.test.*` / `*.spec.*` visiems ECMAScript plėtiniams.
+ *
+ * 2026-08-23 (operatoriaus radinys): Python šablonas buvo `(test_|.*_test)\.py`, o pirmoji
+ * alternatyva reikalavo failo, pavadinto TIKSLIAI `test_.py` — tad `test_main.py`, dažniausia
+ * pytest forma, testu nebuvo laikoma. Veikė tik `*_test.py`. Tuo pačiu pridėti `.mjs`/`.cjs`,
+ * kurių `[tj]sx?` nedengė, nors code-index juos indeksuoja.
+ */
+export function isTestPath(relativePath: string): boolean {
   const normalized = toPosixPath(relativePath);
   return (
     /(^|\/)(__tests__|tests?|spec)\//i.test(normalized) ||
-    /\.(test|spec)\.[tj]sx?$/i.test(normalized) ||
-    /(^|\/)(test_|.*_test)\.py$/i.test(normalized) ||
-    /(^|\/).*Test\.php$/i.test(normalized) ||
-    /(^|\/).*Tests?\.cs$/i.test(normalized)
+    /\.(test|spec)\.([tj]sx?|mjs|cjs)$/i.test(normalized) ||
+    /(^|\/)(test_[^/]+|[^/]+_test)\.py$/i.test(normalized) ||
+    /(^|\/)[^/]*Test\.php$/i.test(normalized) ||
+    /(^|\/)[^/]*Tests?\.cs$/i.test(normalized)
   );
 }

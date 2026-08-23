@@ -19,7 +19,6 @@ const USE_STATEMENT = /^[ \t]*use[ \t]+(function[ \t]+|const[ \t]+)?([A-Za-z_\\]
 const REQUIRE_STATEMENT = /\b(?:require|require_once|include|include_once)\b/g;
 const DECLARATION = /^[ \t]*(?:(abstract|final)[ \t]+)?(class|interface|trait|enum|function)[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
 const CONST_DECLARATION = /^[ \t]*const[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
-const NAMESPACE = /^[ \t]*namespace[ \t]+([A-Za-z_\\][A-Za-z0-9_\\]*)/m;
 
 const KIND_BY_KEYWORD: Record<string, CodeIndexSymbolKind> = {
   class: "class",
@@ -51,15 +50,17 @@ export function indexPhpSource(
   const requires = [...clean.matchAll(REQUIRE_STATEMENT)].length;
   if (requires > 0) imports.add("php:runtime-include");
 
-  const namespaceName = NAMESPACE.exec(clean)?.[1]?.replace(/^\\/, "") ?? "";
   const symbols: CodeIndexSymbol[] = [];
   const exports = new Set<string>();
 
   const push = (name: string, kind: CodeIndexSymbolKind, start: number, end: number): void => {
     // PHP neturi `export`: kiekviena top-level deklaracija matoma globaliai (per namespace), tad
     // `exported` čia reiškia „pasiekiama iš išorės", o ne „pažymėta raktažodžiu".
-    const qualified = namespaceName ? `${namespaceName}\\${name}` : name;
-    exports.add(qualified);
+    //
+    // `exports` laikomi PLIKI vardai, o ne kvalifikuoti namespace'u (2026-08-23): iš jų statomos
+    // `exports` briaunos į `failas#vardas`, ir kvalifikuotas vardas rodytų į nesamą simbolio ID.
+    // Namespace lieka matomas per patį failą, o vardų konvencija — viena visoms kalboms.
+    exports.add(name);
     symbols.push({
       id: `${file.path}#${name}`,
       file: file.path,

@@ -62,7 +62,7 @@ test("Python: absoliutūs ir reliatyvūs importai, `__all__` nugali konvenciją"
   assert.ok((cls?.endLine ?? 0) > (cls?.line ?? 0), "klasės blokas turi pabaigą");
 });
 
-test("PHP: PSR-4 `use` virsta repo keliu; namespace patenka į eksportus", () => {
+test("PHP: PSR-4 `use` virsta repo keliu; eksportai — pliki vardai", () => {
   const composer = JSON.stringify({
     autoload: { "psr-4": { "App\\": "app/" } },
     "autoload-dev": { "psr-4": { "Tests\\": "tests/" } },
@@ -96,7 +96,9 @@ test("PHP: PSR-4 `use` virsta repo keliu; namespace patenka į eksportus", () =>
     ["UserController", "class"],
     ["Marker", "interface"],
   ]);
-  assert.ok(result.file.exports.includes("App\\Http\\Controllers\\UserController"), "eksportas kvalifikuotas namespace'u");
+  // Eksportai laikomi PLIKAIS vardais visose kalbose: iš jų statomos `exports` briaunos į
+  // `failas#vardas`, ir namespace'u kvalifikuotas vardas rodytų į nesamą simbolio ID.
+  assert.deepEqual(result.file.exports, ["Marker", "UserController"]);
 });
 
 test("C#: visos `using` formos; `internal` NĖRA eksportas", () => {

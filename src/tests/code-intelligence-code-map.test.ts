@@ -78,3 +78,48 @@ test("code-map: klasės ID injektyvus", () => {
   assert.equal(classIdForFile("src/a-b.ts"), ids[0], "deterministinis");
   assert.match(classIdForFile("...ts"), /^f_[0-9a-f]{8}$/, "vardas be raidžių irgi gauna galiojantį ID");
 });
+
+// 2026-08-23 (RAG auditas 3): `--check` galėjo rodyti 100 %, nors failo diagramoje nebuvo.
+//
+// Failų visuma buvo IŠVEDAMA iš simbolių, tad failas be eksportuotų deklaracijų (šalutinių efektų
+// bootstrap'as, `export * from` barrel'is) į `source_files_total` nepatekdavo: jis neturėjo mazgo,
+// importai į jį dingdavo, o aprėptis vis tiek buvo pilna. Aprėptis, kurios vardiklį lemia tas pats,
+// ką ji matuoja, negali parodyti trūkumo.
+test("code-map: failas be eksportų patenka į aprėptį ir gauna mazgą", async () => {
+  const ts = await loadTypeScript();
+  const barrelPath = "src/lib/barrel.ts";
+  const consumerPath = "src/app/consumer.ts";
+  const barrelSource = 'export * from "./engine.js";\n';
+  const consumerSource = 'import { VERSION } from "../lib/barrel.js";\n\nexport const used = VERSION;\n';
+
+  const symbols = extractSymbolRecords(ts, consumerPath, consumerSource, "app");
+  assert.deepEqual(extractSymbolRecords(ts, barrelPath, barrelSource, "lib"), [], "kontrolė: barrel'is eksportuotų deklaracijų neturi");
+  const imports = extractImportEdges(ts, consumerPath, consumerSource, "app");
+  const scanned = [
+    { filePath: consumerPath, layer: "app" },
+    { filePath: barrelPath, layer: "lib" },
+  ];
+  const scannedPaths = scanned.map((file) => file.filePath);
+
+  // A. Senasis elgesys: failų visuma išvedama iš simbolių, tad barrel'io nėra NEI diagramoje, NEI
+  // vardiklyje — ir importas į jį dingsta be pėdsako, o aprėptis skelbia 100 %.
+  const blindMermaid = generateCodeMapMermaid(symbols, imports);
+  assert.doesNotMatch(blindMermaid, new RegExp(`class ${classIdForFile(barrelPath)}\\[`), "kontrolė: barrel'io bloko nėra");
+  assert.doesNotMatch(blindMermaid, /-->/, "kontrolė: importas į neaprašytą failą dingsta");
+  assert.equal(computeCodeMapCoverage(symbols, blindMermaid).coverage_percent, 100, "kontrolė: senasis 100 %");
+
+  // B. Vardiklis, matantis visus nuskenuotus failus, trūkumą parodo.
+  assert.ok(
+    computeCodeMapCoverage(symbols, blindMermaid, scannedPaths).coverage_percent < 100,
+    "neaprašytas failas privalo kainuoti aprėpties",
+  );
+
+  // C. Ir generatorius jam duoda mazgą — kartu su importo briauna.
+  const mermaid = generateCodeMapMermaid(symbols, imports, scanned);
+  const coverage = computeCodeMapCoverage(symbols, mermaid, scannedPaths);
+  assert.equal(coverage.source_files_total, 2);
+  assert.equal(coverage.source_files_indexed, 2);
+  assert.equal(coverage.coverage_percent, 100);
+  assert.deepEqual(coverage.missing_symbols, []);
+  assert.match(mermaid, new RegExp(`${classIdForFile(consumerPath)} --> ${classIdForFile(barrelPath)}`));
+});

@@ -213,3 +213,27 @@ test("impacted_tests grąžina VISŲ kalbų testus, ne tik TypeScript", () => {
     "Python testas privalo pasiekti užklausos rezultatą",
   );
 });
+
+// 2026-08-23 (RAG auditas 3): `impacted_tests` matė TIK tiesioginius testus.
+//
+// `testedBy` briauna gimsta ten, kur testas realiai importuoja. Grandinėje
+// `core.ts → index.ts → behavior.test.ts` ji priklauso barrel'iui, tad užklausa apie `core.ts`
+// grąžindavo tuščią sąrašą — o barrel'is ar tarpinis servisas yra ne išimtis, o įprasta forma.
+test("impacted_tests randa testą PER barrel'į", () => {
+  const data = {
+    manifest: {},
+    files: [fileOf("src/core.ts", "typescript"), fileOf("src/index.ts", "typescript"), fileOf("src/behavior.test.ts", "typescript")],
+    symbols: [],
+    edges: [
+      { from: "src/index.ts", to: "src/core.ts", type: "imports" as const },
+      { from: "src/behavior.test.ts", to: "src/index.ts", type: "imports" as const },
+      { from: "src/index.ts", to: "src/behavior.test.ts", type: "testedBy" as const },
+    ],
+  } as unknown as CodeIndexData;
+
+  assert.deepEqual(
+    queryCodeGraphData(data, "src/core.ts").impacted_tests,
+    ["src/behavior.test.ts"],
+    "netiesioginis testas yra tikras testas — tik pasiekiamas per importuotoją",
+  );
+});

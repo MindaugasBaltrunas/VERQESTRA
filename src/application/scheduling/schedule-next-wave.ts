@@ -230,6 +230,20 @@ type ResolvedNode = {
  * Priklausomybė tenkinama tik tada, kai blokatoriaus efektyvus statusas yra priimtas darbas —
  * tą patį klausimą ir tuo pačiu predikatu sprendžia `buildReadySet`.
  */
+/**
+ * Bangos pjūvis iš KANONINIO grafo: mazgai, kurių įrašytas statusas yra `queued`.
+ *
+ * Eksportuojama, nes tą patį pjūvį turi matyti ir planuoklis (kandidatai + bangos tapatybė), ir
+ * `wave-scheduler` būsena (`state.tasks`, kuria remiasi šakos ir baigties logika). Dvi vietos,
+ * skaičiuojančios „kas eilėje" savarankiškai, jau kartą išsiskyrė.
+ */
+export function queueSliceFromGraph(graph: TaskGraph): SchedulableTask[] {
+  return graph.nodes
+    .filter((node) => node.status === "queued")
+    .map((node) => ({ task_id: node.task_id, file: toPosix(node.file), blocked_by: dependenciesOf(graph, node.task_id) }))
+    .sort((left, right) => left.file.localeCompare(right.file));
+}
+
 function resolveNodesFromGraph(
   graph: TaskGraph,
   statusOf: (taskId: string) => TaskNodeStatus | undefined,
@@ -277,7 +291,10 @@ function resolveNodesFromGraph(
  * nei jo priklausiniai į ready set'ą nepatenka.
  */
 export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
-  const tasks = normalizeSchedulableTasks(input.tasks);
+  // `input.tasks` yra EILĖS SKAITYMAS iš FS — kryžminė patikra, o ne kandidatų šaltinis. Kandidatai
+  // ir bangos tapatybė imami iš grafo (žemiau): jis skaitomas vėliau, tad yra šviežesnis, ir jis
+  // yra autoritetas.
+  const observedQueue = normalizeSchedulableTasks(input.tasks);
   const completed = new Set([...(input.completedTaskIds ?? [])].map((value) => normalizeTaskReference(value)).filter(Boolean));
   const blocked = new Set([...(input.blockedTaskIds ?? [])].map((value) => normalizeTaskReference(value)).filter(Boolean));
 
@@ -295,6 +312,11 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
   };
 
   const nodes = resolveNodesFromGraph(graph, effectiveStatus);
+  // Bangos tapatybė skaičiuojama iš GRAFO pjūvio, ne iš eilės skaitymo (2026-08-23, operatoriaus
+  // radinys). Kandidatai jau imami iš grafo, tad tapatybė iš `input.tasks` galėjo aprašyti visai
+  // kitą aibę: `tasks=[]` su `graph=[a queued]` duodavo tuščios eilės hash'ą planui, kuriame `a`
+  // vykdomas. Du FS pjūviai skirtingu metu tai daro reguliariai pasiekiamu, o ne teoriniu.
+  const tasks = nodes.map((node) => node.task);
   // Ciklai ir gyliai — per VISĄ grafą, ne tik per eilės pjūvį: taip gylis nepasikeičia
   // blokatoriui persikėlus į `done`, o ciklas lieka ciklu net kai dalis jo jau ne eilėje.
   // Algoritmas bendras su kanoniniu skaitytoju (`domain/tasks/graph/adjacency`).
@@ -343,7 +365,7 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
   // Eilėje gulintis task'as, kurio kanoninis grafas nevardija kaip `queued` (jo ten nėra arba
   // jis jau kitos būsenos), NEDINGSTA tyliai: planas jį įvardija. Priešingu atveju perėjimas prie
   // grafo pjūvio būtų pakeitęs vieną fail-open kelią kitu — nematomu.
-  for (const task of tasks) {
+  for (const task of observedQueue) {
     if (completed.has(task.task_id)) continue;
     const node = graph.nodes.find((entry) => entry.task_id === task.task_id);
     if (node?.status === "queued") continue;

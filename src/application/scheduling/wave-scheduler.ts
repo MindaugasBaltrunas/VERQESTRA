@@ -15,7 +15,15 @@
 //      įvykių rašymų yra iki `2N+1`, ir Windows EPERM ant JSONL append yra dokumentuota realybė —
 //      prarastas įrašas pigesnis nei nutraukta banga.
 
-import { collectBlockedBranch, computeGraphHash, scheduleNextWave, selectNextWaveTask, waveIdFor } from "./schedule-next-wave.js";
+import {
+  collectBlockedBranch,
+  computeGraphHash,
+  queueSliceFromGraph,
+  scheduleNextWave,
+  selectNextWaveTask,
+  waveIdFor,
+  type SchedulableTask,
+} from "./schedule-next-wave.js";
 import { applyReadySetGates, formatWaveBlockedReason, planWaveWithoutGraph } from "./apply-ready-set-gates.js";
 import { decideResume, type ResumeDecision } from "./resume-run.js";
 import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js";
@@ -138,8 +146,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
    * paduodamas visada, kai jis yra: nuo 2/3 žingsnio kanoninė rezoliucija yra produkcinis
    * numatytasis kelias, o ne pasirenkamas režimas.
    */
-  const planInput = () => ({
-    tasks: state.tasks,
+  const planInput = (tasks: readonly SchedulableTask[]) => ({
+    tasks,
     completedTaskIds: state.completed,
     blockedTaskIds: state.blockedBranch,
     waveSequence: state.waveSequence,
@@ -149,13 +157,17 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
    * Vienintelė vieta, kur gimsta bangos planas. Be grafo planas net nesudaromas: nuo 3/3 žingsnio
    * `scheduleNextWave` be jo neegzistuoja, tad „banga be autoriteto" yra atskiras konstruktorius,
    * o ne apkarpytas planas.
+   *
+   * `observedQueue` — FS eilės skaitymas. Jis paduodamas kaip KRYŽMINĖ PATIKRA (`scheduleNextWave`
+   * iš jo daro `gate:graph-state-mismatch` įrašus), o kandidatus ir tapatybę ima grafas. Resume
+   * kelyje šviežio skaitymo nėra, tad ten paduodama bangos būsena — ji jau grafo kilmės.
    */
-  const currentPlan = (): WavePlan => {
+  const currentPlan = (observedQueue: readonly SchedulableTask[] = state.tasks): WavePlan => {
     const graph = state.canonicalGraph;
     if (graph === undefined || graphUnavailableReason !== undefined) {
-      return planWaveWithoutGraph(planInput(), graphUnavailableReason ?? "kanoninis grafas neprieinamas");
+      return planWaveWithoutGraph(planInput(state.tasks), graphUnavailableReason ?? "kanoninis grafas neprieinamas");
     }
-    const base = scheduleNextWave({ ...planInput(), graph });
+    const base = scheduleNextWave({ ...planInput(observedQueue), graph });
     return applyReadySetGates(base, graphCoordinator.readySet(graph, waveBudget), deps.readySetPolicy);
   };
 
@@ -165,19 +177,28 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     // VIENINTELIS prašymo skaitymas šiam perskaičiavimui — bangos cap'as, pool'o planas ir resume
     // kelias remiasi būtent šia reikšme.
     state.requestedWorkers = await deps.requestedWorkers();
-    const waveGraphHash = computeGraphHash(state.tasks);
-    state.startWaveIfGraphChanged(waveGraphHash);
+    // Eilės skaitymas laikomas atskirai: jis lieka KRYŽMINE PATIKRA planuoklyje, o bangos būsena
+    // (`state.tasks`) po importo perimama iš grafo — kitaip vykdoma užduotis galėtų nebūti tame
+    // sąraše, kuriuo remiasi šakos ir baigties logika (2026-08-23, operatoriaus radinys).
+    const observedQueue = state.tasks;
+    // Provizorinis įvykių žymuo: kanoninis grafas dar neperskaitytas, tad vienintelė turima
+    // tapatybė yra eilės skaitymo. Galutinė bangos tapatybė nustatoma žemiau, jau iš grafo.
+    const provisionalWaveId = waveIdFor(state.waveSequence, computeGraphHash(observedQueue));
 
     // Grafas atnaujinamas PRIEŠ planavimą (2026-08-23 suvienodinimas, 2/3): nuo šiol jis yra
-    // planavimo ĮĖJIMAS, o ne vėliau uždedamas vartas. Bangos tapatybė nuo grafo nepriklauso, tad
-    // ją galima apskaičiuoti iš anksto — tas pats `waveIdFor`, kurį pasigamins `scheduleNextWave`.
-    // Šalutinė nauda: eilės ir grafo skaitymus skiria mažesnis langas, tad `graph-state-mismatch`
-    // lieka tik tikram išsiskyrimui, o ne skaitymų tarpui.
-    const refreshed = await graphCoordinator.refresh(waveIdFor(state.waveSequence, waveGraphHash));
+    // planavimo ĮĖJIMAS, o ne vėliau uždedamas vartas. Šalutinė nauda: eilės ir grafo skaitymus
+    // skiria mažesnis langas, tad `graph-state-mismatch` lieka tik tikram išsiskyrimui.
+    const refreshed = await graphCoordinator.refresh(provisionalWaveId);
     state.canonicalGraph = refreshed.kind === "graph" ? refreshed.graph : undefined;
     graphUnavailableReason = refreshed.kind === "graph" ? undefined : refreshed.reason;
 
-    state.plan = currentPlan();
+    // Bangos būsena perimama iš grafo, kai jis yra: jis šviežesnis ir jis autoritetas. Be grafo
+    // lieka eilės skaitymas — tada banga vis tiek sustabdoma (`planWaveWithoutGraph`), bet sąrašas
+    // turi būti tikras, kad operatorius matytų, KĄ sustabdėme.
+    state.tasks = state.canonicalGraph === undefined ? observedQueue : queueSliceFromGraph(state.canonicalGraph);
+    state.startWaveIfGraphChanged(computeGraphHash(state.tasks));
+
+    state.plan = currentPlan(observedQueue);
     return state.plan;
   };
 

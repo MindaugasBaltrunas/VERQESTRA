@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildTaskGraph } from "../domain/tasks/graph/index.js";
-import { scheduleNextWave, type SchedulableTask } from "../application/scheduling/index.js";
+import { queueSliceFromGraph, scheduleNextWave, type SchedulableTask } from "../application/scheduling/index.js";
 import type { TaskGraphNodeInput } from "../domain/tasks/graph/model.js";
 
 function node(taskId: string, bucket: string, extra: Partial<TaskGraphNodeInput> = {}): TaskGraphNodeInput {
@@ -131,6 +131,41 @@ test("divergencija 3: dviprasmiškas prefiksas atmetamas, o ne sprendžiamas pir
 
   const unified = scheduleNextWave({ tasks, graph, ...run });
   assert.deepEqual(unified.ready.map((task) => task.task_id), ["1111-b"], "`2000` laukia, kol nuoroda taps vienareikšmė");
+});
+
+// 2026-08-23 (operatoriaus radinys): bangos tapatybė buvo skaičiuojama iš EILĖS skaitymo, nors
+// kandidatai jau imami iš grafo. `tasks=[]` su `graph=[a queued]` duodavo tuščios eilės hash'ą
+// planui, kuriame `a` vykdomas — o du atskiri FS pjūviai skirtingu metu tai daro reguliariai
+// pasiekiamu, ne teoriniu. Kanoninis grafas užduotį autorizuoja, tad fail-open spragos čia nebuvo;
+// klaidinga buvo TAPATYBĖ, kuria remiasi snapshot'ai, įvykiai ir operatoriaus akis.
+test("bangos tapatybė seka KANDIDATUS, o ne eilės skaitymą", () => {
+  const graph = buildTaskGraph({ nodes: [node("a", "queue")] });
+  const agreeing = scheduleNextWave({ tasks: [queued("a")], graph });
+  const drifted = scheduleNextWave({ tasks: [], graph });
+
+  assert.deepEqual(drifted.ready.map((task) => task.task_id), ["a"], "grafas užduotį autorizuoja");
+  assert.equal(drifted.graph_hash, agreeing.graph_hash, "tas pats kandidatų rinkinys — ta pati tapatybė");
+  assert.equal(drifted.wave_id, agreeing.wave_id);
+
+  // Kontrolė: tapatybė vis dar JAUTRI kandidatų aibei — kitaip ji būtų konstanta, o ne atspaudas.
+  const wider = scheduleNextWave({ tasks: [], graph: buildTaskGraph({ nodes: [node("a", "queue"), node("b", "queue")] }) });
+  assert.notEqual(wider.graph_hash, agreeing.graph_hash);
+});
+
+test("queueSliceFromGraph duoda tą patį pjūvį, kurį planuoja banga", () => {
+  const graph = buildTaskGraph({
+    nodes: [node("a", "queue"), node("b", "queue", { depends_on: ["a"] }), node("c", "done", { status: "done" })],
+  });
+
+  // Planuoklio kandidatai ir `wave-scheduler` būsena privalo ateiti iš VIENOS funkcijos: dvi
+  // vietos, savarankiškai skaičiuojančios „kas eilėje", jau kartą išsiskyrė.
+  assert.deepEqual(
+    queueSliceFromGraph(graph).map((task) => [task.task_id, task.blocked_by]),
+    [["a", []], ["b", ["a"]]],
+    "`done` mazgas į pjūvį nepatenka, o priklausomybės ateina iš grafo briaunų",
+  );
+  const plan = scheduleNextWave({ tasks: queueSliceFromGraph(graph), graph });
+  assert.equal(plan.graph_hash, scheduleNextWave({ tasks: [], graph }).graph_hash, "pjūvis ir tapatybė sutaria");
 });
 
 test("eilėje yra, grafe ne `queued`: įvardijama, o ne tyliai iškrenta iš plano", () => {

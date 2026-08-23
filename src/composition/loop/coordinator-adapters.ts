@@ -23,33 +23,33 @@ import type {
   TaskFilePort,
   TaskJournalPort,
   TaskLedgerPort,
-} from "../application/task-execution/run-coordinator-ports.js";
-import { clearTaskLedgerEntry } from "../application/task-execution/task-ledger-service.js";
+} from "../../application/task-execution/run-coordinator-ports.js";
+import { clearTaskLedgerEntry } from "../../application/task-execution/task-ledger-service.js";
 import {
   activateQueuedTask,
   finishTaskInBucket,
   moveTaskToBucket,
   taskBucketDir,
-} from "../application/task-execution/bucket-transition.js";
-import { shouldResetSessionWriteLedger } from "../application/task-execution/session-write-owners.js";
-import { clearSessionWriteLedger } from "../interfaces/hooks/session-write-ledger.js";
-import type { TaskLedgerEntry } from "../application/task-execution/task-ledger-rules.js";
-import { taskFileStem, taskLedgerKey } from "../domain/tasks/identity.js";
+} from "../../application/task-execution/bucket-transition.js";
+import { shouldResetSessionWriteLedger } from "../../application/task-execution/session-write-owners.js";
+import { clearSessionWriteLedger } from "../../interfaces/hooks/session-write-ledger.js";
+import type { TaskLedgerEntry } from "../../application/task-execution/task-ledger-rules.js";
+import { taskFileStem, taskLedgerKey } from "../../domain/tasks/identity.js";
 
-import { isInfrastructureExitCode } from "../shared/exit-codes.js";
-import { WorkflowInfrastructureError } from "../shared/errors.js";
-import { toPrettyJson, tryParseJson } from "../shared/json.js";
-import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
-import { sha256Hex } from "../shared/hash.js";
-import { readTaskRepairPrompt, removeTaskRepairPrompt } from "../infrastructure/state/task-repair-store.js";
-import { recordResumeCheckpoint } from "../infrastructure/state/resume-checkpoint.js";
-import type { AttemptResolutionPort } from "../infrastructure/state/attempt-resolution.js";
-import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
-import { appendLogLine } from "./loop-adapters.js";
-import { taskLedgerStore } from "./node-adapters.js";
-import { readOptionalFile } from "./diagnose-adapters.js";
-import { run } from "../infrastructure/process/run-process.js";
-import { cliEntryPath } from "./runtime-context.js";
+import { isInfrastructureExitCode } from "../../shared/exit-codes.js";
+import { WorkflowInfrastructureError } from "../../shared/errors.js";
+import { toPrettyJson, tryParseJson } from "../../shared/json.js";
+import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
+import { sha256Hex } from "../../shared/hash.js";
+import { readTaskRepairPrompt, removeTaskRepairPrompt } from "../../infrastructure/state/task-repair-store.js";
+import { recordResumeCheckpoint } from "../../infrastructure/state/resume-checkpoint.js";
+import type { AttemptResolutionPort } from "../../infrastructure/state/attempt-resolution.js";
+import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
+import { appendLogLine } from "./adapters.js";
+import { taskLedgerStore } from "../runtime/node-adapters.js";
+import { readOptionalFile } from "../quality/diagnose-adapters.js";
+import { run } from "../../infrastructure/process/run-process.js";
+import { cliEntryPath } from "../runtime/context.js";
 
 export type CoordinatorAdapterInput = {
   projectRoot: string;
@@ -270,7 +270,7 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
      * neužsidarys kaip `done` be žmogaus — griežtesnė pusė.
      */
     recordTaskStartStatus: async (taskId) => {
-      const { gitHead } = await import("../infrastructure/git/git-client.js");
+      const { gitHead } = await import("../../infrastructure/git/git-client.js");
       const payload = {
         task_id: taskId,
         base_head: (await gitHead(input.projectRoot)) ?? "",

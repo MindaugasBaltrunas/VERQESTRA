@@ -19,6 +19,13 @@ src/
 ├── infrastructure/  # adapters implementing application ports
 ├── interfaces/      # delivery: cli, hooks, http, ui-model
 ├── composition/     # manual DI wiring; nothing imports composition
+│   ├── cli/         #   command registry + command groups
+│   ├── hooks/       #   Claude Code hook wiring
+│   ├── ui/          #   operator UI server, router, SSE
+│   ├── loop/        #   wave scheduler, coordinator, integration
+│   ├── quality/     #   quality gates, audit, diagnose, readiness
+│   ├── agent/       #   agent dispatch + preflight
+│   └── runtime/     #   package roots, Node adapters, bootstrap
 ├── tests/           # node --test suites + characterization fixtures
 └── cli.ts           # the only entrypoint
 ```
@@ -52,7 +59,7 @@ Auditų ataskaitos — [`docs/audits/`](docs/audits/README.md).
 
 ## Main Commands
 
-Visos komandos yra viename registre (`src/composition/cli-registry.ts`), ir CLI pagalbos
+Visos komandos yra viename registre (`src/composition/cli/registry.ts`), ir CLI pagalbos
 ekranas spausdina ta pati sarasa ta pacia tvarka. Sarasas cia ir registras yra tikrinami vienas pries
 kita: `verqestra readiness-audit` krinta, jei komanda egzistuoja, bet nera dokumentuota.
 

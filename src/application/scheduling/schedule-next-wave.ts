@@ -60,6 +60,12 @@ export type WaveBlockedReason =
   | "unsatisfied-dependency"
   /** Task'as dalyvauja priklausomybių cikle — be žmogaus jis niekada netaps ready. */
   | "dependency-cycle"
+  /**
+   * Kanoninio grafo perskaityti nepavyko, tad NĖ VIENO task'o leidimo įrodyti neįmanoma
+   * (žr. `apply-ready-set-gates#blockWaveWithoutGraph`). Atskiras nuo `gate:` priežasčių:
+   * ten grafas pasakė „ne", o čia jis apskritai nieko nepasakė.
+   */
+  | "gate:graph-unavailable"
   /** Task'ą sustabdė kanoninio grafo vartas, o ne pati banga. */
   | WaveGateBlockedReason;
 
@@ -97,6 +103,11 @@ export type WavePlan = {
   external_dependencies: string[];
   /** Aptikti ciklai; kiekvienas — surūšiuotas dalyvių ID rinkinys. */
   cycles: string[][];
+  /**
+   * Kodėl kanoninio grafo nebuvo, kai jis privalėjo būti. Užpildoma TIK fail-closed kelyje
+   * (`blockWaveWithoutGraph`), tad jos buvimas pats savaime yra „banga sustabdyta be verdikto".
+   */
+  graph_unavailable_reason?: string;
 };
 
 export type ScheduleNextWaveInput = {

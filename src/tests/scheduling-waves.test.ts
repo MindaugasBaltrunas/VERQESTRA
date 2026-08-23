@@ -33,6 +33,10 @@ function schedulable(taskId: string, file: string, blockedBy: readonly string[] 
 // scheduleNextWave
 // ---------------------------------------------------------------------------
 
+// PASTABA (2026-08-23 auditas): šis testas pin'ina ATLAIDŲ bangos planuoklio normalizavimą —
+// savęs nuoroda nuimama, dublikatui paliekamas pirmas failas. Tai NĖRA leidimo taisyklė ir nuo
+// audito nebeturi paskutinio žodžio: kanoninis grafas tuos pačius atvejus vadina ciklu bei
+// dublikatu ir juos sustabdo (žr. „kanoninis grafas NUGALI atlaidų bangos planuoklį" žemiau).
 test("normalizeSchedulableTasks drops placeholders, self-references and duplicates", () => {
   const tasks = normalizeSchedulableTasks([
     schedulable("0002", "AG/tasks/queue/0002-b.md", ["none", "TBD", "-", "0001", "0002"]),
@@ -299,6 +303,8 @@ test("applyReadySetGates is subtract-only and returns the same object when nothi
   const notQueuedGate = applyReadySetGates(plan, unconstrained, { enforce: ["not-queued"] });
   assert.equal(notQueuedGate, plan, "explicit non-default gate with no matching blocked entries is a no-op");
 });
+
+// Kanoninio grafo, kaip PRODUKCINIO autoriteto, vartai gyvena `scheduling-ready-set-authority`.
 
 test("formatWaveBlockedReason: sorted by task id, capped with overflow summary", () => {
   const blocked = [

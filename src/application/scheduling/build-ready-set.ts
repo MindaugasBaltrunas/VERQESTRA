@@ -23,25 +23,36 @@ import {
   type TaskNodeStatus,
 } from "../../domain/tasks/graph/index.js";
 
-export type ReadySetBlockedReason =
+/**
+ * VISOS priežastys, dėl kurių kanoninis grafas atsisako leisti mazgą.
+ *
+ * Sąrašas yra RUNTIME reikšmė, o ne vien tipas, nes juo remiasi numatytoji vartų politika
+ * (`apply-ready-set-gates`). Sąrašas ir tipas išvedami vienas iš kito, tad nauja priežastis
+ * negali atsirasti nepatekusi į vartus — būtent taip 2026-08-23 auditas rado, kad pusė
+ * verdiktų produkcijoje nieko nedraudė.
+ */
+export const READY_SET_BLOCKED_REASONS = [
   /** Grafas neįvykdomas (ciklas, dublikatas, hash/schema neatitikimas) — nevykdomas NIEKAS. */
-  | "graph-invalid"
+  "graph-invalid",
   /** Mazgas nėra eilėje (vykdomas, blokuotas, žlugęs arba laukia žmogaus). */
-  | "not-queued"
+  "not-queued",
   /** Bent viena priklausomybė dar neįvykdyta. */
-  | "unsatisfied-dependency"
+  "unsatisfied-dependency",
   /** Priklausomybė ilsisi terminalinėje būsenoje, kuri niekada jos nepatenkins. */
-  | "invalid-terminal-dependency"
+  "invalid-terminal-dependency",
   /** Priklausomybės atitikmens grafe nėra — grafas nepilnas, spėti negalima. */
-  | "missing-dependency"
+  "missing-dependency",
   /** Mazgas dalyvauja cikle. */
-  | "dependency-cycle"
+  "dependency-cycle",
   /** Reikalingas žmogaus patvirtinimas, kurio dar nėra. */
-  | "approval-required"
+  "approval-required",
   /** Biudžetas išnaudotas — negalima pradėti jokio naujo darbo. */
-  | "budget-exhausted"
+  "budget-exhausted",
   /** Biudžeto likučio nepakanka šio konkretaus task'o įverčiui. */
-  | "budget-insufficient";
+  "budget-insufficient",
+] as const;
+
+export type ReadySetBlockedReason = (typeof READY_SET_BLOCKED_REASONS)[number];
 
 export type ReadyTask = {
   task_id: string;

@@ -6,20 +6,37 @@
 // Naivus jų sujungimas būtų regresija (semantikos skiriasi sąmoningai), todėl vartai
 // taikomi IŠORĖJE ir tik viena kryptimi: šis modulis gali task'ą PAŠALINTI iš `plan.ready`,
 // bet niekada jo ten neįdeda ir niekada nekeičia likusiųjų tvarkos. Modulis grynas.
-import type { BlockedTask, ReadySet, ReadySetBlockedReason } from "./build-ready-set.js";
+import { READY_SET_BLOCKED_REASONS, type BlockedTask, type ReadySet, type ReadySetBlockedReason } from "./build-ready-set.js";
 import type { WaveBlockedTask, WavePlan } from "./schedule-next-wave.js";
 
 /** Grafo vartas, kurį leidžiama taikyti bangos planui. Vardai bendri su `buildReadySet`. */
 export type ReadySetGate = ReadySetBlockedReason;
 
 /**
- * Numatytoji politika: tik biudžeto vartai. Sąmoningai TUŠČIAS numatytasis elgesys: be
- * `budget` įvesties `buildReadySet` šių priežasčių fiziškai negali sugeneruoti, tad
- * projekte be biudžeto planas lieka byte-for-byte toks pat. Likusios priežastys remiasi
- * grafo semantika, kuri su bangos semantika nesutampa — jų įjungimas yra eksplicitus
- * iškvietėjo sprendimas.
+ * Numatytoji politika: VISOS kanoninio grafo priežastys.
+ *
+ * NUKRYPIMAS nuo etalono (griežtinantis, 2026-08-23 auditas). Etalone — ir VERQESTRA iki šios
+ * dienos — numatytasis rinkinys buvo `["budget-exhausted", "budget-insufficient"]`, o pagrindimas
+ * skambėjo taip: likusios priežastys remiasi grafo semantika, kuri su bangos semantika nesutampa,
+ * tad jų įjungimas esąs „eksplicitus iškvietėjo sprendimas". Praktikoje to sprendimo nepriėmė
+ * NIEKAS: nei etalono, nei VERQESTRA produkcinis wiring'as `readySetPolicy` niekada nepadavė, tad
+ * `graph-invalid`, `missing-dependency`, `dependency-cycle`, `invalid-terminal-dependency` ir
+ * `approval-required` verdiktai buvo skaičiuojami ir išmetami. Atkurta realiai:
+ *
+ *   priklausomybė į neegzistuojantį task'ą → grafas: `missing-dependency`, produkcija: VYKDOMA;
+ *   `a → a`                               → grafas: neįvykdomas,          produkcija: VYKDOMA;
+ *   `a(queue) → b(human-review) → a`      → grafas: neįvykdomas,          produkcija: VYKDOMA.
+ *
+ * Numatytoji reikšmė, kurią reikia „įjungti", kad ji ką nors saugotų, nėra vartai. Todėl kryptis
+ * apversta: numatytai galioja VISKAS, ką kanoninis grafas atmeta, o susiaurinti gali tik
+ * eksplicitus `enforce` (pvz. testai, tiriantys vieną priežastį).
+ *
+ * Bangos semantikos skirtumas išlieka ir yra būtent tai, ką vartai uždaro: `scheduleNextWave`
+ * sąmoningai atlaidus (savęs nuoroda nuimama, eilėje nesantis blokatorius laikomas įvykdytu,
+ * dviprasmiškas prefiksas sprendžiamas pirmu kandidatu), tad be šių vartų atlaidžioji pusė turėjo
+ * paskutinį žodį. Dabar planuoklis atsako „kokia TVARKA", o grafas — „ar apskritai LEIDŽIAMA".
  */
-export const DEFAULT_READY_SET_GATES: readonly ReadySetGate[] = ["budget-exhausted", "budget-insufficient"];
+export const DEFAULT_READY_SET_GATES: readonly ReadySetGate[] = READY_SET_BLOCKED_REASONS;
 
 export type ReadySetGatePolicy = {
   /** Priežastys, kurias vartai taiko. Nenurodžius — {@link DEFAULT_READY_SET_GATES}. */
@@ -76,6 +93,39 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
     // Ta pati rūšiavimo taisyklė kaip `scheduleNextWave` (pagal failą), kad sujungtas
     // sąrašas liktų vienoje deterministinėje tvarkoje.
     blocked: [...plan.blocked, ...removed].sort((a, b) => a.file.localeCompare(b.file)),
+  };
+}
+
+/**
+ * Banga be kanoninio grafo: VISI `ready` task'ai perkeliami į `blocked`.
+ *
+ * NUKRYPIMAS nuo etalono (griežtinantis, 2026-08-23 auditas). Iki šiol neimportuotas grafas
+ * reiškė `readySet === undefined`, o tai — „vartų nėra", tad banga eidavo VISAI be kanoninių
+ * draudimų. Pagrindimas buvo „sustabdyta eilė dėl neperskaityto pagalbinio failo būtų blogesnis
+ * mainas", ir jis galiojo tol, kol grafas buvo tik diagnostika. Nuo tada, kai grafas yra vartai,
+ * jis apsivertė: negalėdami perskaityti autoriteto, negalime ĮRODYTI, kad task'ą leidžiama
+ * vykdyti, o spėti čia draudžia ta pati taisyklė kaip visame ready-set kelyje.
+ *
+ * Importas nelūžta dėl to, kad bucket'o nėra (adapteris tokiu atveju grąžina tuščią sąrašą), tad
+ * ši šaka reiškia tikrą gedimą: neperskaitomą task failą arba mazgą be panaudojamo id.
+ *
+ * Invariantas tas pats kaip `applyReadySetGates`: SUBTRACT-ONLY, bangos tapatybė nekinta, o
+ * nesant ko šalinti grąžinamas TAS PATS objektas.
+ */
+export function blockWaveWithoutGraph(plan: WavePlan, detail: string): WavePlan {
+  if (plan.ready.length === 0) return plan;
+  const removed: WaveBlockedTask[] = plan.ready.map((task) => ({
+    task_id: task.task_id,
+    file: task.file,
+    blocked_by: [...task.blocked_by],
+    reason: "gate:graph-unavailable",
+    waiting_for: [],
+  }));
+  return {
+    ...plan,
+    ready: [],
+    blocked: [...plan.blocked, ...removed].sort((a, b) => a.file.localeCompare(b.file)),
+    graph_unavailable_reason: detail,
   };
 }
 

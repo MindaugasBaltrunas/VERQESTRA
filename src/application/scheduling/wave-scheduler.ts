@@ -16,7 +16,7 @@
 //      prarastas įrašas pigesnis nei nutraukta banga.
 
 import { collectBlockedBranch, computeGraphHash, scheduleNextWave, selectNextWaveTask } from "./schedule-next-wave.js";
-import { applyReadySetGates, formatWaveBlockedReason } from "./apply-ready-set-gates.js";
+import { applyReadySetGates, blockWaveWithoutGraph, formatWaveBlockedReason } from "./apply-ready-set-gates.js";
 import { decideResume, type ResumeDecision } from "./resume-run.js";
 import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js";
 import { createWaveGraphCoordinator } from "./wave-graph.js";
@@ -139,8 +139,13 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
   // kelis kartus vienam planui, o failo skaitymas kiekvienam variantui duotų skirtingus atsakymus
   // tam pačiam sprendimui.
   let waveBudget: ReadySetBudget | undefined;
+  // Kodėl kanoninio grafo nėra. `undefined` = grafas yra; eilutė = importas lūžo, ir tada NĖ VIENO
+  // task'o leidimo įrodyti neįmanoma (žr. `blockWaveWithoutGraph`).
+  let graphUnavailableReason: string | undefined;
   const gatedPlan = (base: WavePlan): WavePlan =>
-    applyReadySetGates(base, graphCoordinator.readySet(state.canonicalGraph, waveBudget), deps.readySetPolicy);
+    graphUnavailableReason === undefined
+      ? applyReadySetGates(base, graphCoordinator.readySet(state.canonicalGraph, waveBudget), deps.readySetPolicy)
+      : blockWaveWithoutGraph(base, graphUnavailableReason);
 
   const replan = async (): Promise<WavePlan> => {
     state.tasks = await deps.readTasks();
@@ -157,7 +162,9 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       waveSequence: state.waveSequence,
       maxWorkers: state.requestedWorkers,
     });
-    state.canonicalGraph = await graphCoordinator.refresh(base.wave_id);
+    const refreshed = await graphCoordinator.refresh(base.wave_id);
+    state.canonicalGraph = refreshed.kind === "graph" ? refreshed.graph : undefined;
+    graphUnavailableReason = refreshed.kind === "graph" ? undefined : refreshed.reason;
     state.plan = gatedPlan(base);
     return state.plan;
   };

@@ -57,13 +57,24 @@ function graphDeps(overrides: Partial<WaveGraphDeps> = {}): { deps: WaveGraphDep
   return { deps, logs, events };
 }
 
-test("neimportuotas grafas bangos NESTABDO, bet tylos nepalieka", async () => {
+// 2026-08-23 auditas APVERTĖ šio testo kryptį. Anksčiau jis tvirtino „neimportuotas grafas bangos
+// NESTABDO": `refresh` grąžindavo `undefined`, o `applyReadySetGates(plan, undefined)` reiškė
+// „vartų nėra", tad banga eidavo VISAI be kanoninių draudimų. Kol grafas buvo diagnostika, tai
+// buvo gynama; kai jis tapo vartais — tai fail-open. Testas pin'ina naują kryptį, o ne senąją.
+test("neimportuotas grafas grąžina ĮVARDYTĄ nebuvimą (fail-closed įvestis), o ne tylų undefined", async () => {
   const world = graphDeps({ importGraph: () => Promise.reject(new Error("markdown sugadintas")) });
   const result = await createWaveGraphCoordinator(world.deps).refresh("w1");
 
-  // Grafas nėra vykdymo autoritetas: be jo banga eina be draudimų.
-  assert.equal(result, undefined);
+  assert.deepEqual(result, { kind: "unavailable", reason: "markdown sugadintas" });
   assert.ok(world.logs.some((line) => line.includes("TASK GRAPH IMPORT FAILED: markdown sugadintas")));
+  assert.ok(world.events.includes("graph_unavailable"), "nebuvimas yra ĮVYKIS, ne tik log eilutė");
+});
+
+test("sėkmingas importas grąžina grafą po `kind: graph`", async () => {
+  const world = graphDeps();
+  const result = await createWaveGraphCoordinator(world.deps).refresh("w1");
+  assert.equal(result.kind, "graph");
+  assert.equal(result.kind === "graph" ? result.graph.graph_hash : undefined, "g1");
 });
 
 test("tas pats grafas rašomas VIENĄ kartą", async () => {

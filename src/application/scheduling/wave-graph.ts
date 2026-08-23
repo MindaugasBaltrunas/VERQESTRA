@@ -33,8 +33,17 @@ export type WaveGraphDeps = {
   statuses: () => { completed: Iterable<string>; blocked: Iterable<string>; running: Iterable<string> };
 };
 
+/**
+ * Grafo perskaitymo baigtis. `unavailable` NĖRA „grafo neprireikė": tai gedimas, dėl kurio
+ * kvietėjas nebegali įrodyti nė vieno task'o leidimo (žr. `blockWaveWithoutGraph`). Anksčiau abi
+ * baigtys buvo sulietos į `undefined`, ir būtent dėl to importo klaida tyliai atidarydavo bangą.
+ */
+export type WaveGraphRefresh =
+  | { kind: "graph"; graph: TaskGraph }
+  | { kind: "unavailable"; reason: string };
+
 export type WaveGraphCoordinator = {
-  refresh: (waveId: string) => Promise<TaskGraph | undefined>;
+  refresh: (waveId: string) => Promise<WaveGraphRefresh>;
   /**
    * Biudžetas paduodamas, o ne skaitomas viduje: jo šaltinis yra failas, o šis metodas
    * sinchroninis ir kviečiamas planavimo viduryje. Skaitymas gyvena bangos perskaičiavime, kur
@@ -52,14 +61,18 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
   };
 
   return {
-    async refresh(waveId): Promise<TaskGraph | undefined> {
+    async refresh(waveId): Promise<WaveGraphRefresh> {
       let graph: TaskGraph;
       try {
         graph = await deps.importGraph();
       } catch (error) {
-        // Grafo nėra → draudimų nėra. Banga tęsiasi, bet TYLOS nelieka.
-        await deps.log(`TASK GRAPH IMPORT FAILED: ${describe(error)}`);
-        return undefined;
+        // Grafo nėra → NEĮMANOMA įrodyti, kad task'ą leidžiama vykdyti. Iki 2026-08-23 audito ši
+        // šaka reiškė „draudimų nežinome, tad banga eina be jų"; dabar ji reiškia sustabdytą bangą
+        // su įvardyta priežastimi (kvietėjas — `blockWaveWithoutGraph`).
+        const reason = describe(error);
+        await deps.log(`TASK GRAPH IMPORT FAILED: ${reason}`);
+        await event("graph_unavailable", reason, "none", waveId);
+        return { kind: "unavailable", reason };
       }
 
       if (!persistedGraphHashes.has(graph.graph_hash)) {
@@ -82,7 +95,7 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
         await deps.log(`TASK GRAPH UNEXECUTABLE: ${codes}`);
         await event("graph_unexecutable", codes, graph.graph_hash, waveId);
       }
-      return graph;
+      return { kind: "graph", graph };
     },
 
     readySet(graph, budget): ReadySet | undefined {

@@ -15,6 +15,8 @@ import { canonicalJsonStringify } from "../../shared/json.js";
 import { toPosixPath as toPosix } from "../../shared/paths.js";
 import { dependencyMatches, isPlaceholderDependency, normalizeTaskReference } from "../../domain/tasks/dependencies.js";
 import { detectCyclesOverEdges, longestDependencyDepths } from "../../domain/tasks/graph/adjacency.js";
+import { dependenciesOf, internalEdges, resolveTaskNode } from "../../domain/tasks/graph/traverse.js";
+import { satisfiesDependency, type TaskGraph, type TaskNodeStatus } from "../../domain/tasks/graph/model.js";
 import { RUNTIME_MAX_WORKERS } from "./worker-limits.js";
 import type { ReadySetBlockedReason } from "./build-ready-set.js";
 
@@ -120,6 +122,16 @@ export type WavePlan = {
 
 export type ScheduleNextWaveInput = {
   tasks: readonly SchedulableTask[];
+  /**
+   * Kanoninis grafas (2026-08-23 suvienodinimas, 1/3 žingsnis). Paduotas — bangos pjūvis ir
+   * priklausomybių rezoliucija imami iš jo, tad dviprasmiškas prefiksas atmetamas, savęs nuoroda
+   * lieka ciklu, o neišsprendžiama priklausomybė nebelaikoma įvykdyta. Nepaduotas — senasis
+   * atlaidus eilės pjūvio kelias, nepakeistas.
+   *
+   * `tasks` reikalingas ir su grafu: iš jo skaičiuojama BANGOS tapatybė (`graph_hash`), kuri
+   * sąmoningai lieka atskira nuo kanoninio `tg` hash'o.
+   */
+  graph?: TaskGraph;
   /** Task'ai, kurių darbas jau priimtas (commit arba done) — jų priklausomybės tenkinamos. */
   completedTaskIds?: Iterable<string>;
   /** Šiame run'e lūžusios šakos: patys blokatoriai IR jų tranzityvūs priklausiniai. */
@@ -185,6 +197,9 @@ export function waveIdFor(sequence: number, graphHash: string): string {
  * Priklausomybės nuoroda → task ID kandidatų rinkinyje, arba `undefined`, jei tokio task'o
  * bangoje nėra (tada priklausomybė yra „external"). Dviprasmiškas prefiksas išsprendžiamas
  * deterministiškai — pirmas pagal failo tvarką.
+ *
+ * PASENĘS kelias: galioja tik kai `graph` nepaduotas. Su grafu rezoliucija eina per kanoninį
+ * `resolveTaskNode`, kuris dviprasmybę ATMETA. Žr. `resolveNodesFromGraph`.
  */
 function resolveDependency(dependency: string, tasks: readonly SchedulableTask[]): string | undefined {
   const exact = tasks.find((task) => task.task_id === dependency);
@@ -214,6 +229,52 @@ function resolveNodes(tasks: readonly SchedulableTask[]): ResolvedNode[] {
 }
 
 /**
+ * Kandidatai iš KANONINIO grafo (2026-08-23 suvienodinimas, 1/3 žingsnis).
+ *
+ * Bangos pjūvis — mazgai, kurių efektyvus statusas yra `queued`; run'o būsena
+ * (`completedTaskIds`/`blockedTaskIds`) viršija grafo įrašytą, lygiai kaip `wave-graph.readySet`
+ * statusOverrides. Rezoliucija — kanoninė: dviprasmiškas prefiksas ATMETAMAS, o neišsprendžiama
+ * nuoroda NEBĖRA laikoma įvykdyta „už bangos ribų"; ji patenka į `external` (t. y. į
+ * `external_dependencies`) IR blokuoja task'ą.
+ *
+ * Priklausomybė tenkinama tik tada, kai blokatoriaus efektyvus statusas yra priimtas darbas —
+ * tą patį klausimą ir tuo pačiu predikatu sprendžia `buildReadySet`.
+ */
+function resolveNodesFromGraph(
+  graph: TaskGraph,
+  statusOf: (taskId: string) => TaskNodeStatus | undefined,
+): ResolvedNode[] {
+  const nodes: ResolvedNode[] = [];
+  for (const node of graph.nodes) {
+    // Kandidatūra remiasi GRAFO įrašytu statusu, o ne perrašytu: šiame run'e lūžusi šaka turi
+    // likti matoma kaip `branch-blocked`, o ne tyliai iškristi iš plano. Perrašymai lemia tik
+    // priklausomybių tenkinimą (žemiau).
+    if (node.status !== "queued") continue;
+
+    const internal: string[] = [];
+    const external: string[] = [];
+    for (const reference of dependenciesOf(graph, node.task_id)) {
+      const blocker = resolveTaskNode(graph, reference);
+      // Neišsprendžiama arba dviprasmiška nuoroda: leidimo įrodyti negalime, tad ji laukiama.
+      if (!blocker) {
+        external.push(reference);
+        continue;
+      }
+      const status = statusOf(blocker.task_id);
+      if (status !== undefined && satisfiesDependency(status)) continue;
+      internal.push(blocker.task_id);
+    }
+
+    nodes.push({
+      task: { task_id: node.task_id, file: toPosix(node.file), blocked_by: dependenciesOf(graph, node.task_id) },
+      internal: [...new Set(internal)].sort(),
+      external: [...new Set(external)].sort(),
+    });
+  }
+  return nodes.sort((a, b) => a.task.file.localeCompare(b.task.file));
+}
+
+/**
  * Sudaro kitą bangą iš tuo metu prieinamo ready set'o.
  *
  * Priklausomybė laikoma įvykdyta, kai ji nurodo į `completedTaskIds` įrašą, ARBA jos
@@ -227,11 +288,25 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
   const completed = new Set([...(input.completedTaskIds ?? [])].map((value) => normalizeTaskReference(value)).filter(Boolean));
   const blocked = new Set([...(input.blockedTaskIds ?? [])].map((value) => normalizeTaskReference(value)).filter(Boolean));
 
-  const nodes = resolveNodes(tasks);
-  // Briaunų POLITIKA yra šio modulio (atlaidi rezoliucija eilės pjūviui), o algoritmas —
-  // bendras su kanoniniu grafu (`domain/tasks/graph/adjacency`). Iki 2026-08-23 uždarinys,
-  // ciklai ir gyliai čia buvo antra to paties kodo kopija.
-  const edges = new Map(nodes.map((node) => [node.task.task_id, node.internal]));
+  const graph = input.graph;
+  /**
+   * Efektyvus statusas priklausomybių tenkinimui. Run'o būsena viršija grafo įrašytą — TIKSLIAI
+   * ta pati taisyklė ir ta pati tvarka kaip `wave-graph.readySet` statusOverrides, kad du
+   * skaitytojai to paties klausimo neatsakytų skirtingai. Sutapimas čia yra ne stiliaus dalykas:
+   * juo remiasi `applyReadySetGates` sankirta.
+   */
+  const effectiveStatus = (taskId: string): TaskNodeStatus | undefined => {
+    if (completed.has(taskId)) return "done";
+    if (blocked.has(taskId)) return "blocked";
+    return graph?.nodes.find((node) => node.task_id === taskId)?.status;
+  };
+
+  const nodes = graph === undefined ? resolveNodes(tasks) : resolveNodesFromGraph(graph, effectiveStatus);
+  // Briaunų POLITIKA priklauso nuo to, ar turime kanoninį grafą: su juo — kanoninė fail-closed
+  // rezoliucija per visą grafą (ciklai ir gyliai skaičiuojami ir per jau paliktus eilę mazgus,
+  // tad gylis nepasikeičia blokatoriui persikėlus į `done`); be jo — atlaidi eilės pjūvio
+  // rezoliucija. Algoritmas abiem atvejais tas pats (`domain/tasks/graph/adjacency`).
+  const edges = graph === undefined ? new Map(nodes.map((node) => [node.task.task_id, node.internal])) : internalEdges(graph);
   const { members: cycleMembers, groups: cycles } = detectCyclesOverEdges(edges);
   const depths = longestDependencyDepths(edges, cycleMembers);
 
@@ -255,17 +330,22 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
       continue;
     }
 
-    const waitingFor: string[] = [];
-    for (const dependency of task.blocked_by) {
-      if (matchesAny(dependency, blocked)) {
-        waitingFor.push(dependency);
-        continue;
+    // Su grafu sprendimas jau priimtas `resolveNodesFromGraph`: `internal` — neįvykdyti
+    // blokatoriai, `external` — neišsprendžiamos arba dviprasmiškos nuorodos. Abi grupės
+    // LAUKIAMOS; „nėra eilėje = atlikta" taisyklės šiame kelyje nebėra.
+    const waitingFor: string[] = graph !== undefined ? [...node.internal, ...node.external] : [];
+    if (graph === undefined) {
+      for (const dependency of task.blocked_by) {
+        if (matchesAny(dependency, blocked)) {
+          waitingFor.push(dependency);
+          continue;
+        }
+        if (matchesAny(dependency, completed)) continue;
+        const resolved = resolveDependency(dependency, tasks);
+        // Vidinė (dar eilėje esanti) priklausomybė be „completed" žymos yra neįvykdyta;
+        // external priklausomybė laikoma įvykdyta (žr. funkcijos dokumentaciją).
+        if (resolved) waitingFor.push(dependency);
       }
-      if (matchesAny(dependency, completed)) continue;
-      const resolved = resolveDependency(dependency, tasks);
-      // Vidinė (dar eilėje esanti) priklausomybė be „completed" žymos yra neįvykdyta;
-      // external priklausomybė laikoma įvykdyta (žr. funkcijos dokumentaciją).
-      if (resolved) waitingFor.push(dependency);
     }
 
     if (waitingFor.length > 0) {
@@ -279,6 +359,18 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
       depth: depths.get(task.task_id) ?? 0,
       blocked_by: [...task.blocked_by],
     });
+  }
+
+  // Eilėje gulintis task'as, kurio kanoninis grafas nevardija kaip `queued` (jo ten nėra arba
+  // jis jau kitos būsenos), NEDINGSTA tyliai: planas jį įvardija. Priešingu atveju perėjimas prie
+  // grafo pjūvio būtų pakeitęs vieną fail-open kelią kitu — nematomu.
+  if (graph !== undefined) {
+    for (const task of tasks) {
+      if (completed.has(task.task_id)) continue;
+      const node = graph.nodes.find((entry) => entry.task_id === task.task_id);
+      if (node?.status === "queued") continue;
+      blockedTasks.push({ ...blockedShape(task), reason: "gate:graph-state-mismatch", waiting_for: [] });
+    }
   }
 
   ready.sort((a, b) => a.depth - b.depth || a.file.localeCompare(b.file));

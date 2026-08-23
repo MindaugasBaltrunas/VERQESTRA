@@ -15,7 +15,7 @@
 //      įvykių rašymų yra iki `2N+1`, ir Windows EPERM ant JSONL append yra dokumentuota realybė —
 //      prarastas įrašas pigesnis nei nutraukta banga.
 
-import { collectBlockedBranch, computeGraphHash, scheduleNextWave, selectNextWaveTask } from "./schedule-next-wave.js";
+import { collectBlockedBranch, computeGraphHash, scheduleNextWave, selectNextWaveTask, waveIdFor } from "./schedule-next-wave.js";
 import { applyReadySetGates, blockWaveWithoutGraph, formatWaveBlockedReason } from "./apply-ready-set-gates.js";
 import { decideResume, type ResumeDecision } from "./resume-run.js";
 import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js";
@@ -142,6 +142,19 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
   // Kodėl kanoninio grafo nėra. `undefined` = grafas yra; eilutė = importas lūžo, ir tada NĖ VIENO
   // task'o leidimo įrodyti neįmanoma (žr. `blockWaveWithoutGraph`).
   let graphUnavailableReason: string | undefined;
+  /**
+   * Planavimo įėjimas — VIENA vieta, kad įprastas ir resume keliai negalėtų išsiskirti. Grafas
+   * paduodamas visada, kai jis yra: nuo 2/3 žingsnio kanoninė rezoliucija yra produkcinis
+   * numatytasis kelias, o ne pasirenkamas režimas.
+   */
+  const planInput = (): Parameters<typeof scheduleNextWave>[0] => ({
+    tasks: state.tasks,
+    completedTaskIds: state.completed,
+    blockedTaskIds: state.blockedBranch,
+    waveSequence: state.waveSequence,
+    maxWorkers: state.requestedWorkers,
+    ...(state.canonicalGraph === undefined ? {} : { graph: state.canonicalGraph }),
+  });
   const gatedPlan = (base: WavePlan): WavePlan =>
     graphUnavailableReason === undefined
       ? applyReadySetGates(base, graphCoordinator.readySet(state.canonicalGraph, waveBudget), deps.readySetPolicy)
@@ -153,19 +166,19 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     // VIENINTELIS prašymo skaitymas šiam perskaičiavimui — bangos cap'as, pool'o planas ir resume
     // kelias remiasi būtent šia reikšme.
     state.requestedWorkers = await deps.requestedWorkers();
-    state.startWaveIfGraphChanged(computeGraphHash(state.tasks));
+    const waveGraphHash = computeGraphHash(state.tasks);
+    state.startWaveIfGraphChanged(waveGraphHash);
 
-    const base = scheduleNextWave({
-      tasks: state.tasks,
-      completedTaskIds: state.completed,
-      blockedTaskIds: state.blockedBranch,
-      waveSequence: state.waveSequence,
-      maxWorkers: state.requestedWorkers,
-    });
-    const refreshed = await graphCoordinator.refresh(base.wave_id);
+    // Grafas atnaujinamas PRIEŠ planavimą (2026-08-23 suvienodinimas, 2/3): nuo šiol jis yra
+    // planavimo ĮĖJIMAS, o ne vėliau uždedamas vartas. Bangos tapatybė nuo grafo nepriklauso, tad
+    // ją galima apskaičiuoti iš anksto — tas pats `waveIdFor`, kurį pasigamins `scheduleNextWave`.
+    // Šalutinė nauda: eilės ir grafo skaitymus skiria mažesnis langas, tad `graph-state-mismatch`
+    // lieka tik tikram išsiskyrimui, o ne skaitymų tarpui.
+    const refreshed = await graphCoordinator.refresh(waveIdFor(state.waveSequence, waveGraphHash));
     state.canonicalGraph = refreshed.kind === "graph" ? refreshed.graph : undefined;
     graphUnavailableReason = refreshed.kind === "graph" ? undefined : refreshed.reason;
-    state.plan = gatedPlan(base);
+
+    state.plan = gatedPlan(scheduleNextWave(planInput()));
     return state.plan;
   };
 
@@ -296,15 +309,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
         // Tas pats grafas kaip prieš kritimą — numeracija tęsiama, kad įvykiai ir snapshot'ai
         // liktų vienoje istorijoje. Vartai taikomi ir čia: abu keliai duoda tą patį planą.
         state.waveSequence = snapshot.wave_sequence;
-        state.plan = gatedPlan(
-          scheduleNextWave({
-            tasks: state.tasks,
-            completedTaskIds: state.completed,
-            blockedTaskIds: state.blockedBranch,
-            waveSequence: state.waveSequence,
-            maxWorkers: state.requestedWorkers,
-          }),
-        );
+        state.plan = gatedPlan(scheduleNextWave(planInput()));
       }
 
       const taskId = checkpoint?.task_id ?? "";

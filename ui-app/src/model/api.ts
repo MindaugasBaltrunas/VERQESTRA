@@ -14,6 +14,7 @@ import type {
   WorkflowBucket,
   UploadResult,
 } from "./types";
+import { parseDashboardData } from "./dashboardContract";
 
 export function getUiToken(): string {
   return document.querySelector<HTMLMetaElement>('meta[name="vq-ui-token"]')?.content ?? "";
@@ -86,10 +87,15 @@ async function assertOk(response: Response): Promise<void> {
   throw new Error(detail ? `HTTP ${response.status}: ${detail.slice(0, 300)}` : `HTTP ${response.status}`);
 }
 
+/**
+ * Atsakymas tikrinamas RUNTIME (`parseDashboardData`), o ne pažymimas `as`: 2026-08-23 UI
+ * paleidimo auditas rado, kad serveris grąžindavo `UiControlPlaneData`, o `as DashboardData`
+ * tai praleisdavo iki pirmo `data.stopStatus.status` — t. y. iki tuščio ekrano be žinutės.
+ */
 export async function fetchDashboard(): Promise<DashboardData> {
   const response = await request("/api/dashboard");
   await assertOk(response);
-  return await (response.json() as Promise<DashboardData>);
+  return parseDashboardData(await (response.json() as Promise<unknown>));
 }
 
 export async function fetchWorkflowTasks(bucket: string): Promise<WorkflowBucket> {

@@ -26,7 +26,7 @@ import {
   readPolicyProposals,
   type PolicyProposalsFsPort,
 } from "../../application/policy-governance/policy-proposals-log.js";
-import { loadUiControlPlaneData } from "../../interfaces/ui-model/control-plane-model.js";
+import { buildDashboardView } from "../../interfaces/http/ui-dashboard-view.js";
 import { buildWavesView, normalizeEventLimit } from "../../interfaces/http/ui-waves-view.js";
 import { loadWorkflowBuckets, loadWorkflowBucketTasks, openTaskBucketFolder } from "../../interfaces/http/workflow-buckets.js";
 import { applyTaskTriage } from "../../interfaces/http/ui-task-actions.js";
@@ -48,6 +48,7 @@ import { learningFs, taskLedgerStore, taskStateStore, tokenBudgetPorts } from ".
 import { contextPackFs } from "../quality/readiness-adapters.js";
 import { schedulingFs } from "../loop/adapters.js";
 import { processLifecyclePorts } from "./lifecycle-adapters.js";
+import { dashboardViewPorts } from "./dashboard-adapters.js";
 import { homedir } from "node:os";
 
 export type UiRouterAdapterInput = {
@@ -64,13 +65,6 @@ const policyProposalsFs: PolicyProposalsFsPort = {
   readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
   appendTextFile: (absolutePath, text) => nodeFsAdapter.appendTextFile(absolutePath, text),
   makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
-};
-
-/** Control-plane FS pjūvis: architektūros būsena, learning atmintis, politikos ir katalogai. */
-const controlPlaneFs = {
-  ...learningFs,
-  exists: (absolutePath: string): Promise<boolean> => nodeFsAdapter.exists(absolutePath),
-  listFiles: (absoluteDir: string): Promise<string[]> => nodeFsAdapter.listFiles(absoluteDir),
 };
 
 /** Bucket'ų portai: sąrašas plius katalogo atidarymas operatoriaus aplinkoje. */
@@ -95,11 +89,24 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
   const lifecycle = { ports: processLifecyclePorts(input), runtimeRoot: input.runtimeRoot };
 
   return {
+    // PILNAS dashboard snapshot'as, o ne vienas jo blokas: iki 2026-08-23 UI paleidimo audito čia
+    // buvo `loadUiControlPlaneData`, tad klientas gaudavo `UiControlPlaneData` ten, kur laukia
+    // `DashboardData`, ir React medis nulūždavo prieš pirmą renderį (`stopStatus.status`).
     dashboardData: () =>
-      loadUiControlPlaneData(
-        { fs: controlPlaneFs },
-        { projectRoot: input.projectRoot, runtimeRoot: input.runtimeRoot },
-      ),
+      buildDashboardView({
+        ports: dashboardViewPorts({
+          projectRoot: input.projectRoot,
+          runtimeRoot: input.runtimeRoot,
+          agRoot: input.agRoot,
+          // TIE PATYS portai, kuriuos naudoja `/api/tasks`: dvi eilės skaitymo kopijos duotų du
+          // skirtingus atsakymus apie tą patį bucket'ą tame pačiame ekrane.
+          loadWorkflowBuckets: () => loadWorkflowBuckets(workflowBucketPorts, input.agRoot),
+          logError: (message) => input.logError(message),
+        }),
+        projectRoot: input.projectRoot,
+        runtimeRoot: input.runtimeRoot,
+        agRoot: input.agRoot,
+      }),
     listPolicyProposals: () => readPolicyProposals(policyProposalsFs, input.runtimeRoot),
     // Pasiūlymas ir sprendimas rašomi TUO PAČIU append-only keliu: registras yra ŽURNALAS, o ne
     // būsena, tad „patvirtinta" yra dar vienas įrašas, ne ankstesnio perrašymas.

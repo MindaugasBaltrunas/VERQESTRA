@@ -86,8 +86,58 @@ export function parseTaskDependencies(taskText: string, taskFile = "task.md"): T
   };
 }
 
+/**
+ * Ar NUORODA gali reikšti šį task'ą.
+ *
+ * SIMETRIŠKAS prefiksas čia sąmoningas: task failai blokatorių rašo tai sutrumpintai
+ * (`depends_on: 0042`), tai pilnu vardu, o mazgo ID gali būti bet kuris iš jų.
+ *
+ * NAUDOTI TIK REZOLIUCIJAI — „kurį task'ą turėjo omenyje ši nuoroda". TAPATYBIŲ palyginimui
+ * skirtas {@link isSameTask}: prefiksas ten reikštų, kad tėvas „yra" savo vaikas, ir būtent taip
+ * 2026-08-23 buvo prarandami vaikiniai task'ai (žr. `isSameTask` doc'ą).
+ */
 export function dependencyMatches(dependency: string, blocker: string): boolean {
   return dependency === blocker || dependency.startsWith(`${blocker}-`) || blocker.startsWith(`${dependency}-`);
+}
+
+/**
+ * Ar tai TAS PATS task'as. Tikslus palyginimas po normalizacijos.
+ *
+ * 2026-08-23 (operatoriaus radiniai, P1): `dependencyMatches` buvo taikomas ir TAPATYBĖMS —
+ * užbaigtų bei lūžusių task'ų rinkiniams, resume checkpoint'ui ir savęs nuorodos aptikimui. Kadangi
+ * jis simetriškas, `0042-parent` ir `0042-parent-02-child` atrodė kaip tas pats task'as:
+ *
+ *   užbaigus `0042-parent` vaikas TYLIAI dingdavo iš bangos (kanoninis ready-set jį leido, o
+ *   bangos planas grąžindavo `ready=[] blocked=[]`; vartai SUBTRACT-ONLY, tad grąžinti jo nebegali,
+ *   ir `nextTask()` skelbdavo eilę tuščia);
+ *   resume checkpoint'as vaikui grąžindavo `skip-completed / already-completed`, o atkūrimas
+ *   galėjo perkelti jo failą į `done` jo NEVYKDĘS;
+ *   normalizavimas `0042-parent` laikydavo vaiko SAVĘS nuoroda ir tą briauną nuimdavo, tad vaikas
+ *   nepatekdavo į lūžusią šaką, o grafo hash'as tos briaunos nematydavo.
+ *
+ * Tapatybė neturi prefiksų. Sutrumpinta nuoroda išsprendžiama ATSKIRAI ir vienareikšmiškai.
+ */
+export function isSameTask(left: string, right: string): boolean {
+  const normalizedLeft = normalizeTaskReference(left);
+  return normalizedLeft !== "" && normalizedLeft === normalizeTaskReference(right);
+}
+
+/**
+ * Nuoroda → konkretus task ID iš ŽINOMŲ ID visatos. Ta pati taisyklė kaip kanoninio grafo
+ * `resolveTaskNode`: tikslus atitikmuo laimi, kitaip vienintelis prefiksinis kandidatas, o
+ * dviprasmybė grąžina „nežinau" (`undefined`), o ne pirmą pagal rūšiavimą.
+ *
+ * Skirtas tiems kvietėjams, kurie turi ne `TaskGraph`, o tik ID sąrašą. Be jo tie kvietėjai
+ * lygindavo nuorodą su KIEKVIENU rinkinio nariu simetriškai, ir `0042-parent` „atitikdavo"
+ * `0042-parent-02-child`: task'as, priklausantis nuo tėvo, būdavo maršrutizuojamas į
+ * human-review pranešus apie vaiką, o į lūžusią šaką patekdavo nesusiję task'ai.
+ */
+export function resolveTaskReference(universe: readonly string[], reference: string): string | undefined {
+  const normalized = normalizeTaskReference(reference);
+  if (!normalized) return undefined;
+  if (universe.includes(normalized)) return normalized;
+  const candidates = universe.filter((id) => dependencyMatches(normalized, id));
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 export function normalizeTaskReference(value: string): string {

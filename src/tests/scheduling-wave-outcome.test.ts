@@ -49,6 +49,7 @@ function world(options: {
   const deps: WaveOutcomeDeps = {
     runId: "r1",
     tasks: () => options.tasks ?? [],
+    graph: () => undefined,
     waveContext: () => ({ waveId: "w1", graphHash: "h", refillEpisode: 0 }),
     poolPlan: () => options.pool,
     liveSlots,

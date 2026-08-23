@@ -261,6 +261,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
   const recordOutcome = createWaveOutcomeRecorder({
     runId: deps.runId,
     tasks: () => state.tasks,
+    graph: () => state.canonicalGraph,
     waveContext: () => ({ waveId: state.plan?.wave_id, graphHash: state.graphHash, refillEpisode: state.refillEpisode }),
     poolPlan: () => state.poolPlan,
     liveSlots: state.liveSlots,
@@ -303,7 +304,9 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       // Būsena čia yra „nevykdytinas", o ne „žlugęs": bandymo nebuvo, tad ledger'is, integracija ir
       // parkavimas nepaliečiami — task'o failas lieka eilėje žmogui. Blokuojama ir šaka: neatliktas
       // blokatorius negali atrakinti savo priklausinių vien todėl, kad jo niekas nepaleido.
-      for (const blocked of collectBlockedBranch(state.tasks, taskId)) state.blockedBranch.add(blocked);
+      for (const blocked of collectBlockedBranch(state.tasks, taskId, state.canonicalGraph)) {
+        state.blockedBranch.add(blocked);
+      }
       state.settle(taskId, "blocked", reason);
       for (const blocked of state.blockedBranch) {
         if (blocked !== taskId) state.settle(blocked, "blocked", "branch-blocked");

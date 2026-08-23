@@ -11,9 +11,9 @@
 import {
   allowedPaths,
   analyzeHumanReviewGates,
-  dependencyMatches,
   normalizeTaskReference,
   parseTaskDependencies,
+  resolveTaskReference,
   taskBuckets,
   withBlockedNotice,
   type BlockedTaskRoute,
@@ -155,11 +155,27 @@ export async function routeBlockedTasksToHumanReview(
   blocker: string,
 ): Promise<BlockedTaskRoutingResult> {
   const normalizedBlocker = normalizeTaskReference(blocker);
+  // Maršrutizuojami tik `queue` task'ai, bet REZOLIUCIJOS visata — VISI bucket'ai.
+  //
+  // Nuoroda išsprendžiama prieš tai, kas egzistuoja, tad dalinė visata duoda klaidingą atsakymą:
+  // su vien `queue` sąrašu nuoroda `0042-parent` (tėvas ką tik lūžo, tad jis jau ne eilėje)
+  // neturėjo tikslaus atitikmens ir „išsispręsdavo" į vienintelį prefiksinį kandidatą
+  // `0042-parent-02-child`. Tas pats radinys, tik viena pakopa giliau: nepilnas žinojimas negali
+  // tapti pagrindu perkelti task'ą į TERMINALINĮ human-review bucket'ą.
+  const universe = [
+    ...new Set([
+      normalizedBlocker,
+      ...(await readTaskDependencyMetadata(ports, TASK_GRAPH_IMPORT_BUCKETS)).map((task) => task.task_id),
+    ]),
+  ];
   const metadata = await readTaskDependencyMetadata(ports, ["queue"]);
   const routed: BlockedTaskRoute[] = [];
 
   for (const task of metadata) {
-    if (!task.blocked_by.some((dependency) => dependencyMatches(dependency, normalizedBlocker))) continue;
+    const dependsOnBlocker = task.blocked_by.some(
+      (dependency) => resolveTaskReference(universe, dependency) === normalizedBlocker,
+    );
+    if (!dependsOnBlocker) continue;
     const original = await ports.readTaskText(task.file).catch(() => undefined);
     if (original === undefined) continue;
     await ports.writeTaskText(task.file, withBlockedNotice(original, normalizedBlocker));

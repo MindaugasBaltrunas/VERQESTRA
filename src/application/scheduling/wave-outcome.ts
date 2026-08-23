@@ -12,6 +12,7 @@
 
 import { collectBlockedBranch, type SchedulableTask } from "./schedule-next-wave.js";
 import { evaluateIntegrationCheckpoint, type FinishedWorkerSlot } from "./worker-integration.js";
+import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 import type { LiveSlot } from "./slot-refill.js";
 import type { WorkerOutcome, WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { WaveTaskState } from "./wave-snapshot.js";
@@ -32,6 +33,12 @@ export type WaveOutcomeCheckpoint = {
 export type WaveOutcomeDeps = {
   runId: string;
   tasks: () => readonly SchedulableTask[];
+  /**
+   * Kanoninis grafas — VISI mazgai, ne tik eilės pjūvis. Naudojamas tik nuorodų rezoliucijai
+   * lūžusioje šakoje: sutrumpinta nuoroda, sprendžiama prieš dalinę visatą, „randa" ne tą task'ą
+   * (žr. `collectBlockedBranch`), o šakos blokas yra vykdymą stabdantis sprendimas.
+   */
+  graph: () => TaskGraph | undefined;
   waveContext: () => { waveId?: string | undefined; graphHash: string; refillEpisode: number };
   poolPlan: () => WorkerPoolPlan | undefined;
   liveSlots: Map<string, LiveSlot>;
@@ -128,7 +135,9 @@ export function createWaveOutcomeRecorder(
     } else {
       // Nepavykęs task'as blokuoja VISĄ savo šaką: jo priklausiniai negali būti vykdomi ant
       // darbo, kurio nėra. Šaka renkama prieš `settle`, kad į ją patektų ir pats task'as.
-      for (const blockedTaskId of collectBlockedBranch(deps.tasks(), taskId)) deps.blockedBranch.add(blockedTaskId);
+      for (const blockedTaskId of collectBlockedBranch(deps.tasks(), taskId, deps.graph())) {
+        deps.blockedBranch.add(blockedTaskId);
+      }
       deps.settle(taskId, "failed", withdrawn ? "task_duplicate" : "task_failed");
       for (const blockedTaskId of deps.blockedBranch) {
         if (blockedTaskId !== taskId) deps.settle(blockedTaskId, "blocked", "branch-blocked");

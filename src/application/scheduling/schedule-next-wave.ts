@@ -13,7 +13,12 @@
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/json.js";
 import { toPosixPath as toPosix } from "../../shared/paths.js";
-import { dependencyMatches, isPlaceholderDependency, normalizeTaskReference } from "../../domain/tasks/dependencies.js";
+import {
+  isPlaceholderDependency,
+  isSameTask,
+  normalizeTaskReference,
+  resolveTaskReference,
+} from "../../domain/tasks/dependencies.js";
 import { detectCyclesOverEdges, longestDependencyDepths } from "../../domain/tasks/graph/adjacency.js";
 import { dependenciesOf, internalEdges, resolveTaskNode } from "../../domain/tasks/graph/traverse.js";
 import { satisfiesDependency, type TaskGraph, type TaskNodeStatus } from "../../domain/tasks/graph/model.js";
@@ -162,12 +167,17 @@ export type ScheduleNextWaveInput = {
   maxWorkers?: number;
 };
 
-function matchesAny(reference: string, candidates: ReadonlySet<string>): boolean {
-  for (const candidate of candidates) {
-    if (dependencyMatches(reference, candidate)) return true;
-  }
-  return false;
+/**
+ * Ar šis TASK'AS yra rinkinyje. Tapatybė, ne nuoroda — tad tikslus palyginimas.
+ *
+ * Rinkiniai (`completed`, `blocked`) jau normalizuoti kvietėjo; `isSameTask` normalizuoja ir
+ * antrą pusę, todėl kelio ar `.md` formos ID irgi randamas.
+ */
+function containsTask(ids: ReadonlySet<string>, taskId: string): boolean {
+  const normalized = normalizeTaskReference(taskId);
+  return normalized !== "" && ids.has(normalized);
 }
+
 
 /**
  * Kanoninė kandidatų forma: normalizuoti ID, POSIX keliai, be dublikatų, be placeholder'ių
@@ -184,7 +194,11 @@ export function normalizeSchedulableTasks(tasks: readonly SchedulableTask[]): Sc
     if (!taskId || byId.has(taskId)) continue;
 
     const dependencies = [...new Set((task.blocked_by ?? []).map((value) => normalizeTaskReference(value)))]
-      .filter((value) => value && !isPlaceholderDependency(value) && !dependencyMatches(value, taskId))
+      // Savęs nuoroda tikrinama TIKSLIAI. Prefiksinis palyginimas laikė `0042-parent` task'o
+      // `0042-parent-02-child` savęs nuoroda ir tą TEISĖTĄ tėvo→vaiko briauną nuimdavo: vaikas
+      // nepatekdavo į lūžusią šaką, o `graph_hash` briaunos nematydavo. Sutrumpinta savęs nuoroda
+      // (`0042` savo paties faile) dabar lieka briauna → ciklas → blokas: GARSU, o ne tylu.
+      .filter((value) => value && !isPlaceholderDependency(value) && !isSameTask(value, taskId))
       .sort();
 
     byId.set(taskId, { task_id: taskId, file: toPosix(task.file), blocked_by: dependencies });
@@ -340,9 +354,12 @@ export function scheduleNextWave(input: ScheduleNextWaveInput): WavePlan {
     const { task } = node;
     for (const dependency of node.external) externalDependencies.add(dependency);
 
-    if (matchesAny(task.task_id, completed)) continue;
+    // TAPATYBĖ, ne nuoroda: `completed` ir `blocked` yra runtime task ID rinkiniai. Prefiksinis
+    // palyginimas čia užbaigus `0042-parent` TYLIAI išmesdavo `0042-parent-02-child` (žr.
+    // `isSameTask`), o vartai yra SUBTRACT-ONLY — grąžinti dingusio task'o jie nebegali.
+    if (containsTask(completed, task.task_id)) continue;
 
-    if (matchesAny(task.task_id, blocked)) {
+    if (containsTask(blocked, task.task_id)) {
       blockedTasks.push({ ...blockedShape(task), reason: "branch-blocked", waiting_for: [] });
       continue;
     }
@@ -425,17 +442,37 @@ export function selectNextWaveTask(
  * perduoda kaip `blockedTaskIds`, todėl kitos, nepriklausomos šakos toliau vykdomos, o
  * blokuoti priklausiniai lieka eilėje ir NIEKADA nepatenka į vykdomą būseną (spec WAVE-1).
  */
-export function collectBlockedBranch(tasks: readonly SchedulableTask[], rootTaskId: string): string[] {
+export function collectBlockedBranch(
+  tasks: readonly SchedulableTask[],
+  rootTaskId: string,
+  graph?: TaskGraph,
+): string[] {
   const normalized = normalizeSchedulableTasks(tasks);
   const root = normalizeTaskReference(rootTaskId);
   const blocked = new Set<string>([root]);
+  // Rezoliucijos visata — VISI žinomi task'ai, ne tik jau lūžę ir ne tik eilės pjūvis.
+  //
+  // Du reikalavimai, abu išmokti brangiai. Pirma, visata negali augti kartu su šaka: kitaip ta pati
+  // nuoroda išsispręstų skirtingai priklausomai nuo apėjimo eiliškumo. Antra, ji turi būti PILNA:
+  // prieš dalinį sąrašą nuoroda `0042-parent` (tėvas jau `done`, tad pjūvyje jo nėra) tiksliai
+  // neatitinka nieko ir „išsisprendžia" į vienintelį prefiksinį kandidatą `0042-parent-02-child` —
+  // t. y. nesusijęs task'as patenka į blokuotą šaką. Grafas paduoda visus bucket'us; be jo lieka
+  // pjūvis, t. y. tiek pat teisinga, kiek buvo iki šiol.
+  const universe = [
+    ...new Set([root, ...(graph?.nodes ?? []).map((node) => node.task_id), ...normalized.map((task) => task.task_id)]),
+  ];
 
   let changed = true;
   while (changed) {
     changed = false;
     for (const task of normalized) {
       if (blocked.has(task.task_id)) continue;
-      if (task.blocked_by.some((dependency) => matchesAny(dependency, blocked))) {
+      if (
+        task.blocked_by.some((dependency) => {
+          const resolved = resolveTaskReference(universe, dependency);
+          return resolved !== undefined && blocked.has(resolved);
+        })
+      ) {
         blocked.add(task.task_id);
         changed = true;
       }

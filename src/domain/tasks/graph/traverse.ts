@@ -3,7 +3,7 @@
 // used rather than an index-based SCC pass — the cost is irrelevant, the rule readable.
 // Behaviour etalon: AG_loop task-graph.ts traversal half.
 
-import { dependencyMatches, normalizeTaskReference } from "../dependencies.js";
+import { normalizeTaskReference, resolveTaskReference } from "../dependencies.js";
 import { detectCyclesOverEdges, longestDependencyDepths } from "./adjacency.js";
 import type { TaskGraph, TaskNode } from "./model.js";
 
@@ -21,11 +21,16 @@ export function resolveTaskNode(graph: TaskGraph, reference: string): TaskNode |
   // `missing-dependency`, o `schedule-next-wave` ir `route-blocked` laikė ją atitikmeniu. Abu
   // fail-closed, tad nesaugaus planavimo nebuvo — bet dvi taisyklės tam pačiam klausimui yra
   // vieta, kur trečias kvietėjas pasirenka neteisingą.
-  const candidates = graph.nodes.filter((node) => dependencyMatches(normalized, node.task_id));
-  // Dviprasmybė atmetama, o ne sprendžiama rūšiavimu. `1111` prie `1111-a` ir `1111-b` anksčiau
-  // tyliai duodavo pirmą pagal id; tyli teisinga atsakymo pusė čia yra „nežinau", nes klaidingas
-  // blokuotojas atrakina task'ą, kuris turėjo laukti.
-  return candidates.length === 1 ? candidates[0] : undefined;
+  //
+  // 2026-08-23: pati taisyklė gyvena `resolveTaskReference` — jos prireikė ir kvietėjams, turintiems
+  // ne grafą, o tik ID sąrašą. Dviprasmybė ten atmetama, o ne sprendžiama rūšiavimu: `1111` prie
+  // `1111-a` ir `1111-b` tyliai duodavo pirmą pagal id, o klaidingas blokuotojas ATRAKINA task'ą,
+  // kuris turėjo laukti.
+  const resolved = resolveTaskReference(
+    graph.nodes.map((node) => node.task_id),
+    normalized,
+  );
+  return resolved === undefined ? undefined : graph.nodes.find((node) => node.task_id === resolved);
 }
 
 /** Blocker ids declared for a task, in canonical order. Ta pati briauna, deklaruota

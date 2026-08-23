@@ -5,7 +5,7 @@
 // Modulis yra grynas: jokio FS, git ar laikrodžio. Visi „ar egzistuoja / ar yra commit"
 // klausimai jau atsakyti iškvietėjo ir paduoti kaip `ResumeEvidence`, todėl kiekvieną
 // sprendimą galima atkurti iš log'o eilutės ir padengti unit testu be darbinio medžio.
-import { dependencyMatches, normalizeTaskReference } from "../../domain/tasks/dependencies.js";
+import { isSameTask, normalizeTaskReference } from "../../domain/tasks/dependencies.js";
 
 /** Sprendimo TAISYKLIŲ versija — įrašoma į `reason`, kad seni log'ai liktų palyginami. */
 export const RESUME_RULES_VERSION = 1;
@@ -98,10 +98,18 @@ function decision(
   };
 }
 
-function matchesAny(reference: string, candidates: Iterable<string>): boolean {
+/**
+ * Ar checkpoint'o task'as YRA užbaigtų sąraše. Tapatybė, tad tikslus palyginimas.
+ *
+ * Anksčiau čia dirbo simetriškas priklausomybių prefiksų matcher'is, ir checkpoint'as
+ * `0042-parent-02-child` prieš užbaigtų sąrašą `[0042-parent]` gaudavo
+ * `skip-completed / already-completed` — o atkūrimo kelias toliau galėjo perkelti vaiko failą į
+ * `done` jo NEVYKDĘS. Prefiksas atsako į klausimą „kurį task'ą reiškia ši nuoroda"; čia
+ * klausimas kitas — „ar tai tas pats task'as", ir jis prefiksų neturi.
+ */
+function isCompleted(taskId: string, candidates: Iterable<string>): boolean {
   for (const candidate of candidates) {
-    const normalized = normalizeTaskReference(candidate);
-    if (normalized && dependencyMatches(reference, normalized)) return true;
+    if (isSameTask(taskId, candidate)) return true;
   }
   return false;
 }
@@ -130,7 +138,7 @@ export function decideResume(
   const taskId = normalizeTaskReference(checkpoint.task_id ?? "");
   if (!taskId) return decision("no-checkpoint", ["missing-task-id"], false);
 
-  if (matchesAny(taskId, evidence.completedTaskIds ?? [])) {
+  if (isCompleted(taskId, evidence.completedTaskIds ?? [])) {
     return decision("skip-completed", ["already-completed"], false, taskId);
   }
 

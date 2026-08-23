@@ -73,7 +73,9 @@ export function buildTaskGraph(input: TaskGraphInput): TaskGraph {
     const dependsOn = normalizeTaskReference(edge.depends_on);
     if (!taskId || !dependsOn || isPlaceholderDependency(dependsOn)) continue;
     const origin = edge.origin ?? "markdown";
-    byKey.set(`${taskId}${dependsOn}${origin}`, { task_id: taskId, depends_on: dependsOn, origin });
+    // Skirtukas `|` negali pasirodyti normalizuotame id, tad raktas yra injektyvus: be jo
+    // ("ab"+"c" ir "a"+"bc" → "abc") dvi SKIRTINGOS briaunos susilietų ir viena tyliai dingtų.
+    byKey.set(`${taskId}|${dependsOn}|${origin}`, { task_id: taskId, depends_on: dependsOn, origin });
   }
 
   const dependencies = [...byKey.values()].sort(compareDependencies);

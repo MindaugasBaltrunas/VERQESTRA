@@ -27,10 +27,11 @@ export function resolveTaskNode(graph: TaskGraph, reference: string): TaskNode |
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
-/** Blocker ids declared for a task, in canonical order. */
+/** Blocker ids declared for a task, in canonical order. Ta pati briauna, deklaruota
+ * dviem kilmėmis (`markdown` ir `runtime`), yra VIENAS blokuotojas — ne du. */
 export function dependenciesOf(graph: TaskGraph, taskId: string): string[] {
   const normalized = normalizeTaskReference(taskId);
-  return graph.dependencies.filter((edge) => edge.task_id === normalized).map((edge) => edge.depends_on);
+  return [...new Set(graph.dependencies.filter((edge) => edge.task_id === normalized).map((edge) => edge.depends_on))];
 }
 
 /** Adjacency map `task → its blockers`, restricted to edges resolving to a node in the graph. */

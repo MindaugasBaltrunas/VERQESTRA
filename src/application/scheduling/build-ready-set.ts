@@ -88,31 +88,24 @@ export type BuildReadySetInput = {
   /**
    * Task'ai, kurių žmogaus patvirtinimas gautas šiame run'e.
    *
-   * 2026-08-22 auditas: `loop-command` čia paduoda hardcoded `() => []`, tad produkcijoje šis
-   * įėjimas nieko neatrakina, o `TaskNode.approved` niekur netampa `true`. Vienintelis realiai
-   * veikiantis patvirtinimo kelias yra task'o IŠĖJIMAS iš `human-review` bucket'o —
-   * `task-graph-import` nustato `requires_approval` pagal bucket'ą, tad perkėlus failą vėliava
-   * dingsta pati.
-   *
-   * Paliktas, o ne ištrintas: tai suprojektuota ir ištestuota galimybė, kuriai trūksta tik
-   * tiekėjo. Trūksta būtent ŠALTINIO — vietos, kur operatoriaus patvirtinimas būtų užrašytas —
-   * ir jo sukūrimas yra funkcionalumas, ne šio audito taisymas.
+   * Veikiantis patvirtinimo kanalas yra KITAS: `HUMAN-REVIEW-APPROVED:` žyma task'o faile,
+   * iš kurios `task-graph-import` nustato `TaskNode.approved` (o `requires_approval` dingsta
+   * task'ui palikus `human-review` bucket'ą). Šis run-scoped sąrašas yra ANTRAS kanalas tam
+   * pačiam sprendimui; `loop-command` jį sąmoningai paduoda tuščią, nes du patvirtinimo
+   * keliai, nežinantys vienas apie kitą, yra blogiau nei vienas. Paliktas, nes suprojektuotas
+   * ir ištestuotas — jo tiekėją įjungti galima tik kartu su sprendimu, kuris kanalas
+   * autoritetingas.
    */
   approvals?: Iterable<string>;
   /**
    * Tokenų biudžetas, ribojantis, kiek naujo darbo galima pradėti.
    *
-   * 2026-08-22 auditas: `loop-command` čia paduoda hardcoded `() => undefined`, tad
-   * `budget-exhausted` ir `budget-insufficient` — du iš šešių blokavimo motyvų — produkcijoje
-   * NEPASIEKIAMI; gyvi tik testuose.
-   *
-   * Neprijungta tyliai, nors šaltinis egzistuoja (`vq/state/token-budget-status.json` neša
-   * `remaining_total_tokens`). Dvi priežastys. Pirma: tikroji biudžeto prievarta stovi
-   * dispatch'e (`enforceExecutionBudget`), o šis vartas yra planavimo užuomina — „nepradėk to,
-   * už ką negalėsi sumokėti". Antra: tas failas yra BEST-EFFORT paskutinio sprendimo veidrodis,
-   * tad pasenęs ar dingęs jis pradėtų blokuoti visą eilę dėl dalyko, kurio niekas nematuoja.
-   * Prijungimas reikalauja apsispręsti, kuris šaltinis yra autoritetingas — tai sprendimas, ne
-   * audito taisymas.
+   * Prijungtas per `run-budget.ts` (942c2eb): riba — neprivalomas `maxRunBillableTokens`
+   * raktas `vq/config/token-budget.json`, išlaidos — suma per `vq/logs/token-usage.jsonl`.
+   * Ribos nesant paduodamas `undefined`, ir tada abu biudžeto vartai neveikia — tai sąmoninga:
+   * `undefined` reiškia „ribos nėra", ne „biudžetas išnaudotas". Tikroji prievarta lieka
+   * dispatch'e (`enforceExecutionBudget`); šis vartas yra planavimo užuomina — „nepradėk to,
+   * už ką negalėsi sumokėti".
    */
   budget?: ReadySetBudget;
 };
@@ -225,11 +218,9 @@ export function buildReadySet(input: BuildReadySetInput): ReadySet {
       continue;
     }
 
-    // Patvirtinimą reiškia task'o IŠĖJIMAS iš `human-review` bucket'o: `task-graph-import` nustato
-    // `requires_approval` pagal bucket'ą, tad perkėlus failą vėliava dingsta pati. Iki 2026-08-22
-    // čia buvo dar ir `approvals` sąrašas — įėjimas, kurio vienintelis tiekėjas `loop-command`'e
-    // buvo hardcoded `() => []`. Nė vienas `TaskNode.approved` niekur netapdavo `true`, tad
-    // sąrašas negalėjo nieko atrakinti. Ištrintas: negyvas įėjimas atrodo kaip kelias, kurio nėra.
+    // Patvirtinimą atrakina `node.approved` (`HUMAN-REVIEW-APPROVED:` žyma per `task-graph-import`)
+    // arba run-scoped `approvals` sąrašas; produkcijoje `loop-command` pastarąjį paduoda tuščią
+    // (žr. `BuildReadySetInput.approvals` doc'ą), tad realiai sprendžia žyma ir bucket'as.
     if (node.requires_approval && !node.approved && !approvals.has(node.task_id)) {
       blockedTasks.push(blocked(node, dependsOn, "approval-required"));
       continue;

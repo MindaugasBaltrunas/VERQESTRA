@@ -43,6 +43,26 @@ test("build: normalizes ids/paths, drops placeholders, dedups and sorts edges, s
   assert.equal(graph.graph_hash, computeTaskGraphHash(graph));
 });
 
+test("build: dedup key is injective — adjacent ids do not merge distinct edges", () => {
+  // Be skirtuko rakte "ab"+"c" ir "a"+"bc" suliedavo į "abc" ir viena briauna tyliai dingdavo.
+  const graph = graphOf({
+    nodes: [
+      { task_id: "a", file: "a.md" },
+      { task_id: "ab", file: "ab.md" },
+      { task_id: "bc", file: "bc.md" },
+      { task_id: "c", file: "c.md" },
+    ],
+    dependencies: [
+      { task_id: "ab", depends_on: "c" },
+      { task_id: "a", depends_on: "bc" },
+    ],
+  });
+  assert.deepEqual(
+    graph.dependencies.map((edge) => `${edge.task_id}<-${edge.depends_on}`),
+    ["a<-bc", "ab<-c"],
+  );
+});
+
 test("hash: order-insensitive, status-sensitive, conditional write_symbols keeps legacy hashes", () => {
   const base = graphOf({
     nodes: [

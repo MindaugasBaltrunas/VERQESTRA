@@ -155,6 +155,27 @@ test("task-graph snapshot: atominis roundtrip; sugadintas hash — corrupted", a
   );
 });
 
+test("task-graph snapshot: write_symbols/architecture_nodes išgyvena roundtrip'ą (hash'as sutampa)", async () => {
+  // Šie laukai įeina į graph_hash; juos numetus skaitymas amžinai grąžindavo "corrupted".
+  const graph = buildTaskGraph({
+    nodes: [
+      {
+        task_id: "t1",
+        file: "AG/tasks/queue/t1.md",
+        checks: ["pnpm test"],
+        scope: ["src/**"],
+        write_symbols: ["src/a.ts#run"],
+        architecture_nodes: ["Payments"],
+      },
+    ],
+  });
+  await writeTaskGraphSnapshot(graph, runtimeRoot, { source: "test", generatedAt: "2026-08-20T12:00:00.000Z" });
+
+  const read = await readTaskGraphSnapshot(runtimeRoot);
+  assert.equal(read.ok, true, JSON.stringify(read));
+  if (read.ok) assert.deepEqual(read.graph, graph);
+});
+
 test("code-index store: JSONL byte-compat forma ir manifest roundtrip", async () => {
   const file = {
     path: "src/a.ts",

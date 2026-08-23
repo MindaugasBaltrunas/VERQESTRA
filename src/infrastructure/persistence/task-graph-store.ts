@@ -29,6 +29,10 @@ const taskGraphSnapshotNodeSchema = z.looseObject({
   status: z.enum(TASK_NODE_STATUSES),
   checks: z.array(z.string()),
   scope: z.array(z.string()),
+  // Deklaruoti laukai privalo išgyventi round-trip'ą: jie įeina į graph_hash, tad juos
+  // numetus atkurtas grafas nebeatitiktų savo hash'o ir snapshot'as amžinai grįžtų „corrupted".
+  write_symbols: z.array(z.string()).optional(),
+  architecture_nodes: z.array(z.string()).optional(),
   requires_approval: z.boolean(),
   approved: z.boolean(),
   estimated_tokens: z.number().int().nonnegative().optional(),
@@ -90,6 +94,8 @@ export function taskGraphFromSnapshot(snapshot: TaskGraphSnapshot): TaskGraph {
       status: node.status,
       checks: [...node.checks],
       scope: [...node.scope],
+      ...(node.write_symbols === undefined ? {} : { write_symbols: [...node.write_symbols] }),
+      ...(node.architecture_nodes === undefined ? {} : { architecture_nodes: [...node.architecture_nodes] }),
       requires_approval: node.requires_approval,
       approved: node.approved,
       ...(node.estimated_tokens === undefined ? {} : { estimated_tokens: node.estimated_tokens }),

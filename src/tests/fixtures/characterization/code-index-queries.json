@@ -15,7 +15,7 @@
     }
   },
   "expected_manifest": {
-    "version": "3.2.0",
+    "version": "3.3.0",
     "file_count": 8,
     "symbol_count": 8,
     "edge_count": 32,

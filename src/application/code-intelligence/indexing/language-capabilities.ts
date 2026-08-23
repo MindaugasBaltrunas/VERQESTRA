@@ -28,8 +28,11 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
     priority: 1,
   },
   {
-    // JavaScript eina per TĄ PATĮ `ts.createSourceFile` AST kaip TypeScript (`allowJs`), tad
-    // tikslumas yra vienodas, o ne „beveik": antro JS parserio nėra.
+    // JavaScript eina per TĄ PATĮ `ts.createSourceFile` AST kaip TypeScript (`allowJs`); antro JS
+    // parserio nėra. Palaikomos ABI modulių sistemos: ESM `import`/`export` atpažįstamos iš mazgo
+    // tipo, o CommonJS `require()` / `module.exports` — per `ts-commonjs`, nes tai kvietimas ir
+    // priskyrimas, o ne deklaracijos (2026-08-23: iki tol `.cjs` grąžindavo tuščius sąrašus, nors
+    // lentelė jau skelbė pilną palaikymą).
     language: "javascript",
     status: "active",
     extensions: [".js", ".jsx", ".mjs", ".cjs"],

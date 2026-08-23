@@ -54,6 +54,46 @@ test("kiekviena leksinė kalba duoda imports/declares/exports briaunas", () => {
   }
 });
 
+// 2026-08-23 (operatoriaus radinys): JavaScript buvo pažymėtas pilnai aktyviu, bet CommonJS
+// nepalaikomas. ESM `import`/`export` yra DEKLARACIJOS — indeksuotojas jas atpažįsta iš mazgo tipo;
+// `require()` yra kvietimas, o `module.exports =` — priskyrimas. Todėl `.cjs` failai grąžindavo
+// tuščius `imports`/`exports`, o `exports.go = function go() {}` prarasdavo net simbolį.
+test("CommonJS: require, module.exports ir exports.x", async () => {
+  const { indexTypeScriptFiles } = await import("../application/code-intelligence/indexing/ts-indexer.js");
+  const sources: Record<string, string> = {
+    "src/b.cjs": "function helper() { return 1; }\nmodule.exports = { helper };\n",
+    "src/a.cjs": "const { helper } = require('./b.cjs');\nfunction run() { return helper(); }\nmodule.exports.run = run;\n",
+    "src/legacy.js": "const util = require('./b.cjs');\nexports.go = function go() { return util; };\n",
+    "src/esm.mjs": "import { helper } from './b.cjs';\nexport const go = () => helper();\n",
+  };
+
+  const scanned = Object.keys(sources).map((path) => fileOf(path, "javascript"));
+  const fs = {
+    readTextFile: (absolute: string) => {
+      const key = Object.keys(sources).find((path) => absolute.split("\\").join("/").endsWith(path));
+      return key === undefined ? Promise.reject(new Error(absolute)) : Promise.resolve(sources[key] as string);
+    },
+  };
+
+  const indexed = await indexTypeScriptFiles(fs as never, "/repo", scanned);
+  const of = (path: string) => indexed.get(path)?.file;
+
+  assert.deepEqual(of("src/b.cjs")?.exports, ["helper"], "`module.exports = { helper }` yra eksportas");
+  assert.deepEqual(of("src/a.cjs")?.imports, ["src/b.cjs"], "`require` yra importas");
+  assert.deepEqual(of("src/a.cjs")?.exports, ["run"], "`module.exports.run` yra eksportas");
+  assert.deepEqual(of("src/legacy.js")?.imports, ["src/b.cjs"], "CJS stiliaus `.js` irgi");
+  assert.ok(of("src/legacy.js")?.symbols.includes("go"), "`exports.go = function go()` atgauna SIMBOLĮ");
+  assert.deepEqual(of("src/esm.mjs")?.imports, ["src/b.cjs"], "ESM kelias nepaliestas");
+
+  // Kiekvienas eksportas privalo turėti simbolį: `exports` briaunos rodo į `failas#vardas`.
+  for (const path of Object.keys(sources)) {
+    const file = of(path);
+    for (const name of file?.exports ?? []) {
+      assert.ok(file?.symbols.includes(name), `${path}: eksportas ${name} be simbolio duotų kabančią briauną`);
+    }
+  }
+});
+
 // 2026-08-23 (operatoriaus radinys): daugiakalbiai testai buvo prarandami DVIEM nepriklausomais
 // būdais, tad net rankiniu būdu pateikus galiojančią briauną `impacted_tests` grįždavo tuščias.
 test("testų atpažinimas seka kiekvienos kalbos ĮRANKIO konvenciją", () => {

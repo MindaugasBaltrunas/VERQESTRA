@@ -24,7 +24,10 @@
 // testu NEBUVO laikoma; `.test.mjs`/`.test.cjs` irgi ne). Tai keičia `isTest`, `kind` IR `testedBy`
 // briaunas tiems patiems failams, tad seni indeksai su sutampančiu `source_hash` privalo tapti
 // nebegaliojantys.
-export const codeIndexVersion = "3.2.0";
+// 3.3.0 (2026-08-23): CommonJS. `require()` ir `module.exports`/`exports.x` nebuvo atpažįstami —
+// jie yra kvietimas ir priskyrimas, o ne deklaracijos, tad `.cjs` (ir CJS stiliaus `.js`) failai
+// grąžindavo tuščius `imports`/`exports`. Keičiasi tų pačių failų importai, eksportai IR simboliai.
+export const codeIndexVersion = "3.3.0";
 
 export type CodeIndexLanguage =
   | "typescript"

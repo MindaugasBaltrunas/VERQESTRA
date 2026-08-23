@@ -7,6 +7,7 @@ import type * as TypeScriptApi from "typescript";
 import type { CodeIndexEdge, CodeIndexFile, CodeIndexSymbol, CodeIndexSymbolKind } from "./types.js";
 import { declarationSignature } from "./ts-signatures.js";
 import { resolveSpecifier } from "./ts-resolve.js";
+import { collectCommonJs } from "./ts-commonjs.js";
 
 export type TypeScriptIndexResult = {
   file: CodeIndexFile;
@@ -200,6 +201,27 @@ export function indexSourceText(
 
   for (const target of Array.from(references).sort()) {
     extraEdges.push({ from: file.path, to: target, type: "references" });
+  }
+
+  // CommonJS (2026-08-23, operatoriaus radinys). ESM `import`/`export` yra DEKLARACIJOS, tad
+  // aukštesni praėjimai jas atpažįsta iš mazgo tipo; `require()` ir `module.exports =` yra
+  // kvietimas ir priskyrimas, tad be šio žingsnio `.cjs` failai grąžindavo tuščius sąrašus.
+  const commonJs = collectCommonJs(ts, sourceFile, resolve, lineOf);
+  for (const target of commonJs.imports) imports.add(target);
+  for (const name of commonJs.exports) exportNames.add(name);
+  for (const found of commonJs.symbols) {
+    // Simbolis kuriamas TIK jei tokio vardo dar nėra: `module.exports = { helper }` mini jau
+    // deklaruotą funkciją, ir antra kopija duotų dvi `declares` briaunas tam pačiam ID.
+    if (symbols.some((symbol) => symbol.name === found.name)) continue;
+    symbols.push({
+      id: `${file.path}#${found.name}`,
+      file: file.path,
+      name: found.name,
+      kind: found.kind,
+      exported: true,
+      line: found.line,
+      endLine: found.endLine,
+    });
   }
 
   // Exported symbols contribute their names to the export list (parity with the

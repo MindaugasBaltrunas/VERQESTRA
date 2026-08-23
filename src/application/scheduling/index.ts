@@ -9,6 +9,7 @@ export * from "./ports.js";
 export * from "./build-ready-set.js";
 export * from "./schedule-next-wave.js";
 export * from "./wave-decision-hash.js";
+export * from "./safe-telemetry.js";
 export * from "./apply-ready-set-gates.js";
 export * from "./resume-run.js";
 export * from "./conflict-detector.js";

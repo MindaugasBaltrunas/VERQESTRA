@@ -25,6 +25,7 @@ import { createWaveIntegrationCoordinator } from "./wave-integration-coordinator
 import { createWaveOutcomeRecorder } from "./wave-outcome.js";
 import { createWaveRefillCoordinator } from "./wave-refill.js";
 import { createWaveSchedulerState } from "./wave-scheduler-state.js";
+import { createSafeTelemetry } from "./safe-telemetry.js";
 import { persistWaveSnapshot } from "./wave-snapshot-persist.js";
 import { planWavePool } from "./wave-pool-planning.js";
 import { PRIMARY_SLOT_CLAIM_SUPPORTED, type WaveProvisioningCoordinator } from "./wave-provisioning.js";
@@ -32,7 +33,6 @@ import type { WavePlan } from "./schedule-next-wave.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 import type { WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { PhantomWaveSlot } from "./wave-phantom-slots.js";
-import type { WavePoolEvent } from "./wave-pool-planning.js";
 import type { WaveIntegrationPorts } from "./wave-integration-ports.js";
 import type { WorkerLease } from "../../domain/scheduling/worker-lease-rules.js";
 import type { WaveScheduler, WaveSchedulerPorts, WaveSelection } from "./wave-scheduler-contract.js";
@@ -71,21 +71,12 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
 
   const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-  const safeLog = async (message: string): Promise<void> => {
-    try {
-      await deps.log(message);
-    } catch {
-      // Žurnalo rašymas yra pėdsakas, ne vartas.
-    }
-  };
-
-  const safeEvent = async (event: WavePoolEvent): Promise<void> => {
-    try {
-      await deps.recordEvent(event);
-    } catch {
-      // Ta pati taisyklė kaip `safeLog`.
-    }
-  };
+  // Vienas adapteris visiems diagnostiniams rašymams (2026-08-23, operatoriaus radinys). Iki tol
+  // šie wrapper'iai gyveno čia, bet į sub-koordinatorius keliavo NEAPSAUGOTI `deps.log` ir
+  // `deps.recordEvent` — trečia šio failo taisyklė galiojo tik ten, kur ją prisiminė kviečiantysis.
+  // Nuo šiol `deps.log`/`deps.recordEvent` šiame faile nebeminimi NIEKUR kitur, ir tai prikalta
+  // testu: pamiršti nebėra kur.
+  const { safeLog, safeEvent } = createSafeTelemetry(deps);
 
   const persist = async (): Promise<void> => {
     await persistWaveSnapshot({
@@ -118,8 +109,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     runId: deps.runId,
     importGraph: deps.importGraph,
     writeGraphSnapshot: deps.writeGraphSnapshot,
-    log: deps.log,
-    recordEvent: deps.recordEvent,
+    log: safeLog,
+    recordEvent: safeEvent,
     approvals: deps.approvals,
     statuses: () => ({ completed: state.completed, blocked: state.blockedBranch, running: state.runningTaskIds }),
   });
@@ -197,8 +188,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       requestedWorkers: state.requestedWorkers,
       primaryClaimSupported: PRIMARY_SLOT_CLAIM_SUPPORTED,
       now: deps.now,
-      log: deps.log,
-      recordEvent: deps.recordEvent,
+      log: safeLog,
+      recordEvent: safeEvent,
       readIsolationInputs: provisioning.readIsolationInputs,
       toWorkerCandidates: provisioning.toWorkerCandidates,
       rememberCandidate: (candidate) => state.admittedCandidates.set(candidate.task_id, candidate),
@@ -216,8 +207,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     runId: deps.runId,
     primaryClaimSupported: PRIMARY_SLOT_CLAIM_SUPPORTED,
     now: deps.now,
-    log: deps.log,
-    recordEvent: deps.recordEvent,
+    log: safeLog,
+    recordEvent: safeEvent,
     context: () => ({
       waveId: state.waveId,
       graphHash: state.graphHash,
@@ -261,8 +252,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     persist,
     safeLog,
     safeEvent,
-    log: deps.log,
-    recordEvent: deps.recordEvent,
+    log: safeLog,
+    recordEvent: safeEvent,
     recordCheckpoint: deps.recordCheckpoint,
     integrateFinishedSlots: integration.integrateFinishedSlots,
   });
@@ -292,8 +283,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
         if (blocked !== taskId) state.settle(blocked, "blocked", "branch-blocked");
       }
       await persist();
-      await deps.log(`WAVE SLOT UNRUNNABLE: task=${taskId} reason=${reason} — task'as lieka eilėje, eilė tęsiama be jo`);
-      await deps.recordEvent({
+      await safeLog(`WAVE SLOT UNRUNNABLE: task=${taskId} reason=${reason} — task'as lieka eilėje, eilė tęsiama be jo`);
+      await safeEvent({
         run_id: deps.runId,
         wave_id: state.waveId,
         graph_hash: state.graphHash,
@@ -339,10 +330,10 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
         if (closure.state === "done") {
           state.completed.add(decision.task_id);
           state.settle(decision.task_id, "done", decision.reason);
-          await deps.log(
+          await safeLog(
             `WAVE RESUME TASK CLOSED: task=${decision.task_id} task_file=${closure.relocation} via=skip-completed (${decision.reason})`,
           );
-          await deps.recordEvent({
+          await safeEvent({
             run_id: deps.runId,
             wave_id: state.waveId,
             graph_hash: current.graph_hash,
@@ -354,13 +345,13 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
           // Ledger'is NIEKADA neteigia „done", kai failo nėra nė viename bucket'e — task'as jau
           // parkuotas žmogui `closeSkipCompletedTaskFile` viduje.
           state.settle(decision.task_id, "failed", `skip-completed-escalated: ${decision.reason}`);
-          await deps.log(`WAVE RESUME TASK ESCALATED: task=${decision.task_id} via=skip-completed (${decision.reason})`);
+          await safeLog(`WAVE RESUME TASK ESCALATED: task=${decision.task_id} via=skip-completed (${decision.reason})`);
         }
       }
 
       if (decision.action !== "no-checkpoint") {
-        await deps.log(`WAVE RESUME: ${decision.action} task=${decision.task_id ?? "none"} (${decision.reason})`);
-        await deps.recordEvent({
+        await safeLog(`WAVE RESUME: ${decision.action} task=${decision.task_id ?? "none"} (${decision.reason})`);
+        await safeEvent({
           run_id: deps.runId,
           wave_id: state.waveId,
           graph_hash: current.graph_hash,
@@ -386,10 +377,10 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
         // Konkrečios priežastys — vienoje deterministinėje eilutėje, ta pačia forma žurnale,
         // įvykyje ir operatoriaus išvestyje.
         const detail = formatWaveBlockedReason(reason, current.blocked);
-        await deps.log(
+        await safeLog(
           `WAVE ${reason === "all-blocked" ? "BLOCKED" : "EXHAUSTED"}: wave=${current.wave_id} ready=${current.ready.length} blocked=${current.blocked.length} reasons=${detail}`,
         );
-        await deps.recordEvent({
+        await safeEvent({
           run_id: deps.runId,
           wave_id: current.wave_id,
           graph_hash: current.graph_hash,
@@ -441,7 +432,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       state.settle(selection.task.task_id, "running", undefined, selection.task.file);
       await registerLiveSlot(selection);
       await persist();
-      await deps.recordEvent({
+      await safeEvent({
         run_id: deps.runId,
         wave_id: selection.plan.wave_id,
         graph_hash: selection.plan.graph_hash,

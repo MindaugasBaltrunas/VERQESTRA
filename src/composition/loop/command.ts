@@ -18,6 +18,7 @@ import { createRunCoordinator } from "../../application/task-execution/run-coord
 import { readRunBudget } from "../../application/scheduling/run-budget.js";
 import { createWaveScheduler, type ProvisioningStateAccess, type WaveIntegrationIo } from "../../application/scheduling/wave-scheduler.js";
 import { createWaveProvisioningCoordinator, type WaveProvisioningCoordinator } from "../../application/scheduling/wave-provisioning.js";
+import { createSafeLog } from "../../application/scheduling/safe-telemetry.js";
 import { createSlotTaskRunner, buildChildEnvironment, PROCESS_QUEUED_TASK_COMMAND } from "../../application/scheduling/slot-task-runner.js";
 import { runLoopCycle, type LoopCyclePorts, type ResumableTask } from "../../application/scheduling/loop-cycle.js";
 import { handleEmptyQueue, AUDIT_REPAIR_TASK_CONTENT, type EmptyQueuePorts } from "../../application/scheduling/loop-empty-queue.js";
@@ -102,7 +103,10 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       leaseStore,
       worktree: waveWorktreePort({ projectRoot, agRoot }),
       now,
-      log: deps.log,
+      // Aprūpinimas yra ANTRAS koordinatorius, surišamas ne planuoklyje, tad jis turi gauti tą
+      // patį saugų žurnalą (2026-08-23): iki tol jo `deps.log` buvo neapsaugotas, ir žurnalo
+      // klaida būtų nutraukusi slot'o aprūpinimą.
+      log: createSafeLog(deps.log),
       ...access,
     });
 

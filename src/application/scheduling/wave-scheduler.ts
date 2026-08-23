@@ -296,12 +296,16 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
 
     async recoverFromCrash(): Promise<ResumeDecision> {
       const checkpoint = await deps.readCheckpoint();
-      // Grafo snapshot'as skaitomas PRIEŠ `replan()` sąmoningai: `replan()` grafą perimportuoja ir
-      // pasikeitusį iškart perrašo, tad po jo matytume tik savo pačių ką tik įrašytą failą ir
-      // niekada nepastebėtume pasenusios ar sugadintos ankstesnio proceso kopijos.
+      // Ankstesnio proceso grafas skaitomas PRIEŠ `replan()` sąmoningai: `replan()` grafą
+      // perimportuoja ir pasikeitusį iškart perrašo, tad po jo matytume tik savo pačių ką tik
+      // įrašytą failą ir niekada nepastebėtume pasenusios ar sugadintos ankstesnio proceso kopijos.
+      //
+      // Jis PALYGINAMAS ir raportuojamas, bet niekada netampa autoritetu ir nėra fallback'as, kai
+      // Markdown importas lūžta — žr. `wave-graph` antraštę. Atkūrimas čia reikštų vykdymą pagal
+      // kešą, kurio patikrinti nebeįmanoma.
       const storedGraph = await deps.readGraphSnapshot();
       const current = await replan();
-      await graphCoordinator.reportSnapshot(storedGraph, state.canonicalGraph, current.wave_id);
+      await graphCoordinator.reportStoredGraph(storedGraph, state.canonicalGraph, current.wave_id);
 
       const snapshot = await deps.readSnapshot();
       // Lyginamas SPRENDIMO, o ne grafo atspaudas (2026-08-23, operatoriaus radinys).

@@ -13,6 +13,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createSafeTelemetry, createSafeLog } from "../application/scheduling/safe-telemetry.js";
 import { createWaveGraphCoordinator } from "../application/scheduling/wave-graph.js";
+import { buildTaskGraph } from "../domain/tasks/graph/index.js";
 
 // Ta pati šaknis kaip `architecture-gates`: testas bėga iš `dist`, tad šaltinis imamas nuo repo
 // šaknies, o ne nuo modulio vietos.
@@ -46,6 +47,51 @@ test("grafo koordinatorius su SAUGIAIS portais grąžina verdiktą, o ne klaidą
   const refreshed = await coordinator.refresh("w1");
   assert.equal(refreshed.kind, "unavailable", "fail-closed kelias privalo IŠGYVENTI savo paties telemetriją");
   assert.match(refreshed.kind === "unavailable" ? refreshed.reason : "", /markdown sugadintas/, "priežastis — tikroji, ne žurnalo");
+});
+
+// 2026-08-23 (operatoriaus radinys): persistuotas grafas NEATKURIA grafo — ir neturi.
+//
+// Radinys buvo teisingas: `readGraphSnapshot` rezultatas keliauja tik į raportavimą, niekada į
+// `state.canonicalGraph`, ir fallback'o nėra. Iš dviejų siūlytų išeičių pasirinkta ANTROJI —
+// įvardyti tai, kas yra — nes pirmoji būtų regresija:
+//
+//   importas pavyko → snapshot'as arba sutampa (nieko neprideda), arba stale (naudoti draudžia);
+//   importas lūžo   → task failai neperskaitomi, tad kešo patikrinti NEBEĮMANOMA.
+//
+// Šis testas prikala „nėra fallback'o": net kai saugomas grafas yra VALIDUS ir jo hash sutampa su
+// tuo, kurį importas būtų davęs, importo nesėkmė vis tiek reiškia `unavailable`.
+test("saugomas grafas NĖRA fallback'as: validus snapshot'as neatstoja lūžusio importo", async () => {
+  const graph = buildTaskGraph({
+    nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", checks: ["x"], scope: ["src/a.ts"] }],
+  });
+  const logs: string[] = [];
+  const coordinator = createWaveGraphCoordinator({
+    runId: "r1",
+    importGraph: () => Promise.reject(new Error("markdown sugadintas")),
+    writeGraphSnapshot: () => Promise.resolve(),
+    log: (message) => {
+      logs.push(message);
+      return Promise.resolve();
+    },
+    recordEvent: () => Promise.resolve(),
+    approvals: () => [],
+    statuses: () => ({ completed: new Set(), blocked: new Set(), running: new Set() }),
+  });
+
+  const refreshed = await coordinator.refresh("w1");
+  assert.equal(refreshed.kind, "unavailable", "kešuotas grafas neatstoja neperskaityto autoriteto");
+
+  // Raportavimas veikia ir be autoriteto — bet jis TIK raportuoja.
+  await coordinator.reportStoredGraph({ ok: true, graph }, undefined, "w1");
+  assert.ok(
+    logs.some((line) => line.includes("TASK GRAPH SNAPSHOT")),
+    "saugomas grafas lieka proveniencijos eilute žurnale",
+  );
+  assert.equal(
+    logs.some((line) => line.toLowerCase().includes("restored") || line.toLowerCase().includes("atkurta")),
+    false,
+    "niekas neturi skelbti atkūrimo, kurio nėra",
+  );
 });
 
 // Vartas, o ne susitarimas. Iki taisymo `wave-scheduler` turėjo vietinius wrapper'ius, bet

@@ -1,9 +1,27 @@
 // Kanoninio task GRAFO priežiūra bangoje (etalonas: AG_loop orchestrator/loop/loop-wave-graph.ts).
 //
-// Grafas NĖRA vykdymo autoritetas — planą ir toliau sudaro `scheduleNextWave`. Grafas prideda tik
-// DRAUDIMUS (ready set) ir diagnostiką. Iš to plaukia svarbiausia šio modulio savybė: nė viena jo
-// nesėkmė nestabdo bangos. Neimportuotas grafas reiškia „draudimų nežinome", ir tada banga eina be
-// jų — sustabdyta eilė dėl neperskaityto pagalbinio failo būtų blogesnis mainas.
+// Grafas YRA vykdymo autoritetas: `scheduleNextWave` iš jo ima bangos pjūvį ir priklausomybių
+// rezoliuciją, o `applyReadySetGates` leidžia tik tai, ką jis vardija kaip `ready`. Iš to plaukia
+// svarbiausia šio modulio savybė: importo nesėkmė SUSTABDO bangą (`planWaveWithoutGraph`), nes be
+// autoriteto nė vieno task'o leidimo įrodyti neįmanoma.
+//
+// PASTABA (2026-08-23): iki tos dienos ši antraštė skelbė priešingai — „grafas NĖRA vykdymo
+// autoritetas… nė viena jo nesėkmė nestabdo bangos". Tai buvo tiesa iki trijų tos dienos taisymų,
+// bet liko neatnaujinta po jų, ir failas prieštaravo pats sau: `WaveGraphRefresh` doc'as žemiau jau
+// aprašė naują taisyklę. Pasenusi antraštė pavojingesnė už jokios — ji tiksliai apibūdina spragą,
+// kurios nebėra, ir kviečia ją atkurti.
+//
+// PERSISTUOTAS GRAFAS YRA PROVENIENCIJA, NE ATSARGINĖ KOPIJA. `reportStoredGraph` jį tik LYGINA su
+// ką tik importuotu ir raportuoja skirtumą; jis niekada netampa `state.canonicalGraph` ir NĖRA
+// fallback'as, kai Markdown importas lūžta. Taip sąmoningai:
+//
+//   importas pavyko  → snapshot'as arba sutampa (nieko neprideda), arba yra stale (naudoti draudžia);
+//   importas lūžo    → task failai neperskaitomi, tad NEGALIME žinoti, ar kešuotas grafas dar
+//                      apibūdina tikrovę — task'as galėjo persikelti tarp bucket'ų, būti
+//                      suredaguotas ar pridėtas.
+//
+// Vykdymas pagal neverifikuojamą kešą yra tiksliai ta „įrodymo nebuvimas = leidimas" forma, kurią
+// uždarė `planWaveWithoutGraph`. Todėl fallback'o čia NĖRA ir neturi atsirasti; tai prikalta testu.
 //
 // Snapshot'o rašymas rezervuoja hash'ą PRIEŠ await'ą: du lygiagretūs perskaičiavimai to paties
 // grafo neberašo dukart, o nepavykęs rašymas rezervaciją grąžina, kad kitas bandymas kartotų.
@@ -50,7 +68,14 @@ export type WaveGraphCoordinator = {
    * async jau yra, ir įvyksta VIENĄ kartą per bangą — ne kartą per plano variantą.
    */
   readySet: (graph: TaskGraph | undefined, budget: ReadySetBudget | undefined) => ReadySet | undefined;
-  reportSnapshot: (stored: StoredGraphRead, graph: TaskGraph | undefined, waveId: string) => Promise<void>;
+  /**
+   * Palygina ankstesnio proceso įrašytą grafą su ką tik importuotu ir RAPORTUOJA skirtumą.
+   *
+   * Vardas sąmoningai sako „report", o ne „restore": grąžinamos reikšmės nėra, ir iškvietėjas iš
+   * čia negauna nieko, ką galėtų vykdyti. Pavadinimas `reportSnapshot` klaidino — jis skambėjo kaip
+   * snapshot'o panaudojimas, nors tai tik proveniencijos eilutė žurnale.
+   */
+  reportStoredGraph: (stored: StoredGraphRead, graph: TaskGraph | undefined, waveId: string) => Promise<void>;
 };
 
 export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordinator {
@@ -115,7 +140,7 @@ export function createWaveGraphCoordinator(deps: WaveGraphDeps): WaveGraphCoordi
       });
     },
 
-    async reportSnapshot(stored, graph, waveId): Promise<void> {
+    async reportStoredGraph(stored, graph, waveId): Promise<void> {
       const currentHash = graph?.graph_hash ?? "none";
       if (!stored.ok) {
         if (stored.reason === "missing") {

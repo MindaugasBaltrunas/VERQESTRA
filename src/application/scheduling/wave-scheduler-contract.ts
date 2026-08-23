@@ -81,8 +81,18 @@ export type WaveSchedulerPorts = {
   recordEvent: (event: WavePoolEvent) => Promise<void>;
   recordCheckpoint: (checkpoint: WaveStartCheckpoint | WaveOutcomeCheckpoint) => Promise<void>;
 
+  /** VIENINTELIS kanoninio grafo šaltinis. Nepavykus importui, banga sustoja. */
   importGraph: () => Promise<TaskGraph>;
+  /** Įrašo importuotą grafą PROVENIENCIJAI: kitas procesas iš jo mato, kas pasikeitė. */
   writeGraphSnapshot: (graph: TaskGraph) => Promise<void>;
+  /**
+   * Skaito ankstesnio proceso įrašytą grafą — TIK palyginimui ir raportavimui.
+   *
+   * Tai NĖRA atsarginė kopija ir NĖRA fallback'as `importGraph` nesėkmei: importui lūžus task
+   * failai neperskaitomi, tad kešo patikrinti nebeįmanoma, o vykdymas pagal neverifikuojamą kešą
+   * yra ta pati „įrodymo nebuvimas = leidimas" forma, kurią uždarė `planWaveWithoutGraph`.
+   * Žr. `wave-graph` antraštę ir testą „saugomas grafas NĖRA fallback'as".
+   */
   readGraphSnapshot: () => Promise<StoredGraphRead>;
   readySetPolicy?: ReadySetGatePolicy | undefined;
   readySetBudget: () => Promise<ReadySetBudget | undefined>;

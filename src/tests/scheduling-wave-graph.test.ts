@@ -117,12 +117,12 @@ test("run'o būsena viršija grafo įrašytą", () => {
 
 test("snapshot'o ataskaita skiria nebuvimą, atmetimą ir pasenimą", async () => {
   const first = graphDeps();
-  await createWaveGraphCoordinator(first.deps).reportSnapshot({ ok: false, reason: "missing", errors: [] }, graph(), "w1");
+  await createWaveGraphCoordinator(first.deps).reportStoredGraph({ ok: false, reason: "missing", errors: [] }, graph(), "w1");
   assert.ok(first.logs.some((line) => line.includes("none (first run)")));
   assert.deepEqual(first.events, [], "pirmas paleidimas nėra įvykis");
 
   const rejected = graphDeps();
-  await createWaveGraphCoordinator(rejected.deps).reportSnapshot(
+  await createWaveGraphCoordinator(rejected.deps).reportStoredGraph(
     { ok: false, reason: "schema", errors: ["bad"] },
     graph(),
     "w1",
@@ -130,7 +130,7 @@ test("snapshot'o ataskaita skiria nebuvimą, atmetimą ir pasenimą", async () =
   assert.ok(rejected.events.includes("graph_snapshot_rejected"));
 
   const stale = graphDeps();
-  await createWaveGraphCoordinator(stale.deps).reportSnapshot({ ok: true, graph: graph("senas") }, graph("naujas"), "w1");
+  await createWaveGraphCoordinator(stale.deps).reportStoredGraph({ ok: true, graph: graph("senas") }, graph("naujas"), "w1");
   assert.ok(stale.events.includes("graph_snapshot_stale"));
 });
 

@@ -19,6 +19,8 @@ import { printDispatch } from "../interfaces/cli/dispatch/dispatch.js";
 import { claudeDiagnose } from "../interfaces/cli/dispatch/claude-diagnose/index.js";
 import { claudeDispatch } from "../interfaces/cli/dispatch/claude-dispatch/command.js";
 import { claudePreflight } from "../interfaces/cli/dispatch/claude-preflight/index.js";
+import { assertFreshCodeIndexForGraphAwareTask } from "../application/code-intelligence/query/guard.js";
+import { codeIntelligenceFs } from "./node-adapters.js";
 import { loopGuard } from "../interfaces/cli/dispatch/loop-guard.js";
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { retryGuard } from "../interfaces/cli/dispatch/retry-guard.js";
@@ -191,8 +193,21 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
       name: "claude-preflight",
       usage: "<task-file>",
       description: "LLM preflight: performulavimas, spec kontekstas, agentai, biudžetas",
-      run: (args) =>
-        claudePreflight(
+      run: async (args) => {
+        // Etalono `guardedClaudePreflight` 1:1: graph-aware task'as (tekstas prašo code graph
+        // konteksto, bet pats indekso nestato) be šviežio code index NEPRALEIDŽIAMAS į LLM
+        // preflight'ą. VQ-504 wiring'e šis vartas buvo pamestas — komanda bėgo be jo.
+        try {
+          await assertFreshCodeIndexForGraphAwareTask(
+            codeIntelligenceFs(deps.roots.projectRoot),
+            args[0],
+            deps.roots.projectRoot,
+          );
+        } catch (error) {
+          (io ?? consoleCliIo).error(error instanceof Error ? error.message : String(error));
+          return 1;
+        }
+        return await claudePreflight(
           args,
           claudePreflightPorts({
             projectRoot: deps.roots.projectRoot,
@@ -201,7 +216,8 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             resolution: activeAttemptResolution({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
             ...(io === undefined ? {} : { io }),
           }),
-        ),
+        );
+      },
     },
     {
       name: "claude-diagnose",

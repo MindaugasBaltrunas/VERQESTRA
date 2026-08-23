@@ -5,8 +5,9 @@
 // Su AG_loop-ekvivalentiškomis šaknimis elgesys identiškas etalono.
 
 import path from "node:path";
-import ts from "typescript";
+import type * as TypeScriptApi from "typescript";
 import { toPosixPath } from "../../../shared/paths.js";
+import { loadTypeScript } from "../indexing/ts-loader.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
 
 export type SymbolRecordKind = "class" | "function" | "method" | "const" | "enum" | "interface" | "typeAlias";
@@ -52,6 +53,12 @@ export async function scanAstSymbols(
   projectRoot: string,
   roots: AstScanRoot[] = DEFAULT_AST_SCAN_ROOTS,
 ): Promise<AstScanResult> {
+  // NUKRYPIMAS nuo etalono (griežtinantis, 2026-08-23): etalonas (ir šis failas iki šiol)
+  // `typescript` importavo STATIŠKAI — vienintelis toks tarp code-intelligence modulių, nors
+  // ts-loader design §6 taisyklė sako, kad devDependency statinis importas nužudytų KIEKVIENĄ
+  // barrel'į paliečiančią komandą npm-instaliuotame target'e be `typescript`. Dabar — tas pats
+  // lazy `loadTypeScript()` kaip ts-indexer; elgesys su įdiegtu typescript identiškas.
+  const ts = await loadTypeScript();
   const symbols: SymbolRecord[] = [];
   const imports: ImportEdge[] = [];
   for (const root of roots) {
@@ -60,8 +67,8 @@ export async function scanAstSymbols(
       const relativePath = toPosixPath(path.relative(projectRoot, absoluteFile));
       const layer = layerForSourcePath(relativePath, root);
       const sourceText = await fs.readTextFile(absoluteFile);
-      symbols.push(...extractSymbolRecords(relativePath, sourceText, layer));
-      imports.push(...extractImportEdges(relativePath, sourceText, layer));
+      symbols.push(...extractSymbolRecords(ts, relativePath, sourceText, layer));
+      imports.push(...extractImportEdges(ts, relativePath, sourceText, layer));
     }
   }
   symbols.sort((left, right) => left.filePath.localeCompare(right.filePath) || left.name.localeCompare(right.name));
@@ -90,7 +97,7 @@ function isSourceFileName(name: string): boolean {
   return name.endsWith(".ts") || name.endsWith(".tsx");
 }
 
-function scriptKindForPath(filePath: string): ts.ScriptKind {
+function scriptKindForPath(ts: typeof TypeScriptApi, filePath: string): TypeScriptApi.ScriptKind {
   return filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 }
 
@@ -109,21 +116,26 @@ export function layerForSourcePath(filePath: string, root: AstScanRoot): string 
   return slashIndex === -1 ? "root" : rest.slice(0, slashIndex);
 }
 
-function hasExportModifier(node: ts.Node): boolean {
+function hasExportModifier(ts: typeof TypeScriptApi, node: TypeScriptApi.Node): boolean {
   if (!ts.canHaveModifiers(node)) return false;
   return (ts.getModifiers(node) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
 }
 
-function isConstDeclaration(statement: ts.VariableStatement): boolean {
+function isConstDeclaration(ts: typeof TypeScriptApi, statement: TypeScriptApi.VariableStatement): boolean {
   return (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
 }
 
-export function extractSymbolRecords(filePath: string, sourceText: string, layer: string): SymbolRecord[] {
-  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, scriptKindForPath(filePath));
+export function extractSymbolRecords(
+  ts: typeof TypeScriptApi,
+  filePath: string,
+  sourceText: string,
+  layer: string,
+): SymbolRecord[] {
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, scriptKindForPath(ts, filePath));
   const records: SymbolRecord[] = [];
 
   for (const statement of sourceFile.statements) {
-    if (ts.isClassDeclaration(statement) && statement.name && hasExportModifier(statement)) {
+    if (ts.isClassDeclaration(statement) && statement.name && hasExportModifier(ts, statement)) {
       const className = statement.name.text;
       records.push({ kind: "class", name: className, filePath, layer });
       for (const member of statement.members) {
@@ -134,12 +146,12 @@ export function extractSymbolRecords(filePath: string, sourceText: string, layer
       continue;
     }
 
-    if (ts.isFunctionDeclaration(statement) && statement.name && hasExportModifier(statement)) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && hasExportModifier(ts, statement)) {
       records.push({ kind: "function", name: statement.name.text, filePath, layer });
       continue;
     }
 
-    if (ts.isVariableStatement(statement) && hasExportModifier(statement) && isConstDeclaration(statement)) {
+    if (ts.isVariableStatement(statement) && hasExportModifier(ts, statement) && isConstDeclaration(ts, statement)) {
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name)) {
           records.push({ kind: "const", name: declaration.name.text, filePath, layer });
@@ -148,17 +160,17 @@ export function extractSymbolRecords(filePath: string, sourceText: string, layer
       continue;
     }
 
-    if (ts.isEnumDeclaration(statement) && hasExportModifier(statement)) {
+    if (ts.isEnumDeclaration(statement) && hasExportModifier(ts, statement)) {
       records.push({ kind: "enum", name: statement.name.text, filePath, layer });
       continue;
     }
 
-    if (ts.isInterfaceDeclaration(statement) && hasExportModifier(statement)) {
+    if (ts.isInterfaceDeclaration(statement) && hasExportModifier(ts, statement)) {
       records.push({ kind: "interface", name: statement.name.text, filePath, layer });
       continue;
     }
 
-    if (ts.isTypeAliasDeclaration(statement) && hasExportModifier(statement)) {
+    if (ts.isTypeAliasDeclaration(statement) && hasExportModifier(ts, statement)) {
       records.push({ kind: "typeAlias", name: statement.name.text, filePath, layer });
     }
   }
@@ -167,8 +179,13 @@ export function extractSymbolRecords(filePath: string, sourceText: string, layer
 }
 
 /** Extracts raw `import ... from "..."` and `export ... from "..."` module specifiers referenced by this file. */
-export function extractImportEdges(filePath: string, sourceText: string, layer: string): ImportEdge[] {
-  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, scriptKindForPath(filePath));
+export function extractImportEdges(
+  ts: typeof TypeScriptApi,
+  filePath: string,
+  sourceText: string,
+  layer: string,
+): ImportEdge[] {
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, scriptKindForPath(ts, filePath));
   const edges: ImportEdge[] = [];
 
   for (const statement of sourceFile.statements) {

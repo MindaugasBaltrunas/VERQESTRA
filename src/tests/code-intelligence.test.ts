@@ -29,6 +29,7 @@ import {
 } from "../application/code-intelligence/code-map/generator.js";
 import { computeCodeMapCoverage } from "../application/code-intelligence/code-map/coverage.js";
 import { requiresFreshCodeIndex } from "../application/code-intelligence/query/guard.js";
+import { loadTypeScript } from "../application/code-intelligence/indexing/ts-loader.js";
 import { nodeFsTestPort } from "./helpers/node-fs-port.js";
 
 test("mermaid parser: node shapes, edge labels, directive gate", () => {
@@ -453,7 +454,10 @@ test("spec fragments: kirpimas ties pastraipos riba, su atsarga aklam pjūviui",
   assert.equal(clipToBoundary("bet koks", 0), "", "nulinis biudžetas duoda tuščią tekstą");
 });
 
-test("code-map: scanner records, mermaid render and coverage close the loop", () => {
+test("code-map: scanner records, mermaid render and coverage close the loop", async () => {
+  // `ts` paduodamas parametru (kaip ts-source-indexer): statinis typescript importas buvo
+  // vienintelis code-intelligence pažeidėjas prieš ts-loader design §6.
+  const ts = await loadTypeScript();
   const source = [
     'import { helper } from "./helper.js";',
     "export class Engine {",
@@ -461,13 +465,13 @@ test("code-map: scanner records, mermaid render and coverage close the loop", ()
     "}",
     "export const VERSION = 1;",
   ].join("\n");
-  const symbols = extractSymbolRecords("src/application/engine.ts", source, "application");
+  const symbols = extractSymbolRecords(ts, "src/application/engine.ts", source, "application");
   assert.deepEqual(
     symbols.map((record) => `${record.kind}:${record.name}`),
     ["class:Engine", "method:Engine.run", "const:VERSION"],
   );
-  const helperSymbols = extractSymbolRecords("src/application/helper.ts", "export function helper(): string { return \"x\"; }", "application");
-  const imports = extractImportEdges("src/application/engine.ts", source, "application");
+  const helperSymbols = extractSymbolRecords(ts, "src/application/helper.ts", "export function helper(): string { return \"x\"; }", "application");
+  const imports = extractImportEdges(ts, "src/application/engine.ts", source, "application");
   assert.deepEqual(imports, [{ fromFile: "src/application/engine.ts", fromLayer: "application", toModule: "./helper.js" }]);
 
   const mermaid = generateCodeMapMermaid([...symbols, ...helperSymbols], imports);

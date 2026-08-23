@@ -14,6 +14,7 @@ import {
   waveIdFor,
   WAVE_SCHEDULER_VERSION,
   type SchedulableTask,
+  type WaveBlockedReason,
   type WaveBlockedTask,
   type WavePlan,
 } from "./schedule-next-wave.js";
@@ -137,7 +138,15 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
     return false;
   });
 
-  if (removed.length === 0) return { ...plan, decision_hash: decisionHash };
+  // Jau sustabdytų task'ų priežastys SUDERINAMOS su kanoniniu verdiktu (2026-08-23, operatoriaus
+  // radinys). Iki tol vartai lietė tik `plan.ready`, tad task'as, kurį sustabdė ABI pusės, plane
+  // likdavo su bendresne bangos priežastimi: `unsatisfied-dependency` ten, kur grafas žinojo
+  // `missing-dependency` arba `invalid-terminal-dependency`. Vykdymas buvo saugus — task'as bet
+  // kuriuo atveju blokuotas, — bet operatoriaus pranešimai ir automatika, skaitanti priežasties
+  // kodą, gaudavo mažiau tikslų atsakymą.
+  const reconciled = plan.blocked.map((entry) => reconcileReason(entry, gates, enforced));
+  const changed = reconciled.some((entry, position) => entry !== plan.blocked[position]);
+  if (removed.length === 0 && !changed) return { ...plan, decision_hash: decisionHash };
 
   return {
     ...plan,
@@ -145,8 +154,54 @@ export function applyReadySetGates(plan: WavePlan, readySet: ReadySet | undefine
     ready,
     // Ta pati rūšiavimo taisyklė kaip `scheduleNextWave` (pagal failą), kad sujungtas
     // sąrašas liktų vienoje deterministinėje tvarkoje.
-    blocked: [...plan.blocked, ...removed].sort((a, b) => a.file.localeCompare(b.file)),
+    blocked: [...reconciled, ...removed].sort((a, b) => a.file.localeCompare(b.file)),
   };
+}
+
+/**
+ * Bangos priežastys, kurių kanoninis grafas PAGERINTI NEGALI.
+ *
+ * `branch-blocked` yra šio RUN'O faktas: grafas jį mato tik per `statusOverrides` kaip `blocked`,
+ * o iš to gimsta bendrinis `not-queued` — griežtai mažiau informatyvu. `gate:graph-unavailable` ir
+ * `gate:graph-state-mismatch` reiškia, kad kanoninio verdikto šiam task'ui apskritai NĖRA.
+ *
+ * Todėl taisyklė nėra „kanoninis visada laimi": laimi TIKSLESNIS, o tikslumo kryptis priklauso nuo
+ * to, kuris sluoksnis apskritai gali tą faktą pasakyti.
+ */
+const WAVE_OWNED_REASONS: ReadonlySet<string> = new Set([
+  "branch-blocked",
+  "gate:graph-unavailable",
+  "gate:graph-state-mismatch",
+]);
+
+/**
+ * Priežasčių prioritetas vienam jau sustabdytam task'ui:
+ *   1. bangai priklausančios priežastys (žr. `WAVE_OWNED_REASONS`) — nekeičiamos;
+ *   2. kanoninis verdiktas, jei jis YRA ir jį taiko politika — laimi kaip tikslesnis;
+ *   3. kitu atveju lieka bangos priežastis.
+ *
+ * `blocked_by` visada iš BANGOS įrašo — ta pati taisyklė kaip pašalinant iš `ready`; `waiting_for`
+ * imamas iš kanoninio, nes būtent jis vardija konkrečias nuorodas.
+ */
+function reconcileReason(
+  entry: WaveBlockedTask,
+  gates: ReadonlyMap<string, BlockedTask>,
+  enforced: ReadonlySet<ReadySetGate>,
+): WaveBlockedTask {
+  if (WAVE_OWNED_REASONS.has(entry.reason)) return entry;
+  const gate = gates.get(entry.task_id);
+  if (gate === undefined || !enforced.has(gate.reason)) return entry;
+
+  // Perrašoma TIK tada, kai kanoninis sako KĄ KITA. Jei abi pusės pasakė tą patį (`005` laukia
+  // `004` ir bangai, ir grafui), `gate:` prefiksas nepridėtų tikslumo — jis tik pakeistų, KIENO
+  // vardu tas pats faktas paskelbtas. Prefikso prasmė yra „grafas pasakė tai, ko banga nežinojo";
+  // jį klijuojant visur, jis nustotų ką nors reikšti. Patikrinta gyvame repo: be šios sąlygos
+  // penki task'ai būtų gavę `gate:unsatisfied-dependency` vietoj `unsatisfied-dependency` be
+  // jokios naudos skaitytojui.
+  const bare = entry.reason.startsWith("gate:") ? entry.reason.slice("gate:".length) : entry.reason;
+  if (bare === gate.reason) return entry;
+
+  return { ...entry, reason: `gate:${gate.reason}` satisfies WaveBlockedReason, waiting_for: [...gate.waiting_for] };
 }
 
 /** `scheduleNextWave` įėjimas be grafo — tiek, kiek reikia bangos tapatybei ir sąrašui. */

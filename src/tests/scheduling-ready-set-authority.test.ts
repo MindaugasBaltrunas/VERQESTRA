@@ -173,6 +173,63 @@ test("kanoninis grafas yra LEIDIMŲ sąrašas: bangos ir grafo nesutapimas bloku
   assert.deepEqual(applyReadySetGates(plan, buildReadySet({ graph: queued })).ready, plan.ready, "sutampant — praleidžiama");
 });
 
+// 2026-08-23 (operatoriaus radinys): vartai lietė TIK `plan.ready`, tad task'as, kurį sustabdė ABI
+// pusės, plane likdavo su bendresne bangos priežastimi. Vykdymas buvo saugus, bet operatoriaus
+// pranešimai ir automatika, skaitanti priežasties kodą, gaudavo mažiau tikslų atsakymą.
+//
+// Prioriteto taisyklė NĖRA „kanoninis visada laimi" — laimi TIKSLESNIS, o tikslumo kryptis
+// priklauso nuo to, kuris sluoksnis apskritai gali tą faktą pasakyti.
+test("blokavimo priežastys suderinamos: laimi tikslesnė, o ne pirmoji", () => {
+  const blockedReason = (graph: ReturnType<typeof buildTaskGraph>, tasks: SchedulableTask[], taskId: string, run = {}) => {
+    const plan = scheduleNextWave({ tasks, graph, ...run });
+    const gated = applyReadySetGates(plan, buildReadySet({ graph }));
+    return {
+      wave: plan.blocked.find((task) => task.task_id === taskId)?.reason,
+      final: gated.blocked.find((task) => task.task_id === taskId)?.reason,
+    };
+  };
+
+  // A. Dingusi priklausomybė: banga žino tik „laukia", grafas — KO laukia.
+  const missing = buildTaskGraph({
+    nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", depends_on: ["nera-tokio"], checks: ["x"], scope: ["src/**"] }],
+  });
+  const missingCase = blockedReason(missing, [schedulable("a", "AG/tasks/queue/a.md", ["nera-tokio"])], "a");
+  assert.equal(missingCase.wave, "unsatisfied-dependency");
+  assert.equal(missingCase.final, "gate:missing-dependency", "kanoninis tikslesnis — jis ir lieka");
+
+  // B. Terminalinė nepatenkinama priklausomybė: `failed` blokatorius NIEKADA netenkins.
+  const terminal = buildTaskGraph({
+    nodes: [
+      { task_id: "a", file: "AG/tasks/queue/a.md", depends_on: ["b"], checks: ["x"], scope: ["src/a.ts"] },
+      { task_id: "b", file: "AG/tasks/failed/b.md", status: "failed", checks: ["x"], scope: ["src/b.ts"] },
+    ],
+  });
+  const terminalCase = blockedReason(terminal, [schedulable("a", "AG/tasks/queue/a.md", ["b"])], "a");
+  assert.equal(terminalCase.final, "gate:invalid-terminal-dependency", "NIEKADA yra kita žinia nei DAR NE");
+
+  // C. `branch-blocked` yra ŠIO RUN'O faktas. Grafas jį mato tik kaip `not-queued` — griežtai
+  // mažiau informatyvu, tad bangos priežastis privalo išlikti.
+  const open = buildTaskGraph({ nodes: [{ task_id: "a", file: "AG/tasks/queue/a.md", checks: ["x"], scope: ["src/**"] }] });
+  const branchCase = blockedReason(open, [schedulable("a", "AG/tasks/queue/a.md")], "a", { blockedTaskIds: ["a"] });
+  assert.equal(branchCase.final, "branch-blocked", "run'o būsenos grafas pagerinti negali");
+
+  // D. Kai abi pusės sako TĄ PATĮ, `gate:` prefiksas nepridedamas: jis reiškia „grafas pasakė tai,
+  // ko banga nežinojo", ir klijuojamas visur nustotų ką nors reikšti.
+  const chain = buildTaskGraph({
+    nodes: [
+      { task_id: "a", file: "AG/tasks/queue/a.md", checks: ["x"], scope: ["src/a.ts"] },
+      { task_id: "b", file: "AG/tasks/queue/b.md", depends_on: ["a"], checks: ["x"], scope: ["src/b.ts"] },
+    ],
+  });
+  const sameCase = blockedReason(
+    chain,
+    [schedulable("a", "AG/tasks/queue/a.md"), schedulable("b", "AG/tasks/queue/b.md", ["a"])],
+    "b",
+  );
+  assert.equal(sameCase.wave, "unsatisfied-dependency");
+  assert.equal(sameCase.final, "unsatisfied-dependency", "tas pats faktas — tas pats vardas");
+});
+
 // PERRAŠYTAS 2026-08-23 (suvienodinimas 3/3). Iki tol šis testas rodė, kad dėl dviprasmiško
 // prefikso du varikliai išsiskiria priešingomis kryptimis: banga imdavo pirmą kandidatą (o tas
 // jau atliktas, tad task'ą PALEISDAVO), o kanoninis atsisakydavo spėti. Antro variklio nebėra,
@@ -208,10 +265,15 @@ test("dviprasmiškas prefiksas: planuoklis ir vartai duoda tą patį verdiktą",
     "kanoninis verdiktas tas pats, tik tikslesniu vardu",
   );
 
-  // Vartai nieko nebeturi šalinti — ir būtent tai yra sveika būsena: jie liko kaip antras
-  // sluoksnis, o ne kaip vienintelė vieta, kur sprendimas priimamas. Sąrašai nepaliesti; kinta
-  // tik `decision_hash`, nes praleidimas taip pat yra sprendimas (žr. `wave-decision-hash`).
+  // Vartai nieko nebeturi ŠALINTI — abi pusės jau sutaria dėl verdikto. Bet nuo 2026-08-23 jie
+  // dar ir SUDERINA priežastį: bangos bendrinis `unsatisfied-dependency` pakeičiamas tikslesniu
+  // kanoniniu `gate:missing-dependency`, nes automatika, skaitanti priežasties kodą, turi gauti
+  // tikslų atsakymą, o ne pirmą pasitaikiusį.
   const gated = applyReadySetGates(plan, readySet);
   assert.deepEqual(gated.ready, plan.ready, "sluoksniai sutaria — šalinti nėra ko");
-  assert.deepEqual(gated.blocked, plan.blocked);
+  assert.equal(
+    gated.blocked.find((task) => task.task_id === "2000")?.reason,
+    "gate:missing-dependency",
+    "galutiniame plane lieka TIKSLESNĖ priežastis",
+  );
 });

@@ -25,6 +25,12 @@ import type {
   TaskLedgerPort,
 } from "../application/task-execution/run-coordinator-ports.js";
 import { clearTaskLedgerEntry } from "../application/task-execution/task-ledger-service.js";
+import {
+  activateQueuedTask,
+  finishTaskInBucket,
+  moveTaskToBucket,
+  taskBucketDir,
+} from "../application/task-execution/bucket-transition.js";
 import type { TaskLedgerEntry } from "../application/task-execution/task-ledger-rules.js";
 import { taskFileStem, taskLedgerKey } from "../domain/tasks/identity.js";
 
@@ -103,10 +109,12 @@ export function coordinatorFailurePort(runtimeRoot: string): FailurePort {
  */
 export function coordinatorTaskFilePort(input: CoordinatorAdapterInput): TaskFilePort {
   const store = createTaskStateStore({ agRoot: input.agRoot, runtimeRoot: input.runtimeRoot });
-  const bucketDir = (bucket: string): string => path.join(input.agRoot, "tasks", bucket);
 
   return {
-    bucketPath: (bucket, taskName) => path.join(bucketDir(bucket), taskName),
+    // Bucket kelio taisyklė yra VIENA — `bucket-transition.ts`. Iki 2026-08-23 čia gyveno jos
+    // pažodinė kopija (`path.join(agRoot, "tasks", bucket)` + inline move/finish/activate),
+    // o `activateQueuedTask` application pusėje liko be nė vieno kvietėjo.
+    bucketPath: (bucket, taskName) => path.join(taskBucketDir(input.agRoot, bucket), taskName),
     bucketOf: (filePath) => path.basename(path.dirname(filePath)),
     taskIdOf: (filePath) => taskLedgerKey(filePath),
     exists: (filePath) => nodeFsAdapter.exists(filePath),
@@ -114,11 +122,9 @@ export function coordinatorTaskFilePort(input: CoordinatorAdapterInput): TaskFil
     // ir tas pats failas Windows'e bei Linux'e duotų skirtingą atspaudą.
     fingerprint: async (filePath) => sha256Hex(await nodeFsAdapter.readFileBytes(filePath)),
     move: (from, to, taskName, options) =>
-      store.moveTaskState(from, bucketDir(to), taskName, options === undefined ? {} : options),
-    finish: (from, to, taskName, cleanupFiles) =>
-      store.finishTaskState(from, bucketDir(to), taskName, cleanupFiles),
-    activateQueued: (queuedFile, taskId) =>
-      store.activateTaskFile(queuedFile, path.join(bucketDir("active"), path.basename(queuedFile)), taskId),
+      moveTaskToBucket(store, input.agRoot, from, to, taskName, options === undefined ? {} : options),
+    finish: (from, to, taskName, cleanupFiles) => finishTaskInBucket(store, input.agRoot, from, to, taskName, cleanupFiles),
+    activateQueued: (queuedFile, taskId) => activateQueuedTask(store, input.agRoot, queuedFile, taskId),
     /**
      * Performuluotas task'as PAKEIČIA originalą tik tada, kai jis realiai yra.
      *

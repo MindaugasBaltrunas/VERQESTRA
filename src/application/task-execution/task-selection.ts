@@ -37,11 +37,7 @@ export async function selectNextResumableTask(
   return undefined;
 }
 
-/** Returns the next task file waiting in the queue bucket, if any. */
-export async function selectNextQueuedTaskFile(
-  agRoot: string,
-  ports: TaskSelectionPorts,
-): Promise<string | undefined> {
-  const files = await ports.listMarkdownFilePaths(taskBucketDir(agRoot, "queue"));
-  return files[0];
-}
+// `selectNextQueuedTaskFile` ištrinta 2026-08-23 orkestratoriaus audite: 0 produkcinių
+// kvietėjų ir čia, ir etalone — plokščią „kitas eilės failas" kelią pakeitė bangos
+// planuoklis (`scheduleNextWave`), ką konstatuoja ir paties etalono komentaras
+// schedule-next-wave.ts antraštėje. Resumable pusė (`selectNextResumableTask`) lieka gyva.

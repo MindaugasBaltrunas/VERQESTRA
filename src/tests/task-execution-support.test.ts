@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { createTaskRunState } from "../application/task-execution/task-run-state.js";
-import { selectNextQueuedTaskFile, selectNextResumableTask } from "../application/task-execution/task-selection.js";
+import { selectNextResumableTask } from "../application/task-execution/task-selection.js";
 import { confirmSkippedDispatch, probeWorkEvidence } from "../application/task-execution/skip-dispatch.js";
 import { decideRetryOrRepair, type RetryRepairPorts } from "../application/task-execution/retry-repair.js";
 import { decideHumanReviewEscalation } from "../application/task-execution/human-review-escalation.js";
@@ -43,7 +43,7 @@ test("createTaskRunState: neperskaitomas failas nestabdo run'o — snapshot unde
   assert.equal(await state.resolveCurrentTaskFile(), state.activeFile, "nė vieno nėra — krenta į activeFile");
 });
 
-test("task-selection: resumable bucket'ai pagal prioritetą, tada queue", async () => {
+test("task-selection: resumable bucket'ai pagal prioritetą", async () => {
   const listings = new Map<string, string[]>();
   const bucketKey = (bucket: string) => path.join("/repo/AG", "tasks", bucket);
   const ports = { listMarkdownFilePaths: async (dir: string) => listings.get(dir) ?? [] };
@@ -53,9 +53,6 @@ test("task-selection: resumable bucket'ai pagal prioritetą, tada queue", async 
   listings.set(bucketKey("delegated"), ["/repo/AG/tasks/delegated/0001.md"]);
   const picked = await selectNextResumableTask("/repo/AG", ports);
   assert.deepEqual(picked, { bucket: "delegated", file: "/repo/AG/tasks/delegated/0001.md" }, "delegated > error");
-
-  listings.set(bucketKey("queue"), ["/repo/AG/tasks/queue/0009.md", "/repo/AG/tasks/queue/0010.md"]);
-  assert.equal(await selectNextQueuedTaskFile("/repo/AG", ports), "/repo/AG/tasks/queue/0009.md");
 });
 
 test("probeWorkEvidence: be įrodymo git status net neklausiamas (nulinis pėdsakas)", async () => {

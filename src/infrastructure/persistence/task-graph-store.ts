@@ -119,8 +119,15 @@ export async function writeTaskGraphSnapshot(
   options: TaskGraphSnapshotOptions = {},
 ): Promise<string> {
   const validation = validateTaskGraph(graph);
+  // `rules-version-mismatch` prisideda prie tos pačios klasės (2026-08-23): visi trys reiškia
+  // „šis artefaktas nėra interpretuojamas šio build'o", tad jų persistinti negalima. Skaitymo
+  // pusė taisyklių versiją tikrina ANKSČIAU ir grąžina tipizuotą `corrupted`; nuo šiol tą patį
+  // pasako ir domenas, tad vartas nebepriklauso nuo to, per kurį kelią grafas atkeliavo.
   const fatal = validation.violations.filter(
-    (entry) => entry.code === "graph-hash-mismatch" || entry.code === "schema-version-mismatch",
+    (entry) =>
+      entry.code === "graph-hash-mismatch" ||
+      entry.code === "schema-version-mismatch" ||
+      entry.code === "rules-version-mismatch",
   );
   if (fatal.length > 0) {
     throw new Error(`task graph snapshot refused: ${fatal.map((entry) => entry.message).join("; ")}`);

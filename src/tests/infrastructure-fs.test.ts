@@ -199,6 +199,34 @@ test("readTextFileIfExists: RAW be trim; nesamas failas ir katalogas — undefin
   assert.equal(await nodeFsAdapter.readTextFileIfExists(p("nėra.txt")), undefined);
   await nodeFsAdapter.makeDirectory(p("katalogas"));
   assert.equal(await nodeFsAdapter.readTextFileIfExists(p("katalogas")), undefined);
+  // Kelias PER failą (ENOTDIR) yra ta pati klasė kaip nesamas: `stat` era jį irgi grąžindavo
+  // kaip `undefined`, tad kontraktas nepakito.
+  assert.equal(await nodeFsAdapter.readTextFileIfExists(p("raw.txt", "vaikas.txt")), undefined);
+});
+
+/**
+ * 2026-08-23 (operatoriaus radinys): `readTextFileIfExists` buvo `stat` + `readFile`, t. y.
+ * check-then-use. Tarp jų failas gali dingti, ir funkcija, kurios VISAS kontraktas yra „nesamo
+ * failo klaida negrąžinama", mesdavo ENOENT. Gyva pasekmė: lygiagretūs task perkėlimai retkarčiais
+ * krisdavo pilnoje testų serijoje ir praeidavo paleisti atskirai — `readTaskMoveLock` skaito
+ * `task-move.lock/owner.json`, o konkurentas tuo metu atlaisvina lock'ą trindamas VISĄ katalogą.
+ *
+ * Testas VIENAKRYPTIS, tad ne flaky: ištaisytas kelias (vienas `readFile`) ENOENT mesti fiziškai
+ * negali, o sugrąžinus `stat` + `readFile` jis kris. Trynimas paleidžiamas TUO PAČIU metu kaip
+ * skaitymas — būtent tas langas ir buvo defektas.
+ */
+test("readTextFileIfExists: lygiagretus trynimas negrąžina klaidos (TOCTOU)", async () => {
+  const target = p("toctou", "owner.json");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    await nodeFsAdapter.writeTextFile(target, `{"lock_id":"${attempt}"}`);
+    const [read] = await Promise.all([
+      nodeFsAdapter.readTextFileIfExists(target),
+      nodeFsAdapter.removeFile(target),
+    ]);
+    // Abi baigtys teisingos: spėjome perskaityti turinį ARBA failo jau nebuvo. Neteisinga tik
+    // trečia — mesta klaida, kuri iki taisymo ir nutraukdavo task'o perkėlimą.
+    assert.ok(read === undefined || read.includes("lock_id"), `netikėtas turinys: ${String(read)}`);
+  }
 });
 
 test("writeFileExclusive: wx semantika — created, tada exists be perrašymo", async () => {

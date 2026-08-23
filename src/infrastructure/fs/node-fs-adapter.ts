@@ -32,6 +32,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { isErrnoCode } from "../../shared/errors.js";
 import { withWin32RenameRetry } from "./fs-retry.js";
 
 export type NodeStatPathResult = { kind: "file" | "directory" | "other" | "absent"; size: number };
@@ -46,14 +47,31 @@ export const nodeFsAdapter = {
     }
   },
 
+  /**
+   * Nesamas failas — `undefined`; neperskaitomas (teisės, IO) — META.
+   *
+   * VIENAS `readFile`, o ne `stat` + `readFile` (2026-08-23, operatoriaus radinys). Ankstesnė
+   * forma buvo check-then-use: tarp `stat` ir `readFile` failas gali dingti, ir tada funkcija,
+   * kurios visas kontraktas yra „nesamas failas negrąžina klaidos", mesdavo ENOENT. Tai ne
+   * teorija — būtent taip lygiagretūs task perkėlimai retkarčiais krisdavo pilnoje testų serijoje
+   * ir praeidavo paleisti atskirai: `readTaskMoveLock` skaito `task-move.lock/owner.json`, o
+   * konkurentas tuo metu atlaisvina lock'ą ištrindamas VISĄ katalogą.
+   *
+   * Vienas syscall'as lenktynės neturi: arba deskriptorius atidaromas, arba gaunam ENOENT.
+   * Rūšies patikra irgi virsta klaidos kodu: katalogas duoda EISDIR, o kelias per failą —
+   * ENOTDIR; abu reiškia tą patį, ką ir `!stats.isFile()` — „to failo čia nėra". Kiti kodai
+   * (EACCES ir pan.) TOLIAU metami: tolerantiška versija yra atskira —
+   * `readContendedTextFileIfExists`, ir jų sulieti negalima.
+   */
   async readTextFileIfExists(absolutePath: string): Promise<string | undefined> {
     try {
-      const stats = await stat(absolutePath);
-      if (!stats.isFile()) return undefined;
-    } catch {
-      return undefined;
+      return await readFile(absolutePath, "utf8");
+    } catch (error: unknown) {
+      if (isErrnoCode(error, "ENOENT") || isErrnoCode(error, "EISDIR") || isErrnoCode(error, "ENOTDIR")) {
+        return undefined;
+      }
+      throw error;
     }
-    return await readFile(absolutePath, "utf8");
   },
 
   async readTextFile(absolutePath: string): Promise<string> {

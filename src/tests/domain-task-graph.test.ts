@@ -172,6 +172,39 @@ test("validate: every violation code fires and executable gates only on graph sc
   assert.ok(validateTaskGraph(foreignSchema).violations.some((entry) => entry.code === "schema-version-mismatch"));
 });
 
+/**
+ * 2026-08-23 (operatoriaus radinys): svetimos TAISYKLIŲ versijos grafas praeidavo domeno vartus.
+ *
+ * `validateTaskGraph` tikrino schemą ir hash'ą, bet ne `rules_version`, tad grafas su
+ * `rules_version: 999` ir PERSKAIČIUOTU hash'u grąžindavo `ok: true` / `executable: true` — ir,
+ * kadangi `executable` yra produkcinis vykdymo vartas, būtų buvęs vykdomas. Persistencijos
+ * adapteris tai gaudė atskirai, bet domeno API kontraktas liko neteisingas.
+ */
+test("validate: svetima rules_version yra grafo lygio klaida, o hash prefiksas ją įvardija", () => {
+  const base = graphOf({ nodes: [{ task_id: "0001-a", file: "a.md", checks: ["x"], scope: ["s"] }] });
+  assert.equal(validateTaskGraph(base).executable, true, "kontrolė: einamosios taisyklės praeina");
+
+  const foreignRules = { ...base, rules_version: 999 };
+  // Hash perskaičiuojamas — būtent taip radinys ir apeidavo vienintelį turėtą vartą.
+  foreignRules.graph_hash = computeTaskGraphHash(foreignRules);
+
+  const validation = validateTaskGraph(foreignRules);
+  assert.ok(
+    validation.violations.some((entry) => entry.code === "rules-version-mismatch"),
+    "taisyklių versija tikrinama kaip ir schema",
+  );
+  assert.equal(validation.ok, false);
+  assert.equal(validation.executable, false, "svetimos taisyklės sustabdo VISĄ grafą");
+  assert.ok(
+    validation.violations.every((entry) => entry.code !== "graph-hash-mismatch"),
+    "hash'as sutampa — tai antras, NEPRIKLAUSOMAS signalas, o ne tas pats",
+  );
+
+  // Prefiksas ima GRAFO taisykles: anksčiau abu variantai duodavo `tg1:` ir buvo neatskiriami.
+  assert.match(foreignRules.graph_hash, /^tg999:/);
+  assert.match(base.graph_hash, /^tg1:/, "realiam grafui forma nepakito");
+});
+
 test("bucket -> status mapping is the canonical one-way projection", () => {
   assert.equal(taskNodeStatusFromBucket("queue"), "queued");
   assert.equal(taskNodeStatusFromBucket("active"), "running");

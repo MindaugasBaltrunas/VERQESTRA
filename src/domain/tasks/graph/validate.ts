@@ -7,6 +7,7 @@
 
 import { computeTaskGraphHash } from "./hash.js";
 import {
+  TASK_GRAPH_RULES_VERSION,
   TASK_GRAPH_SCHEMA_VERSION,
   isTerminalTaskNodeStatus,
   satisfiesDependency,
@@ -22,7 +23,8 @@ export type TaskGraphViolationCode =
   | "missing-checks"
   | "missing-scope"
   | "graph-hash-mismatch"
-  | "schema-version-mismatch";
+  | "schema-version-mismatch"
+  | "rules-version-mismatch";
 
 export type TaskGraphViolationSeverity = "error" | "warning";
 
@@ -74,6 +76,26 @@ export function validateTaskGraph(graph: TaskGraph): TaskGraphValidation {
         "error",
         "graph",
         `task graph schema version ${graph.schema_version} is not the supported ${TASK_GRAPH_SCHEMA_VERSION}`,
+      ),
+    );
+  }
+
+  // TAISYKLIŲ versija tikrinama lygiai taip pat kaip schemos (2026-08-23, operatoriaus radinys).
+  // Iki tol ji buvo tikrinama TIK persistencijos adapteryje, tad domeno atsakymas svetimo
+  // `rules_version` grafui buvo `ok: true` — o kadangi `executable` yra produkcinis vykdymo
+  // vartas, grafas, normalizuotas ir validuotas KITOMIS taisyklėmis, būtų buvęs vykdomas.
+  //
+  // Skirtumas nuo schemos yra prasmėje, ne griežtume: schema aprašo FORMĄ (ar laukus išvis galima
+  // perskaityti), o rules_version — SEMANTIKĄ (ką reiškia normalizavimas, ciklai, atitikimas).
+  // Formos sutapimas nieko nesako apie tai, ar šis build'as moka tas taisykles interpretuoti, tad
+  // vienintelis teisingas atsakymas yra „perstatyk iš šaltinio", ne „spėk".
+  if (graph.rules_version !== TASK_GRAPH_RULES_VERSION) {
+    violations.push(
+      violation(
+        "rules-version-mismatch",
+        "error",
+        "graph",
+        `task graph rules version ${graph.rules_version} is not the supported ${TASK_GRAPH_RULES_VERSION}; rebuild the graph from its source`,
       ),
     );
   }

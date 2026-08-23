@@ -61,7 +61,22 @@ export type LoopCyclePorts = {
   runSlotTask: (slot: WaveDispatchSlot) => Promise<boolean>;
 };
 
-export async function runLoopCycle(ports: LoopCyclePorts): Promise<void> {
+/**
+ * Kaip loop'as baigėsi. Vienintelis skirtumas, kurį mato automatika:
+ *
+ *   `finished` — loop'as padarė, ko buvo prašomas: eilė ištuštinta arba operatorius sustabdė.
+ *                Įvykdytas „stop" yra SĖKMĖ, ne gedimas — prašymas buvo išgirstas.
+ *   `blocked`  — loop'as sustojo palikęs darbą ir be žmogaus veiksmo toliau nejudės.
+ *
+ * `reason` čia yra ne tik diagnostika: jis daro kiekvieną naują sustojimo kelią sąmoningu
+ * pasirinkimu. Naujas `return` be `reason` neužsikompiliuos, tad kelias negali tyliai atsirasti
+ * su numatytu „viskas gerai" — būtent taip `wave-exhausted` ir gyveno kaip exit 0.
+ */
+export type LoopCycleOutcome =
+  | { kind: "finished"; reason: "queue-empty" | "stop-requested" }
+  | { kind: "blocked"; reason: "wave-exhausted" | "dirty-tree" | "no-slot-dispatched" };
+
+export async function runLoopCycle(ports: LoopCyclePorts): Promise<LoopCycleOutcome> {
   // Bootstrap bandomas DAUGIAUSIAI kartą per bėgimą: po jo eilė ištuštėja iš naujo, ir be šio
   // skląsčio loop'as bootstrap'intų amžinai, niekada nepasiekdamas galutinio audito.
   let bootstrapAttempted = false;
@@ -83,7 +98,7 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<void> {
   for (;;) {
     if (stopRequested || (await ports.consumeStopRequest())) {
       await stop("LOOP STOP REQUESTED VIA UI; EXITING BETWEEN TASKS", "AG loop stopped by UI request\n");
-      return;
+      return { kind: "finished", reason: "stop-requested" };
     }
 
     // Nutrūkęs darbas pirmiau už eilę: jo attempt'as jau egzistuoja, ir naujo task'o paleidimas
@@ -104,7 +119,7 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<void> {
       const action = await ports.handleEmptyQueue(bootstrapAttempted);
       bootstrapAttempted = true;
       if (action === "continue") continue;
-      return;
+      return { kind: "finished", reason: "queue-empty" };
     }
 
     if (selection.kind === "exhausted") {
@@ -115,7 +130,7 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<void> {
         `LOOP STOP: wave ${selection.plan.wave_id} has no runnable task: ${reasons}`,
         `AG loop sustabdytas: banga ${selection.plan.wave_id} neturi vykdytinu tasku.\nPriezastys: ${reasons}.\n`,
       );
-      return;
+      return { kind: "blocked", reason: "wave-exhausted" };
     }
 
     const dirty = await ports.productTreeDirtyEntries();
@@ -129,7 +144,7 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<void> {
         `AG loop sustabdytas: darbiniame medyje liko ${dirty.length} necommit'intu produkto failu (${preview}).\n` +
           "Sutvarkyk (commit/atstatyk) ir paleisk loop'a is naujo — kitas task'as nebus dispatch'inamas i uztersta medi.\n",
       );
-      return;
+      return { kind: "blocked", reason: "dirty-tree" };
     }
 
     // Operatoriaus valdiklio vartas stovi PRIEŠ `beginTask` sąmoningai: po jo task'as jau turėtų
@@ -181,12 +196,12 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<void> {
           `Task'as ${first?.task_id ?? selection.task.task_id} liko eileje ir nebuvo dispatch'intas.\n` +
           phantomHint,
       );
-      return;
+      return { kind: "blocked", reason: "no-slot-dispatched" };
     }
 
     if (await ports.consumeStopRequest()) {
       await stop("LOOP STOP REQUESTED VIA UI; EXITING BEFORE NEXT DISPATCH", "AG loop stopped by UI request\n");
-      return;
+      return { kind: "finished", reason: "stop-requested" };
     }
 
     // Papildyti slot'ai gimsta UŽ bangos plano ribų, tad jų pasirinkimas neatkuriamas iš

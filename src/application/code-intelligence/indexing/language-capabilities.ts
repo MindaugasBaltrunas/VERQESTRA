@@ -120,6 +120,6 @@ export function indexedCodeExtensions(): Set<string> {
  * `hash` — indeksas laikydavo nebegaliojantį atspaudą ir vis tiek vadindavosi šviežiu.
  *
  * Taisyklė dabar viena ir be išimčių: kas patenka į indeksą, tas patenka ir į jo atspaudą
- * (`scanner.isSourceHashFile`). Atrankos pagal kalbą nebereikia, tad funkcija nebeegzistuoja — o ne
+ * (`scanner.computeSourceHash`). Atrankos pagal kalbą nebereikia, tad funkcija nebeegzistuoja — o ne
  * lieka su vieninteliu kvietėju „dėl visa ko".
  */

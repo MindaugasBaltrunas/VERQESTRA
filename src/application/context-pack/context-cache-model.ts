@@ -62,8 +62,16 @@ const nonEmptyString = z.string().trim().min(1);
  *      be to skirtingos antraštės susiliedavo (`Раздел 2` → `2`). Keičiasi ir tai, KAS patenka į
  *      `spec_fragments`, ir `headingMiss` žymos, tad v5 įrašas grąžintų ne tą fragmentą.
  *      Grynai loginis pakeitimas — `PACK_SEMANTICS_DESCRIPTOR` jo nemato.
+ *  7 — 2026-08-23 RAG auditas 3: BM25 skaidymas tapo Unicode. Iki tol skirtukas buvo `[^a-z0-9_]`,
+ *      tad kirilicos, CJK ir net lietuviški žodžiai subyrėdavo į nieką — užklausa ir tiksliai ją
+ *      atitinkantis dokumentas abu gaudavo 0, ir laimėdavo pirmas nesusijęs kandidatas. Keičiasi
+ *      kandidatų TVARKA pakopos viduje, tad v6 įrašas grąžintų kitaip surikiuotą pack'ą. Grynai
+ *      loginis pakeitimas — `PACK_SEMANTICS_DESCRIPTOR` jo nemato.
+ *
+ *      To paties audito code-index pakeitimai (`codeIndexVersion` 3.6.0 → 4.0.0) šio kėlimo
+ *      NEREIKALAUJA: nuo v5 `code_index` deskriptorius neša indekso versiją ir anuliuoja pats.
  */
-export const CONTEXT_CACHE_VERSION = 6;
+export const CONTEXT_CACHE_VERSION = 7;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.
@@ -98,7 +106,9 @@ export const contextCacheEntrySchema = z
     components: z.record(contextCacheSourceKindSchema, nonEmptyString),
     sources: z.array(contextCacheSourceSchema).default([]),
     // Identity of the code index this pack's code_context was derived from:
-    // `fresh:<source_hash>` or `unused` when the task needed no code context.
+    // `fresh:<indekso versija>:<source_hash>`, arba `unused`, kai užduočiai kodo konteksto
+    // nereikėjo. Versija yra deskriptoriaus DALIS nuo v5 — būtent ji anuliuoja pack'us, sudėtus iš
+    // senesnio indekso, kai failai nepasikeitė.
     code_index: nonEmptyString,
     // The encoded context-pack.json content, byte for byte. Deliberately NOT
     // `nonEmptyString`: that schema trims, which would drop the encoded pack's trailing

@@ -29,6 +29,20 @@ export type ImportEdge = {
 export type AstScanResult = {
   symbols: SymbolRecord[];
   imports: ImportEdge[];
+  /**
+   * KIEKVIENAS nuskenuotas failas su savo sluoksniu — ir tie, kurie neturi nė vieno eksportuoto
+   * simbolio (2026-08-23, RAG auditas 3).
+   *
+   * Iki tol failų sąrašas buvo išvedamas iš simbolių, tad failas be eksportų į `source_files_total`
+   * apskritai nepatekdavo: code-map neturėjo jo mazgo, importai į jį būdavo nutylimi, o aprėptis
+   * vis tiek rodydavo 100 %. Aprėptis, nematanti to, ko trūksta, matuoja pati save.
+   */
+  files: ScannedFile[];
+};
+
+export type ScannedFile = {
+  filePath: string;
+  layer: string;
 };
 
 /**
@@ -61,19 +75,22 @@ export async function scanAstSymbols(
   const ts = await loadTypeScript();
   const symbols: SymbolRecord[] = [];
   const imports: ImportEdge[] = [];
+  const files: ScannedFile[] = [];
   for (const root of roots) {
     const rootDir = path.join(projectRoot, ...root.relativeDir.split("/"));
     for (const absoluteFile of await collectSourceFiles(fs, rootDir)) {
       const relativePath = toPosixPath(path.relative(projectRoot, absoluteFile));
       const layer = layerForSourcePath(relativePath, root);
       const sourceText = await fs.readTextFile(absoluteFile);
+      files.push({ filePath: relativePath, layer });
       symbols.push(...extractSymbolRecords(ts, relativePath, sourceText, layer));
       imports.push(...extractImportEdges(ts, relativePath, sourceText, layer));
     }
   }
   symbols.sort((left, right) => left.filePath.localeCompare(right.filePath) || left.name.localeCompare(right.name));
   imports.sort((left, right) => left.fromFile.localeCompare(right.fromFile) || left.toModule.localeCompare(right.toModule));
-  return { symbols, imports };
+  files.sort((left, right) => left.filePath.localeCompare(right.filePath));
+  return { symbols, imports, files };
 }
 
 async function collectSourceFiles(fs: CodeIntelligenceFileSystemPort, dir: string): Promise<string[]> {
@@ -92,13 +109,23 @@ async function collectSourceFiles(fs: CodeIntelligenceFileSystemPort, dir: strin
   return files;
 }
 
+/**
+ * Skenuojami plėtiniai. JavaScript šeima įtraukta 2026-08-23 (RAG auditas 3): code-index tuos
+ * failus indeksuoja per tą patį AST nuo daugiakalbio praplėtimo, o code-map jų vis dar nematė —
+ * mišriame repo diagrama ir aprėptis rodydavo tik pusę medžio.
+ */
+export const CODE_MAP_SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+
 function isSourceFileName(name: string): boolean {
   if (name.endsWith(".d.ts")) return false;
-  return name.endsWith(".ts") || name.endsWith(".tsx");
+  return CODE_MAP_SOURCE_EXTENSIONS.some((extension) => name.endsWith(extension));
 }
 
 function scriptKindForPath(ts: typeof TypeScriptApi, filePath: string): TypeScriptApi.ScriptKind {
-  return filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (filePath.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (/\.(js|mjs|cjs)$/.test(filePath)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
 }
 
 /**

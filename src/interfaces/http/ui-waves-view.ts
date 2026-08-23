@@ -60,7 +60,15 @@ export type UiWaveRefillDecision = {
   task_id: string;
   granted: boolean;
   reason: string;
-  hard_capped: boolean;
+  /**
+   * KIEK kandidatų nukirsta vien dėl užpildyto limito — SKAIČIUS, ne vėliava.
+   *
+   * Iki 2026-08-23 audito antro rato šis laukas čia buvo `boolean`, nors `wave-snapshot` schema
+   * jį apibrėžia kaip `z.number()`, o `ui-app` tipas — kaip `number`. Reikšmė keliavo pro tipą
+   * nepakeista, tad ekranas rodė teisingai, bet serverio tipas melavo: `hard_capped: 3` čia
+   * atrodė kaip `true`, ir bet kuris būsimas kvietėjas, patikėjęs tipu, būtų praradęs skaičių.
+   */
+  hard_capped: number;
   decided_at: string;
   rejected: UiWaveRejection[];
 };
@@ -116,7 +124,8 @@ export type WavesViewSnapshot = {
               task_id: string;
               granted: boolean;
               reason: string;
-              hard_capped: boolean;
+              /** Snapshot'o schema: `z.number()` — kiek kandidatų nukirsta dėl limito. */
+              hard_capped: number;
               decided_at: string;
               rejected: readonly UiWaveRejection[];
             }[]

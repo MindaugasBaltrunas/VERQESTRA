@@ -6,7 +6,7 @@ import path from "node:path";
 import { toPosixPath } from "../../../shared/paths.js";
 import { sha256Hex } from "../../../shared/hash.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
-import type { ImportEdge, SymbolRecord } from "./ast-symbol-scanner.js";
+import { CODE_MAP_SOURCE_EXTENSIONS, type ImportEdge, type ScannedFile, type SymbolRecord } from "./ast-symbol-scanner.js";
 
 export const GENERATED_CODE_MAP_RELATIVE_PATH = "vq/architecture/generated/code-map.generated.mmd";
 
@@ -34,7 +34,7 @@ const GENERATED_HEADER = [
  */
 export function classIdForFile(filePath: string): string {
   const posix = toPosixPath(filePath);
-  const withoutExtension = posix.replace(/\.(tsx?|jsx?)$/, "");
+  const withoutExtension = posix.replace(/\.(tsx?|jsx?|mjs|cjs)$/, "");
   const sanitized = withoutExtension.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   return `${sanitized.length > 0 ? sanitized : "f"}_${sha256Hex(posix).slice(0, 8)}`;
 }
@@ -63,8 +63,17 @@ type FileBlock = {
   records: SymbolRecord[];
 };
 
-function groupSymbolsByFile(symbols: SymbolRecord[]): FileBlock[] {
+/**
+ * Failų blokai. Pradedama nuo NUSKENUOTŲ failų, o ne nuo simbolių (2026-08-23, RAG auditas 3):
+ * failas be eksportuotų deklaracijų (pvz. vien šalutinius efektus vykdantis bootstrap'as ar
+ * re-eksportų barrel'is) diagramoje neturėdavo mazgo, tad ir importai į jį dingdavo be pėdsako.
+ * Toks failas dabar gauna tuščią bloką — matomą, bet be narių.
+ */
+function groupSymbolsByFile(symbols: SymbolRecord[], files: ScannedFile[]): FileBlock[] {
   const byFile = new Map<string, FileBlock>();
+  for (const file of files) {
+    byFile.set(file.filePath, { filePath: file.filePath, layer: file.layer, records: [] });
+  }
   for (const record of symbols) {
     const existing = byFile.get(record.filePath);
     if (existing) {
@@ -115,12 +124,14 @@ export function resolveImportTarget(
 ): string | null {
   if (!toModule.startsWith(".")) return null;
   const fromDir = path.posix.dirname(toPosixPath(fromFile));
-  const resolvedBase = toPosixPath(path.posix.normalize(path.posix.join(fromDir, toModule))).replace(/\.(tsx?|jsx?)$/, "");
+  const resolvedBase = toPosixPath(path.posix.normalize(path.posix.join(fromDir, toModule))).replace(
+    /\.(tsx?|jsx?|mjs|cjs)$/,
+    "",
+  );
+  // Tiesioginis failas visada tikrinamas PIRMIAU už `index` — kaip ir Node rezoliucijoje.
   const candidates = [
-    `${resolvedBase}.ts`,
-    `${resolvedBase}.tsx`,
-    `${resolvedBase}/index.ts`,
-    `${resolvedBase}/index.tsx`,
+    ...CODE_MAP_SOURCE_EXTENSIONS.map((extension) => `${resolvedBase}${extension}`),
+    ...CODE_MAP_SOURCE_EXTENSIONS.map((extension) => `${resolvedBase}/index${extension}`),
   ];
   for (const candidate of candidates) {
     if (knownFiles.has(candidate)) return candidate;
@@ -146,8 +157,8 @@ function renderImportEdges(imports: ImportEdge[], knownFiles: ReadonlySet<string
 }
 
 /** Pure Mermaid `classDiagram` generation from AST-scanned symbols/imports; no filesystem access. */
-export function generateCodeMapMermaid(symbols: SymbolRecord[], imports: ImportEdge[]): string {
-  const files = groupSymbolsByFile(symbols);
+export function generateCodeMapMermaid(symbols: SymbolRecord[], imports: ImportEdge[], scanned: ScannedFile[] = []): string {
+  const files = groupSymbolsByFile(symbols, scanned);
   const knownFiles = new Set(files.map((file) => file.filePath));
   const byLayer = groupFilesByLayer(files);
   const layers = [...byLayer.keys()].sort();
@@ -180,8 +191,9 @@ export async function writeGeneratedCodeMap(
   projectRoot: string,
   symbols: SymbolRecord[],
   imports: ImportEdge[],
+  scanned: ScannedFile[] = [],
 ): Promise<string> {
-  const mermaid = generateCodeMapMermaid(symbols, imports);
+  const mermaid = generateCodeMapMermaid(symbols, imports, scanned);
   const outputPath = path.join(projectRoot, ...GENERATED_CODE_MAP_RELATIVE_PATH.split("/"));
   await fs.makeDirectory(path.dirname(outputPath));
   await fs.writeTextFileAtomic(outputPath, mermaid);

@@ -11,6 +11,7 @@
 // Antra taisyklė: klaidos ŽINUTĖ į klientą patenka tik tada, kai ji yra apie jo įvestį. Vidinės
 // detalės (keliai, stack, lease ir savininko id su PID) lieka serverio pusėje.
 
+import { ZodError } from "zod";
 import { InvalidUploadError, UploadTooLargeError } from "./task-upload.js";
 import {
   InvalidTaskReferenceError,
@@ -18,6 +19,13 @@ import {
   TaskBucketConflictError,
   TaskNotFoundError,
 } from "./ui-task-actions.js";
+import { InvalidLoopControlError } from "../../application/scheduling/loop-control-store.js";
+import { InvalidWorkerRequestError } from "../../application/scheduling/worker-request-store.js";
+import { UnsupportedPolicyFileError } from "../../application/policy-governance/policy-file-registry.js";
+import {
+  HumanReviewApprovalRequiredError,
+  ProposalNotApprovedError,
+} from "../../application/policy-governance/policy-proposal-service.js";
 
 export type HttpErrorResponse = {
   status: number;
@@ -94,4 +102,39 @@ export function mapPolicyError(kind: PolicyErrorKind | undefined, message: strin
     default:
       return INTERNAL_ERROR_RESPONSE;
   }
+}
+
+/**
+ * Governance klaidos klasė → `PolicyErrorKind`.
+ *
+ * Iki 2026-08-23 UI audito `mapPolicyError` neturėjo NĖ VIENO kvietėjo: politikų maršrutai buvo
+ * prijungti prie žalio append-only žurnalo, tad kiekvienas approve/reject/apply grįždavo 500, o
+ * human-review vartai net nebuvo pasiekiami. Klasių atpažinimas gyvena čia, kad HTTP statusas
+ * ir domain klaida turėtų VIENĄ susiejimo vietą.
+ */
+export function mapPolicyDecisionError(error: unknown): HttpErrorResponse {
+  if (error instanceof UnsupportedPolicyFileError) return mapPolicyError("unsupported-file", error.message);
+  if (error instanceof ProposalNotApprovedError) return mapPolicyError("not-approved", error.message);
+  if (error instanceof HumanReviewApprovalRequiredError) return mapPolicyError("human-review-required", error.message);
+  // NUKRYPIMAS nuo etalono, griežtinantis: etalone schemos klaida krisdavo į bendrą 500. Bet
+  // `requested_value: "error"` ten, kur leidžiami tik `advisory|warn|block`, yra VARTOTOJO
+  // klaida — ta pati klasė, kurią įvardija šio modulio pirmoji taisyklė. 500 nukreiptų
+  // operatorių ieškoti serverio gedimo vietoje netinkamos reikšmės.
+  if (error instanceof ZodError) {
+    return jsonError(400, error.issues.map((issue) => issue.message).join("; ") || "invalid policy value");
+  }
+  return INTERNAL_ERROR_RESPONSE;
+}
+
+/**
+ * Runtime valdiklių įvesties klaidos: `requested` ne 1–2, nežinomas slot'as, netinkamas režimas.
+ *
+ * Visos jos yra VARTOTOJO klaidos, tad 400 su serverio paaiškinimu. Iki šio atvaizdžio jos
+ * krisdavo į bendrą 500 („Internal server error"), ir operatorius matydavo serverio gedimą ten,
+ * kur realiai buvo netinkama reikšmė.
+ */
+export function mapRuntimeControlError(error: unknown): HttpErrorResponse {
+  if (error instanceof InvalidWorkerRequestError) return jsonError(400, error.message);
+  if (error instanceof InvalidLoopControlError) return jsonError(400, error.message);
+  return INTERNAL_ERROR_RESPONSE;
 }

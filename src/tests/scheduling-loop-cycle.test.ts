@@ -244,3 +244,54 @@ test("ATŠAUKTAS slot'as „ENDED NONZERO“ eilutės NEGAUNA", async () => {
   // Task'ą iš eilės išėmė kitas mechanizmas be jokio bandymo — nesėkmės signalas būtų klaidingas.
   assert.equal(w.logs.some((line) => line.includes("ENDED NONZERO")), false);
 });
+
+// EXIT KONTRAKTAS (operatoriaus sprendimas 2026-08-23; anksčiau `runLoopCommand` grąžindavo
+// besąlyginį `0`). Tikrinama BAIGTIS, ne exit kodas: kodo pavertimas gyvena kompozicijoje ir yra
+// viena eilutė, o čia sprendžiamas tikrasis klausimas — ar loop'as darbą baigė, ar jį paliko.
+//
+// Kiekvienas sustojimo kelias turi savo atvejį SĄMONINGAI: būtent „naujas kelias tyliai paveldi
+// numatytą sėkmę" ir buvo pati klaida. Atvejo nebuvimas naujam keliui dabar matomas kaip spraga.
+
+test("baigtas darbas: tuščia eilė ir operatoriaus stop yra SĖKMĖ", async () => {
+  const emptied = await runLoopCycle(world({ emptyAction: "exit" }).ports);
+  assert.deepEqual(emptied, { kind: "finished", reason: "queue-empty" });
+
+  const stoppedEarly = await runLoopCycle(world({ stops: [true], selections: [taskSelection()] }).ports);
+  assert.deepEqual(stoppedEarly, { kind: "finished", reason: "stop-requested" }, "įvykdytas prašymas nėra gedimas");
+
+  const stoppedLate = await runLoopCycle(world({ stops: [false, true], selections: [taskSelection()] }).ports);
+  assert.deepEqual(stoppedLate, { kind: "finished", reason: "stop-requested" }, "antras stop vartas — ta pati baigtis");
+});
+
+test("išsekusi banga yra BLOKAS: eilė ne tuščia, o judėti nebėra kur", async () => {
+  const w = world({
+    selections: [{ kind: "exhausted", plan: taskSelection().plan, reason: "all-blocked", detail: "0002 laukia 0001" }],
+  });
+  const outcome = await runLoopCycle(w.ports);
+
+  assert.deepEqual(outcome, { kind: "blocked", reason: "wave-exhausted" });
+  assert.deepEqual(w.ran, [], "blokuoti task'ai SĄMONINGAI lieka eilėje");
+  // Priežastis privalo pasiekti operatorių: exit kodas neša tik dvejetainį atsakymą.
+  assert.ok(w.out.some((line) => line.includes("neturi vykdytinu tasku")));
+});
+
+test("užterštas medis yra BLOKAS", async () => {
+  const outcome = await runLoopCycle(world({ selections: [taskSelection()], dirty: [{ path: "src/a.ts" }] }).ports);
+  assert.deepEqual(outcome, { kind: "blocked", reason: "dirty-tree" });
+});
+
+test("nedispatch'intas slot'as yra BLOKAS", async () => {
+  const outcome = await runLoopCycle(world({ selections: [taskSelection()], control: control("drain") }).ports);
+  assert.deepEqual(outcome, { kind: "blocked", reason: "no-slot-dispatched" });
+});
+
+test("fantomas eilės NEBLOKUOJA — jis nėra loop'o baigtis", async () => {
+  // Fantomas pažymi vieną task'ą nevykdytinu ir leidžia ciklui suktis toliau; jei jis būtų
+  // paverstas bloku, vienas sugedęs izoliacijos įrodymas sustabdytų visą eilę.
+  const phantom = taskSelection({ phantom: [{ worker_id: "w1", task_id: "0001", reason: "no-lease" }] as never });
+  const w = world({ selections: [phantom] });
+  const outcome = await runLoopCycle(w.ports);
+
+  assert.deepEqual(w.blocked, ["0001"], "task'as pažymėtas nevykdytinu");
+  assert.equal(outcome.kind, "finished", "o pats loop'as pasiekė tuščią eilę");
+});

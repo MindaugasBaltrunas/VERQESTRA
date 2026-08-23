@@ -6,6 +6,7 @@
 
 import path from "node:path";
 import { computeSourceHash, scanProjectFiles } from "../../application/code-intelligence/indexing/scanner.js";
+import { createManifest as createCodeIndexManifest } from "../../application/code-intelligence/store/code-index-store.js";
 import {
   codeIndexVersion,
   type CodeIndexData,
@@ -78,6 +79,11 @@ export async function checkCodeIndexFreshness(projectRoot: string, runtimeRoot: 
   return { ok: true, manifest: currentManifest };
 }
 
+/**
+ * Manifestas statomas APPLICATION sluoksnio gamintoju, o ne antra kopija (2026-08-23, RAG
+ * auditas 3): jis vienintelis skaičiuoja `records_hash`, ir dvi manifesto formos šaltinio versijos
+ * reikštų, kad viena jų anksčiau ar vėliau atsiliks — būtent taip ir nutiko.
+ */
 export function createManifest(
   projectRoot: string,
   files: CodeIndexFile[],
@@ -85,15 +91,7 @@ export function createManifest(
   edges: CodeIndexEdge[],
   sourceHash: string,
 ): CodeIndexManifest {
-  return {
-    version: codeIndexVersion,
-    generated_at: new Date().toISOString(),
-    project_root: path.resolve(projectRoot),
-    file_count: files.length,
-    symbol_count: symbols.length,
-    edge_count: edges.length,
-    source_hash: sourceHash,
-  };
+  return createCodeIndexManifest(projectRoot, files, symbols, edges, sourceHash);
 }
 
 async function writeJsonl(filePath: string, values: unknown[]): Promise<void> {

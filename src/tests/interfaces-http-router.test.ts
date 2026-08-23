@@ -54,11 +54,11 @@ function routerWorld(): RouterWorld {
   const ports: UiRouterPorts = {
     dashboardData: (token) => record("dashboard", { token }),
     listPolicyProposals: () => record("proposals", { proposals: [] }),
-    proposePolicyChange: (body) => record("propose", { proposal: body }),
-    decidePolicyProposal: (verb, body) => record(`decide:${verb}`, { verb, body }),
+    proposePolicyChange: (group, input) => record(`propose:${group}`, { proposal: { group, ...input } }),
+    decidePolicyProposal: (verb, input) => record(`decide:${verb}`, { verb, input }),
     tokenUsage: (query) => record("token-usage", { model: query.get("model") }),
     tokenAnalytics: () => record("token-analytics", {}),
-    reliabilityAnalytics: () => record("reliability", {}),
+    reliabilityAnalytics: (fresh) => record(`reliability:${fresh ? "fresh" : "cached"}`, {}),
     benchmarkReport: () => record("benchmark", {}),
     workflowBuckets: () => record("tasks", []),
     workflowBucketTasks: (bucket) =>
@@ -71,6 +71,8 @@ function routerWorld(): RouterWorld {
     uploadQueueFiles: () => record("upload", world.uploadResult),
     ensureLoopRunning: () => record("loop-start", world.loopResult),
     requestLoopStop: () => record("loop-stop", { status: "stop-requested" }),
+    drainAllSlots: () => record("drain", { slots: { w1: { mode: "drain" }, w2: { mode: "drain" } } }),
+    resetLoopControl: () => record("reset-control", { slots: { w1: { mode: "run" }, w2: { mode: "run" } } }),
     setRequestedWorkers: (body) => record("workers", body),
     setSlotMode: (workerId, body) => record(`slot:${workerId}`, body),
     applyTaskTriage: (action, reference) => record(`triage:${action}`, { action, reference }),

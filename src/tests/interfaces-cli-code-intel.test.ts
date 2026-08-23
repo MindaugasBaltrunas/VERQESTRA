@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
-import { codeIndexPath } from "../application/code-intelligence/store/code-index-store.js";
+import { codeIndexPath, computeRecordsHash } from "../application/code-intelligence/store/code-index-store.js";
 import { computeSourceHash } from "../application/code-intelligence/indexing/scanner.js";
 import { codeIndexVersion } from "../application/code-intelligence/indexing/types.js";
 import type { PolicyConfigFileSystemPort } from "../application/policy-governance/ports.js";
@@ -99,6 +99,9 @@ async function makeIndexedFs(): Promise<Map<string, string>> {
     symbol_count: symbols.length,
     edge_count: edges.length,
     source_hash: sourceHash,
+    // Įrašų turinio atspaudas — privalomas nuo 2026-08-23 (RAG auditas 3): be jo saugykla gali būti
+    // redaguota išlaikant kiekius, ir vartas to nepamato.
+    records_hash: computeRecordsHash(indexFiles as never, symbols as never, edges as never),
   };
   files.set(norm(codeIndexPath(ROOT, "manifest.json")), JSON.stringify(manifest));
   files.set(norm(codeIndexPath(ROOT, "files.jsonl")), jsonl(indexFiles));

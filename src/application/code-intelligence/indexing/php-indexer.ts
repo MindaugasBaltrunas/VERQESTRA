@@ -21,7 +21,17 @@ import type { LanguageIndexResult } from "./language-indexer-model.js";
  */
 export type Psr4Map = ReadonlyMap<string, readonly string[]>;
 
-const USE_STATEMENT = /^[ \t]*use[ \t]+(function[ \t]+|const[ \t]+)?([A-Za-z_\\][A-Za-z0-9_\\]*)/gm;
+/**
+ * `use` sakinys iki kabliataškio — VISAS, o ne pirmas vardas (2026-08-23, RAG auditas 3).
+ *
+ * Standartas leidžia tris formas, o senasis šablonas atpažindavo tik pirmąją:
+ *   `use Vendor\One;`                    — vienas vardas;
+ *   `use Vendor\One, Vendor\Two;`        — keli vardai (antrasis dingdavo);
+ *   `use Vendor\Package\{One, Two};`     — grupinis (virsdavo `Vendor\Package\`, t. y. nesamu vardu).
+ *
+ * Kabliataškis yra tikra riba: `blankOutNoise` jau ištrynė komentarus ir literalus.
+ */
+const USE_STATEMENT = /^[ \t]*use[ \t]+([^;{]*(?:\{[^}]*\})?[^;]*);/gm;
 const REQUIRE_STATEMENT = /\b(?:require|require_once|include|include_once)\b/g;
 const DECLARATION = /^[ \t]*(?:(abstract|final)[ \t]+)?(class|interface|trait|enum|function)[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
 const CONST_DECLARATION = /^[ \t]*const[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
@@ -45,9 +55,9 @@ export function indexPhpSource(
   const imports = new Set<string>();
 
   for (const match of clean.matchAll(USE_STATEMENT)) {
-    const target = (match[2] ?? "").replace(/^\\/, "");
-    if (!target) continue;
-    imports.add(resolvePsr4(target, psr4, knownPaths) ?? target);
+    for (const target of expandUseTargets(match[1] ?? "")) {
+      imports.add(resolvePsr4(target, psr4, knownPaths) ?? target);
+    }
   }
 
   // `require`/`include` argumentas beveik visada yra išraiška (`__DIR__ . '/x.php'`), o eilučių
@@ -99,6 +109,32 @@ export function indexPhpSource(
     symbols,
     edges: [],
   };
+}
+
+/**
+ * `use` sakinio kūnas → pilnai kvalifikuoti vardai.
+ *
+ * Nuimami `function`/`const` kvalifikatoriai ir `as Alias` (importas yra TAIKINYS, ne alias'as),
+ * išskleidžiama grupinė forma `Prefix\{One, Two}` ir kableliais atskirtas sąrašas.
+ */
+function expandUseTargets(body: string): string[] {
+  // `function`/`const` gali stovėti ir prieš grupę (`use function Vendor\{a, b};`), tad nuimamas
+  // pirmiau, nei tikrinama grupinė forma.
+  const normalized = body.trim().replace(/^(?:function|const)[ \t]+/, "");
+  const group = /^([A-Za-z_\\][A-Za-z0-9_\\]*\\)\{([^}]*)\}$/.exec(normalized);
+  const parts = group
+    ? (group[2] ?? "").split(",").map((entry) => `${group[1] ?? ""}${entry.trim()}`)
+    : normalized.split(",");
+  return parts
+    .map((entry) =>
+      entry
+        .trim()
+        .replace(/^(?:function|const)[ \t]+/, "")
+        .replace(/[ \t]+as[ \t]+[A-Za-z_][A-Za-z0-9_]*$/i, "")
+        .replace(/^\\/, "")
+        .trim(),
+    )
+    .filter((entry) => /^[A-Za-z_][A-Za-z0-9_\\]*$/.test(entry));
 }
 
 /**

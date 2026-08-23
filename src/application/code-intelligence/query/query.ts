@@ -46,7 +46,12 @@ export function queryCodeGraphData(
   // pažinojo tik TypeScript'ą. Po daugiakalbio praplėtimo jis tyliai išmesdavo KIEKVIENĄ Python,
   // PHP, C# ir net JavaScript testą: `testedBy` briauna egzistuodavo, o `impacted_tests` grįždavo
   // tuščias. Filtro nereikia iš principo — briaunos tipas jau sako, kad taikinys yra testas.
-  const impactedTests = relatedTargets(data, targetFiles, "testedBy", "out");
+  //
+  // NETIESIOGINIAI testai (2026-08-23, RAG auditas 3): `testedBy` briauna gimsta ten, kur testas
+  // realiai importuoja. Grandinėje `core.ts → index.ts → behavior.test.ts` ji priklauso `index.ts`,
+  // tad užklausa apie `core.ts` grąžindavo TUŠČIĄ sąrašą — o barrel'is arba tarpinis servisas yra
+  // ne išimtis, o įprasta forma. Testai ieškomi ir per importuotojų uždarinį.
+  const impactedTests = relatedTargets(data, importerClosure(data, targetFiles), "testedBy", "out");
   const exportedSymbols = Array.from(
     new Set(data.symbols.filter((symbol) => targetFiles.has(symbol.file) && symbol.exported).map((symbol) => symbol.id)),
   ).sort();
@@ -61,6 +66,32 @@ export function queryCodeGraphData(
     related_files: relatedFiles,
     impacted_tests: impactedTests,
   };
+}
+
+/**
+ * Kiek importuotojų sluoksnių įskaitoma ieškant netiesioginių testų.
+ *
+ * Riba yra, nes uždarinys be ribos bet kokį `shared/` pakeitimą paverstų „paliesti visi repo
+ * testai" — teisinga, bet kaip RAG kontekstas bevertė. Trys sluoksniai dengia realias formas:
+ * barrel'į (`core → index → test`), tarpinį servisą ir jų derinį.
+ */
+export const IMPACTED_TEST_IMPORTER_DEPTH = 3;
+
+/** Taikiniai + juos (netiesiogiai) importuojantys failai iki `IMPACTED_TEST_IMPORTER_DEPTH`. */
+function importerClosure(data: CodeIndexData, targetFiles: ReadonlySet<string>): Set<string> {
+  const reached = new Set(targetFiles);
+  let frontier = new Set(targetFiles);
+  for (let depth = 0; depth < IMPACTED_TEST_IMPORTER_DEPTH && frontier.size > 0; depth += 1) {
+    const next = new Set<string>();
+    for (const edge of data.edges) {
+      if (edge.type === "imports" && frontier.has(edge.to) && !reached.has(edge.from)) {
+        reached.add(edge.from);
+        next.add(edge.from);
+      }
+    }
+    frontier = next;
+  }
+  return reached;
 }
 
 function relatedTargets(

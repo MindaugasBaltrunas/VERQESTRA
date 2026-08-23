@@ -10,22 +10,9 @@
 // kristi garsiai, nes tylus „nepavyko" ten reikštų operatoriaus paspaustą mygtuką be pasekmės.
 
 import path from "node:path";
-import { buildReliabilityAnalytics } from "../../application/learning/reliability-report.js";
 import { decideLearningRecommendation } from "../../application/learning/learning-memory.js";
-import {
-  parseTokenUsageSummaryLines,
-  summarizeTokenUsage,
-  summarizeTokenUsageByModel,
-} from "../../application/analytics/token-usage-summary.js";
-import { readBenchmarkReportView } from "../../application/benchmark/suite-report-view.js";
-import { setSlotMode } from "../../application/scheduling/loop-control-store.js";
+import { drainAllSlots, resetLoopControl, setSlotMode } from "../../application/scheduling/loop-control-store.js";
 import { setRequestedWorkers } from "../../application/scheduling/worker-request-store.js";
-import { tokenAnalyticsSnapshotPath } from "../../application/learning/token-analytics-snapshot.js";
-import {
-  appendPolicyProposal,
-  readPolicyProposals,
-  type PolicyProposalsFsPort,
-} from "../../application/policy-governance/policy-proposals-log.js";
 import { buildDashboardView } from "../../interfaces/http/ui-dashboard-view.js";
 import { buildWavesView, normalizeEventLimit } from "../../interfaces/http/ui-waves-view.js";
 import { loadWorkflowBuckets, loadWorkflowBucketTasks, openTaskBucketFolder } from "../../interfaces/http/workflow-buckets.js";
@@ -33,14 +20,11 @@ import { applyTaskTriage } from "../../interfaces/http/ui-task-actions.js";
 import { uploadQueueMarkdownFiles } from "../../interfaces/http/task-upload.js";
 import { ensureLoopRunning, requestLoopStop } from "../../interfaces/http/loop-lifecycle.js";
 import type { UiRouterPorts } from "../../interfaces/http/ui-router.js";
-import { currentCommitResolver, gitLogNumstat, gitStatusPorcelain } from "../../infrastructure/git/git-client.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
-import { readSessionFileKinds, readSessionWrites } from "../../infrastructure/state/session-activity.js";
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
 import { readWaveSnapshot, waveSnapshotExists } from "../../infrastructure/state/wave-snapshot-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { runIgnoredProcess } from "../../infrastructure/process/process-tree.js";
-import { tryParseJson } from "../../shared/json.js";
 import { clearTaskLedgerEntry } from "../../application/task-execution/task-ledger-service.js";
 import { authorizeWorkerRuntimeMutation } from "../../application/scheduling/worker-lease-runtime.js";
 import { recordLlmCallReset } from "../../application/token-governance/tool-budget-gates.js";
@@ -49,6 +33,8 @@ import { contextPackFs } from "../quality/readiness-adapters.js";
 import { schedulingFs } from "../loop/adapters.js";
 import { processLifecyclePorts } from "./lifecycle-adapters.js";
 import { dashboardViewPorts } from "./dashboard-adapters.js";
+import { benchmarkReport, reliabilityAnalytics, tokenAnalytics, tokenUsageQuery } from "./analytics-adapters.js";
+import { decidePolicyProposal, listPolicyProposals, proposePolicyChange } from "./policy-adapters.js";
 import { homedir } from "node:os";
 
 export type UiRouterAdapterInput = {
@@ -58,13 +44,6 @@ export type UiRouterAdapterInput = {
   /** React dist katalogas; `undefined`, kai statinių failų nėra. */
   staticDir?: string;
   logError(message: string): void;
-};
-
-/** Pasiūlymų žurnalo portas: skaitymas plius append su katalogo sukūrimu. */
-const policyProposalsFs: PolicyProposalsFsPort = {
-  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
-  appendTextFile: (absolutePath, text) => nodeFsAdapter.appendTextFile(absolutePath, text),
-  makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
 };
 
 /** Bucket'ų portai: sąrašas plius katalogo atidarymas operatoriaus aplinkoje. */
@@ -107,47 +86,17 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
         runtimeRoot: input.runtimeRoot,
         agRoot: input.agRoot,
       }),
-    listPolicyProposals: () => readPolicyProposals(policyProposalsFs, input.runtimeRoot),
-    // Pasiūlymas ir sprendimas rašomi TUO PAČIU append-only keliu: registras yra ŽURNALAS, o ne
-    // būsena, tad „patvirtinta" yra dar vienas įrašas, ne ankstesnio perrašymas.
-    proposePolicyChange: (body) => appendPolicyProposal(policyProposalsFs, input.runtimeRoot, body as never),
-    decidePolicyProposal: (verb, body) =>
-      appendPolicyProposal(policyProposalsFs, input.runtimeRoot, { ...(body as object), verb } as never),
+    // Politikų governance eina per TĄ PATĮ use-case sluoksnį kaip CLI: `apply` realiai įrašo
+    // politikos failą, o `ProposalNotApproved`/`HumanReviewApprovalRequired` vartai yra KELYJE, o
+    // ne šalia jo (žr. `policy-adapters`).
+    listPolicyProposals: () => listPolicyProposals(input.runtimeRoot),
+    proposePolicyChange: (group, proposal) => proposePolicyChange(input.runtimeRoot, group, proposal),
+    decidePolicyProposal: (verb, decision) => decidePolicyProposal(input.runtimeRoot, verb, decision),
 
-    tokenUsage: async (query) => {
-      const raw = await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "logs", "token-usage.jsonl"));
-      const lines = parseTokenUsageSummaryLines(raw);
-      // `?by=model` yra ATSKIRA suvestinė, o ne filtras: fazės ir modelio pjūviai sumuoja tuos
-      // pačius įrašus skirtingais raktais, ir jų maišymas duotų dvigubai suskaičiuotus tokenus.
-      return query.get("by") === "model" ? summarizeTokenUsageByModel(lines) : summarizeTokenUsage(lines);
-    },
-    tokenAnalytics: async () => {
-      const raw = await nodeFsAdapter.readTextFileIfExists(tokenAnalyticsSnapshotPath(input.runtimeRoot));
-      if (raw === undefined) return null;
-      const parsed = tryParseJson<unknown>(raw);
-      // Sugadintas snapshot'as → `null`, ne 500: analitika yra papildoma dashboard'o eilutė.
-      return parsed.ok ? parsed.value : null;
-    },
-    reliabilityAnalytics: () =>
-      buildReliabilityAnalytics(
-        {
-          fs: learningFs,
-          gitLog: (sinceDays) => gitLogNumstat(input.projectRoot, sinceDays),
-          gitStatusPorcelain: () => gitStatusPorcelain(input.projectRoot),
-          sessionWrites: () => readSessionWrites(input.runtimeRoot),
-          sessionFileKinds: () => readSessionFileKinds(input.runtimeRoot),
-        },
-        { runtimeRoot: input.runtimeRoot },
-      ),
-    benchmarkReport: () =>
-      readBenchmarkReportView(
-        {
-          statPath: (absolutePath) => nodeFsAdapter.statPath(absolutePath),
-          readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
-          listDirectory: (absoluteDir) => nodeFsAdapter.listDirectory(absoluteDir),
-        },
-        { projectRoot: input.projectRoot, currentAgCommit: currentCommitResolver },
-      ),
+    tokenUsage: (query) => tokenUsageQuery(input, query),
+    tokenAnalytics: () => tokenAnalytics(input),
+    reliabilityAnalytics: (fresh) => reliabilityAnalytics(input, fresh),
+    benchmarkReport: () => benchmarkReport(input),
 
     workflowBuckets: () => loadWorkflowBuckets(workflowBucketPorts, input.agRoot),
     workflowBucketTasks: (bucket) => loadWorkflowBucketTasks(workflowBucketPorts, input.agRoot, bucket),
@@ -184,6 +133,11 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
 
     ensureLoopRunning: () => ensureLoopRunning(lifecycle),
     requestLoopStop: () => requestLoopStop(lifecycle),
+    // „Stop" ir „Start" liečia DU dalykus: proceso vėliavą ir slot'ų valdiklį. Palikus valdiklį
+    // nepaliestą, po „Stop" srautai ekrane liktų `run`, o po „Start" senas `drain` priverstų ką
+    // tik paleistą loop'ą atsisakyti pirmo task'o.
+    drainAllSlots: () => drainAllSlots({ fs: schedulingFs }, stateDir),
+    resetLoopControl: () => resetLoopControl({ fs: schedulingFs }, stateDir),
     setRequestedWorkers: (body) => setRequestedWorkers({ fs: schedulingFs }, stateDir, body),
     setSlotMode: (workerId, body) => setSlotMode({ fs: schedulingFs }, stateDir, workerId, body),
 

@@ -334,11 +334,11 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
         return 2;
       }
 
-      const { symbols, imports } = await scanAstSymbols(deps.codeFs, projectRoot);
+      const { symbols, imports, files: scannedFiles } = await scanAstSymbols(deps.codeFs, projectRoot);
       let mermaidContent: string;
       if (doWrite) {
-        await writeGeneratedCodeMap(deps.codeFs, projectRoot, symbols, imports);
-        mermaidContent = generateCodeMapMermaid(symbols, imports);
+        await writeGeneratedCodeMap(deps.codeFs, projectRoot, symbols, imports, scannedFiles);
+        mermaidContent = generateCodeMapMermaid(symbols, imports, scannedFiles);
       } else {
         const codeMapPath = path.join(projectRoot, ...GENERATED_CODE_MAP_RELATIVE_PATH.split("/"));
         const existing = await deps.codeFs.readTextFile(codeMapPath).catch(() => undefined);
@@ -346,7 +346,11 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
         mermaidContent = existing;
       }
 
-      const coverage = computeCodeMapCoverage(symbols, mermaidContent);
+      const coverage = computeCodeMapCoverage(
+        symbols,
+        mermaidContent,
+        scannedFiles.map((file) => file.filePath),
+      );
       const coveragePath = await writeCodeMapCoverage(deps.codeFs, projectRoot, coverage);
 
       if (asJson) {

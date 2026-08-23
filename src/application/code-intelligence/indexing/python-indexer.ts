@@ -22,11 +22,12 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
   const clean = blankOutNoise(text, "hash", PYTHON_QUOTES);
   const offsets = lineIndex(clean);
   const imports = new Set<string>();
+  const roots = pythonRoots(knownPaths);
 
   for (const match of clean.matchAll(IMPORT_PLAIN)) {
     for (const part of splitList(match[1] ?? "")) {
       const module = part.split(/\s+as\s+/)[0]?.trim() ?? "";
-      if (module) imports.add(resolveAbsolute(module, knownPaths) ?? module);
+      if (module) imports.add(resolveAbsolute(module, knownPaths, roots) ?? module);
     }
   }
 
@@ -34,7 +35,7 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
     const dots = (match[1] ?? "").length;
     const module = (match[2] ?? "").trim();
     if (dots === 0) {
-      if (module) imports.add(resolveAbsolute(module, knownPaths) ?? module);
+      if (module) imports.add(resolveAbsolute(module, knownPaths, roots) ?? module);
       continue;
     }
     const resolved = resolveRelative(file.path, dots, module, knownPaths);
@@ -81,7 +82,7 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
       name,
       kind,
       exported,
-      line: lineAt(offsets, start),
+      line: lineAt(offsets, decoratedStart(clean, start)),
       endLine: lineAt(offsets, blockEnd(clean, start, matches, position)),
     });
   }
@@ -93,30 +94,55 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
   };
 }
 
+/** Failai, kurių buvimas kataloge daro jį Python paketo šaknimi (`sys.path` įrašu). */
+const PYTHON_ROOT_MARKERS = ["pyproject.toml", "setup.py", "setup.cfg", "tox.ini"];
+
 /**
- * Absoliutus importas → repo kelias, kai jis VIENAREIKŠMIS (2026-08-23, operatoriaus radinys).
+ * Katalogai, nuo kurių absoliutus importas gali prasidėti.
  *
- * Iki tol `from app.models import X` likdavo tekstiniu `app.models`, net kai `app/models.py`
- * projekte egzistavo. Pagrindimas buvo „be `sys.path` spėti reikštų išgalvoti briauną" — ir jis
- * teisingas TIK tada, kai kandidatų daugiau nei vienas. Kai failas indekse yra vienas, tai nebe
- * spėjimas, o įrodymas, ir briaunos atsisakymas praranda tikrą ryšį.
+ * Visada įskaitoma repo šaknis (`""`) — taip Python elgiasi paleistas iš projekto katalogo — plius
+ * kiekvienas katalogas, kuriame guli projekto manifestas, ir konvencinis `src/`, jei jis egzistuoja.
+ */
+function pythonRoots(knownPaths: ReadonlySet<string>): string[] {
+  const roots = new Set<string>([""]);
+  for (const candidate of knownPaths) {
+    const slash = candidate.lastIndexOf("/");
+    const directory = slash === -1 ? "" : candidate.slice(0, slash);
+    const name = candidate.slice(slash + 1);
+    if (PYTHON_ROOT_MARKERS.includes(name)) roots.add(directory);
+    if (candidate.startsWith("src/")) roots.add("src");
+  }
+  return [...roots];
+}
+
+/**
+ * Absoliutus importas → repo kelias, kai jis prasideda nuo PAKETO ŠAKNIES.
  *
- * Dviprasmybė (`app/models.py` IR `src/app/models.py`) atmetama — ta pati taisyklė kaip kanoninėje
- * `resolveTaskNode` rezoliucijoje: tyli teisinga atsakymo pusė čia yra „nežinau".
+ * 2026-08-23 (RAG auditas 3): iki tol tiko bet koks kelio SUFIKSAS, jei jis repo buvo vienintelis.
+ * Todėl `import json` būdavo susiejamas su `src/infrastructure/json.py` — vien todėl, kad kito failo
+ * tokiu vardu nėra. Tai ne įrodymas: `src/infrastructure` nėra `sys.path` įrašas, ir tikrasis
+ * `import json` ima standartinę biblioteką. Reprodukcijoje toks ryšys sukūrė NETIKRĄ architektūros
+ * pažeidimą — blogiau nei praleistas ryšys, nes jis reikalauja veiksmo.
+ *
+ * Rooting'as tą pataiso be jokių sąrašų: `json.py` laikomas importuojamu tik tada, kai jis realiai
+ * guli šaknyje, kur Python jį ir rastų — o tada jis stdlib tikrai ir uždengia.
  *
  * Ieškoma ir pakuotės (`app/models/__init__.py`), nes `import app.pkg` nurodo būtent ją.
  */
-function resolveAbsolute(module: string, knownPaths: ReadonlySet<string>): string | undefined {
+function resolveAbsolute(module: string, knownPaths: ReadonlySet<string>, roots: readonly string[]): string | undefined {
   if (module === "") return undefined;
   const base = module.split(".").join("/");
 
-  const matches: string[] = [];
+  const matches = new Set<string>();
   for (const suffix of [`${base}.py`, `${base}/__init__.py`]) {
-    for (const candidate of knownPaths) {
-      if (candidate === suffix || candidate.endsWith(`/${suffix}`)) matches.push(candidate);
+    for (const root of roots) {
+      const candidate = root === "" ? suffix : `${root}/${suffix}`;
+      if (knownPaths.has(candidate)) matches.add(candidate);
     }
   }
-  return matches.length === 1 ? matches[0] : undefined;
+  // Dviprasmybė (tas pats modulis dviejose šaknyse) atmetama — ta pati taisyklė kaip kanoninėje
+  // `resolveTaskNode` rezoliucijoje: tyli teisinga atsakymo pusė čia yra „nežinau".
+  return matches.size === 1 ? [...matches][0] : undefined;
 }
 
 /** Reliatyvus importas → repo kelias. `.` = šio failo paketas, `..` = tėvinis, ir t. t. */
@@ -132,17 +158,69 @@ function resolveRelative(filePath: string, dots: number, module: string, knownPa
 }
 
 /**
- * Deklaracijos pabaiga: paskutinė eilutė prieš kitą TOKIO PAT ar mažesnio įtraukos lygio
- * deklaraciją. Python bloką riboja įtrauka, tad kito top-level `def`/`class` pradžia yra šio
- * pabaiga; paskutinei deklaracijai — failo galas.
+ * Deklaracijos PRADŽIA su dekoratoriais (2026-08-23, RAG auditas 3).
+ *
+ * `@route("/x")` virš `def handler():` yra deklaracijos dalis: be jo pjūvis rodo funkciją, kuri
+ * atrodo neužregistruota. Imamos gretimos eilutės aukštyn, kol jos prasideda `@` (tarpai ir
+ * komentarai tarp dekoratorių leidžiami — juos Python irgi praleidžia).
+ */
+function decoratedStart(text: string, start: number): number {
+  let result = start;
+  let cursor = start;
+  while (cursor > 0) {
+    const lineStart = text.lastIndexOf("\n", cursor - 2) + 1;
+    const line = text.slice(lineStart, cursor - 1);
+    const trimmed = line.trim();
+    if (trimmed.startsWith("@")) {
+      result = lineStart;
+      cursor = lineStart;
+      continue;
+    }
+    // Kelių eilučių dekoratoriaus (`@route(\n  "/x",\n)`) tęsinys: įtraukta eilutė arba
+    // uždarantis skliaustas. Jos pačios pradžia netampa rezultatu — juo tampa tik `@` eilutė.
+    if (trimmed !== "" && (/^[ \t]/.test(line) || /^[)\]}],?$/.test(trimmed))) {
+      cursor = lineStart;
+      continue;
+    }
+    break;
+  }
+  return result;
+}
+
+/**
+ * Deklaracijos pabaiga: paskutinė ĮTRAUKTA (bloko) eilutė.
+ *
+ * 2026-08-23 (RAG auditas 3): anksčiau grąžinama buvo eilutė prieš kitą top-level deklaraciją, tad į
+ * funkcijos pjūvį patekdavo VISKAS, kas tarp jų — įskaitant modulio lygio sakinius (`SECRET =
+ * load_secret()`), kurie funkcijai nepriklauso. Blokas Python'e yra įtrauka, tad ji ir yra riba:
+ * imama paskutinė netuščia eilutė su įtrauka > 0 prieš kitą top-level deklaraciją.
+ *
+ * Vienos eilutės kūnas (`def f(): pass`) įtrauktų eilučių neturi — tada pabaiga yra pati antraštė.
  */
 function blockEnd(text: string, start: number, matches: RegExpMatchArray[], position: number): number {
+  let limit = text.length;
   for (let next = position + 1; next < matches.length; next += 1) {
-    const candidate = matches[next];
-    const offset = candidate?.index ?? -1;
-    if (offset > start && indentAt(text, offset) === 0) return Math.max(start, offset - 1);
+    const offset = matches[next]?.index ?? -1;
+    if (offset > start && indentAt(text, offset) === 0) {
+      limit = offset;
+      break;
+    }
   }
-  return text.length;
+
+  const headerEnd = text.indexOf("\n", start);
+  if (headerEnd === -1 || headerEnd >= limit) return Math.max(start, limit - 1);
+
+  let end = headerEnd;
+  let cursor = headerEnd + 1;
+  while (cursor < limit) {
+    const lineEnd = text.indexOf("\n", cursor);
+    const stop = lineEnd === -1 || lineEnd > limit ? limit : lineEnd;
+    const line = text.slice(cursor, stop);
+    if (line.trim() !== "" && indentAt(text, cursor) > 0) end = stop === limit ? limit - 1 : stop;
+    if (lineEnd === -1) break;
+    cursor = lineEnd + 1;
+  }
+  return Math.max(start, end);
 }
 
 function splitList(value: string): string[] {

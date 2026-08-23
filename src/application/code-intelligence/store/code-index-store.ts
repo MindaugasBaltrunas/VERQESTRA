@@ -3,6 +3,7 @@
 // baitinė forma — store/format.ts. VERQESTRA runtime šaknis: `vq/state/code-index`.
 
 import path from "node:path";
+import { sha256Hex } from "../../../shared/hash.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
 import { computeSourceHash, scanProjectFiles } from "../indexing/scanner.js";
 import {
@@ -42,6 +43,14 @@ export async function writeCodeIndex(
   await fs.writeTextFileAtomic(codeIndexPath(projectRoot, "manifest.json"), renderManifestJson(data.manifest));
 }
 
+/** Manifesto skaitymas atskirai: versijos patikrai įrašų parsinti nereikia. */
+async function readCodeIndexManifest(
+  fs: CodeIntelligenceFileSystemPort,
+  projectRoot: string,
+): Promise<CodeIndexManifest> {
+  return codeIndexManifestSchema.parse(JSON.parse(await fs.readTextFile(codeIndexPath(projectRoot, "manifest.json"))));
+}
+
 export async function readCodeIndex(
   fs: CodeIntelligenceFileSystemPort,
   projectRoot: string,
@@ -49,9 +58,7 @@ export async function readCodeIndex(
   // Skaitymas VALIDUOJAMAS, o ne cast'inamas (2026-08-23, operatoriaus radinys). Anksčiau
   // `JSON.parse(...) as CodeIndexManifest` ir `parseJsonl<CodeIndexEdge>` reiškė, kad bet kokia
   // struktūriškai teisinga, bet neteisingo turinio saugykla atrodė kaip galiojantis indeksas.
-  const manifest = codeIndexManifestSchema.parse(
-    JSON.parse(await fs.readTextFile(codeIndexPath(projectRoot, "manifest.json"))),
-  ) as CodeIndexManifest;
+  const manifest = await readCodeIndexManifest(fs, projectRoot);
   return {
     manifest,
     files: validateRecords(parseJsonl(await fs.readTextFile(codeIndexPath(projectRoot, "files.jsonl"))), codeIndexFileSchema, "files"),
@@ -86,13 +93,28 @@ export async function checkCodeIndexFreshness(
     return { ok: false, reason: "code index manifest is missing" };
   }
 
+  // Versija tikrinama PIRMA, dar neparsinus įrašų: seno formato indeksas privalo gauti
+  // „version mismatch", o ne „unreadable" iš schemos, kuri jam ir neturi galioti.
+  let currentManifest: CodeIndexManifest;
+  try {
+    currentManifest = await readCodeIndexManifest(fs, projectRoot);
+  } catch (error) {
+    return { ok: false, reason: `code index is unreadable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (currentManifest.version !== codeIndexVersion) {
+    return {
+      ok: false,
+      reason: `code index version mismatch: ${currentManifest.version} != ${codeIndexVersion}`,
+      manifest: currentManifest,
+    };
+  }
+
   let stored: CodeIndexData;
   try {
     stored = await readCodeIndex(fs, projectRoot);
   } catch (error) {
     return { ok: false, reason: `code index is unreadable: ${error instanceof Error ? error.message : String(error)}` };
   }
-  const currentManifest = stored.manifest;
 
   // VIENTISUMAS prieš šviežumą (2026-08-23, operatoriaus radinys). Manifeste užrašyti kiekiai su
   // faktiniu turiniu nebuvo lyginami niekada, tad ištuštintas `edges.jsonl` praeidavo kaip
@@ -115,10 +137,17 @@ export async function checkCodeIndexFreshness(
     };
   }
 
-  if (currentManifest.version !== codeIndexVersion) {
+  // KIEKIŲ NEPAKANKA (2026-08-23 RAG auditas): pakeitus vienos `imports` briaunos taikinį įrašų
+  // skaičius nepasikeičia, schema praeina, ir indeksas lieka `fresh: true` — o architektūros
+  // pažeidimas dingsta. Kiekis atsako tik „ar nieko nedingo", ne „ar tai tas pats turinys".
+  //
+  // `records_hash` yra to paties baitinio atvaizdo, kurį saugykla ir rašo, atspaudas, tad jis
+  // pagauna BET KOKĮ redagavimą — įskaitant tokį, kuris išlaiko ir kiekius, ir schemą.
+  const recordsHash = computeRecordsHash(stored.files, stored.symbols, stored.edges);
+  if (recordsHash !== currentManifest.records_hash) {
     return {
       ok: false,
-      reason: `code index version mismatch: ${currentManifest.version} != ${codeIndexVersion}`,
+      reason: "code index is corrupt: stored records do not match the fingerprint the manifest declares",
       manifest: currentManifest,
     };
   }
@@ -130,6 +159,21 @@ export async function checkCodeIndexFreshness(
   }
 
   return { ok: true, manifest: currentManifest };
+}
+
+/**
+ * Įrašų TURINIO atspaudas: sha256 nuo tų pačių JSONL baitų, kuriuos rašo `writeCodeIndex`.
+ *
+ * Skaičiuojamas iš baitinio atvaizdo, o ne iš objektų, sąmoningai: taip atspaudas ir saugykla
+ * negali išsiskirti — kas užrašyta, tas ir suhash'uota. Kiekiai lieka atskirai, nes jie įvardija
+ * gedimą tiksliau („trūksta 3 briaunų"), o atspaudas atsako tik „turinys ne tas".
+ */
+export function computeRecordsHash(
+  files: readonly CodeIndexFile[],
+  symbols: readonly CodeIndexSymbol[],
+  edges: readonly CodeIndexEdge[],
+): string {
+  return sha256Hex(`${renderJsonl(files)}${renderJsonl(symbols)}${renderJsonl(edges)}`);
 }
 
 export function createManifest(
@@ -148,5 +192,6 @@ export function createManifest(
     symbol_count: symbols.length,
     edge_count: edges.length,
     source_hash: sourceHash,
+    records_hash: computeRecordsHash(files, symbols, edges),
   };
 }

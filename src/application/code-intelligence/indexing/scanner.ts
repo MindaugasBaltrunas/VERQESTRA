@@ -13,6 +13,9 @@ const indexedExtensions = indexedCodeExtensions();
 // contain a full nested copy of the repo's source tree and would be double-scanned).
 // ".ag"/".ag-worktrees"/".vq-worktrees" — izoliuotos darbo kopijos: gyvo lygiagretaus
 // run'o metu ten guli PILNA repo kopija, kuri be šio įrašo padvigubintų import grafą.
+// Katalogai, kurie NIEKADA nėra produkto kodas — nepriklausomai nuo to, kur guli. Visi jie arba
+// yra įrankio nuosavybė (`.git`, `.claude`), arba turi vienintelę galimą prasmę (`node_modules`,
+// `__pycache__`, `.next`, `.turbo`).
 const ignoredSegments = new Set([
   ".git",
   ".claude",
@@ -20,15 +23,35 @@ const ignoredSegments = new Set([
   ".ag-worktrees",
   ".vq-worktrees",
   "node_modules",
-  "dist",
-  "coverage",
   ".next",
   ".turbo",
-  "vendor",
-  "bin",
-  "obj",
   "__pycache__",
 ]);
+
+/**
+ * Build'o išvesties katalogai, atpažįstami pagal ĮRODYMĄ, o ne pagal vardą (2026-08-23 RAG
+ * auditas).
+ *
+ * `bin`, `obj`, `dist` ir `vendor` anksčiau buvo ignoruojami bet kuriame gylyje. Tai išmesdavo
+ * teisėtą produkto kodą: `src/bin/cli.ts` yra įprasta CLI projektų struktūra, o indeksas tokio
+ * failo tiesiog neturėdavo — ir vis tiek vadindavosi šviežiu, tad užklausa grąžindavo tuščią
+ * rezultatą be jokios žymos, kad kažko trūksta.
+ *
+ * Šie vardai yra generuoto medžio vardai TIK ten, kur šalia stovi juos generuojantis projekto
+ * manifestas. Kaimynų sąrašą walk'as jau turi (jis ką tik išlistino katalogą), tad įrodymas
+ * nekainuoja nė vieno papildomo IO.
+ */
+const buildOutputEvidence: { segment: string; sibling: (name: string) => boolean }[] = [
+  { segment: "dist", sibling: (name) => name === "package.json" },
+  { segment: "coverage", sibling: (name) => name === "package.json" },
+  { segment: "bin", sibling: isDotnetProjectFile },
+  { segment: "obj", sibling: isDotnetProjectFile },
+  { segment: "vendor", sibling: (name) => name === "composer.json" || name === "go.mod" },
+];
+
+function isDotnetProjectFile(name: string): boolean {
+  return /\.(csproj|vbproj|fsproj|sln)$/i.test(name);
+}
 // Runtime medžiai, kurie nėra produkto kodas. AG_loop prefiksai palikti, kad indeksas,
 // paleistas ant AG-formos target projekto, elgtųsi identiškai; vq/ — VERQESTRA runtime.
 const ignoredRuntimePrefixes = [
@@ -63,34 +86,29 @@ export async function scanProjectFiles(
   return files.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+/**
+ * `source_hash`: KIEKVIENO indeksuoto failo kelias + turinio hash'as.
+ *
+ * Be išimčių (2026-08-23, operatoriaus radinys). Iki tol JSON buvo sąmoningai išmestas, o grįždavo
+ * tik per `kind === "config"` išimtį, kurią lemia VARDŲ heuristika (`config|package|tsconfig|…`).
+ * Todėl `data.json` turinio pakeitimas `source_hash`'o nejudino, ir `checkCodeIndexFreshness`
+ * grąžindavo `ok: true`, nors indeksas laikė nebegaliojantį to failo hash'ą.
+ *
+ * Invariantas dabar vienas ir patikrinamas: kas patenka į indeksą, tas patenka ir į jo atspaudą.
+ * Atrankos funkcija (`isSourceHashFile`) PAŠALINTA 2026-08-23 (RAG auditas 3): ji visada grąžindavo
+ * `true`, bet stovėjo kaip filtras, tad skaitytojui atrodė, kad išimčių vis dar yra.
+ *
+ * Triukšmo rizikos nėra, nes generuoti medžiai į skenavimą nepatenka (žr. sąrašus viršuje).
+ */
 export function computeSourceHash(files: CodeIndexFile[]): Promise<string> {
   const hash = createHash("sha256");
-  for (const file of files.filter(isSourceHashFile)) {
+  for (const file of files) {
     hash.update(file.path);
     hash.update(String.fromCharCode(0));
     hash.update(file.hash);
     hash.update(String.fromCharCode(0));
   }
   return Promise.resolve(hash.digest("hex"));
-}
-
-/**
- * Ar failas dalyvauja `source_hash` skaičiavime.
- *
- * TAIP KIEKVIENAM INDEKSUOTAM FAILUI (2026-08-23, operatoriaus radinys). Iki tol JSON buvo
- * sąmoningai išmestas, o grįždavo tik per `kind === "config"` išimtį, kurią lemia VARDŲ heuristika
- * (`config|package|tsconfig|eslint|…`). Todėl `data.json` ar `schema.json` turinio pakeitimas
- * `source_hash`'o nejudino, ir `checkCodeIndexFreshness` grąžindavo `ok: true`.
- *
- * Tai buvo nenuoseklu su pačiu indeksu: tie failai indekse YRA ir neša savo `hash`, tad po
- * pakeitimo indeksas laikė UŽRAŠYTĄ, bet nebegaliojantį hash'ą ir vis tiek vadinosi šviežiu.
- * Invariantas dabar vienas ir patikrinamas: kas patenka į indeksą, tas patenka ir į jo atspaudą.
- *
- * Triukšmo rizikos nėra, nes generuoti medžiai į skenavimą apskritai nepatenka (`node_modules`,
- * `dist`, `coverage`, `vendor`, `bin`, `obj`, runtime prefiksai — žr. sąrašus viršuje).
- */
-export function isSourceHashFile(_file: CodeIndexFile): boolean {
-  return true;
 }
 
 export async function hashFile(fs: CodeIntelligenceFileSystemPort, filePath: string): Promise<string> {
@@ -105,10 +123,11 @@ async function walk(
   files: CodeIndexFile[],
 ): Promise<void> {
   const entries = await fs.listDirectory(currentDir);
+  const siblingFiles = entries.filter((entry) => entry.isFile).map((entry) => entry.name);
   for (const entry of entries) {
     const absolute = path.join(currentDir, entry.name);
     const relative = normalizeProjectPath(projectRoot, absolute);
-    if (shouldIgnore(relative, entry.name)) {
+    if (shouldIgnore(relative, entry.name, siblingFiles)) {
       continue;
     }
 
@@ -135,8 +154,12 @@ async function walk(
   }
 }
 
-function shouldIgnore(relativePath: string, entryName: string): boolean {
+function shouldIgnore(relativePath: string, entryName: string, siblingFiles: readonly string[]): boolean {
   if (ignoredSegments.has(entryName)) {
+    return true;
+  }
+  const buildOutput = buildOutputEvidence.find((candidate) => candidate.segment === entryName);
+  if (buildOutput && siblingFiles.some((name) => buildOutput.sibling(name))) {
     return true;
   }
   const normalized = toPosixPath(relativePath);

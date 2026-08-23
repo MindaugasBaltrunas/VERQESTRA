@@ -192,8 +192,8 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
-    6,
-    "pakelta penktą kartą: Unicode antraščių normalizavimas (keičiasi spec_fragments turinys)",
+    7,
+    "pakelta šeštą kartą: Unicode BM25 skaidymas (keičiasi kandidatų tvarka pakopos viduje)",
   );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,

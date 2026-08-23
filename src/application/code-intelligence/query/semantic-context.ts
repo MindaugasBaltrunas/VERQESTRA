@@ -87,7 +87,11 @@ export type SemanticCodeContext = {
   symbols: ContextSymbol[];
   /** Raw graph neighbourhood — NOT truncated here (the policy layer budgets it). */
   related_files: string[];
-  /** Raw impacted tests — already restricted to .ts/.tsx by queryCodeGraphData. */
+  /**
+   * Raw impacted tests: VISŲ kalbų testai, tiesioginiai ir pasiekti per importuotojų uždarinį
+   * (`queryCodeGraphData`). Anksčiau čia buvo rašoma „already restricted to .ts/.tsx" — tas filtras
+   * pašalintas 2026-08-23 kaip likutis iš vienkalbio indekso laikų.
+   */
   impacted_tests: string[];
   /** Human-readable symbol summary, one `target:`/`symbols:` pair per matched target. */
   summary: string[];

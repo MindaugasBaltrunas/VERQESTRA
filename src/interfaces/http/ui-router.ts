@@ -12,82 +12,34 @@
 //   2. projekto TAPATYBĖ          — vienintelis maršrutas be token'o (žr. `ui-security`);
 //   3. `/api/**` token'as         — skaitymai;
 //   4. POST mutacijos token'as    — rašymai (statiniai failai jo nereikalauja).
+//
+// Mutacijos gyvena `ui-router-mutations`: skaitymo ir rašymo pusės elgiasi PRIEŠINGAI klaidos
+// atveju (skaitymas degraduoja, rašymas krenta garsiai), o dydžio vartas neleidžia jų laikyti
+// viename faile.
 
 import {
   FORBIDDEN_HOST_RESPONSE,
   FORBIDDEN_TOKEN_RESPONSE,
   INTERNAL_ERROR_RESPONSE,
-  mapJsonBodyError,
-  mapTaskTriageError,
-  mapUploadError,
-  type HttpErrorResponse,
 } from "./ui-error-mapping.js";
 import { UI_IDENTITY_ROUTE, projectFingerprint, uiIdentityPayload } from "./ui-port-rules.js";
 import { UnknownTaskBucketError } from "./workflow-buckets.js";
-import { hasValidApiToken, isLoopbackHost, type RequestHeaders } from "./ui-security.js";
-import type { TaskTriageAction } from "./ui-task-actions.js";
+import { hasValidApiToken, isLoopbackHost } from "./ui-security.js";
+import { json, toResponse, type UiRouteRequest, type UiRouteResponse, type UiRouterDeps } from "./ui-router-model.js";
+import { handlePost } from "./ui-router-mutations.js";
+import {
+  normalizeTokenUsageLimit,
+  normalizeTokenUsageOffset,
+} from "../../application/analytics/token-usage-query.js";
 
-export type UiRouteRequest = {
-  method: string;
-  /** Žalias URL su query — maršrutui reikia ir kelio, ir parametrų. */
-  url: string;
-  headers: RequestHeaders;
-  /** JSON kūnas; per didelis kūnas META, ir tai virsta 413, ne 500. */
-  readJsonBody(): Promise<unknown>;
-  /** Žalias kūnas įkėlimui (jį parsina `task-upload`). */
-  readRawBody(): Promise<string>;
-};
-
-export type UiRouteResponse =
-  | { kind: "json"; status: number; data: unknown }
-  | { kind: "text"; status: number; text: string }
-  | { kind: "empty"; status: number }
-  /** Statinis failas iš dist katalogo; kelio saugumą tikrina `resolveStaticPath`. */
-  | { kind: "static"; urlPath: string }
-  /** SSE prisijungimas — srautą perima adapteris. */
-  | { kind: "sse" };
-
-export type UiRouterPorts = {
-  dashboardData(uiToken: string): Promise<unknown>;
-  listPolicyProposals(): Promise<unknown>;
-  proposePolicyChange(body: unknown): Promise<unknown>;
-  decidePolicyProposal(verb: "approve" | "reject" | "apply", body: unknown): Promise<unknown>;
-  tokenUsage(query: URLSearchParams): Promise<unknown>;
-  tokenAnalytics(): Promise<unknown>;
-  reliabilityAnalytics(): Promise<unknown>;
-  benchmarkReport(): Promise<unknown>;
-  workflowBuckets(): Promise<unknown>;
-  /** Vieno bucket'o PILNAS sąrašas; nežinomas bucket'as META `UnknownTaskBucketError`. */
-  workflowBucketTasks(bucket: string): Promise<unknown>;
-  wavesView(eventLimit: number): Promise<unknown>;
-  decideLearningRecommendation(id: string, decision: "approved" | "rejected"): Promise<unknown>;
-  openTaskBucketFolder(bucket: string): Promise<boolean>;
-  uploadQueueFiles(rawBody: string): Promise<string[]>;
-  ensureLoopRunning(): Promise<unknown>;
-  requestLoopStop(): Promise<unknown>;
-  setRequestedWorkers(body: unknown): Promise<unknown>;
-  setSlotMode(workerId: string, body: unknown): Promise<unknown>;
-  applyTaskTriage(action: TaskTriageAction, reference: string): Promise<unknown>;
-  /** Ar React dist katalogas rastas — be jo statiniai maršrutai neegzistuoja. */
-  hasStaticAssets(): boolean;
-  /** Klaidos žurnalui; klientui detalės niekada neišeina. */
-  logError(message: string): void;
-};
-
-export type UiRouterDeps = {
-  ports: UiRouterPorts;
-  projectRoot: string;
-  /** Per-server-start paslaptis. */
-  uiToken: string;
-  eventLimitFromQuery(query: URLSearchParams): number;
-  platform?: NodeJS.Platform;
-};
-
-const json = (data: unknown, status = 200): UiRouteResponse => ({ kind: "json", status, data });
-
-function toResponse(error: HttpErrorResponse): UiRouteResponse {
-  return error.body ? { kind: "json", status: error.status, data: error.body } : { kind: "text", status: error.status, text: error.text ?? "" };
-}
+export type {
+  PolicyDecisionRequest,
+  PolicyProposalInput,
+  UiRouteRequest,
+  UiRouteResponse,
+  UiRouterDeps,
+  UiRouterPorts,
+} from "./ui-router-model.js";
 
 /** Nežinomas `/api/**` kelias yra 404 JSON, o ne HTML — klientas laukia JSON kiekviename API. */
 const API_NOT_FOUND: UiRouteResponse = { kind: "json", status: 404, data: { error: "not found" } };
@@ -166,7 +118,9 @@ async function handleGet(deps: UiRouterDeps, pathname: string, url: URL): Promis
     case "/api/token-analytics":
       return await guarded(() => ports.tokenAnalytics());
     case "/api/reliability-analytics":
-      return await guarded(() => ports.reliabilityAnalytics());
+      // `?fresh=1` yra operatoriaus „Atnaujinti": be jo atsakymas gali ateiti iš 10 s kešo, o su
+      // juo git zondai paleidžiami iš naujo. Iki 2026-08-23 audito parametras buvo IGNORUOJAMAS.
+      return await guarded(() => ports.reliabilityAnalytics(url.searchParams.get("fresh") === "1"));
     case "/api/benchmark/report":
       return await guarded(() => ports.benchmarkReport());
     case "/api/tasks": {
@@ -192,116 +146,33 @@ async function handleGet(deps: UiRouterDeps, pathname: string, url: URL): Promis
   }
 }
 
-async function handlePost(
-  deps: UiRouterDeps,
-  pathname: string,
-  request: UiRouteRequest,
-): Promise<UiRouteResponse | undefined> {
-  const ports = deps.ports;
-
-  const withJsonBody = async (
-    run: (body: unknown) => Promise<UiRouteResponse>,
-  ): Promise<UiRouteResponse> => {
-    let body: unknown;
-    try {
-      body = await request.readJsonBody();
-    } catch (error) {
-      return toResponse(mapJsonBodyError(error instanceof Error && error.name === "RequestBodyTooLargeError"));
-    }
-    try {
-      return await run(body);
-    } catch (error) {
-      ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
-      return toResponse(INTERNAL_ERROR_RESPONSE);
-    }
+/**
+ * `/api/token-usage` filtras iš query.
+ *
+ * `task_id` čia SĄMONINGAI nėra: serveris jį lygintų tiksliai, o UI reikia substring paieškos,
+ * tad `task_id` visada taikomas kliente (`tokenUsageViewModel`). Serverio filtras jį tyliai
+ * susiaurintų iki tikslaus atitikmens.
+ */
+export function tokenUsageQueryFrom(query: URLSearchParams): {
+  filter: { model?: string; phase?: string; from?: string; to?: string };
+  pagination: { limit?: number; offset: number };
+} {
+  const text = (key: string): string | undefined => query.get(key) ?? undefined;
+  const limit = normalizeTokenUsageLimit(query.get("limit"));
+  const model = text("model");
+  const phase = text("phase");
+  const from = text("from");
+  const to = text("to");
+  return {
+    filter: {
+      ...(model === undefined ? {} : { model }),
+      ...(phase === undefined ? {} : { phase }),
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+    },
+    pagination: {
+      ...(limit === undefined ? {} : { limit }),
+      offset: normalizeTokenUsageOffset(query.get("offset")),
+    },
   };
-
-  if (pathname === "/tasks/queue/upload") {
-    let saved: string[];
-    try {
-      saved = await ports.uploadQueueFiles(await request.readRawBody());
-    } catch (error) {
-      return toResponse(mapUploadError(error));
-    }
-    // Užduotys JAU išsaugotos: loop paleidimo klaida nebepaverčia viso atsakymo 500 — klientas turi
-    // sužinoti, kad failai eilėje, net jei loop'as nepasileido.
-    let loop: unknown;
-    try {
-      loop = await ports.ensureLoopRunning();
-    } catch (error) {
-      loop = { status: "failed", reason: error instanceof Error ? error.message : String(error) };
-    }
-    return json({ saved, loop }, 201);
-  }
-
-  if (pathname === "/tasks/resume") {
-    return json(await ports.ensureLoopRunning());
-  }
-  if (pathname === "/tasks/stop") {
-    return json(await ports.requestLoopStop());
-  }
-  if (pathname === "/api/runtime/workers") {
-    return await withJsonBody(async (body) => json(await ports.setRequestedWorkers(body)));
-  }
-  if (pathname === "/api/runtime/loop/start") {
-    return json(await ports.ensureLoopRunning());
-  }
-  if (pathname === "/api/policies/propose") {
-    return await withJsonBody(async (body) => json(await ports.proposePolicyChange(body)));
-  }
-
-  const decision = /^\/api\/policies\/proposals\/(approve|reject|apply)$/.exec(pathname);
-  if (decision?.[1]) {
-    const verb = decision[1] as "approve" | "reject" | "apply";
-    return await withJsonBody(async (body) => json(await ports.decidePolicyProposal(verb, body)));
-  }
-
-  // Kelias yra KLIENTO kontraktas, ne serverio skonis: `ui-app/src/model/api.ts` kviečia būtent
-  // `/api/runtime/loop/slots/<workerId>`, ir tą patį daro etalonas. VQ-503 metu čia buvo atsiradęs
-  // `/api/runtime/slots/<workerId>/mode` — nedokumentuotas nuokrypis, kurio niekas nepamatė, nes
-  // dashboard'o dar nebuvo. VQ-601 jį atstatė: maršruto pervadinimas be kliento yra tylus lūžis.
-  const slotMode = /^\/api\/runtime\/loop\/slots\/([^/]+)$/.exec(pathname);
-  if (slotMode?.[1]) {
-    const workerId = decodeSegment(slotMode[1]);
-    return await withJsonBody(async (body) => json(await ports.setSlotMode(workerId, body)));
-  }
-
-  const triage = /^\/api\/tasks\/(requeue|complete)\/(.+)$/.exec(pathname);
-  if (triage?.[1] && triage[2]) {
-    const action = triage[1] as TaskTriageAction;
-    try {
-      return json(await ports.applyTaskTriage(action, decodeSegment(triage[2])));
-    } catch (error) {
-      return toResponse(mapTaskTriageError(error));
-    }
-  }
-
-  const learning = /^\/learning\/(approve|reject)\/(.+)$/.exec(pathname);
-  if (learning?.[1] && learning[2]) {
-    const verdict = learning[1] === "approve" ? "approved" : "rejected";
-    try {
-      return json({ record: await ports.decideLearningRecommendation(decodeSegment(learning[2]), verdict) });
-    } catch (error) {
-      ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
-      return toResponse(INTERNAL_ERROR_RESPONSE);
-    }
-  }
-
-  const folder = /^\/folders\/open\/(.+)$/.exec(pathname);
-  if (folder?.[1]) {
-    // Nežinomas bucket'as yra 404, o ne bandymas atidaryti laisvos formos kelią.
-    const opened = await ports.openTaskBucketFolder(decodeSegment(folder[1]));
-    return { kind: "empty", status: opened ? 204 : 404 };
-  }
-
-  return undefined;
-}
-
-/** Koduotas segmentas; netinkamas kodavimas grąžina žalią reikšmę, o ne meta. */
-function decodeSegment(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }

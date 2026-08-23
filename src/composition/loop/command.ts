@@ -21,6 +21,7 @@ import { createWaveProvisioningCoordinator, type WaveProvisioningCoordinator } f
 import { createSafeLog } from "../../application/scheduling/safe-telemetry.js";
 import { createSlotTaskRunner, buildChildEnvironment, PROCESS_QUEUED_TASK_COMMAND } from "../../application/scheduling/slot-task-runner.js";
 import { runLoopCycle, type LoopCyclePorts, type ResumableTask } from "../../application/scheduling/loop-cycle.js";
+import { LOOP_BLOCKED_EXIT_CODE } from "../../shared/exit-codes.js";
 import { handleEmptyQueue, AUDIT_REPAIR_TASK_CONTENT, type EmptyQueuePorts } from "../../application/scheduling/loop-empty-queue.js";
 import { productTreeDirtyEntries, type LoopPreconditionPorts } from "../../application/scheduling/loop-preconditions.js";
 import { readLoopControl } from "../../application/scheduling/loop-control-store.js";
@@ -284,10 +285,27 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
   };
 }
 
-/** `verqestra loop` kūnas: portų suvedimas + ciklas. Exit kodas 0 — sustojimas visada švarus. */
+/**
+ * `verqestra loop` kūnas: portų suvedimas + ciklas.
+ *
+ * EXIT KONTRAKTAS (operatoriaus sprendimas 2026-08-23; anksčiau buvo besąlyginis `0`):
+ *
+ *   `0` — loop'as padarė, ko prašytas: eilė ištuštinta arba operatoriaus „stop" įvykdytas;
+ *   `1` — loop'as sustojo PALIKĘS darbą ir laukia žmogaus: banga išseko (ciklas, laukiantis
+ *         blokatorius, neduotas patvirtinimas), užterštas produkto medis arba nedispatch'intas
+ *         nė vienas slot'as.
+ *
+ * Kodėl `1`, o ne nauja reikšmė `shared/exit-codes` lentelėje: `verqestra loop-guard` tą PATĮ
+ * klausimą jau atsako `0 = saugu / 1 = blokuota`, tad antra konvencija tam pačiam klausimui būtų
+ * blogesnė už bendrinį kodą. `classifyExitCode(1)` = `task_failure` — sąžininga: bėgimas savo
+ * darbo nebaigė. Priežastis lieka žurnale ir stdout; exit kodas neša tik dvejetainį atsakymą.
+ *
+ * KAS LŪŽTA: skriptai, kurie `verqestra loop` gatino pagal `$?`, blokuotą sustojimą nuo šiol
+ * matys kaip nesėkmę. Repo viduje tokių nėra (patikrinta) — visi vartotojai išoriniai.
+ */
 export async function runLoopCommand(deps: LoopCommandDeps): Promise<number> {
   const ports = buildLoopCyclePorts(deps);
   await ports.scheduler.recoverFromCrash();
-  await runLoopCycle(ports);
-  return 0;
+  const outcome = await runLoopCycle(ports);
+  return outcome.kind === "blocked" ? LOOP_BLOCKED_EXIT_CODE : 0;
 }

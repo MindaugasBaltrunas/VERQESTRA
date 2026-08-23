@@ -164,7 +164,7 @@ nurodo viena į kitą komentaruose.
 - **Rekomendacija 4** — pilnas UX ir prieinamumo auditas visu srautu (Apžvalga → Užduotys →
   Peržiūros → Sistema). Jis buvo užblokuotas P0 ir dabar yra atrakintas, bet neatliktas.
 
-### Patikros po pataisymo
+### Patikros po pirmo rato
 
 - `pnpm typecheck` — praeina.
 - `pnpm lint` — praeina.
@@ -172,3 +172,84 @@ nurodo viena į kitą komentaruose.
 - `pnpm typecheck:ui` — praeina.
 - `pnpm test:ui` — praeina, 48/48 failai ir 402/402 testai (buvo 46/393; +2 failai, +9 testai).
 - `pnpm build:ui` — praeina, 94 moduliai.
+
+## Antras ratas: endpoint'ų auditas (2026-08-23)
+
+Pirmas ratas atidarė pirmą ekraną. Antras ratas — operatoriaus prašymu — patikrino KIEKVIENĄ
+kliento kvietimą prieš maršrutą, kurį jis pasiekia: kelią, kūną, atsakymo formą ir statusą.
+Metodas buvo mechaniškas: `ui-app/src/model/api.ts` (21 kvietimas) + du tiesioginiai `fetch`
+(`/api/events`, `/api/waves`) sugretinti su `interfaces/http/ui-router.ts` maršrutais ir
+`composition/ui/router-adapters.ts` grąžinamomis formomis.
+
+Rasta **13 defektų, iš jų 6 kritiniai**. Visi uždaryti. Bendra jų priežastis viena ir ta pati
+kaip pirmame rate: VQ-503/VQ-504 metu prijungti buvo ne use-case'ai, o artimiausi žemesnio
+lygio moduliai — `appendPolicyProposal` vietoj `policy-proposal-service`, `summarizeTokenUsage`
+vietoj užklausos vaizdo, `buildReliabilityAnalytics` vietoj kešuojančio `loadReliabilityAnalytics`.
+Kiekvienas paviršius atskirai buvo ištestuotas ir žalias; nė vienas testas neklausė, ar
+klientas gaus tai, ko prašo.
+
+### Kritiniai
+
+| # | Maršrutas | Kas buvo | Pasekmė operatoriui |
+|---|---|---|---|
+| E1 | `POST /tasks/resume` | žalias rezultatas be `{ loop }` | mygtukas rodė `▶ undefined`; nepavykęs paleidimas atrodė kaip sėkmė |
+| E2 | `POST /tasks/stop` | be `{ loop, loop_control }`; `drainAllSlots` nekviestas | „stop" visada rodė „nėra žinomo proceso"; po Stop srautai ekrane liko `run` |
+| E3 | `POST /api/runtime/loop/start` | kūnas `{ workers }` **ignoruojamas**, `resetLoopControl` nekviestas, vokas žalias | „paleisti 2 srautus" dingdavo tyliai; senas `drain` priversdavo ką tik paleistą ciklą atsisakyti pirmo task'o; ekrane — „Ciklas paleistas su 2 srautais" |
+| E4 | `POST /api/policies/{grupė}/set` | **maršruto nebuvo** | kiekvienas politikų valdiklis grąžino 404 |
+| E5 | `POST /api/policies/proposals/{approve\|reject\|apply}` | prirašydavo PASIŪLYMĄ su svetimu `verb`; `strictObject` jį atmesdavo | visi trys mygtukai grąžino 500; `apply` niekada nerašė politikos failo; `ProposalNotApproved` ir `HumanReviewApprovalRequired` vartų kelyje NEBUVO |
+| E6 | `GET /api/policies/proposals` | žalias `PolicyProposal[]` be `{ proposals }` | panelė amžinai „Įkeliama…", be klaidos |
+
+Prie E5 verta pridėti tai, ko lentelė nerodo: `POST /api/policies/propose` priimdavo pasiūlymą,
+kurio `routing` atkeliauja **iš kliento**. Suklastotas `routing: "queue"` panaikintų human-review
+reikalavimą prie `apply` — vartus, kurie egzistuoja būtent tam, kad sistema negalėtų sau
+išsirašyti leidimo. Maršrutas pakeistas etalono forma, kurioje `old_value`, `timestamp` ir
+`routing` nustato SERVERIS, o `actor` niekada neateina iš kūno.
+
+### Likę
+
+| # | Vieta | Kas buvo | Sprendimas |
+|---|---|---|---|
+| E7 | `GET /api/token-usage` | grąžindavo SUVESTINĘ vietoj `{ records, pagination }`; visi filtrai (`model`, `phase`, `from`, `to`, `limit`, `offset`) ignoruojami | naujas `application/analytics/token-usage-query` (etalonas 1:1) |
+| E8 | `GET /api/token-analytics` | grąžindavo ŽALIĄ snapshot'ą vietoj `{ groups, candidates, history }` | prijungtas jau egzistavęs `buildTokenAnalyticsResponse` |
+| E9 | `POST /api/runtime/workers` | be `{ worker_request }`; `InvalidWorkerRequestError` → 500 | vokas + 400 |
+| E10 | `POST /api/runtime/loop/slots/<id>` | `InvalidLoopControlError` → 500 | 400 |
+| E11 | `GET /api/reliability-analytics` | `?fresh=1` ignoruojamas, 10 s kešas nepanaudotas | prijungtas `loadReliabilityAnalytics(…, fresh)`; git zondai nebesukami kas pollingą |
+| E12 | `ui-waves-view` | `hard_capped: boolean`, nors schema ir klientas sako `number` | tipas ištaisytas; „nukirsta 2" nebėra `true` |
+| E13 | `ui-error-mapping#mapPolicyError` | nulis kvietėjų (E4/E5 pasekmė) | prijungtas per `mapPolicyDecisionError` |
+
+### Nukrypimas nuo etalono (griežtinantis)
+
+Netinkama siūloma politikos reikšmė (`requested_value: "error"` ten, kur leidžiami tik
+`advisory|warn|block`) etalone krisdavo į bendrą 500. Dabar tai 400 su paaiškinimu: tai
+VARTOTOJO klaida — lygiai ta pati klasė, kurią įvardija paties `ui-error-mapping` pirmoji
+taisyklė. 500 nukreiptų operatorių ieškoti serverio gedimo vietoje netinkamos reikšmės.
+
+### Struktūriniai pakeitimai
+
+`ui-router.ts` išskaidytas, nes skaitymo ir rašymo pusės elgiasi PRIEŠINGAI klaidos atveju
+(skaitymas degraduoja, rašymas krenta garsiai), o po pataisymų nebetilpo į 500 eilučių vartą:
+
+- `interfaces/http/ui-router-model.ts` — portai, atsakymų formos, bendri konstruktoriai;
+- `interfaces/http/ui-router-mutations.ts` — visos `POST` mutacijos;
+- `interfaces/http/ui-router.ts` — vartų tvarka + `GET`;
+- `composition/ui/{analytics,policy}-adapters.ts` — telemetrijos ir governance surišimas.
+
+### Vartai, kurių nebuvo (antras ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `src/tests/interfaces-http-router-contracts.test.ts` | KIEKVIENO voko forma (`{loop}`, `{loop, loop_control}`, `{worker_request}`, `{proposals}`), `workers → requested` vertimas, žingsnių TVARKA (`workers → reset → start`), statusai 400/403/409 ir tai, kad `routing`/`actor` iš kliento nepriimami |
+| `src/tests/composition-ui-policy-governance.test.ts` | pilnas srautas REALIAIS failais: pasiūlymas → 409 be patvirtinimo → approve → apply RAŠO politikos failą; human-review kelias duoda 403 ir praeina tik su žmogaus žyme; `actor: "ui-local"` |
+| `src/tests/application-token-usage-query.test.ts` | filtrai, datos ribos įskaitymas, puslapiavimas nuo žurnalo galo, `?limit=0` |
+| `ui-app/src/model/apiEnvelopes.test.ts` | kliento pusė: vokas be `loop`/`proposals` duoda MATOMĄ klaidą, ne tylią sėkmę |
+
+### Patikros po antro rato
+
+- `pnpm typecheck` — praeina.
+- `pnpm lint` — praeina.
+- `pnpm test:compiled` — 1504/1515. **11 kritimų priklauso lygiagrečiai sesijai** (code-index /
+  code-graph / context-cache), ne šiam darbui; visi UI ir architektūros vartų testai žali
+  (`architecture-gates` 5/5).
+- `pnpm typecheck:ui` — praeina.
+- `pnpm test:ui` — praeina, 49/49 failai ir 408/408 testai.
+- `pnpm build:ui` — praeina.

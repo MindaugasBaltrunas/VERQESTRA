@@ -27,6 +27,18 @@ export const BUDGET_EXCEEDED_EXIT_CODE = 80;
 /** Usage/state errors (bad arguments, missing task file): the environment is fine. */
 export const USAGE_ERROR_EXIT_CODE = 2;
 
+/**
+ * `verqestra loop` sustojo PALIKĘS darbą ir laukia žmogaus (operatoriaus sprendimas 2026-08-23).
+ *
+ * Reikšmė sąmoningai bendrinė: `verqestra loop-guard` tą patį klausimą jau atsako `0 = saugu /
+ * 1 = blokuota`, tad naujas kodas šalia jos būtų antra konvencija tam pačiam klausimui. Vardas
+ * čia egzistuoja tam, kad kontraktas būtų randamas lentelėje, o ne užkoduotas kompozicijoje.
+ *
+ * Į `infrastructureExitCodes` NEĮTRAUKTA: blokuota banga nėra aplinkos gedimas — tai eilės
+ * būsena, kurią sprendžia žmogus, ir `classifyExitCode` ją teisingai vadina `task_failure`.
+ */
+export const LOOP_BLOCKED_EXIT_CODE = 1;
+
 const infrastructureExitCodes = new Set([
   DISPATCH_TIMEOUT_EXIT_CODE,
   USAGE_LIMIT_EXIT_CODE,

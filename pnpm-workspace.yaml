@@ -11,8 +11,19 @@ packages:
   # `composition/ui-command.ts` sprendžia `packageRoot()/ui-app/dist`. Kelias yra kontraktas,
   # o ne pasirinkimas — perkėlus jį kitur, dashboard'as tyliai virstų „API only" režimu.
   - ui-app
+  # Mobile paketai (E9). Jie yra atskiri dėl RIBOS, ne dėl dydžio: `mobile-gateway` valdo
+  # agento terminalo sesijas ir turi negalėti pasiekti orkestratoriaus šaltinių — AG Loop UI
+  # jis mato tik per loopback HTTP projekciją. Sulieti juos į `src/` reikštų suteikti tą
+  # teisę importu, t. y. panaikinti vienintelę ribą, kurią šis paketas apskritai turi.
+  # `mobile-app` yra MVC (model/view/controller) kaip `ui-app`, be nė vienos priklausomybės;
+  # `mobile-app/native` yra Expo/React Native kiautas, pasiekiantis branduolį TIK per jo barelį.
+  - mobile-gateway
+  - mobile-app
+  - mobile-app/native
 
-# pnpm >=10 blokuoja dependency build skriptus, kol jie nepatvirtinti. Sąrašas tuščias
-# sąmoningai: nė viena šio medžio priklausomybė build skripto neturi, ir naujas įrašas čia
-# turi būti atskiras sprendimas, o ne tylus install'o šalutinis efektas.
-onlyBuiltDependencies: []
+# pnpm >=10 blokuoja dependency build skriptus, kol jie nepatvirtinti. `node-pty` yra
+# vienintelis įrašas ir jis yra OPERATORIAUS sprendimas (2026-08-23, E9 mobile migracija), o ne
+# tylus install'o šalutinis efektas: be jo `pnpm install` stringa ties ERR_PNPM_IGNORED_BUILDS,
+# o `mobile-gateway` be PTY neturi kuo paleisti agento terminalo.
+onlyBuiltDependencies:
+  - node-pty

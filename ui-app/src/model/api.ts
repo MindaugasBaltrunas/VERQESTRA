@@ -103,18 +103,33 @@ export async function fetchWorkflowTasks(bucket: string): Promise<WorkflowBucket
   await assertOk(response);
   return await (response.json() as Promise<WorkflowBucket>);
 }
+
+/**
+ * Ciklo valdymo atsakymo vokas.
+ *
+ * Kodėl ne `as { loop: … }`: kai serveris grąžindavo ŽALIĄ rezultatą be `loop` rakto (2026-08-23
+ * audito antras ratas), `data.loop` būdavo `undefined`, `result.status` — irgi, ir kontroleris
+ * neaptikdavo NĖ VIENO gedimo: `status === "failed"` niekada nesuveikdavo, o ekrane pasirodydavo
+ * „paleista". Tylus melas apie ciklo būseną yra blogiausia įmanoma šio mygtuko baigtis.
+ */
+function requireLoopEnvelope<T extends { status: string }>(payload: unknown, route: string): T {
+  const loop = (payload as { loop?: unknown } | null)?.loop;
+  if (typeof loop !== "object" || loop === null || typeof (loop as { status?: unknown }).status !== "string") {
+    throw new Error(`${route}: serverio atsakyme nėra 'loop' bloko — perkrauk VERQESTRA UI serverį`);
+  }
+  return loop as T;
+}
+
 export async function resumeLoop(): Promise<LoopResult> {
   const r = await post("/tasks/resume");
   await assertOk(r);
-  const data = (await r.json()) as { loop: LoopResult };
-  return data.loop;
+  return requireLoopEnvelope<LoopResult>(await r.json(), "/tasks/resume");
 }
 
 export async function stopLoop(): Promise<LoopStopResult> {
   const r = await post("/tasks/stop");
   await assertOk(r);
-  const data = (await r.json()) as { loop: LoopStopResult };
-  return data.loop;
+  return requireLoopEnvelope<LoopStopResult>(await r.json(), "/tasks/stop");
 }
 
 export async function approveLearningRecommendation(id: string): Promise<void> {
@@ -177,8 +192,7 @@ export async function startLoopWithWorkers(workers: 1 | 2): Promise<LoopResult> 
     body: JSON.stringify({ workers }),
   });
   await assertOk(r);
-  const data = (await r.json()) as { loop: LoopResult };
-  return data.loop;
+  return requireLoopEnvelope<LoopResult>(await r.json(), "/api/runtime/loop/start");
 }
 
 /**
@@ -208,10 +222,23 @@ export async function triageTask(action: "requeue" | "complete", reference: stri
   await assertOk(r);
 }
 
+/**
+ * Pasiūlymų sąrašas. `proposals` PRIVALO būti masyvas: kai serveris grąžindavo žalią žurnalo
+ * sąrašą be voko, `next.proposals` būdavo `undefined`, panelė likdavo amžinai „Įkeliama…", ir
+ * operatorius neturėdavo net klaidos, iš kurios suprastų, kad kažkas negerai.
+ */
+function requireProposals(payload: unknown, route: string): { proposals: ResolvedProposal[] } {
+  const proposals = (payload as { proposals?: unknown } | null)?.proposals;
+  if (!Array.isArray(proposals)) {
+    throw new Error(`${route}: serverio atsakyme nėra 'proposals' sąrašo — perkrauk VERQESTRA UI serverį`);
+  }
+  return { proposals: proposals as ResolvedProposal[] };
+}
+
 export async function fetchPolicyProposals(): Promise<{ proposals: ResolvedProposal[] }> {
   const response = await request("/api/policies/proposals");
   await assertOk(response);
-  return await (response.json() as Promise<{ proposals: ResolvedProposal[] }>);
+  return requireProposals(await response.json(), "/api/policies/proposals");
 }
 
 export async function fetchTokenUsage(filter: TokenUsageServerFilter): Promise<TokenUsageQueryResponse> {
@@ -265,5 +292,5 @@ export async function decidePolicyProposal(
     body: JSON.stringify(input),
   });
   await assertOk(r);
-  return await (r.json() as Promise<{ proposals: ResolvedProposal[] }>);
+  return requireProposals(await r.json(), `/api/policies/proposals/${verb}`);
 }

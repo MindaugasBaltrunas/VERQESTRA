@@ -9,6 +9,10 @@
 // skaičius nukrito nuo 1 iki 0 — vartas tyliai praėjo. Tai fail-open ant varto, o ne vien
 // duomenų higienos klausimas: sugadinta saugykla atrodo kaip švarus projektas.
 //
+// 2026-08-23 (RAG auditas 3): kiekių NEPAKANKA. Pakeitus vienos `imports` briaunos taikinį įrašų
+// skaičius lieka tas pats, schema praeina, ir vartas vėl praeina tyliai. Todėl manifestas nuo šiol
+// neša `records_hash` — įrašų baitinio atvaizdo atspaudą, kurį tikrina `checkCodeIndexFreshness`.
+//
 // Formatas yra BYTE-COMPAT su etalonu, tad schemos aprašo tik tai, kuo REMIASI skaitytojai;
 // nežinomi laukai praleidžiami (`looseObject`), kad būsimas lauko pridėjimas nesugriautų senų
 // indeksų — juos ir taip anuliuoja `codeIndexVersion`.
@@ -24,6 +28,9 @@ export const codeIndexManifestSchema = z.looseObject({
   symbol_count: z.number().int().nonnegative(),
   edge_count: z.number().int().nonnegative(),
   source_hash: nonEmpty,
+  // Įrašų TURINIO atspaudas. Privalomas: manifestas be jo negali įrodyti, kad saugykla yra ta,
+  // kurią jis aprašo, o tokį manifestą priimti reikštų grąžinti tą patį fail-open (žr. viršuje).
+  records_hash: nonEmpty,
 });
 
 export const codeIndexFileSchema = z.looseObject({

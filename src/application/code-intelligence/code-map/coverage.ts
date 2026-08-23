@@ -50,11 +50,22 @@ function extractClassMemberLines(mermaid: string): Map<string, Set<string>> {
  * A symbol counts as rendered only if its exact member line is present inside
  * its own file's class block (matched by `classIdForFile`), so a matching
  * member line under the wrong file's block does not count.
+ *
+ * `scannedFiles` — VISI nuskenuoti failai (2026-08-23, RAG auditas 3). Iki tol failų visuma buvo
+ * išvedama iš simbolių, tad failas be eksportuotų deklaracijų į `source_files_total` nepatekdavo:
+ * jis diagramoje neturėdavo mazgo, o aprėptis vis tiek skelbdavo 100 %. Aprėptis, kurios vardiklis
+ * priklauso nuo to paties, ką ji matuoja, negali parodyti trūkumo.
+ *
+ * Todėl `coverage_percent` dabar skaičiuojamas nuo simbolių IR failų kartu: neatvaizduotas failas
+ * kainuoja lygiai tiek pat, kiek neatvaizduotas simbolis.
  */
-export function computeCodeMapCoverage(symbols: SymbolRecord[], mermaidContent: string): CodeMapCoverage {
+export function computeCodeMapCoverage(
+  symbols: SymbolRecord[],
+  mermaidContent: string,
+  scannedFiles: readonly string[] = [],
+): CodeMapCoverage {
   const classBlocks = extractClassMemberLines(mermaidContent);
-  const sourceFiles = new Set(symbols.map((symbol) => symbol.filePath));
-  const indexedFiles = new Set<string>();
+  const sourceFiles = new Set([...scannedFiles, ...symbols.map((symbol) => symbol.filePath)]);
   const missingSymbols: string[] = [];
   let renderedCount = 0;
 
@@ -63,18 +74,26 @@ export function computeCodeMapCoverage(symbols: SymbolRecord[], mermaidContent: 
     const expectedLine = memberLineForSymbol(symbol).trim();
     if (classBlocks.get(classId)?.has(expectedLine)) {
       renderedCount++;
-      indexedFiles.add(symbol.filePath);
     } else {
       missingSymbols.push(`${symbol.filePath}#${symbol.name}`);
     }
   }
 
+  // Failas laikomas aprašytu, kai diagramoje YRA jo blokas — nesvarbu, ar jis turi narių. Anksčiau
+  // tai buvo išvedama iš atvaizduotų simbolių, tad tuščias blokas neegzistavo net kaip klausimas.
+  const indexedFiles = [...sourceFiles].filter((filePath) => classBlocks.has(classIdForFile(filePath)));
+  for (const filePath of sourceFiles) {
+    if (!classBlocks.has(classIdForFile(filePath))) missingSymbols.push(`${filePath}#<file>`);
+  }
+
   const symbolsTotal = symbols.length;
-  const coveragePercent = symbolsTotal === 0 ? 100 : Math.round((renderedCount / symbolsTotal) * 10000) / 100;
+  const measured = symbolsTotal + sourceFiles.size;
+  const rendered = renderedCount + indexedFiles.length;
+  const coveragePercent = measured === 0 ? 100 : Math.round((rendered / measured) * 10000) / 100;
 
   return {
     source_files_total: sourceFiles.size,
-    source_files_indexed: indexedFiles.size,
+    source_files_indexed: indexedFiles.length,
     symbols_total: symbolsTotal,
     symbols_rendered_in_mmd: renderedCount,
     missing_symbols: missingSymbols,

@@ -175,16 +175,21 @@ function termFrequencies(terms: string[]): Map<string, number> {
 }
 
 /**
- * Trumpesni nei 3 simbolių termai metami, stemming'o nėra (auditas A6). Šiame repozitorijoje
- * tai reiškia, kad `AG`, `DB`, `UI`, `VQ` į užklausą nepatenka, o `taskas` ir `taskai` yra du
- * termai. SĄMONINGAI paliekama: nuo A3 sprendimo BM25 rūšiuoja tik PAKOPOS VIDUJE, tad jis
- * lemia tvarką tarp lygiaverčių kandidatų, o ne tai, kas apskritai patenka į pack'ą. Tobulinti
- * verta tik tada, jei BM25 kada nors vėl taptų atrankos pakopa.
+ * Skaidymas pagal UNICODE raides ir skaitmenis (2026-08-23, RAG auditas 3).
+ *
+ * Iki tol skirtukas buvo `[^a-z0-9_]`, tad kiekvienas ne ASCII žodis subyrėdavo į nieką: kirilicos
+ * užklausa ir tiksliai ją atitinkantis dokumentas abu gaudavo 0, ir laimėdavo pirmas nesusijęs
+ * kandidatas. Tai lietė ne tik kirilicą ar CJK — lietuviški `užduotis`, `įrodymas`, `sąrašas` irgi
+ * skildavo į ASCII gabalus (`u`, `duotis`), tad net šio repo kalba veikė tik iš dalies.
+ *
+ * Trumpesni nei 3 simbolių termai metami ir stemming'o nėra (auditas A6). SĄMONINGAI paliekama: nuo
+ * A3 sprendimo BM25 rūšiuoja tik PAKOPOS VIDUJE, tad jis lemia tvarką tarp lygiaverčių kandidatų, o
+ * ne tai, kas apskritai patenka į pack'ą.
  */
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .split(/[^a-z0-9_]+/)
+    .split(/[^\p{L}\p{N}_]+/u)
     .filter((token) => token.length >= 3);
 }
 

@@ -47,10 +47,14 @@ export async function buildCodeIndex(
   edges.push(...deriveTestEdges(files));
   const unique = uniqueEdges(edges);
   const sourceHash = await computeSourceHash(scanned);
+  // Rūšiuojama PRIEŠ manifestą: `records_hash` skaičiuojamas nuo tų pačių baitų, kurie bus
+  // užrašyti, tad manifesto gamyba privalo matyti galutinę įrašų tvarką.
+  const sortedFiles = [...files].sort((left, right) => left.path.localeCompare(right.path));
+  const sortedSymbols = [...symbols].sort((left, right) => left.id.localeCompare(right.id));
   const data: CodeIndexData = {
-    manifest: createManifest(projectRoot, files, symbols, unique, sourceHash),
-    files: files.sort((left, right) => left.path.localeCompare(right.path)),
-    symbols: symbols.sort((left, right) => left.id.localeCompare(right.id)),
+    manifest: createManifest(projectRoot, sortedFiles, sortedSymbols, unique, sourceHash),
+    files: sortedFiles,
+    symbols: sortedSymbols,
     edges: unique,
   };
   await writeCodeIndex(fs, projectRoot, data);

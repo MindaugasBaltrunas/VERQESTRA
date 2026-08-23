@@ -14,12 +14,17 @@
       "src/application/loop.ts": "export function runLoop(): string {\n  return \"ok\";\n}\n"
     }
   },
+  "deviations": [
+    "2026-08-23 (RAG auditas 3, GRIEŽTINANTIS): `symbol_count` 8 -> 9 ir `records_hash` manifeste. Etalone `export { helperFormat } from \"./helpers.js\"` sukurdavo `exports` briauną į `src/lib/index.ts#helperFormat`, kurio SIMBOLIO nebuvo — kabanti briauna. Dabar re-eksportuojamas vardas gauna simbolį, tad bare-name uzklausa mato ir barrel'į.",
+    "2026-08-23 (RAG auditas 3, GRIEŽTINANTIS): `impacted_tests` seka importuotoju uzdarini. Etalone `src/lib/format.ts` grazindavo TUSCIA sarasa, nors grandine `format.ts -> index.ts -> consumer.ts -> consumer.test.ts` egzistuoja — barrel'is testa paslepdavo."
+  ],
   "expected_manifest": {
-    "version": "3.6.0",
+    "version": "4.0.0",
     "file_count": 8,
-    "symbol_count": 8,
+    "symbol_count": 9,
     "edge_count": 32,
-    "source_hash": "df59671c00297fb7ab55cdc770e5893ee8a26c174ae107bdabb2d54a5ef46539"
+    "source_hash": "df59671c00297fb7ab55cdc770e5893ee8a26c174ae107bdabb2d54a5ef46539",
+    "records_hash": "c5197d5bdaf881dc3334d5a0175aa8e99861bd3b365528f93c7ca739539124cc"
   },
   "expected_storage": {
     "dir": "AG/state/code-index",
@@ -28,7 +33,7 @@
       "file": ["path", "hash", "size", "language", "kind", "imports", "exports", "symbols", "isTest"],
       "symbol": ["id", "file", "name", "kind", "exported", "line", "endLine", "signature"],
       "edge": ["from", "to", "type", "detail"],
-      "manifest": ["version", "generated_at", "project_root", "file_count", "symbol_count", "edge_count", "source_hash"]
+      "manifest": ["version", "generated_at", "project_root", "file_count", "symbol_count", "edge_count", "source_hash", "records_hash"]
     }
   },
   "cases": [
@@ -56,12 +61,18 @@
       "expect": {
         "target": "helperFormat",
         "matched_files": [],
-        "matched_symbols": ["src/lib/helpers.ts#helperFormat"],
-        "imports": [],
-        "importers": ["src/lib/index.ts"],
-        "exported_symbols": ["src/lib/helpers.ts#helperFormat"],
-        "related_files": ["src/lib/helpers.ts", "src/lib/index.ts"],
-        "impacted_tests": []
+        "matched_symbols": ["src/lib/helpers.ts#helperFormat", "src/lib/index.ts#helperFormat"],
+        "imports": ["src/lib/format.ts", "src/lib/helpers.ts"],
+        "importers": ["src/consumer.ts", "src/lib/index.ts"],
+        "exported_symbols": ["src/lib/helpers.ts#helperFormat", "src/lib/index.ts#helperFormat"],
+        "related_files": [
+          "src/consumer.ts",
+          "src/lib/format.ts",
+          "src/lib/helpers.ts",
+          "src/lib/index.ts",
+          "src/tests/consumer.test.ts"
+        ],
+        "impacted_tests": ["src/tests/consumer.test.ts"]
       }
     },
     {
@@ -112,8 +123,8 @@
       "targets": ["src/lib/format.ts"],
       "expect": {
         "targets": ["src/lib/format.ts"],
-        "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts"],
-        "impacted_tests": [],
+        "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts", "src/tests/consumer.test.ts"],
+        "impacted_tests": ["src/tests/consumer.test.ts"],
         "notes": []
       }
     },

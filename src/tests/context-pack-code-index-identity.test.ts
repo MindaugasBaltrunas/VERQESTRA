@@ -50,6 +50,6 @@ test("code-index manifestas neša versiją, iš kurios statoma pack'o tapatybė"
 // šis krisdamas parodys, KUR dar tą kėlimą reikia atspindėti. Skirtumas nuo ankstesnės būklės —
 // deskriptorius jau tvarko invalidaciją pats, tad čia liko tik sąmoningumo vartas.
 test("indekso ir kešo versijos: kėlimas turi būti sąmoningas", () => {
-  assert.equal(codeIndexVersion, "3.6.0", "daugiakalbis indeksas, briaunos, CommonJS, source_hash, ID, rezoliucija");
-  assert.equal(CONTEXT_CACHE_VERSION, 6, "pakelta kartu su Unicode antraščių normalizavimu");
+  assert.equal(codeIndexVersion, "4.0.0", "records_hash manifeste, skenavimo ribos, eksportų tapatybė, scope, rezoliucija");
+  assert.equal(CONTEXT_CACHE_VERSION, 7, "pakelta kartu su Unicode BM25 skaidymu");
 });

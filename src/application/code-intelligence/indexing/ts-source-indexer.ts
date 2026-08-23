@@ -76,7 +76,10 @@ export function indexSourceText(
   const exportNames = new Set<string>();
   const symbols: CodeIndexSymbol[] = [];
   const extraEdges: CodeIndexEdge[] = [];
-  const localExportClauseNames = new Set<string>();
+  const localExportClauseNames = new Map<string, string>();
+  // Eksporto vardo „gimimo vieta": sakinys, kuris tą vardą įvedė. Naudojama sintetiniams
+  // simboliams (žr. `exports` invariantą failo apačioje) — be jos jie neturėtų eilučių intervalo.
+  const exportAnchors = new Map<string, { line: number; endLine: number }>();
 
   const lineOf = (pos: number): number => sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
   const rangeOf = (node: TypeScriptApi.Node): { line: number; endLine: number } => ({
@@ -122,24 +125,39 @@ export function indexSourceText(
       continue;
     }
     if (ts.isExportDeclaration(statement)) {
-      collectExportDeclaration(ts, statement, file.path, resolve, imports, exportNames, extraEdges, localExportClauseNames);
+      collectExportDeclaration(ts, statement, file.path, resolve, {
+        imports,
+        exportNames,
+        extraEdges,
+        localExportClauseNames,
+        anchor: rangeOf(statement),
+        exportAnchors,
+      });
       continue;
     }
     if (ts.isExportAssignment(statement)) {
       // `export default <expr>` and `export =` both record "default" (design §5).
       exportNames.add("default");
+      exportAnchors.set("default", rangeOf(statement));
       continue;
     }
     collectDeclaration(ts, statement, hasModifier, pushSymbol, exportNames);
   }
 
   // Locally exported names (`export { a }`, `export { a as b }` without `from`) mark the
-  // underlying declaration exported.
+  // underlying declaration exported — bet NE eksportuojamu VARDU.
+  //
+  // 2026-08-23 (RAG auditas 3): `export { a as b }` anksčiau duodavo eksportus `a` IR `b`, nes
+  // pažymėtas simbolis vėliau savo vardą pats grąžindavo į sąrašą. Modulis eksportuoja tik `b`;
+  // `a` yra vidinis vardas, kurio importuotojas nemato. Todėl `exported` ir `exports` nuo šiol yra
+  // du skirtingi klausimai: PASIEKIAMUMAS ir VIEŠAS VARDAS.
   const bySymbolName = new Map(symbols.map((symbol) => [symbol.name, symbol]));
-  for (const localName of localExportClauseNames) {
+  const aliasKinds = new Map<string, CodeIndexSymbolKind>();
+  for (const [localName, exportedName] of localExportClauseNames) {
     const symbol = bySymbolName.get(localName);
     if (symbol) {
       symbol.exported = true;
+      aliasKinds.set(exportedName, symbol.kind);
     }
   }
 
@@ -253,12 +271,30 @@ export function indexSourceText(
     });
   }
 
-  // Exported symbols contribute their names to the export list (parity with the
-  // previous indexer's union behavior).
-  for (const symbol of symbols) {
-    if (symbol.exported) {
-      exportNames.add(symbol.name);
-    }
+  // INVARIANTAS: kiekvienas eksportuojamas vardas turi simbolį (2026-08-23, RAG auditas 3).
+  //
+  // `exports` briaunos rodo į `failas#vardas`, tad vardas be simbolio yra kabanti briauna — būtent
+  // ta klaida, kurią jau uždarėme PHP, C# ir CommonJS pusėse. TypeScript'e ją palikdavo trys formos:
+  //   `export { a as b }`      — `b` yra viešas vardas, kurio deklaracijos faile nėra;
+  //   `export default a`       — „default" nėra jokios deklaracijos vardas;
+  //   `export { x } from "m"`  — vardas ateina iš kito modulio.
+  //
+  // Visais trim atvejais vardas realiai priklauso ŠIAM failui: būtent per jį importuotojas jį mato.
+  // Todėl sintetinamas simbolis, kurio eilučių intervalas rodo į jį įvedusį sakinį. `kind` imamas
+  // iš pagrindinio simbolio, kai jis vietinis; kitu atveju — `const`, nes iš kito modulio ateinančio
+  // binding'o rūšies be to modulio indekso nežinome.
+  const declaredNames = new Set(symbols.map((symbol) => symbol.name));
+  for (const name of exportNames) {
+    if (declaredNames.has(name)) continue;
+    const anchor = exportAnchors.get(name);
+    symbols.push({
+      id: `${file.path}#${name}`,
+      file: file.path,
+      name,
+      kind: aliasKinds.get(name) ?? "const",
+      exported: true,
+      ...(anchor ?? {}),
+    });
   }
 
   const sortedSymbols = dedupeById(symbols).sort((left, right) => left.id.localeCompare(right.id));
@@ -278,16 +314,28 @@ export function indexSourceText(
   return { file: enrichedFile, symbols: sortedSymbols, edges };
 }
 
+type ExportDeclarationSink = {
+  imports: Set<string>;
+  exportNames: Set<string>;
+  extraEdges: CodeIndexEdge[];
+  /** vietinis vardas → eksportuojamas vardas (`export { a as b }` → `a` → `b`). */
+  localExportClauseNames: Map<string, string>;
+  anchor: { line: number; endLine: number };
+  exportAnchors: Map<string, { line: number; endLine: number }>;
+};
+
 function collectExportDeclaration(
   ts: typeof TypeScriptApi,
   statement: TypeScriptApi.ExportDeclaration,
   filePath: string,
   resolve: (specifier: string) => { value: string; inRepo: boolean },
-  imports: Set<string>,
-  exportNames: Set<string>,
-  extraEdges: CodeIndexEdge[],
-  localExportClauseNames: Set<string>,
+  sink: ExportDeclarationSink,
 ): void {
+  const { imports, exportNames, extraEdges, localExportClauseNames, anchor, exportAnchors } = sink;
+  const publish = (name: string): void => {
+    exportNames.add(name);
+    exportAnchors.set(name, anchor);
+  };
   const specifier =
     statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : undefined;
 
@@ -295,8 +343,8 @@ function collectExportDeclaration(
     // `export { a }` / `export { a as b }` — local export clause.
     if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
       for (const element of statement.exportClause.elements) {
-        exportNames.add(element.name.text);
-        localExportClauseNames.add((element.propertyName ?? element.name).text);
+        publish(element.name.text);
+        localExportClauseNames.set((element.propertyName ?? element.name).text, element.name.text);
       }
     }
     return;
@@ -314,14 +362,14 @@ function collectExportDeclaration(
   }
   if (ts.isNamespaceExport(statement.exportClause)) {
     // `export * as ns from "m"`.
-    exportNames.add(statement.exportClause.name.text);
+    publish(statement.exportClause.name.text);
     extraEdges.push({ from: filePath, to: resolved.value, type: "reExports", detail: "star" });
     return;
   }
   for (const element of statement.exportClause.elements) {
     const exportedName = element.name.text;
     const originalName = (element.propertyName ?? element.name).text;
-    exportNames.add(exportedName);
+    publish(exportedName);
     extraEdges.push({
       from: `${filePath}#${exportedName}`,
       to: `${resolved.value}#${originalName}`,
@@ -348,14 +396,29 @@ function collectDeclaration(
   if (exported && isDefault) {
     exportNames.add("default");
   }
+  /**
+   * Deklaracijos VARDAS į eksportų sąrašą (2026-08-23, RAG auditas 3).
+   *
+   * Anksčiau tai darė bendras ciklas „kiekvienas `exported` simbolis atiduoda savo vardą", ir kartu
+   * jis įtraukdavo tai, kas viešu vardu NĖRA: `export { a as b }` pažymėtą `a` ir eksportuotos
+   * klasės metodus (`C.m`). Vardą deklaruoja pati deklaracija, tad čia jam ir vieta.
+   *
+   * `export default function foo() {}` eksportuoja TIK „default": `foo` yra vidinis vardas.
+   */
+  const publish = (name: string): void => {
+    if (exported && !isDefault) exportNames.add(name);
+  };
 
   if (ts.isFunctionDeclaration(statement)) {
-    pushSymbol(statement.name?.text ?? "default", "function", exported, statement);
+    const functionName = statement.name?.text ?? "default";
+    pushSymbol(functionName, "function", exported, statement);
+    publish(functionName);
     return;
   }
   if (ts.isClassDeclaration(statement)) {
     const className = statement.name?.text ?? "default";
     pushSymbol(className, "class", exported, statement);
+    publish(className);
     if (exported) {
       // `Class.method` naming matches the code-map AST scanner so the two scanners agree.
       for (const member of statement.members) {
@@ -368,14 +431,17 @@ function collectDeclaration(
   }
   if (ts.isInterfaceDeclaration(statement)) {
     pushSymbol(statement.name.text, "interface", exported, statement);
+    publish(statement.name.text);
     return;
   }
   if (ts.isTypeAliasDeclaration(statement)) {
     pushSymbol(statement.name.text, "type", exported, statement);
+    publish(statement.name.text);
     return;
   }
   if (ts.isEnumDeclaration(statement)) {
     pushSymbol(statement.name.text, "enum", exported, statement);
+    publish(statement.name.text);
     return;
   }
   if (ts.isVariableStatement(statement)) {
@@ -385,6 +451,7 @@ function collectDeclaration(
     for (const declaration of statement.declarationList.declarations) {
       if (ts.isIdentifier(declaration.name)) {
         pushSymbol(declaration.name.text, "const", exported, declaration, prefix);
+        publish(declaration.name.text);
       }
     }
   }

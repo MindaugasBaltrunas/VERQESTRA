@@ -36,7 +36,22 @@
 // 3.6.0 (2026-08-23): pilnesnė vietinių paketų rezoliucija. Python absoliutus importas
 // išsprendžiamas į repo kelią, kai kandidatas VIENAS; PSR-4 masyvo reikšmė tikrinama kaip paieškos
 // seka, o ne tik pirmas katalogas. Keičiasi `imports` ir `imports` briaunos.
-export const codeIndexVersion = "3.6.0";
+// 4.0.0 (2026-08-23 RAG auditas 3): MAJOR, nes pasikeitė ir manifesto FORMA, ir tai, ką indeksas
+// laiko turiniu. Viename kėlime:
+//   • manifestas gavo PRIVALOMĄ `records_hash` — 3.x manifestas jo neturi, tad schema jo nepriima;
+//   • skenavimas nustojo aklai mesti `bin`/`obj`/`dist`/`vendor` bet kuriame gylyje (`src/bin/cli.ts`
+//     buvo teisėtas produkto kodas, kurio indekse tiesiog nebuvo) — keičiasi ir failų sąrašas, ir
+//     `source_hash`;
+//   • eksportai nustojo generuoti simbolių neturinčius vardus (`export { a as b }` eksportuodavo ir
+//     `a`; `export default a`, `module.exports = function () {}` ir `module.exports = { run() {} }`
+//     duodavo kabančias briaunas; `exports = {…}` iš viso nėra eksportas) — keičiasi `exports`,
+//     `symbols` ir jų briaunos;
+//   • `require`/`module`/`exports` nustojo būti importu ten, kur juos užgožia vietinis vardas;
+//   • Python absoliutus importas sprendžiamas tik nuo PAKETO ŠAKNIES (`import json` nebesusiejamas
+//     su `src/infrastructure/json.py`), o deklaracijos pjūvis apima dekoratorius ir baigiasi ties
+//     bloko įtrauka;
+//   • PHP grupiniai ir kelių vardų `use` sakiniai nustojo būti nukerpami.
+export const codeIndexVersion = "4.0.0";
 
 export type CodeIndexLanguage =
   | "typescript"
@@ -113,6 +128,14 @@ export type CodeIndexManifest = {
   symbol_count: number;
   edge_count: number;
   source_hash: string;
+  /**
+   * Įrašų TURINIO atspaudas (`files`+`symbols`+`edges` JSONL baitai).
+   *
+   * `source_hash` atsako „ar indeksas atitinka failus"; `records_hash` — „ar saugyklos turinys yra
+   * tas, kurį šis manifestas aprašo". Be jo įrašo redagavimas, išlaikantis kiekius ir schemą, lieka
+   * nepastebimas (2026-08-23 RAG auditas).
+   */
+  records_hash: string;
 };
 
 export type CodeIndexData = {

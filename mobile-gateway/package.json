@@ -1,0 +1,23 @@
+{
+  "name": "@verqestra/mobile-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test \"dist/tests/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@types/ws": "8.18.1",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "node-pty": "1.2.0-beta.12",
+    "ws": "8.21.0"
+  }
+}

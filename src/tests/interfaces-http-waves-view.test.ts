@@ -144,7 +144,8 @@ test("buildWavesView: atmetimai suliejami ir dedublikuojami, o sprendimai lieka 
           task_id: "891",
           granted: false,
           reason: "konfliktas /home/ana/repo",
-          hard_capped: false,
+          // SKAIČIUS, ne vėliava: kiek kandidatų nukirsta vien dėl užpildyto limito.
+          hard_capped: 2,
           decided_at: "2026-08-21T11:10:00.000Z",
           rejected: [{ task_id: "891", reason: "write-set", detail: "src/a.ts" }],
         },
@@ -154,7 +155,7 @@ test("buildWavesView: atmetimai suliejami ir dedublikuojami, o sprendimai lieka 
           task_id: "892",
           granted: true,
           reason: "",
-          hard_capped: false,
+          hard_capped: 0,
           decided_at: "2026-08-21T11:20:00.000Z",
           rejected: [],
         },
@@ -172,6 +173,10 @@ test("buildWavesView: atmetimai suliejami ir dedublikuojami, o sprendimai lieka 
   );
   // Laisvas tekstas išvalytas ir sprendimuose.
   assert.equal(view.refill_decisions[0]?.reason.includes("/home/ana"), false);
+  // `hard_capped` yra SKAIČIUS: iki 2026-08-23 audito serverio tipas jį skelbė `boolean`, tad
+  // „nukirsta 2" ir „nukirsta 1" būtų tapę ta pačia reikšme kiekvienam būsimam kvietėjui.
+  assert.equal(view.refill_decisions[0]?.hard_capped, 2);
+  assert.equal(view.refill_decisions[1]?.hard_capped, 0);
 });
 
 test("buildWavesView: slot'o nesėkmė ateina iš orchestrator.log ir yra išvalyta", async () => {

@@ -86,6 +86,34 @@ test("markdown chunks: preface root, heading sections, empty chunks dropped", ()
   );
 });
 
+// Fenced code bloke `# eilutė` NĖRA antraštė (2026-08-23 auditas): etalono elgsena bash
+// `# komentarą` versdavo fantomine 1 lygio antrašte, kuri tyliai nukirsdavo prašytą sekciją
+// ir galėjo klaidingai atitikti prašytą antraštę.
+test("markdown chunks: fenced code blokai nekuria fantominių antraščių", () => {
+  const chunks = chunkMarkdownByHeading(
+    [
+      "## Diegimas",
+      "```bash",
+      "# įdiek priklausomybes",
+      "pnpm install",
+      "```",
+      "po bloko",
+      "~~~",
+      "## ne antraštė tilde bloke",
+      "~~~",
+      "## Kita",
+      "kitas tekstas",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    chunks.map((chunk) => `${chunk.level}:${chunk.heading}`),
+    ["2:Diegimas", "2:Kita"],
+  );
+  assert.ok(chunks[0]?.text.includes("# įdiek priklausomybes"), "fence turinys lieka sekcijos viduje");
+  assert.ok(chunks[0]?.text.includes("po bloko"), "sekcija tęsiasi po uždaryto fence");
+  assert.ok(chunks[0]?.text.includes("## ne antraštė tilde bloke"), "tilde fence irgi dengia");
+});
+
 test("spec fragments: heading match, heading miss, change-dir expansion, char budget", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "vq-301-frag-"));
   try {

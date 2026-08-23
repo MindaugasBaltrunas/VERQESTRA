@@ -155,25 +155,10 @@ export function createSourceSliceReader(
   };
 }
 
-/** One-shot convenience over {@link createSourceSliceReader} for a single slice. */
-export async function extractSourceSlice(
-  fs: ContextPackFileSystemPort,
-  projectRoot: string,
-  data: CodeIndexData,
-  request: SourceSliceRequest,
-): Promise<Result<SourceSlice, SourceSliceError>> {
-  return await createSourceSliceReader(fs, projectRoot, data).read(request);
-}
-
-/** One-shot convenience for the exact source of one indexed symbol. */
-export async function extractSymbolSource(
-  fs: ContextPackFileSystemPort,
-  projectRoot: string,
-  data: CodeIndexData,
-  symbol: IndexedSymbolRef,
-): Promise<Result<SourceSlice, SourceSliceError>> {
-  return await createSourceSliceReader(fs, projectRoot, data).readSymbol(symbol);
-}
+// `extractSourceSlice` / `extractSymbolSource` (vienkartinės apvalkalės virš reader'io)
+// ištrintos 2026-08-23 RAG audite: nė vieno kvietėjo nei produkcijoje, nei testuose — ir
+// etalone jas naudojo tik jo paties testai. Vienintelis gyvas kelias yra
+// `createSourceSliceReader`, kurio batch'inis kešas yra visa šio modulio vertė.
 
 /**
  * Read a file and prove it is still the one the index described.

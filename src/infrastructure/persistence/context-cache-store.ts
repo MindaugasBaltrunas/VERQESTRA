@@ -220,7 +220,16 @@ export type ContextCacheInvalidation = {
   kept: string[];
 };
 
-/** Invaliduoja BŪTENT nuo pakeistų kelių priklausančius įrašus; kiti paliekami. */
+/**
+ * Invaliduoja BŪTENT nuo pakeistų kelių priklausančius įrašus; kiti paliekami.
+ *
+ * 2026-08-23 auditas: nei ši, nei `pruneStaleContextCacheEntries` produkcinio kvietėjo NETURI
+ * (taip pat ir etalone) — tai operatoriaus priežiūros įrankiai be įėjimo taško. Kešo
+ * KOREKTIŠKUMAS nuo jų nepriklauso: lookup kiekvieną kartą perrenka šaltinių hash'us, tad
+ * pasikeitęs failas keičia fingerprint'ą ir įrašas natūraliai tampa miss; talpą valdo
+ * `enforceContextCacheCapacity`. Paliktos kaip suprojektuota ir ištestuota priežiūros
+ * galimybė; jų wiring'as į CLI būtų funkcionalumas, ne audito taisymas.
+ */
 export async function invalidateContextCacheForSources(
   runtimeRoot: string,
   changedPaths: string[],

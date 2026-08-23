@@ -329,46 +329,10 @@ export function latestContextSizeMetrics(records: ContextSizeMetricsRecord[]): C
   return records.at(-1);
 }
 
-export type ContextCacheMetricsSummary = {
-  hits: number;
-  misses: number;
-  bypass: number;
-  unknown: number;
-  // Share of cacheable assemblies (hits + misses) that were served from cache, rounded to
-  // four decimals; 0 when nothing cacheable was recorded.
-  hit_ratio: number;
-  selected_chars: number;
-  selected_token_estimate: number;
-};
-
-/**
- * Aggregate cache hit/miss and selected size telemetry across recorded assemblies.
- * Pure: it only folds already-read records, so reporting never re-reads the log.
- */
-export function summarizeContextCacheMetrics(records: ContextSizeMetricsRecord[]): ContextCacheMetricsSummary {
-  const summary: ContextCacheMetricsSummary = {
-    hits: 0,
-    misses: 0,
-    bypass: 0,
-    unknown: 0,
-    hit_ratio: 0,
-    selected_chars: 0,
-    selected_token_estimate: 0,
-  };
-
-  for (const record of records) {
-    if (record.cache_status === "hit") summary.hits += 1;
-    else if (record.cache_status === "miss") summary.misses += 1;
-    else if (record.cache_status === "bypass") summary.bypass += 1;
-    else summary.unknown += 1;
-    summary.selected_chars += record.selected_chars;
-    summary.selected_token_estimate += record.selected_token_estimate;
-  }
-
-  const cacheable = summary.hits + summary.misses;
-  summary.hit_ratio = cacheable === 0 ? 0 : Math.round((summary.hits / cacheable) * 10_000) / 10_000;
-  return summary;
-}
+// `summarizeContextCacheMetrics` (hit/miss agregatas su `hit_ratio`) ištrinta 2026-08-23
+// RAG audite: nė vieno kvietėjo nei produkcijoje, nei testuose — ir etalone jos nenaudojo
+// niekas, išskyrus jo paties testą. Prireikus cache hit-ratio ataskaitos, ji rašoma iš
+// naujo prie realaus vartotojo (report CLI), o ne laikoma čia kaip negyvas svoris.
 
 function isContextCacheStatus(value: unknown): value is ContextCacheStatus {
   return value === "hit" || value === "miss" || value === "bypass" || value === "unknown";

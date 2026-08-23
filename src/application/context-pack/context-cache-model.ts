@@ -41,8 +41,13 @@ const nonEmptyString = z.string().trim().min(1);
  *          įrašas juos parsintų kaip 0, t. y. tyliai praneštų „nieko neprarasta".
  *      Nė vieno iš šių pakeitimų `PACK_SEMANTICS_DESCRIPTOR` nepagauna: jie nekeičia jokios
  *      derinimo konstantos. Būtent tam ši versija ir yra RANKINIS kontraktas.
+ *  4 — 2026-08-23 RAG auditas: `chunkMarkdownByHeading` tapo fence-aware — `# eilutė` fenced
+ *      code bloke nebėra antraštė. Keičiasi antraščių sekcijų ribos (fantominė antraštė
+ *      nebekerpa sekcijos) ir atitikimas (fantomas nebegali būti match'as), tad v3 įrašas
+ *      grąžintų nukirptą arba ne tą sekciją. Grynai loginis pakeitimas — deskriptorius jo
+ *      nemato.
  */
-export const CONTEXT_CACHE_VERSION = 3;
+export const CONTEXT_CACHE_VERSION = 4;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

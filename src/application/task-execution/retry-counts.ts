@@ -65,7 +65,18 @@ export function applyRetryCountUpdate(
  */
 export type RetryCountsStorePort = {
   read(): Promise<Record<string, number>>;
-  write(counts: Record<string, number>): Promise<void>;
+  /**
+   * SERIALIZUOTAS read-modify-write (2026-08-23, operatoriaus radinys).
+   *
+   * Anksčiau portas turėjo atskirą `write`, ir `incrementTaskRetryCount` darydavo
+   * `read()` → mutacija → `write()` be jokio užrakto. Du lygiagretūs inkrementai perskaitydavo tą
+   * pačią reikšmę ir vienas kito rezultatą perrašydavo — prarastas inkrementas reiškia, kad retry
+   * limitas leidžia DAUGIAU bandymų, nei nustatyta, o tai fail-open ant saugos ribos.
+   *
+   * Mutacija gauna žemėlapį, jį keičia vietoje ir grąžina savo rezultatą; saugykla persist'ina
+   * pakeistą būseną neatlaisvinusi užrakto.
+   */
+  update<T>(mutate: (counts: Record<string, number>) => T): Promise<T>;
 };
 
 /**
@@ -77,8 +88,7 @@ export async function incrementTaskRetryCount(
   taskId: string,
   retryKey: string,
 ): Promise<RetryCountUpdate> {
-  const retryCounts = await store.read();
-  const countUpdate = applyRetryCountUpdate(retryCounts, taskId, retryKey);
-  await store.write(retryCounts);
-  return countUpdate;
+  // Skaitymas ir rašymas VIENAME serializuotame žingsnyje: atskiri `read`/`write` kvietimai
+  // lygiagrečiuose procesuose prarasdavo inkrementą (žr. `RetryCountsStorePort.update`).
+  return await store.update((retryCounts) => applyRetryCountUpdate(retryCounts, taskId, retryKey));
 }

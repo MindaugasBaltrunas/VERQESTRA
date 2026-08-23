@@ -5,7 +5,6 @@
 // paduoda kvietėjas — saugykla jų neužkoduoja, kaip ir etalonas).
 
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   computeArchitectureGraphHash,
   computeArchitectureNodeHash,
@@ -14,6 +13,7 @@ import {
   type ArchitectureProgress,
 } from "../../domain/architecture/index.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
+import { withStateFileLock } from "../fs/state-file-lock.js";
 
 /**
  * Progreso ledger'io rašymo mutex'as.
@@ -27,52 +27,12 @@ import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
  * tipe, o tai paliestų kiekvieną skaitytoją, schemą ir fikstūrą. Lock'as lieka saugyklos viduje
  * ir nekeičia nė vieno kontrakto. Primityvas — tas pats `createLockDirectory` (atominis `mkdir`
  * be `recursive`), kurį jau naudoja ledger lock protokolas.
- */
-const LOCK_STALE_MS = 30_000;
-const LOCK_POLL_MS = 25;
-const LOCK_MAX_WAIT_MS = 5_000;
-
-function progressLockDir(statePath: string): string {
-  return `${statePath}.lock`;
-}
-
-/**
- * Laiko lock'ą per visą read-modify-write. Nepavykus jo gauti per `LOCK_MAX_WAIT_MS` — METAMA:
- * tylus tęsimas be lock'o būtų lygiai tas pats prarastas atnaujinimas, kurį šis vartas taiso.
  *
- * Užstrigęs (stale) lock'as perimamas pagal katalogo mtime — kritęs procesas neturi teisės
- * amžinai stabdyti bangos. Perėmimo lenktynės (du procesai vienu metu mato stale) baigiasi tuo,
- * kad laimi vienintelis `mkdir` — tai ir yra primityvo prasmė.
+ * 2026-08-23: pati mechanika iškelta į `infrastructure/fs/state-file-lock`, nes jos prireikė ir
+ * retry skaitikliams. Čia liko tik kvietimas — antra to paties protokolo kopija būtų išsiskyrusi
+ * tyliai, kaip jau atsitiko su grafo algoritmais.
  */
-async function withProgressLock<T>(statePath: string, work: () => Promise<T>): Promise<T> {
-  const lockDir = progressLockDir(statePath);
-  // `mkdir` be `recursive` reikalauja esamo tėvo; pirmo `initProgress` metu jo dar gali nebūti.
-  await nodeFsAdapter.makeDirectory(path.dirname(statePath));
-
-  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
-  for (;;) {
-    if ((await nodeFsAdapter.createLockDirectory(lockDir)) === "created") {
-      break;
-    }
-    const heldSinceMs = await nodeFsAdapter.directoryModifiedAtMs(lockDir);
-    if (heldSinceMs !== undefined && Date.now() - heldSinceMs > LOCK_STALE_MS) {
-      await nodeFsAdapter.removeDirectory(lockDir);
-      continue;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`architecture progress ledger is locked by another writer: ${lockDir}`);
-    }
-    await delay(LOCK_POLL_MS);
-  }
-
-  try {
-    return await work();
-  } finally {
-    // Best-effort: nepavykęs atlaisvinimas baigsis stale perėmimu, o metimas čia užgožtų
-    // tikrąjį `work()` rezultatą arba klaidą.
-    await nodeFsAdapter.removeDirectory(lockDir).catch(() => undefined);
-  }
-}
+const withProgressLock = withStateFileLock;
 
 /** Kanoninis grafo kelias projektui. */
 export function architectureGraphPath(projectRoot: string): string {

@@ -6,6 +6,7 @@
 // dėl savo buhalterijos — trūkstamas failas visada yra atsakymas, o ne klaida.
 
 import path from "node:path";
+import { withStateFileLock } from "../../infrastructure/fs/state-file-lock.js";
 import type { RetryCountsStorePort, SupervisorRetryDecision } from "../../application/task-execution/retry-counts.js";
 import { loadAgentPolicy } from "../../application/policy-governance/agent-policy.js";
 import type { LoopPreconditionPorts } from "../../application/scheduling/loop-preconditions.js";
@@ -40,20 +41,44 @@ export async function readCurrentTaskId(runtimeRoot: string): Promise<string | u
 }
 
 /**
- * Retry skaitiklių saugykla. Sugadintas failas skaitomas kaip TUŠČIAS žemėlapis: kitaip vienas
- * neparsinamas baitas užrakintų retry vartus visam repo — o vartai, kurie negali suskaičiuoti,
- * privalo leisti bandymą, ne jį amžinai blokuoti.
+ * Retry skaitiklių saugykla.
+ *
+ * FAIL-CLOSED sugadintam failui (2026-08-23, operatoriaus radinys). Iki tol čia buvo parašyta
+ * priešingai — „sugadintas failas skaitomas kaip TUŠČIAS žemėlapis, nes vartai, kurie negali
+ * suskaičiuoti, privalo leisti bandymą" — ir tai TIESIOGIAI prieštaravo domeno porto doc'ui, kuris
+ * reikalauja klaidos. Du deklaruoti kontraktai vienam klausimui, ir tyliai laimėdavo adapteris.
+ *
+ * Laimi portas, nes jo pusė teisinga: `{}` reiškia, kad task'as, jau išnaudojęs bandymus, gauna
+ * ŠVIEŽIĄ biudžetą — retry limitas egzistuoja būtent tam, kad repair kilpa nebūtų begalinė.
+ * Nesuskaičiavęs vartas privalo sustoti, o ne praleisti. Operatoriui lieka aiškus veiksmas:
+ * ištrinti failą yra sąmoningas sprendimas, o ne tylus šalutinis efektas.
+ *
+ * `update` serializuojamas per `withStateFileLock`: du lygiagretūs inkrementai be jo perskaitydavo
+ * tą pačią reikšmę ir vienas kito rezultatą perrašydavo, t. y. limitas leisdavo daugiau bandymų,
+ * nei nustatyta. Rašymas `writeTextFile` JAU atominis (unikalus tmp + rename) — trūko ne
+ * atomiškumo, o abipusio išskyrimo.
  */
 export function retryCountsStore(runtimeRoot: string): RetryCountsStorePort {
   const file = path.join(runtimeRoot, "state", "retry-counts.json");
+  const readCounts = async (): Promise<Record<string, number>> => {
+    const raw = await nodeFsAdapter.readTextFileIfExists(file);
+    if (raw === undefined) return {};
+    const parsed = tryParseJson<Record<string, number>>(raw);
+    if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
+      throw new Error(`retry counts file is corrupt: ${file}`);
+    }
+    return parsed.value;
+  };
+
   return {
-    read: async () => {
-      const raw = await nodeFsAdapter.readTextFileIfExists(file);
-      if (raw === undefined) return {};
-      const parsed = tryParseJson<Record<string, number>>(raw);
-      return parsed.ok && parsed.value !== null && typeof parsed.value === "object" ? parsed.value : {};
-    },
-    write: (counts) => nodeFsAdapter.writeTextFile(file, toPrettyJson(counts)),
+    read: readCounts,
+    update: async (mutate) =>
+      await withStateFileLock(file, async () => {
+        const counts = await readCounts();
+        const result = mutate(counts);
+        await nodeFsAdapter.writeTextFile(file, toPrettyJson(counts));
+        return result;
+      }),
   };
 }
 

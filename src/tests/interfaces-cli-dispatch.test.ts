@@ -144,10 +144,15 @@ test("retry-counts: legacy raktų migracija, max taisyklė ir store round-trip",
   assert.equal(counts["task:0042"], 4);
 
   let persisted: Record<string, number> = { "task:0042": 4 };
+  // `update` yra vienas serializuotas read-modify-write (2026-08-23): fixture'as jį atkartoja
+  // tiksliai — perskaito kopiją, leidžia mutaciją, persist'ina.
   const store: RetryCountsStorePort = {
     read: async () => ({ ...persisted }),
-    write: async (next) => {
-      persisted = next;
+    update: async (mutate) => {
+      const counts = { ...persisted };
+      const result = mutate(counts);
+      persisted = counts;
+      return result;
     },
   };
   const second = await incrementTaskRetryCount(store, "0042", "type-error");
@@ -311,8 +316,11 @@ function retryGuardDeps(overrides: Partial<RetryGuardCommandDeps> = {}): {
     readDecision: async () => ({ verdict: "repair", task_id: "0042", retry_key: "type-error" }),
     counts: {
       read: async () => ({ ...counts }),
-      write: async (next) => {
+      update: async (mutate) => {
+        const next = { ...counts };
+        const result = mutate(next);
         counts = next;
+        return result;
       },
     },
     maxRetriesPerError: async () => 3,
@@ -359,7 +367,9 @@ test("retry-guard: ne-repair skip, trūkstamas taskId → 1, skaitiklis+parašai
   assert.match(flagged.agLines[0] ?? "", /task=0099 .*retry_key=sig-x/);
 
   const limited = retryGuardDeps();
-  await limited.deps.counts.write({ "task:0042": 2 });
+  await limited.deps.counts.update((counts) => {
+    counts["task:0042"] = 2;
+  });
   await retryGuard([], limited.deps);
   assert.equal(await retryGuard([], limited.deps), 1, "trečias dispatch'as pasiekia max=3");
   assert.match(limited.errorLogs[0] ?? "", /MAX RETRIES REACHED/);

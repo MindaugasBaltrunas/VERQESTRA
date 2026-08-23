@@ -103,6 +103,47 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
   const provisionSlotLease = async (target: SlotProvisionTarget): Promise<boolean> => {
     const workerId = formatWorkerId(target.worker_index);
     const where = `worker=${workerId} task=${target.task_id}`;
+
+    /**
+     * Lease, kurį šis kvietimas paėmė. Laikomas UŽ `try` ribų, kad jį būtų galima grąžinti ir
+     * išimties atveju (2026-08-23, operatoriaus radinys).
+     */
+    let held: WorkerLease | undefined;
+
+    /**
+     * Grąžina lease, jei aprūpinimas nepavyko PO jo paėmimo.
+     *
+     * Iki tol `quarantined`, `infrastructure` ir išimties keliai grįždavo `false` lease'o
+     * NEATLAISVINĘ. Bendras pool'o valymas jo nemato, nes nepavykęs slot'as į `provisioned`
+     * nepatenka, tad worker'is likdavo užimtas iki TTL — trijų valandų.
+     *
+     * Grąžinama TIK tada, kai už lease'o NESTOVI gyva kopija: `worktree_path` reiškia, kad
+     * izoliacija jau egzistuoja, ir jos lease'o nuėmimas būtų blogesnis už nutekėjimą.
+     */
+    const releaseHeldLease = async (reason: string): Promise<void> => {
+      if (held === undefined) return;
+      if (held.worktree_path !== undefined && held.worktree_path !== "") {
+        await deps.log(`SLOT LEASE KEPT: ${where} — už lease'o stovi kopija ${held.worktree_path} (${reason})`);
+        return;
+      }
+      try {
+        const released = await releaseWorkerLease({
+          deps: deps.leaseStore,
+          projectRoot: deps.workspaceRoot,
+          workerId,
+          claim: leaseClaimOf(held),
+        });
+        await deps.log(
+          released.status === "ok"
+            ? `SLOT LEASE RELEASED: ${where} lease=${held.lease_id} — ${reason}`
+            : `SLOT LEASE RELEASE DENIED: ${where} lease=${held.lease_id} — ${reason}`,
+        );
+      } catch (error) {
+        // Atlaisvinimo klaida NEGALI paversti aprūpinimo klaidos į kritusią bangą.
+        await deps.log(`SLOT LEASE RELEASE FAILED: ${where}: ${describe(error)}`);
+      }
+    };
+
     try {
       if (!(await deps.worktree.policyEnabled())) {
         await deps.log(`SLOT PROVISION SKIP: worktree politika išjungta (${where})`);
@@ -134,17 +175,24 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       // Pakartotinai panaudotas lease gali priklausyti JAU BAIGTAM task'ui: tas pats worker'io
       // indeksas, kitas darbas. Perimti jį reikštų dirbti svetimoje kopijoje.
       if (acquired.status === "reused" && acquired.lease.task_id !== target.task_id) {
+        // NEatlaisvinama: šis lease priklauso kitam darbui, ir jo nuėmimas nutrauktų svetimą
+        // izoliaciją. `held` lieka nenustatytas, tad ir vėlesni keliai jo nelies.
         await deps.log(`SLOT PROVISION SKIP: reused lease priklauso task'ui ${acquired.lease.task_id} (${where})`);
         return false;
       }
+      // Nuo čia lease yra MŪSŲ (`acquired` arba to paties owner'io `reused`), tad kiekvienas
+      // nesėkmės kelias privalo jį grąžinti.
+      held = acquired.lease;
 
       const created = await deps.worktree.create({ identity, lease: acquired.lease });
       if (created.status === "quarantined") {
         await deps.log(`SLOT WORKTREE QUARANTINED: ${created.reason} (${where})`);
+        await releaseHeldLease("worktree karantinas");
         return false;
       }
       if (created.status === "infrastructure") {
         await deps.log(`SLOT WORKTREE FAILED: ${created.message} (${where})`);
+        await releaseHeldLease("worktree infrastruktūros klaida");
         return false;
       }
 
@@ -154,6 +202,9 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
         ...acquired.lease,
         worktree_path: created.relativePath,
       });
+      // Nuo šios eilutės aprūpinimas PAVYKO — lease priklauso gyvai kopijai, ir grąžinti jo
+      // nebegalima net jei žemiau kas nors mestų.
+      held = undefined;
       await deps.log(
         `SLOT PROVISIONED: task=${target.task_id} worker=${workerId} lease=${acquired.lease.lease_id} worktree=${created.relativePath} (${created.status})`,
       );
@@ -162,6 +213,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       // Aprūpinimas NIEKADA nemeta: viena nesusikūrusi kopija reiškia vienu slot'u mažiau,
       // o ne kritusią bangą.
       await deps.log(`SLOT PROVISION FAILED: ${describe(error)} (${where})`);
+      await releaseHeldLease("aprūpinimo išimtis");
       return false;
     }
   };

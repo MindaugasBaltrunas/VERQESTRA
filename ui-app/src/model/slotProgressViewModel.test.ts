@@ -552,3 +552,95 @@ describe("buildSlotProgressViews privacy", () => {
     expect(views[0].worktree).toBe("yes");
   });
 });
+
+/**
+ * Per-srautinės grandinės (2026-08-24 UI auditas, aštuntas ratas).
+ *
+ * Serveris `slots[]` siunčia nuo daugiaslot'inės bangos — būtent todėl, kad globalus
+ * `AgentActivity` yra projekcija ant VIENO `claude-last.log`, kurį lygiagretūs worker'iai perrašo
+ * vienas per kitą. Klientas šio lauko NESKAITĖ, tad dviejų srautų bangoje grandinė buvo
+ * priskiriama spėjant pagal `task_id` sutapimą su tuo pačiu globaliu log'u.
+ */
+describe("buildSlotProgressViews su per-srautinėmis grandinėmis", () => {
+  const runningSlots = [
+    slot({ workerId: "w1", index: 1, state: "running", taskId: "0041", attempt: 1 }),
+    slot({ workerId: "w2", index: 2, state: "running", taskId: "0042", attempt: 1 }),
+  ];
+
+  const slotActivities = [
+    {
+      worker_id: "w1",
+      task_id: "0041",
+      attempt: 1,
+      log_path: "vq/runtime/w1/claude-last.log",
+      activity: activity({
+        taskId: "0041",
+        chain: ["coder", "reviewer"],
+        statuses: { coder: "done" },
+        currentAgent: "reviewer",
+      }),
+    },
+    {
+      worker_id: "w2",
+      task_id: "0042",
+      attempt: 1,
+      log_path: "vq/runtime/w2/claude-last.log",
+      activity: activity({ taskId: "0042", chain: ["tester"], statuses: {}, currentAgent: "tester" }),
+    },
+  ];
+
+  it("KIEKVIENAS srautas gauna SAVO grandinę, ne globalaus log'o paskutinio rašytojo", () => {
+    // Globalus srautas kalba apie w2 — jis rašė paskutinis. Be `slots[]` w1 liktų be grandinės,
+    // nors dirba, o jo fazė būtų „nežinoma".
+    const views = buildSlotProgressViews(
+      input({ loopControl: control(runningSlots), activity: activity({ taskId: "0042" }), slotActivities }),
+    );
+
+    expect(views[0]?.chain?.agents).toEqual(["coder", "reviewer"]);
+    expect(views[0]?.chain?.currentAgent).toBe("reviewer");
+    expect(views[1]?.chain?.agents).toEqual(["tester"]);
+    expect(views[1]?.chain?.currentAgent).toBe("tester");
+    expect(views.map((view) => view.liveness)).toEqual(["attached", "attached"]);
+  });
+
+  it("dvi užduotys tuo pačiu vardu nebedaro priskyrimo dviprasmiško", () => {
+    // Koreliacija pagal `task_id` čia grąžintų `ambiguous` ir nerodytų NIEKO. Turint srauto SAVO
+    // įrašą, vardų sutapimas priskyrimo nebeliečia.
+    const sameTask = [
+      slot({ workerId: "w1", index: 1, state: "running", taskId: "0041", attempt: 1 }),
+      slot({ workerId: "w2", index: 2, state: "running", taskId: "0041", attempt: 2 }),
+    ];
+    const views = buildSlotProgressViews(
+      input({ loopControl: control(sameTask), activity: activity({ taskId: "0041" }), slotActivities }),
+    );
+
+    expect(views[0]?.chain?.currentAgent).toBe("reviewer");
+    expect(views[0]?.phase).toBe("review");
+    expect(views.map((view) => view.liveness)).toEqual(["attached", "attached"]);
+  });
+
+  it("be `slots[]` elgesys NEPAKITĘS — senas serveris lieka veikiantis", () => {
+    const views = buildSlotProgressViews(
+      input({ loopControl: control(runningSlots), activity: activity({ taskId: "0042" }) }),
+    );
+
+    expect(views[0]?.chain).toBeNull();
+    expect(views[1]?.liveness).toBe("attached");
+  });
+
+  it("nutrūkęs srautas panaikina priskyrimą net turint įrašus", () => {
+    // `disconnected` reiškia, kad duomenys gali būti pasenę; skelbti „prisegta" tada būtų
+    // tvirtinimas apie tai, ko nebežinome.
+    const views = buildSlotProgressViews(
+      input({
+        loopControl: control(runningSlots),
+        activity: activity({ taskId: "0042" }),
+        slotActivities,
+        activityStatus: "disconnected",
+      }),
+    );
+
+    expect(views.map((view) => view.liveness)).toEqual(["unknown", "unknown"]);
+    expect(views[0]?.chain).toBeNull();
+  });
+});

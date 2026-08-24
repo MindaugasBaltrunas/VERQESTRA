@@ -547,6 +547,65 @@ export type BenchmarkReportDocument = {
   scenarios: BenchmarkScenarioSection[];
   limitations: string[];
   reproduction: { arguments: string[]; command: string };
+  /** Neprivaloma: ataskaita, kurios kohortos niekas nesuvedė, apie kompresiją NIEKO nesako. */
+  compression?: BenchmarkCompressionSection;
+};
+
+/**
+ * Kompresijos kohorta (`AG/benchmark` `ReportCompressionSection`).
+ *
+ * Iki 2026-08-24 paketas ją skaičiavo ir siuntė, o dashboard'as neturėjo net tipo — visas
+ * canary vs control eksperimentas, dėl kurio kompresija apskritai falsifikuojama, likdavo
+ * nematomas. Sąjunga sutampa su paketo `COMPRESSION_VERDICTS`; tą laiko
+ * `src/tests/benchmark-restated-contracts.test.ts`.
+ */
+export type BenchmarkCompressionVerdict = "accepted" | "rejected" | "not_measured";
+
+export type BenchmarkCompressionUsage = {
+  totalTokens?: number;
+  billableTokens?: number;
+  nonCachedTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  turnsPerTask?: number;
+};
+
+export type BenchmarkCompressionVariant = {
+  variantId: string;
+  variantIdentity: string;
+  features: string[];
+  hookProfile: string;
+  sampleCount: number;
+  conclusiveCount: number;
+  /** Kiek baigtinių bandymų turėjo UŽFIKSUOTĄ suvartojimą; žemiau jo KPI atsisakoma. */
+  capturedUsageCount: number;
+  verdict: BenchmarkCompressionVerdict;
+  reasons: string[];
+  /** Pagrindinis KPI: apmokestinami tokenai vienam priimtam task'ui. */
+  billableTokensPerAcceptedTask?: number;
+  /** Judėjimas prieš baseline (`variantas - baseline`); neigiamas yra pigiau. */
+  billableTokensPerAcceptedTaskDelta?: number;
+  billableTokensPerAcceptedTaskRelativeDelta?: number;
+  /** Saugos KPI: žalias srautas tuo pačiu vardikliu, su savo slenksčiu. */
+  rawTokensPerAcceptedTask?: number;
+  rawTokensPerAcceptedTaskDelta?: number;
+  acceptedRate?: number;
+  securityFailureRate?: number;
+  outOfScopeRate?: number;
+  repairsPerTask?: number;
+  humanReviewEventsPerTask?: number;
+  usage: BenchmarkCompressionUsage;
+};
+
+export type BenchmarkCompressionSection = {
+  registryVersion: number;
+  /** KPI apibrėžimo versija — be jos dvi ataskaitos gali matuoti skirtingus dydžius tuo pačiu vardu. */
+  costKpiVersion: number;
+  baselineVariantId: string;
+  variants: BenchmarkCompressionVariant[];
+  /** Bandymai, nepriklausantys nė vienam deklaruotam variantui: į jokį agregatą jie NEĮĖJO. */
+  unattributedSampleCount: number;
+  limitations: string[];
 };
 
 export type BenchmarkReportView = {

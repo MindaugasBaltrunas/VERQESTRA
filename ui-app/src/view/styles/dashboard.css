@@ -3683,6 +3683,22 @@ main {
 /* Nesamas failas nublanksta, bet LIEKA sąraše: jo nebuvimas yra faktas, ne tuštuma. */
 .state-file-missing { color: var(--faint); }
 
+/* `.table-scroll` buvo naudojamas PENKIOSE benchmark lentelėse ir neturėjo NĖ VIENOS taisyklės —
+   klasė, pažadanti slinkimą, jo neteikė, o plačios lentelės stumdavo visą puslapį horizontaliai
+   (tiksliai tas gedimas, kurį operatorius matė siaurame ekrane). Slenka konteineris, ne puslapis. */
+.table-scroll { max-width: 100%; overflow-x: auto; }
+
+/* --- Kompresijos kohorta (canary vs control) ---------------------------------------------- */
+
+.compression-baseline { background: var(--surface-subtle, rgba(127, 127, 127, 0.06)); }
+.compression-baseline th[scope="row"] .badge { margin-left: 6px; }
+/* Variantas: ID monospace, funkcijos po juo — jos yra tapatybė, todėl matomos be paspaudimo. */
+.diagnostics-table th[scope="row"] code { font-size: 11px; }
+.diagnostics-table th[scope="row"] small { display: block; color: var(--muted); font-size: 11px; }
+/* Mažiau tokenų yra GERIAU, todėl neigiamas pokytis žalias. Spalva seka prasmę, ne ženklą. */
+.delta-better { color: var(--success, #15803d); }
+.delta-worse { color: var(--danger, #b91c1c); }
+
 /* --- Signalai, taikiniai ir „Daugiau" meniu (2026-08-24, operatoriaus nurodymai) ---------- */
 
 /* Trys skirtingi faktai stovi šalia, bet kaip ATSKIRI ženklai — ne kaip vienas jungtinis. */

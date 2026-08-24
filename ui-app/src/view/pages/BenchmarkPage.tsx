@@ -9,6 +9,7 @@ import type {
   BenchmarkScenarioSection,
 } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
+import { CompressionCohortPanel } from "../components/CompressionCohortPanel";
 import { Header, type Route } from "../components/Header";
 
 // Read-only view over the backend's authoritative benchmark report
@@ -282,6 +283,11 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                 </ul>
               )}
             </section>
+
+            {/* Kompresijos kohorta rodoma PO scenarijų ir PRIEŠ metodologiją: tai rezultatas, o
+                ne prielaida. `report.compression` yra neprivalomas — kai jo nėra, panelė nieko
+                nepiešia, nes „nesuvesta kohorta" ir „kompresija nepadėjo" yra skirtingi teiginiai. */}
+            <CompressionCohortPanel section={report.compression} />
 
             <section className="panel">
               <div className="panel-header"><div><h2>{t("Methodology and limitations")}</h2></div></div>

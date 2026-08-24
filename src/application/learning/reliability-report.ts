@@ -5,14 +5,6 @@
 // Visas kelias tolerant: sugadinti duomenys degraduoja skaičius, o ne nuverčia atsakymą.
 
 import path from "node:path";
-import {
-  COHORT_MIN_SAMPLE,
-  buildCompressionCohortReport,
-  selectCohortContextSizeRecords,
-  selectCohortTaskEvents,
-  type CompressionCohortReport,
-} from "../analytics/compression-cohorts.js";
-import { contextSizeMetricsLogPath } from "../context-pack/metrics.js";
 import { aggregateFileActivity, dateKey, parseGitNumstat, summarizeFileChanges, type FileActivityBucket } from "./file-activity.js";
 import { buildFailureAnalytics, type FailureAnalytics } from "./failure-analytics.js";
 import { parseJsonlObjects, parseTolerantUsageRecords, selectLearningTaskEvents } from "./usage-view.js";
@@ -53,12 +45,19 @@ export type ReliabilityAnalyticsResponse = {
     byExtension: Array<{ extension: string; files: number }>;
   };
   reliability: FailureAnalytics;
-  /**
-   * Canary vs control palyginimas kompresijos eksperimentui (task 0004): `task_id` join'as,
-   * kuris eksperimentą daro falsifikuojamą.
-   */
-  compressionCohorts: CompressionCohortReport;
 };
+
+// `compressionCohorts` ISTRINTAS 2026-08-24 (UI auditas, septintas ratas).
+//
+// Laukas buvo skaičiuojamas KIEKVIENAM `/api/reliability-analytics` kvietimui — o tą endpoint'ą
+// dashboard'as pollina — ir neturėjo NĖ VIENO skaitytojo: nei `src/`, nei `ui-app/` (kliento
+// tipas jo net nedeklaravo). Kartu su juo krito visas `context-size-metrics.jsonl` skaitymas ir
+// parsinimas, egzistavęs tik jam.
+//
+// Kohortos NEDINGO: `buildCompressionCohortReport` gyvas ir turi tikrą kvietėją —
+// `verqestra report` (`interfaces/cli/reports/report.ts`), kuris jas ir renderina. Čia buvo
+// ANTRA to paties skaičiavimo kopija, kurios rezultatas keliaudavo į naršyklę ir būdavo
+// numetamas.
 
 export type BuildReliabilityOptions = {
   runtimeRoot?: string;
@@ -85,12 +84,6 @@ export async function buildReliabilityAnalytics(
   const tokens = parseTolerantUsageRecords(
     await ports.fs.readTextFileIfExists(path.join(runtimeRoot, "logs", "token-usage.jsonl")),
   );
-  // Canary telemetrija skaitoma taip pat tolerantiškai: `readContextSizeMetrics` atmeta visą
-  // žurnalą dėl vienos sugadintos eilutės, o čia bloga eilutė kainuoja tik savo eilutę.
-  const contextSizeRecords = selectCohortContextSizeRecords(
-    parseJsonlObjects(await ports.fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot))),
-  );
-
   const sessionWrites = await ports.sessionWrites();
   const uniqueSessionWrites = [...new Set(sessionWrites)];
   const session = { touched: uniqueSessionWrites.length, created: 0, modified: 0, deleted: 0 };
@@ -156,7 +149,9 @@ export async function buildReliabilityAnalytics(
         "Historical file activity is commit-based; uncommitted history is unavailable.",
         "Failure cost includes tokens recorded between failure and recovery, not currency pricing.",
         "Daily activity and incidents are grouped by UTC date.",
-        `Canary vs control withholds any metric measured on fewer than ${COHORT_MIN_SAMPLE} tasks instead of estimating it.`,
+        // Canary vs control apribojimas ČIA NEBERAŠOMAS: kartu su `compressionCohorts` lauku šis
+        // atsakymas kohortų nebeneša, o apribojimas apie nesamą duomenį yra teiginys apie spragą,
+        // kurios nėra. Jis gyvas ten, kur kohortos realiai rodomos — `verqestra report`.
         ...(gitRaw !== undefined ? [] : ["Git history is unavailable to the UI server; file history is shown as zero."]),
       ],
     },
@@ -168,7 +163,6 @@ export async function buildReliabilityAnalytics(
       byExtension: activity.byExtension,
     },
     reliability: buildFailureAnalytics(events, tokens),
-    compressionCohorts: buildCompressionCohortReport(contextSizeRecords, tokens, selectCohortTaskEvents(rawEvents), now),
   };
 }
 

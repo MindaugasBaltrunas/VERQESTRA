@@ -129,5 +129,16 @@ test("buildReliabilityAnalytics: kompozicija per portus — be git, su session k
   // Ledger'io failai + įvykių žurnalo failai = unikalūs touched; kind'ai — tik iš žurnalo.
   assert.deepEqual(response.files.session, { touched: 3, created: 1, modified: 1, deleted: 0 });
   assert.equal(response.reliability.failures, 0);
-  assert.equal(typeof response.compressionCohorts, "object");
+
+  // 2026-08-24 (UI auditas, septintas ratas): kompresijos kohortos iš ŠIO atsakymo pašalintos.
+  // Jos buvo skaičiuojamos kiekvienam pollinamo endpoint'o kvietimui ir neturėjo nė vieno
+  // skaitytojo — nei `src/`, nei `ui-app/` (kliento tipas jų net nedeklaravo). Ankstesnis testas
+  // tvirtino tik `typeof === "object"`, ir tai buvo pats įrodymas, kad kontrakto nebuvo.
+  // Kohortos gyvos ten, kur rodomos: `verqestra report`.
+  assert.equal("compressionCohorts" in response, false, "nerodoma kohorta neturi keliauti į naršyklę");
+  assert.equal(
+    response.coverage.limitations.some((line) => line.includes("Canary vs control")),
+    false,
+    "apribojimas apie nesamą duomenį yra teiginys apie spragą, kurios nėra",
+  );
 });

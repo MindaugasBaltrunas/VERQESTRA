@@ -21,7 +21,7 @@ Draudžiama:
 - `dist/**`
 
 ## Dependencies
-depends_on: 004
+depends_on: none
 
 ## Veiksmas
 - Įgyvendinti: Paleisti architecture contract patikrą šiam repo ir uždaryti boundary schema radinius.

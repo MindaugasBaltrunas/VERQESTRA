@@ -495,3 +495,46 @@ negalima sulaužyti, nėra vartas.
 
 - `pnpm typecheck`, `pnpm lint` — praeina.
 - `pnpm test` — **1569/1569** (+4); `pnpm test:ui` — 51/51 failai, **417/417**.
+
+## Septintas ratas: ketvirtas gilus DTO ir mirusi kohorta (2026-08-24)
+
+Penktame rate parašiau „trys likę gilūs DTO". Jų buvo **keturi** —
+`/api/reliability-analytics` liko nesulygintas. Šis ratas jį uždaro ir taiso tai, ką sulyginimas
+atidengė.
+
+### Sulyginimas: ŠVARU
+
+`ReliabilityAnalyticsResponse` serverio ir kliento pusės sutampa laukas į lauką, įskaitant visus
+įdėtus tipus: `FileActivityBucket`, `FailureAnalytics` (su `byType`, `byDay`), `FailureRecord`
+(13 laukų), `coverage`, `files.session/today/week`, `byExtension`.
+
+Pastaba: šis endpoint'as VIENINTELIS kliente jau turėjo runtime patikrą
+(`fetchReliabilityAnalytics` tikrina `reliability.byDay` ir `files.byDay`) — kažkas žinojo, kad
+riba rizikinga. Patikra dengė 2 laukus iš ~20; dabar visą formą laiko sulyginimas.
+
+### Radinys: kohorta, skaičiuojama kiekvienam pollui ir neskaitoma niekur — IŠTRINTA
+
+`ReliabilityAnalyticsResponse.compressionCohorts` neturėjo **nė vieno** skaitytojo: nei `src/`,
+nei `ui-app/` (kliento tipas jo net nedeklaravo). Bet jis buvo skaičiuojamas kiekvienam
+`/api/reliability-analytics` kvietimui — o tą endpoint'ą dashboard'as pollina — ir keliaudavo į
+naršyklę, kad būtų numestas.
+
+Kaina buvo ne tik lauko dydis: kartu su juo egzistavo **visas `context-size-metrics.jsonl`
+skaitymas ir parsinimas**, kuris daugiau niekam nereikalingas. Tai tas pats endpoint'as, kuriam
+trečias ratas jau grąžino 10 s kešą (jis be reikalo sukdavo git subprocesus kas pollingą); čia
+buvo antras to paties nereikalingo darbo sluoksnis.
+
+**Kohortos NEDINGO.** `buildCompressionCohortReport` gyvas ir turi tikrą kvietėją —
+`verqestra report`, kuris jas ir renderina. Ištrinta buvo ANTRA to paties skaičiavimo kopija.
+Ankstesnis testas tvirtino tik `typeof response.compressionCohorts === "object"` — pats įrodymas,
+kad kontrakto nebuvo; dabar testas pin'ina PAŠALINIMĄ.
+
+Kartu pašalinta ir `coverage.limitations` eilutė apie canary vs control: atsakymui nebenešant
+kohortų, apribojimas apie jas yra teiginys apie spragą, kurios nėra — būtent tas šablonas, kurį
+šis repo jau užrašė kaip „pasenusi antraštė pavojingesnė už jokią".
+
+### Patikros po septinto rato
+
+- `pnpm typecheck` — praeina.
+- `pnpm test` — 1582/1583. **Vienintelis kritimas priklauso lygiagrečiai sesijai**
+  (`markdown-readers-real-corpus` — jos RAG audito 5 darbas). Visi UI testai žali.

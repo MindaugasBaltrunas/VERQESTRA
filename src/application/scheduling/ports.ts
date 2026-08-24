@@ -3,6 +3,9 @@
 // gyvena čia pat, kaip context-pack `systemClock` — application sluoksniui Date ir process
 // globalai leidžiami, importų gate'ą tai tenkina.
 
+import { randomUUID } from "node:crypto";
+import type { OwnedLockIo } from "../../shared/owned-lock.js";
+
 export type SchedulingFileSystemPort = {
   /** Failo tekstas arba `undefined`, kai failo nėra (nebuvimas — atsakymas, ne klaida). */
   readTextFileIfExists(absolutePath: string): Promise<string | undefined>;
@@ -24,6 +27,13 @@ export type SchedulingFileSystemPort = {
   removeDirectory(absoluteDir: string): Promise<void>;
   /** Katalogo mtime (ms) stale-lock patikrai; `undefined`, kai katalogo nebėra. */
   directoryModifiedAtMs(absoluteDir: string): Promise<number | undefined>;
+  /**
+   * Pervadinimas. Reikalingas TIK stale lock'o perėmimui (`shared/lock-steal`): perėmimas yra
+   * `rename` į privatų kelią, kurį laimi lygiai vienas laukėjas. Be jo scheduling lock'ai turėjo
+   * savo, silpnesnį `stat -> rm` perėmimą — t. y. TOCTOU, kurį bendras algoritmas jau uždarė
+   * kitose repo vietose. Portas jį gavo 2026-08-24 būtent tam, kad protokolas liktų vienas.
+   */
+  renamePath(from: string, to: string): Promise<void>;
 };
 
 export type SchedulingClockPort = {
@@ -36,6 +46,28 @@ export const systemSchedulingClock: SchedulingClockPort = {
   now: () => new Date(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
+
+/**
+ * Scheduling portai → `shared/owned-lock` efektai.
+ *
+ * Vienoje vietoje, o ne kiekvienoje saugykloje: būtent dvi atskiros to paties lock'o kopijos ir
+ * buvo 2026-08-23 radinio priežastis. Laikrodis ateina iš to paties `SchedulingClockPort`, tad
+ * testas gali įrodyti stale ribą be tikro laukimo.
+ */
+export function schedulingOwnedLockIo(fs: SchedulingFileSystemPort, clock: SchedulingClockPort): OwnedLockIo {
+  return {
+    createLockDirectory: (dir) => fs.createLockDirectory(dir),
+    removeDirectory: (dir) => fs.removeDirectory(dir),
+    readTextFileIfExists: (absolutePath) => fs.readTextFileIfExists(absolutePath),
+    writeTextFileAtomic: (absolutePath, content) => fs.writeTextFileAtomic(absolutePath, content),
+    directoryModifiedAtMs: (dir) => fs.directoryModifiedAtMs(dir),
+    exists: (absolutePath) => fs.exists(absolutePath),
+    renamePath: (from, to) => fs.renamePath(from, to),
+    nowMs: () => clock.now().getTime(),
+    sleep: (ms) => clock.sleep(ms),
+    newLockId: () => randomUUID(),
+  };
+}
 
 /**
  * Ar procesas su tokiu pid dar egzistuoja. `EPERM` reiškia „egzistuoja, bet svetimas" —

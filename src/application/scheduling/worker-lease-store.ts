@@ -23,8 +23,9 @@ import {
   type WorkerLeaseIdentity,
 } from "../../domain/scheduling/index.js";
 import { toPrettyJson } from "../../shared/json.js";
+import { withOwnedLock, type OwnedLockTiming } from "../../shared/owned-lock.js";
 import type { SchedulingClockPort, SchedulingFileSystemPort } from "./ports.js";
-import { systemSchedulingClock } from "./ports.js";
+import { schedulingOwnedLockIo, systemSchedulingClock } from "./ports.js";
 
 export type WorkerLeaseStoreDeps = {
   fs: SchedulingFileSystemPort;
@@ -163,48 +164,32 @@ export async function listWorkerLeases(fs: SchedulingFileSystemPort, projectRoot
   return leases;
 }
 
-const LEASE_STORE_LOCK_STALE_MS = 60 * 1000;
+export const LEASE_STORE_LOCK_TIMING: OwnedLockTiming = {
+  staleMs: 60 * 1000,
+  retryMs: 50,
+  // Buvo 100 bandymų po 50 ms — ta pati riba, tik išreikšta laiku, kaip jos ir prašo protokolas.
+  timeoutMs: 100 * 50,
+};
 
 /**
- * Read-modify-write serializacija tarp procesų. `mkdir` be `recursive` yra atominis „sukurk
- * arba suklysk" primityvas kiekvienoje palaikomoje FS — tas pats receptas kaip scope lock
- * registro lock'e, todėl elgsena repozitorijoje yra viena.
+ * Read-modify-write serializacija tarp procesų.
+ *
+ * 2026-08-24: protokolas iškeltas į `shared/owned-lock`. Iki tol ši funkcija ir
+ * `withScopeLockRegistry` buvo PAŽODINĖS viena kitos kopijos, ir abi turėjo tą pačią spragą —
+ * `finally` trynė lock'ą besąlygiškai, tad senasis savininkas galėdavo ištrinti jau naujojo
+ * lock'ą ir įleisti trečią rašytoją. Nuosavybės tokenas ir tikrinantis atlaisvinimas dabar
+ * gyvena vienoje vietoje, kartu su `state-file-lock`.
  */
 async function withLeaseStoreLock<T>(deps: WorkerLeaseStoreDeps, projectRoot: string, operation: () => Promise<T>): Promise<T> {
-  const clock = clockOf(deps);
   const dir = workerLeaseDir(projectRoot);
   await deps.fs.makeDirectory(dir);
-  const lockDir = path.join(dir, ".store.lock");
-
-  for (let attempt = 1; attempt <= 100; attempt += 1) {
-    const created = await deps.fs.createLockDirectory(lockDir);
-    if (created === "created") {
-      try {
-        return await operation();
-      } finally {
-        await deps.fs.removeDirectory(lockDir).catch(() => undefined);
-      }
-    }
-    await removeStaleStoreLock(deps.fs, lockDir, clock);
-    await clock.sleep(50);
-  }
-
-  throw new Error("Timed out waiting for the worker lease store lock");
-}
-
-async function removeStaleStoreLock(
-  fs: SchedulingFileSystemPort,
-  lockDir: string,
-  clock: SchedulingClockPort,
-): Promise<void> {
-  try {
-    const modifiedAt = await fs.directoryModifiedAtMs(lockDir);
-    if (modifiedAt === undefined) return;
-    if (clock.now().getTime() - modifiedAt <= LEASE_STORE_LOCK_STALE_MS) return;
-    await fs.removeDirectory(lockDir);
-  } catch {
-    // Lock'as jau dingo arba neprieinamas — kitas ciklo bandymas išspręs.
-  }
+  return await withOwnedLock(
+    schedulingOwnedLockIo(deps.fs, clockOf(deps)),
+    path.join(dir, ".store.lock"),
+    LEASE_STORE_LOCK_TIMING,
+    operation,
+    "worker-lease-store",
+  );
 }
 
 export type AcquireWorkerLeaseResult =

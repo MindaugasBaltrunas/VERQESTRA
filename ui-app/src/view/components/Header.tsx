@@ -1,4 +1,4 @@
-import type { Route } from "../../controller/useRoute";
+import { ROUTE_LABELS, type Route } from "../../controller/useRoute";
 import { useThemeController } from "../../controller/useThemeController";
 import { useI18n } from "../../i18n/I18nContext";
 import { useEffect, useRef } from "react";
@@ -52,17 +52,20 @@ export function Header({
           </div>
         </div>
         <nav ref={navigationRef} className="nav-tabs" aria-label={t("Primary navigation")}>
+          {/* Pavadinimai imami iš `ROUTE_LABELS`, o ne rašomi čia: tą patį sąrašą naudoja dokumento
+              antraštė, ir dvi kopijos leistų kortelei bei skirtukui pasakyti skirtingus dalykus
+              apie tą patį ekraną. Čia lieka TIK piktogramos — jos yra šio komponento reikalas. */}
           {([
-            ["overview", "Overview", "⌂"],
-            ["tasks", "Tasks", "✓"],
-            ["reviews", "Reviews", "◇"],
-            ["learning", "Learning", "↗"],
-            ["analytics", "Analytics", "⌁"],
-            ["optimization", "Optimization", "△"],
-            ["reliability", "Reliability", "◫"],
-            ["benchmark", "Benchmark", "⏱"],
-            ["system", "System", "⚙"],
-          ] as const).map(([route, label, icon]) => (
+            ["overview", "⌂"],
+            ["tasks", "✓"],
+            ["reviews", "◇"],
+            ["learning", "↗"],
+            ["analytics", "⌁"],
+            ["optimization", "△"],
+            ["reliability", "◫"],
+            ["benchmark", "⏱"],
+            ["system", "⚙"],
+          ] as const).map(([route, icon]) => (
             <button
               key={route}
               className={"nav-tab" + (activeRoute === route ? " active" : "")}
@@ -71,7 +74,7 @@ export function Header({
               onClick={() => onNavigate(route)}
             >
               <span aria-hidden="true">{icon}</span>
-              {t(label)}
+              {t(ROUTE_LABELS[route])}
             </button>
           ))}
         </nav>

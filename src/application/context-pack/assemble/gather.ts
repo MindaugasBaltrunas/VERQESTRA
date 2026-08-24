@@ -152,7 +152,7 @@ async function gatherFreshCodeContext(
     maxSymbols: limits.max_related_files,
     ...(options.maxContractSymbols > 0 ? { maxContractSymbols: options.maxContractSymbols } : {}),
   });
-  const architectureNodes = await matchArchitectureNodes(fs, projectRoot, targets);
+  const architecture = await matchArchitectureNodes(fs, projectRoot, targets);
 
   // Exact source of the TARGET symbols (task 0023), hash-verified against the index the
   // selection above came from. `missing_range` is the normal case for symbols without AST
@@ -180,13 +180,14 @@ async function gatherFreshCodeContext(
 
   return {
     enabled: true,
-    architectureNodes,
+    architectureNodes: architecture.nodes,
     codeGraphNeighbors: semantic.related_files,
     impactedTests: semantic.impacted_tests,
     summary: semantic.summary.slice(0, limits.max_related_files * 2),
     notes: [
       "code_context is advisory only; allowed_paths remains the hard edit boundary",
       ...semantic.notes.slice(0, limits.max_related_files),
+      ...architecture.notes,
       ...sliceNotes,
     ],
     symbolFragments: semantic.symbols,
@@ -195,45 +196,91 @@ async function gatherFreshCodeContext(
   };
 }
 
-// Best-effort architecture-graph node match: surface the labels of nodes whose id or
-// label token appears in one of the explicit targets. The graph is advisory context,
-// so a missing/unreadable graph simply yields no architecture nodes.
+/**
+ * Trumpiausias mazgo žymuo, kurį dar verta laikyti atitikmeniu.
+ *
+ * `ui`, `db` ar `a` kaip mazgo id atitiktų beveik kiekvieną kelią, ir toks mazgas atkeliautų kaip
+ * „architektūros kontekstas" prie nesusijusios užduoties. Du simboliai yra riba, žemiau kurios
+ * žymuo nustoja ką nors atrinkti.
+ */
+const MIN_ARCHITECTURE_TOKEN_LENGTH = 3;
+
+/**
+ * Architektūros grafo mazgų atitikimas taikiniams.
+ *
+ * SEGMENTŲ, o ne plikų substring'ų (2026-08-24, RAG auditas 4). Iki tol buvo
+ * `targets.join("\n").toLowerCase().includes(idToken)`, tad mazgas `ui` atitikdavo
+ * `src/build/...`, o `db` — `src/dbg/...`. Klaidingas atitikmuo nėra nekaltas: architektūros
+ * mazgai varžosi dėl to paties konteksto biudžeto kaip spec fragmentai, tad triukšmas juos
+ * IŠSTUMIA — ir dar pasirodo worker'iui kaip patvirtinta architektūros riba.
+ *
+ * Taikinys skaidomas ties viskuo, kas nėra raidė ar skaitmuo (keliai, taškai, brūkšneliai,
+ * camelCase lieka vienu žetonu — jis ir yra vardas). Mazgas atitinka, kai jo žymuo sutampa su
+ * VISU žetonu, o daugiažodis žymuo — kai sutampa visi jo žodžiai.
+ */
 async function matchArchitectureNodes(
   fs: ContextPackFileSystemPort,
   projectRoot: string,
   targets: string[],
-): Promise<string[]> {
+): Promise<{ nodes: string[]; notes: string[] }> {
   const graph = await readArchitectureGraph(fs, projectRoot);
-  if (!graph) {
-    return [];
+  if (graph.kind === "absent") {
+    return { nodes: [], notes: [] };
   }
-  const haystack = targets.join("\n").toLowerCase();
+  if (graph.kind === "unreadable") {
+    // Sugadintas grafas anksčiau tyliai virsdavo „architektūros mazgų nėra" — neatskiriama nuo
+    // projekto, kuris grafo tiesiog neturi. Degradacija privalo būti matoma (task 975 taisyklė).
+    return { nodes: [], notes: [`architecture graph unreadable: ${graph.reason}; architecture nodes were skipped`] };
+  }
+
+  const tokens = new Set(targets.flatMap((target) => target.toLowerCase().split(/[^\p{L}\p{N}]+/u)).filter(Boolean));
   const matched: string[] = [];
   for (const node of graph.nodes) {
-    const idToken = node.id.toLowerCase();
-    const labelToken = node.label.toLowerCase();
-    if ((idToken && haystack.includes(idToken)) || (labelToken && haystack.includes(labelToken))) {
+    if (matchesTargetTokens(node.id, tokens) || matchesTargetTokens(node.label, tokens)) {
       matched.push(node.label || node.id);
     }
   }
-  return matched;
+  return { nodes: matched, notes: [] };
 }
+
+function matchesTargetTokens(marker: string, tokens: ReadonlySet<string>): boolean {
+  const words = marker.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length === 0 || words.some((word) => word.length < MIN_ARCHITECTURE_TOKEN_LENGTH)) {
+    return false;
+  }
+  return words.every((word) => tokens.has(word));
+}
+
+type ArchitectureGraphRead =
+  | { kind: "graph"; nodes: Array<{ id: string; label: string }> }
+  | { kind: "absent" }
+  | { kind: "unreadable"; reason: string };
 
 async function readArchitectureGraph(
   fs: ContextPackFileSystemPort,
   projectRoot: string,
-): Promise<{ nodes: Array<{ id: string; label: string }> } | null> {
+): Promise<ArchitectureGraphRead> {
+  let raw: string | undefined;
   try {
-    const raw = await fs.readTextFileIfExists(path.join(projectRoot, "vq", "state", "architecture", "graph.json"));
-    if (raw === undefined) return null;
-    const parsed = JSON.parse(raw) as { nodes?: Array<{ id?: unknown; label?: unknown }> };
-    if (!Array.isArray(parsed.nodes)) return null;
-    return {
-      nodes: parsed.nodes
-        .filter((node) => typeof node.id === "string")
-        .map((node) => ({ id: node.id as string, label: typeof node.label === "string" ? node.label : "" })),
-    };
-  } catch {
-    return null;
+    raw = await fs.readTextFileIfExists(path.join(projectRoot, "vq", "state", "architecture", "graph.json"));
+  } catch (error) {
+    return { kind: "unreadable", reason: error instanceof Error ? error.message : String(error) };
   }
+  if (raw === undefined) return { kind: "absent" };
+
+  let parsed: { nodes?: Array<{ id?: unknown; label?: unknown }> };
+  try {
+    parsed = JSON.parse(raw) as { nodes?: Array<{ id?: unknown; label?: unknown }> };
+  } catch (error) {
+    return { kind: "unreadable", reason: error instanceof Error ? error.message : String(error) };
+  }
+  if (!Array.isArray(parsed.nodes)) {
+    return { kind: "unreadable", reason: "graph.json declares no `nodes` array" };
+  }
+  return {
+    kind: "graph",
+    nodes: parsed.nodes
+      .filter((node) => typeof node.id === "string")
+      .map((node) => ({ id: node.id as string, label: typeof node.label === "string" ? node.label : "" })),
+  };
 }

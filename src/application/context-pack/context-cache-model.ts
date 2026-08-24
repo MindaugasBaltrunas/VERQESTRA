@@ -74,8 +74,22 @@ const nonEmptyString = z.string().trim().min(1);
  *
  *      To paties audito code-index pakeitimai (`codeIndexVersion` 3.6.0 → 4.0.0) šio kėlimo
  *      NEREIKALAUJA: nuo v5 `code_index` deskriptorius neša indekso versiją ir anuliuoja pats.
+ *  8 — 2026-08-24 RAG auditas 4. Keičiasi tai, KAS patenka į pack'ą, ir tai, ką pack'as apie save
+ *      SAKO — keliais nepriklausomais keliais, tad viena versija apima juos visus:
+ *        • `extractSection` tapo fence-aware. `# komentaras` ```bash bloke nebekerpa sekcijos, o
+ *          užduoties šablonas ```text bloke nebepradeda jos. Keičiasi `## Spec source` (ką RAG
+ *          apskritai ima), `## Veiksmas` (acceptance criteria IR BM25 užklausos pusė), `## Stop`,
+ *          `## Neįtraukta` — t. y. ir įvestis, ir turinys.
+ *        • `spec_fragment_warnings` ėmė įvardyti ref'us, numestus graph-first atrankos, ir
+ *          taikomi SVARBOS tvarka; kartu pasikeitė ir kiek kitų įspėjimų telpa.
+ *        • fragmentų dedup pagal TURINĮ (ne `ref` + turinys), tuščias pjūvis nebelaikomas
+ *          fragmentu, tuščios `## Spec source` eilutės nebevalgo kandidatų limito.
+ *        • architektūros mazgai atrenkami pagal segmentus, ne plikus substring'us, tad
+ *          `architecture_nodes` sudėtis kitokia.
+ *      `PACK_SEMANTICS_DESCRIPTOR` gavo `impacted_test_importer_depth`, tad TA konstanta nuo šiol
+ *      anuliuoja pati — bet jos įvedimas į deskriptorių pats yra rakto pakeitimas.
  */
-export const CONTEXT_CACHE_VERSION = 7;
+export const CONTEXT_CACHE_VERSION = 8;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

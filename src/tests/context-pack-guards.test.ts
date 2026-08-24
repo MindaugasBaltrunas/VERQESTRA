@@ -192,8 +192,8 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
-    7,
-    "pakelta šeštą kartą: Unicode BM25 skaidymas (keičiasi kandidatų tvarka pakopos viduje)",
+    8,
+    "pakelta septintą kartą: fence-aware `extractSection` + įvardyti atrankos praradimai",
   );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,
@@ -201,7 +201,8 @@ test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas k
       "|change_dir_files:proposal.md,tasks.md,spec.md,design.md" +
       "|max_spec_candidates:64" +
       "|boundary_min_ratio:0.6" +
-      "|max_spec_retrieval_warnings:10",
+      "|max_spec_retrieval_warnings:10" +
+      "|impacted_test_importer_depth:3",
   );
 
   const key = computeContextCacheKey([

@@ -138,6 +138,40 @@
   border: 0;
 }
 
+/* Navigacijos praleidimas (WCAG 2.4.1). Nematomas, kol negauna fokuso — tada tampa pirmu
+   matomu elementu puslapyje. `clip`/`width` triukas vietoj `display: none`, nes paslėptas
+   elementas fokuso apskritai negautų, ir mygtukas neegzistuotų klaviatūrai. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 0 0 8px 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  left: 0;
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Fokusas, perkeltas į `main`, neturi piešti nuolatinio rėmelio pelės naudotojui. */
+main:focus {
+  outline: none;
+}
+
+main:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -2px;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
 }

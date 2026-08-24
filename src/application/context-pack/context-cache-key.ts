@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { RETRIEVAL_PRIORITY_ORDER } from "../code-intelligence/retrieval/ranking.js";
 import { BOUNDARY_MIN_RATIO, CHANGE_DIR_FILES, MAX_SPEC_CANDIDATES } from "../code-intelligence/retrieval/spec-fragments.js";
+import { IMPACTED_TEST_IMPORTER_DEPTH } from "../code-intelligence/query/query.js";
 import { MAX_SPEC_RETRIEVAL_WARNINGS } from "./assemble/spec-phase.js";
 import type { ContextCacheEntry, ContextCacheSource, ContextCacheSourceKind } from "./context-cache-model.js";
 import { CONTEXT_CACHE_VERSION } from "./context-cache-model.js";
@@ -54,6 +55,12 @@ export const PACK_SEMANTICS_DESCRIPTOR = [
   // Įspėjimų lubos veikia pack'o `spec_fragment_warnings` turinį (kirpimo eilutė + kiek
   // eilučių lieka), tad tai tokia pati derinimo konstanta kaip kandidatų lubos aukščiau.
   `max_spec_retrieval_warnings:${MAX_SPEC_RETRIEVAL_WARNINGS}`,
+  // Importuotojų uždarinio gylis lemia, KIEK testų patenka į `impacted_tests` ir per juos į
+  // `related_files`, t. y. tiesiogiai formuoja `code_context` (2026-08-24, RAG auditas 4).
+  // Įvesta 2026-08-23 audite 3, bet deskriptoriuje pamiršta — o deskriptoriaus visa prasmė ta,
+  // kad derinimo konstantos į raktą patektų BE atskiro prisiminimo. Spraga pačiame mechanizme,
+  // kuris tokias spragas ir turi dengti.
+  `impacted_test_importer_depth:${IMPACTED_TEST_IMPORTER_DEPTH}`,
 ].join("|");
 
 /**

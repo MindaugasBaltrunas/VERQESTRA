@@ -682,6 +682,8 @@ const lt: Record<string, string> = {
   // Anksčiau trūkę `WavesPanel` raktai — LT režimu jie krisdavo į anglišką fallback'ą.
   "Failed to load waves": "Nepavyko įkelti bangų",
   "Some wave sources could not be read": "Kai kurių bangų šaltinių nepavyko perskaityti",
+  // 2026-08-24 auditas (prieinamumas): navigacijos praleidimas — WCAG 2.4.1.
+  "Skip to content": "Pereiti prie turinio",
   // 2026-08-24 auditas: serveris degradavusius šaltinius įvardydavo, o klientas jų nerodė.
   "Some dashboard sources could not be read": "Kai kurių dashboard'o šaltinių nepavyko perskaityti",
   "Learning data is unavailable": "Mokymosi duomenų nėra",

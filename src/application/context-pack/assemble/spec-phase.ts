@@ -28,6 +28,35 @@ import { retrievalQuery, toRetrievalCandidate, type ParsedContextPackTask } from
  */
 export const MAX_SPEC_RETRIEVAL_WARNINGS = 10;
 
+/**
+ * Įspėjimo SVARBA — lubų taikymo tvarka (2026-08-24, RAG auditas 4).
+ *
+ * Iki tol lubos buvo prioritetui AKLOS: imamos pirmos 10 eilučių surašymo tvarka, o ta tvarka
+ * prasidėdavo antraščių nepataikymais. Task'as su dešimčia `#anchor` klaidų išstumdavo
+ * `spec source rejected: … (path escapes the project root)` — ribų pažeidimo signalą, kurį
+ * operatorius PRIVALO pamatyti, — ir prarastą spec'ą. Diagnostika, kuri pirma numeta savo
+ * svarbiausią eilutę, yra blogesnė už jos nebuvimą, nes ji atrodo pilna.
+ *
+ * Skalė: mažesnis skaičius = anksčiau. Ji rūšiuoja STABILIAI, tad tos pačios svarbos eilutės
+ * išlaiko surašymo tvarką.
+ */
+const WARNING_SEVERITY = {
+  /** Kelias išeina iš projekto — ribų vartas suveikė. */
+  rejected: 0,
+  /** Šaltinis yra, bet neperskaitomas: teisės, symlink'as, lenktynės su trynimu. */
+  unreadable: 1,
+  /** Task'as nurodė šaltinį, kurio nėra. */
+  missing: 2,
+  /** Turinys buvo paimtas, bet į pack'ą nepateko — biudžetas ar limitas. */
+  lost: 3,
+  /** Task'o rašymo defektas, dėl kurio nieko neprarasta. */
+  redundant: 4,
+  /** Fragmentas pack'e YRA, tik platesnis nei prašyta. */
+  imprecise: 5,
+} as const;
+
+export type SpecRetrievalWarning = { severity: number; text: string };
+
 export type SpecPhaseResult = {
   /**
    * Fragmentai, patekę į pack'ą, reitinguota tvarka. Kirpimo būsena keliauja ANT pačių
@@ -36,11 +65,48 @@ export type SpecPhaseResult = {
    * momentu to sąrašo dar negalima žinoti. Du to paties fakto šaltiniai išsiskirtų.
    */
   kept: RetrievedFragment[];
-  /** Žmogui skirtos eilutės `spec_fragment_warnings` laukui (su lubomis). */
-  warnings: string[];
+  /**
+   * Įspėjimai su svarba ir BE lubų.
+   *
+   * Lubas uždeda kvietėjas (`capSpecRetrievalWarnings`), nes paskutinė praradimų stadija —
+   * graph-first atranka — įvyksta jau PO šios fazės, ir jos įspėjimai privalo varžytis dėl tų
+   * pačių lubų kartu su šiais. Anksčiau lubos buvo uždedamos čia, tad atrankos praradimai
+   * neturėjo nė teorinės galimybės į sąrašą patekti.
+   */
+  warnings: SpecRetrievalWarning[];
   /** Metrikai: PRARASTŲ ref'ų skaičius, ne įspėjimų eilučių (tos turi lubas). */
   droppedCount: number;
 };
+
+/** Kiek ref'ų įvardijama vardais, kol eilutė nustoja būti skaitoma. */
+const SPEC_DROP_REFS_LISTED = 5;
+
+/**
+ * Atrankos stadijoje numesti spec ref'ai — VIENA apribota eilutė, o ne po eilutę kiekvienam.
+ *
+ * Forma yra load-bearing (2026-08-24, RAG auditas 4). Įspėjimai guli PAČIAME pack'e, o pack'as
+ * matuojamas prieš `max_context_chars`, tad kiekvienas jų simbolis atimamas iš to paties biudžeto,
+ * dėl kurio fragmentai ir buvo numesti. Su eilute kiekvienam ref'ui perrinkimo ciklas ėmė mesti
+ * DAUGIAU, kad tilptų diagnostika, o kiekvienas naujas praradimas pridėdavo dar vieną eilutę —
+ * charakterizacijos `budget-shrink` atveju pack'as taip prarado VISUS fragmentus. Tai tiksliai ta
+ * klasė, kurią 2026-08-21 audite uždarė `MAX_SPEC_RETRIEVAL_WARNINGS`: diagnostika neturi teisės
+ * sugriauti to, ką diagnozuoja.
+ *
+ * Viena eilutė su apribotu vardų sąrašu turi PASTOVIAS lubas, tad ją galima rezervuoti iš anksto
+ * (žr. `assemble`: rezervas matuojamas su blogiausiu atveju), ir realus pack'as niekada nebūna
+ * didesnis už išmatuotą.
+ */
+export function specSelectionDropWarning(refs: readonly string[]): SpecRetrievalWarning | undefined {
+  if (refs.length === 0) {
+    return undefined;
+  }
+  const listed = refs.slice(0, SPEC_DROP_REFS_LISTED).join(", ");
+  const rest = refs.length > SPEC_DROP_REFS_LISTED ? `, +${refs.length - SPEC_DROP_REFS_LISTED} more` : "";
+  return {
+    severity: WARNING_SEVERITY.lost,
+    text: `spec fragments dropped by the context budget: ${refs.length} (${listed}${rest})`,
+  };
+}
 
 export type SpecPhaseInput = {
   codeFs: CodeIntelligenceFileSystemPort;
@@ -72,32 +138,50 @@ export async function runSpecPhase(input: SpecPhaseInput): Promise<SpecPhaseResu
   // Fazė 2: fragmentų limitas ir simbolių biudžetas — jau reitinguota tvarka.
   const selection = applySpecFragmentBudget(ordered, input.maxSpecFragments, input.specCharBudget);
 
-  const allWarnings = [
+  const warnings: SpecRetrievalWarning[] = [
     ...headingMissWarnings(selection.kept),
-    ...candidates.unresolved.map(({ ref, reason }) => {
+    ...candidates.unresolved.map(({ ref, reason }): SpecRetrievalWarning => {
       if (reason === "candidate_limit") {
-        return `spec source not retrieved: ${ref} (candidate limit ${MAX_SPEC_CANDIDATES} reached; the task lists too many spec sources)`;
+        return {
+          severity: WARNING_SEVERITY.lost,
+          text: `spec source not retrieved: ${ref} (candidate limit ${MAX_SPEC_CANDIDATES} reached; the task lists too many spec sources)`,
+        };
       }
       if (reason === "outside_project") {
-        return `spec source rejected: ${ref} (path escapes the project root; spec sources must be repo-relative)`;
+        return {
+          severity: WARNING_SEVERITY.rejected,
+          text: `spec source rejected: ${ref} (path escapes the project root; spec sources must be repo-relative)`,
+        };
       }
       if (reason === "read_failed") {
-        return `spec source unreadable: ${ref} (skipped; the context pack was assembled without it)`;
+        return {
+          severity: WARNING_SEVERITY.unreadable,
+          text: `spec source unreadable: ${ref} (skipped; the context pack was assembled without it)`,
+        };
       }
-      return `spec source not found: ${ref}`;
+      return { severity: WARNING_SEVERITY.missing, text: `spec source not found: ${ref}` };
     }),
-    ...selection.dropped.map(({ ref, reason }) =>
+    ...selection.dropped.map(({ ref, reason }): SpecRetrievalWarning =>
       reason === "duplicate"
-        ? `spec fragment dropped: ${ref} (duplicate reference in the task)`
+        ? {
+            severity: WARNING_SEVERITY.redundant,
+            text: `spec fragment dropped: ${ref} (duplicate reference in the task)`,
+          }
         : reason === "fragment_limit"
-          ? `spec fragment dropped: ${ref} (max_spec_fragments=${input.maxSpecFragments})`
-          : `spec fragment dropped: ${ref} (context char budget exhausted)`,
+          ? {
+              severity: WARNING_SEVERITY.lost,
+              text: `spec fragment dropped: ${ref} (max_spec_fragments=${input.maxSpecFragments})`,
+            }
+          : {
+              severity: WARNING_SEVERITY.lost,
+              text: `spec fragment dropped: ${ref} (context char budget exhausted)`,
+            },
     ),
   ];
 
   return {
     kept: selection.kept,
-    warnings: capWarnings(allWarnings),
+    warnings,
     // Apkarpyti fragmentai NESKAIČIUOJAMI: jie pack'e yra (jiems — `spec_fragment_truncated`).
     droppedCount: candidates.unresolved.length + selection.dropped.length,
   };
@@ -114,22 +198,34 @@ export async function runSpecPhase(input: SpecPhaseInput): Promise<SpecPhaseResu
  * `proposal.md` ir antraštės tikrai ieškota — autorius nuimtų teisingą anchor'ą vietoj to, kad
  * pataisytų antraštės vardą.
  */
-function headingMissWarnings(kept: readonly RetrievedFragment[]): string[] {
+function headingMissWarnings(kept: readonly RetrievedFragment[]): SpecRetrievalWarning[] {
   return kept
     .filter((fragment) => fragment.headingMiss)
-    .map((fragment) =>
-      fragment.headingUnsupported
+    .map((fragment) => ({
+      severity: WARNING_SEVERITY.imprecise,
+      text: fragment.headingUnsupported
         ? `${SPEC_HEADING_MISS_WARNING} ${fragment.ref} (heading anchors work on markdown files only; fell back to whole-file text)`
         : `${SPEC_HEADING_MISS_WARNING} ${fragment.ref} (fell back to whole-file text, bounded by context budget)`,
-    );
+    }));
 }
 
-function capWarnings(warnings: readonly string[]): string[] {
-  if (warnings.length <= MAX_SPEC_RETRIEVAL_WARNINGS) {
-    return [...warnings];
+/**
+ * Lubos, taikomos SVARBOS tvarka.
+ *
+ * Rūšiuojama stabiliai (`index` — antrinis raktas), tad tos pačios svarbos eilutės išlaiko
+ * surašymo tvarką ir pack'as lieka deterministinis. Nukirsta eilutė sako, kiek liko NEĮVARDYTA —
+ * be jos sąrašas atrodytų pilnas.
+ */
+export function capSpecRetrievalWarnings(warnings: readonly SpecRetrievalWarning[]): string[] {
+  const ordered = warnings
+    .map((warning, index) => ({ warning, index }))
+    .sort((left, right) => left.warning.severity - right.warning.severity || left.index - right.index)
+    .map((entry) => entry.warning.text);
+  if (ordered.length <= MAX_SPEC_RETRIEVAL_WARNINGS) {
+    return ordered;
   }
   return [
-    ...warnings.slice(0, MAX_SPEC_RETRIEVAL_WARNINGS),
-    `spec retrieval warnings truncated: ${warnings.length - MAX_SPEC_RETRIEVAL_WARNINGS} more not listed`,
+    ...ordered.slice(0, MAX_SPEC_RETRIEVAL_WARNINGS),
+    `spec retrieval warnings truncated: ${ordered.length - MAX_SPEC_RETRIEVAL_WARNINGS} more not listed`,
   ];
 }

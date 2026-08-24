@@ -213,6 +213,7 @@ export const schedulingFs: SchedulingFileSystemPort = {
   createLockDirectory: (absoluteDir) => nodeFsAdapter.createLockDirectory(absoluteDir),
   removeDirectory: (absoluteDir) => nodeFsAdapter.removeDirectory(absoluteDir),
   directoryModifiedAtMs: (absoluteDir) => nodeFsAdapter.directoryModifiedAtMs(absoluteDir),
+  renamePath: (from, to) => nodeFsAdapter.renamePath(from, to),
 };
 
 /**

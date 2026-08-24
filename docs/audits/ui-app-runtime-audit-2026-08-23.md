@@ -348,3 +348,75 @@ tikrina mechanizmą, o ne tai, ar kas nors jį kviečia. Tas pats šablonas jau 
 - `pnpm build:ui` — praeina.
 - Realus atidarymas naršyklėje — **vis dar nepatikrintas** (toolchain'e nėra headless naršyklės, o
   `ui` komandos paleidimo neleidžia bash politika). Įrodymą turi pridėti operatorius.
+
+## Ketvirtas ratas: prieinamumas (2026-08-24) — originalaus audito rekomendacija 4
+
+Rekomendacija 4 („pakartoti pilną UX ir prieinamumo auditą") buvo užblokuota P0 nuo pirmos dienos.
+Atrakinta ji buvo pirmame rate; čia padaryta ta jos dalis, kurią galima **išmatuoti be naršyklės** —
+struktūra, fokusas ir dokumento tapatybė. Kontrasto, target dydžio, reflow ir screen reader
+patikros lieka operatoriui: joms reikia realaus renderio, ir jų „patikrinau" be jo būtų melas.
+
+Pirmiausia patikrinta, kas JAU teisinga, kad taisymas nevirstų perrašymu: `nav` turi
+`aria-label`, aktyvus skirtukas — `aria-current="page"`, piktogramos `aria-hidden`, kalbos
+perjungiklis — `role="group"` + `aria-pressed`, pranešimai — `role="status"`/`role="alert"`,
+lentelės — `visually-hidden` `<caption>`, o `I18nContext` atnaujina `document.documentElement.lang`
+(be to screen reader'is skaitytų lietuvišką tekstą angliškomis fonemomis). Rasti **du** realūs
+trūkumai.
+
+### WCAG 2.4.1 „Bypass Blocks" — navigacijos praleidimo nebuvo
+
+Kiekviename maršrute prieš turinį stovi 9 navigacijos skirtukai ir 6 įrankių juostos mygtukai.
+Klaviatūra dirbančiam operatoriui tai 15 `Tab` paspaudimų iki KIEKVIENO ekrano, ir taip po
+kiekvieno perkrovimo.
+
+Sprendimas — `SkipToContent`, pirmas fokusuojamas elementas, nematomas iki fokuso. **Mygtukas, o
+ne `<a href="#main-content">`**, ir tai ne stiliaus pasirinkimas: dashboard'as maršrutizuojasi per
+`window.location.hash`, tad įprastas skip-link šablonas perrašytų hash'ą, `readRoute` jo
+neatpažintų, ir operatorius vietoj turinio atsidurtų „Apžvalgoje" — prieinamumo pagerinimas, kuris
+tyliai sulaužo navigaciją. Taikinys randamas runtime (`document.querySelector("main")`), nes vienu
+metu renderinamas lygiai vienas `<main>`, o `tabindex` nustatomas prieš pat fokusavimą: be jo
+`focus()` ant ne-interaktyvaus elemento nieko nedaro.
+
+### WCAG 2.4.2 „Page Titled" — antraštė nesikeitė niekada
+
+`document.title` buvo statinis visiems devyniems maršrutams. Pasekmė ne tik formali: naršyklės
+istorijoje kiekvienas įrašas atrodo vienodai, o operatorius su keliais atidarytais projektų
+dashboard'ais neturi jokio būdo pasakyti, kuri kortelė ką rodo — tas pats klausimas, kurį
+serverio pusėje sprendžia `uiServer.projectFingerprint`.
+
+Antraštė dabar seka maršrutą, o rašytojas VIENAS (`RoutedApp`) — du efektai kovotų dėl to paties
+lauko. Kartu pašalintas dubliavimas: maršrutų pavadinimai persikėlė į `ROUTE_LABELS` šalia
+`Route` tipo, ir tą patį sąrašą naudoja navigacijos skirtukai bei antraštė. Dvi kopijos leistų
+kortelei ir skirtukui pasakyti skirtingus dalykus apie tą patį ekraną.
+
+### Vartai (ketvirtas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `ui-app/src/view/accessibility.test.tsx` (naujas) | praleidimo mygtukas yra PIRMAS fokusuojamas elementas DOM tvarkoje; jis perkelia fokusą į `main`; jis NEKEIČIA maršruto; dokumento antraštė seka maršrutą |
+| `ui-app/src/view/components/ErrorBoundary.test.tsx` (naujas) | riba paverčia renderio klaidą matomu pranešimu su klaidos tekstu IR veiksmu; sveikas medis praeina nepaliestas; pakartojimo mygtukas realiai atstato medį; klaida nepraryjama |
+
+### Spraga MANO PAČIO pirmo rato darbe
+
+`ErrorBoundary` buvo pridėtas pirmame rate kaip paskutinė riba tarp renderio klaidos ir tuščio
+ekrano — tiksliai to gedimo, dėl kurio auditas prasidėjo — ir liko **be nė vieno testo**.
+Neištestuotas saugumo tinklas yra prielaida, ne riba: React klaidų riba nutyla, jei
+`getDerivedStateFromError` nustoja būti `static`, o vienintelis požymis būtų baltas puslapis.
+
+Rašant testą išlindo dalykas, vertas užrašyti: **React 19, nukritus konkurenciniam renderiui,
+atsigauna perrenderindamas šaknį SINCHRONIŠKAI**. Pirmoji testo versija naudojo komponentą, kuris
+metė tik pirmą kartą — antrame, sinchroniniame praėjime jis nebemetė, riba į klaidos būseną
+nepateko, ir testas krito. Tai reiškia, kad klaidų ribos testas su „metančiu vieną kartą" vaiku
+duoda **klaidingą rezultatą abiem kryptimis**. Todėl vaikas meta pagal IŠORINĮ jungiklį, o šaknis
+montuojama ranka per `createRoot` su `onRecoverableError`: ta React diagnostika apie savo paties
+atsigavimą jsdom'e keliauja į `window.onerror` ir nuverčia testą, o RTL `render` šio parametro
+neatiduoda.
+
+### Patikros po ketvirto rato
+
+- `pnpm typecheck`, `pnpm typecheck:ui` — praeina.
+- `pnpm test:ui` — **51/51 failai, 417/417 testai**; `pnpm build:ui` — praeina.
+- Serverio pusė ketvirtame rate NELIESTA (pakeitimai tik `ui-app/`).
+- `pnpm test` — 1559/1561. **Abu kritimai priklauso lygiagrečiai sesijai** (`context-pack`
+  assemble ir `CONTEXT_CACHE_VERSION` priminimo testas — jos darbas tuo metu buvo pusiaukelėje).
+  Visi UI ir architektūros vartų testai žali.

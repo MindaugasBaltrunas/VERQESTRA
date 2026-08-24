@@ -13,28 +13,18 @@
 // uždarymas — tiek pat ar daugiau tų pačių ženklų be info string) antraščių neieškoma —
 // eilutės keliauja į einamą gabalą kaip turinys.
 
+import { markdownFenceMask, splitLines } from "../../../shared/markdown.js";
+
 export type MarkdownChunk = {
   heading: string;
   level: number;
   text: string;
 };
 
-type OpenFence = { marker: string; length: number };
-
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
-
-// CommonMark uždarymo fence: bent tiek pat TO PATIES ženklo, jokio info string.
-function isFenceClose(line: string, open: OpenFence): boolean {
-  const marks = line.match(FENCE_CLOSE)?.[1];
-  return marks !== undefined && (marks[0] ?? "") === open.marker && marks.length >= open.length;
-}
-
 export function chunkMarkdownByHeading(markdown: string): MarkdownChunk[] {
   const chunks: MarkdownChunk[] = [];
   let current: MarkdownChunk | undefined;
   const preface: string[] = [];
-  let openFence: OpenFence | undefined;
 
   const appendLine = (line: string): void => {
     if (current) {
@@ -44,18 +34,14 @@ export function chunkMarkdownByHeading(markdown: string): MarkdownChunk[] {
     }
   };
 
-  for (const line of markdown.split(/\r?\n/)) {
-    if (openFence !== undefined) {
-      if (isFenceClose(line, openFence)) {
-        openFence = undefined;
-      }
-      appendLine(line);
-      continue;
-    }
+  // Fence taisyklė — VIENA, `shared/markdown` (2026-08-24, RAG auditas 4). Anksčiau ji gyveno
+  // čia, o `extractSection` savo neturėjo visai; dvi kopijos būtų reiškusios, kad task'ų
+  // parsinimas ir spec fragmentų antraštės vieną dieną nebesutars, ką laiko antrašte.
+  const lines = splitLines(markdown);
+  const fenced = markdownFenceMask(lines);
 
-    const fence = line.match(FENCE_OPEN)?.[1];
-    if (fence !== undefined) {
-      openFence = { marker: fence[0] ?? "`", length: fence.length };
+  for (const [index, line] of lines.entries()) {
+    if (fenced[index] === true) {
       appendLine(line);
       continue;
     }

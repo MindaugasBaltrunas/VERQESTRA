@@ -164,14 +164,20 @@ export async function retrieveSpecFragmentCandidates(
   const fragments: RetrievedFragment[] = [];
   const unresolved: UnresolvedSpecSource[] = [];
 
-  for (const [index, ref] of refs.entries()) {
+  // Skaičiuojami APDOROTI kandidatai, ne eilutės pozicija (2026-08-24, RAG auditas 4). Lubos
+  // egzistuoja tam, kad apribotų IO; tuščia eilutė jokio IO nekainuoja, tad leisti jai suvalgyti
+  // kandidato vietą reiškė, kad tarpais išskirstytas `## Spec source` blokas prarasdavo tikrus
+  // ref'us anksčiau, nei pasiekdavo tikrąją ribą.
+  let considered = 0;
+  for (const ref of refs) {
     if (!ref.trim()) {
       continue;
     }
-    if (index >= MAX_SPEC_CANDIDATES) {
+    if (considered >= MAX_SPEC_CANDIDATES) {
       unresolved.push({ ref, reason: "candidate_limit" });
       continue;
     }
+    considered += 1;
     const filePath = containedSpecPath(projectRoot, specRefFilePart(ref));
     if (filePath === undefined) {
       unresolved.push({ ref, reason: "outside_project" });
@@ -219,12 +225,18 @@ export function applySpecFragmentBudget(
     // DUKART, o dublikatą vis tiek išmesdavo vėlesnis `dedupeStable` atrankoje — grynas
     // biudžeto praradimas. Dedup daromas čia, PRIEŠ išlaidas, ir apie jį pranešama, nes tai
     // task'o rašymo defektas.
-    const identity = `${fragment.ref}\n${fragment.text}`;
-    if (seen.has(identity)) {
+    //
+    // Tapatybė yra TURINYS, ne `ref` + turinys (2026-08-24, RAG auditas 4). Du SKIRTINGAI
+    // užrašyti ref'ai gali duoti tą patį tekstą — `AG/openspec/changes/x` ir
+    // `AG/openspec/changes/x/proposal.md` išsisprendžia į tą patį failą, o `spec.md` ir
+    // `spec.md#viena-vienintelė-antraštė` gali sutapti pažodžiui. Su `ref` rakte tokia pora
+    // praeidavo kaip du kandidatai ir išleisdavo biudžetą dukart tam pačiam tekstui — būtent tas
+    // praradimas, kurio dedup ir skirtas išvengti, tik viena abstrakcijos pakopa aukščiau.
+    if (seen.has(fragment.text)) {
       dropped.push({ ref: fragment.ref, reason: "duplicate" });
       continue;
     }
-    seen.add(identity);
+    seen.add(fragment.text);
 
     if (kept.length >= maxFragments) {
       dropped.push({ ref: fragment.ref, reason: "fragment_limit" });
@@ -236,6 +248,14 @@ export function applySpecFragmentBudget(
       continue;
     }
     const text = clipToBoundary(fragment.text, remaining);
+    // Tuščias pjūvis NĖRA fragmentas (2026-08-24, RAG auditas 4). `clipToBoundary` gali grąžinti
+    // tuščią eilutę, kai likutis mažesnis už pirmą pastraipos ribą; toks įrašas keliaudavo į
+    // pack'ą kaip įrodymas be turinio, o `usedChars` nepajudėdavo, tad kitas fragmentas kartodavo
+    // tą patį. Praradimas įvardijamas ta pačia priežastimi kaip išsekęs biudžetas — nes tai jis.
+    if (text.length === 0) {
+      dropped.push({ ref: fragment.ref, reason: "char_budget" });
+      continue;
+    }
     // Kirpimas galėjo įvykti JAU pirmoje fazėje (per-fragmento lubos), tad būsena sudedama,
     // o ne perrašoma: kitaip antrą kartą nekirptas, bet anksčiau nukirptas fragmentas
     // atkeliautų pas worker'į be jokios žymos.

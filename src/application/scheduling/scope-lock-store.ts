@@ -29,8 +29,9 @@ import {
   type ScopeLockRequest,
 } from "../../domain/scheduling/index.js";
 import { toPrettyJson } from "../../shared/json.js";
+import { withOwnedLock, type OwnedLockTiming } from "../../shared/owned-lock.js";
 import type { SchedulingClockPort, SchedulingFileSystemPort } from "./ports.js";
-import { systemSchedulingClock } from "./ports.js";
+import { schedulingOwnedLockIo, systemSchedulingClock } from "./ports.js";
 
 export const DEFAULT_SCOPE_LOCK_TTL_MS = 15 * 60 * 1000;
 
@@ -202,51 +203,43 @@ export async function writeScopeLockRegistry(
   await fs.writeTextFileAtomic(file, toPrettyJson(registry));
 }
 
-const REGISTRY_LOCK_STALE_MS = 60 * 1000;
+export const REGISTRY_LOCK_TIMING: OwnedLockTiming = { staleMs: 60 * 1000, retryMs: 50, timeoutMs: 100 * 50 };
 
-/** Serializuotas read-modify-write; tas pats mkdir primityvas kaip lease store lock'e. */
+/**
+ * Serializuotas read-modify-write; tas pats protokolas kaip lease store lock'e — nuo 2026-08-24
+ * pažodžiui tas pats, o ne „toks pat": abu eina per `shared/owned-lock`. Iki tol tai buvo dvi
+ * kopijos, ir abi besąlygiškai trynė lock'ą `finally` bloke (žr. `owned-lock` antraštę).
+ */
 export async function withScopeLockRegistry<T>(
   deps: { fs: SchedulingFileSystemPort; clock?: SchedulingClockPort },
   projectRoot: string,
   mutate: (registry: ScopeLockRegistry) => Promise<{ registry?: ScopeLockRegistry; result: T }> | { registry?: ScopeLockRegistry; result: T },
 ): Promise<T> {
-  const clock = deps.clock ?? systemSchedulingClock;
   const file = scopeLockFile(projectRoot);
   await deps.fs.makeDirectory(path.dirname(file));
-  const lockDir = `${file}.lock`;
 
-  for (let attempt = 1; attempt <= 100; attempt += 1) {
-    const created = await deps.fs.createLockDirectory(lockDir);
-    if (created === "created") {
-      try {
+  try {
+    return await withOwnedLock(
+      schedulingOwnedLockIo(deps.fs, deps.clock ?? systemSchedulingClock),
+      `${file}.lock`,
+      REGISTRY_LOCK_TIMING,
+      async () => {
         const outcome = await mutate(await readScopeLockRegistry(deps.fs, projectRoot));
         if (outcome.registry) await writeScopeLockRegistry(deps.fs, projectRoot, outcome.registry);
         return outcome.result;
-      } finally {
-        await deps.fs.removeDirectory(lockDir).catch(() => undefined);
-      }
+      },
+      "scope-lock-registry",
+    );
+  } catch (error) {
+    // Laiko limitas šiame kelyje yra scope lock'o klaida — kvietėjai gaudo `ScopeLockError`, ir
+    // bendro primityvo `Error` prasprūstų pro juos. `mutate` klaidos praleidžiamos nepaliestos.
+    if (error instanceof Error && error.message.startsWith("lock is held by another writer")) {
+      throw new ScopeLockError("Timed out waiting for the scope lock registry lock");
     }
-    await removeStaleRegistryLock(deps.fs, lockDir, clock);
-    await clock.sleep(50);
-  }
-
-  throw new ScopeLockError("Timed out waiting for the scope lock registry lock");
-}
-
-async function removeStaleRegistryLock(
-  fs: SchedulingFileSystemPort,
-  lockDir: string,
-  clock: SchedulingClockPort,
-): Promise<void> {
-  try {
-    const modifiedAt = await fs.directoryModifiedAtMs(lockDir);
-    if (modifiedAt === undefined) return;
-    if (clock.now().getTime() - modifiedAt <= REGISTRY_LOCK_STALE_MS) return;
-    await fs.removeDirectory(lockDir);
-  } catch {
-    // Lock'as jau dingo — kitas ciklo bandymas išspręs.
+    throw error;
   }
 }
+
 
 /** Įgyja lock'us store'e (serializuotai). Konflikto atveju registras nekeičiamas. */
 export async function acquireScopeLocksInStore(input: {

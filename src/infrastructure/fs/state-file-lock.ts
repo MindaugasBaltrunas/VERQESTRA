@@ -10,52 +10,41 @@
 // pati klaida, kurią šiame repo jau taisėme keliuose grafo algoritmuose: du to paties protokolo
 // egzemplioriai išsiskiria tyliai.
 
+import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { withOwnedLock, type OwnedLockIo, type OwnedLockTiming } from "../../shared/owned-lock.js";
 import { nodeFsAdapter } from "./node-fs-adapter.js";
 
-const LOCK_STALE_MS = 30_000;
-const LOCK_POLL_MS = 25;
-const LOCK_MAX_WAIT_MS = 5_000;
+export const STATE_FILE_LOCK_TIMING: OwnedLockTiming = { staleMs: 30_000, retryMs: 25, timeoutMs: 5_000 };
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+/** `nodeFsAdapter` → `shared/owned-lock` efektai. Vienintelė vieta, kur šis modulis liečia FS. */
+const stateFileLockIo: OwnedLockIo = {
+  createLockDirectory: (dir) => nodeFsAdapter.createLockDirectory(dir),
+  removeDirectory: (dir) => nodeFsAdapter.removeDirectory(dir),
+  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+  writeTextFileAtomic: (absolutePath, content) => nodeFsAdapter.writeTextFileAtomic(absolutePath, content),
+  directoryModifiedAtMs: (dir) => nodeFsAdapter.directoryModifiedAtMs(dir),
+  exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
+  renamePath: (from, to) => nodeFsAdapter.renamePath(from, to),
+  nowMs: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  newLockId: () => randomUUID(),
+};
 
 /**
  * Laiko lock'ą per VISĄ read-modify-write.
  *
- * Nepavykus jo gauti per `LOCK_MAX_WAIT_MS` — METAMA: tylus tęsimas be lock'o būtų lygiai tas pats
+ * Nepavykus jo gauti per `timeoutMs` — METAMA: tylus tęsimas be lock'o būtų lygiai tas pats
  * prarastas atnaujinimas, kurį šis vartas ir taiso.
  *
- * Užstrigęs (stale) lock'as perimamas pagal katalogo mtime — kritęs procesas neturi teisės amžinai
- * stabdyti darbo. Perėmimo lenktynės (du procesai vienu metu mato stale) baigiasi tuo, kad laimi
- * vienintelis `mkdir`; tai ir yra primityvo prasmė.
+ * 2026-08-24: protokolas — bendras `shared/owned-lock`. Iki tol šis lock'as (ir dvi scheduling
+ * kopijos) trynė katalogą `finally` bloke BESĄLYGIŠKAI, tad po stale perėmimo senasis savininkas
+ * ištrindavo jau naujojo lock'ą ir įleisdavo trečią rašytoją. Iškeliant `withProgressLock` iš
+ * `architecture-graph-store` spraga persikėlė kartu — bendras helper'is nepadarė jos mažesnės,
+ * tik vienavietę.
  */
 export async function withStateFileLock<T>(statePath: string, work: () => Promise<T>): Promise<T> {
-  const lockDir = `${statePath}.lock`;
   // `mkdir` be `recursive` reikalauja esamo tėvo; pirmo rašymo metu jo dar gali nebūti.
   await nodeFsAdapter.makeDirectory(path.dirname(statePath));
-
-  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
-  for (;;) {
-    if ((await nodeFsAdapter.createLockDirectory(lockDir)) === "created") break;
-
-    const heldSinceMs = await nodeFsAdapter.directoryModifiedAtMs(lockDir);
-    if (heldSinceMs !== undefined && Date.now() - heldSinceMs > LOCK_STALE_MS) {
-      await nodeFsAdapter.removeDirectory(lockDir);
-      continue;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`state file is locked by another writer: ${lockDir}`);
-    }
-    await delay(LOCK_POLL_MS);
-  }
-
-  try {
-    return await work();
-  } finally {
-    // Best-effort: nepavykęs atlaisvinimas baigsis stale perėmimu, o metimas čia užgožtų tikrąjį
-    // `work()` rezultatą arba klaidą.
-    await nodeFsAdapter.removeDirectory(lockDir).catch(() => undefined);
-  }
+  return await withOwnedLock(stateFileLockIo, `${statePath}.lock`, STATE_FILE_LOCK_TIMING, work, "state-file");
 }

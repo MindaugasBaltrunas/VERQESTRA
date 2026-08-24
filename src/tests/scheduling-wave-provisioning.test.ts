@@ -17,44 +17,13 @@ import { createWorkerLease, listWorkerLeases, type SchedulingFileSystemPort } fr
 import type { WorkerCandidate } from "../application/scheduling/worker-pool-admission.js";
 import type { WorkerPoolPlan } from "../application/scheduling/worker-pool-plan.js";
 import type { WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
+import { memorySchedulingFs as memorySchedulingFsHelper } from "./helpers/memory-scheduling-fs.js";
 
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 const ROOT = "D:/tmp/vq-wave-provisioning";
 
 function memorySchedulingFs(): { files: Map<string, string>; port: SchedulingFileSystemPort } {
-  const files = new Map<string, string>();
-  const dirs = new Set<string>();
-  const norm = (value: string): string => value.replace(/\\/g, "/");
-  const port: SchedulingFileSystemPort = {
-    readTextFileIfExists: async (p) => files.get(norm(p)),
-    listDirectoryIfExists: async (dir) => {
-      const prefix = `${norm(dir)}/`;
-      const names = [...files.keys()]
-        .filter((key) => key.startsWith(prefix))
-        .map((key) => key.slice(prefix.length))
-        .filter((name) => !name.includes("/"));
-      if (names.length === 0 && !dirs.has(norm(dir))) return undefined;
-      return names;
-    },
-    writeTextFileAtomic: async (p, content) => {
-      files.set(norm(p), content);
-    },
-    makeDirectory: async (dir) => {
-      dirs.add(norm(dir));
-    },
-    exists: async (p) => files.has(norm(p)) || dirs.has(norm(p)) || [...files.keys()].some((key) => key.startsWith(`${norm(p)}/`)),
-    createLockDirectory: async (dir) => {
-      const key = norm(dir);
-      if (dirs.has(key)) return "exists";
-      dirs.add(key);
-      return "created";
-    },
-    removeDirectory: async (dir) => {
-      dirs.delete(norm(dir));
-    },
-    directoryModifiedAtMs: async (dir) => (dirs.has(norm(dir)) ? NOW.getTime() : undefined),
-  };
-  return { files, port };
+  return memorySchedulingFsHelper(NOW.getTime());
 }
 
 type World = {

@@ -53,9 +53,14 @@ function loopControlDeps(deps: LoopLifecycleDeps): LoopControlDeps {
       writeTextFileAtomic: (p, content) => deps.ports.fs.writeTextFileAtomic(p, content),
       makeDirectory: (dir) => deps.ports.fs.makeDirectory(dir),
       exists: async (p) => (await deps.ports.fs.readTextFileIfExists(p)) !== undefined,
+      // `loop-control-store` nesirakina (jo skaitymas/rašymas yra vieno lauko perrašymas), tad
+      // šie keturi laukai egzistuoja TIK dėl porto tipo ir nė vienas jų nekviečiamas. Jei
+      // saugykla kada pradės rakintis, čia reikės tikrų `ProcessLifecycleFsPort` primityvų, o ne
+      // šių stub'ų — todėl jie tylūs, o ne „veikiantys".
       createLockDirectory: () => Promise.resolve("created" as const),
       removeDirectory: () => Promise.resolve(),
       directoryModifiedAtMs: () => Promise.resolve(undefined),
+      renamePath: () => Promise.resolve(),
     },
     ...(deps.ports.now === undefined ? {} : { now: deps.ports.now }),
   };

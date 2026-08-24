@@ -8,6 +8,47 @@ export function splitLines(content: string): string[] {
   return content.split(/\r?\n/);
 }
 
+// CommonMark fenced code block: ``` arba ~~~ ties 0–3 įtrauka atidaro; uždaro TAS PATS ženklas,
+// tiek pat ar daugiau kartų, be info string'o.
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
+
+/**
+ * Kurios eilutės guli FENCED code bloke (įskaitant pačias fence eilutes).
+ *
+ * Kodėl tai gyvena `shared`, o ne prie kurio nors skaitytojo (2026-08-24, RAG auditas 4):
+ * fence taisyklė reikalinga DVIEM nepriklausomiems markdown skaitytojams — `extractSection`
+ * (visas task'ų parsinimas) ir `chunkMarkdownByHeading` (spec fragmentų antraštės). Antra
+ * kopija reikštų, kad viena jų anksčiau ar vėliau atsiliks, o skirtumas pasirodytų kaip
+ * „sekcija netikėtai nukirsta" — gedimas, kurio niekas nesieja su fence'ais.
+ *
+ * Ką tai uždaro: bash `# komentaras`, YAML `# pastaba` ar užduoties šablonas ```text bloke
+ * nustoja atrodyti kaip ATX antraštė. Iki tol jis (a) NUTRAUKDAVO einamą sekciją ties savimi ir
+ * (b) pats galėdavo būti rastas kaip sekcijos PRADŽIA — abu tyliai.
+ */
+export function markdownFenceMask(lines: readonly string[]): boolean[] {
+  const mask: boolean[] = [];
+  let open: { marker: string; length: number } | undefined;
+  for (const line of lines) {
+    if (open !== undefined) {
+      mask.push(true);
+      const marks = line.match(FENCE_CLOSE)?.[1];
+      if (marks !== undefined && (marks[0] ?? "") === open.marker && marks.length >= open.length) {
+        open = undefined;
+      }
+      continue;
+    }
+    const fence = line.match(FENCE_OPEN)?.[1];
+    if (fence !== undefined) {
+      open = { marker: fence[0] ?? "`", length: fence.length };
+      mask.push(true);
+      continue;
+    }
+    mask.push(false);
+  }
+  return mask;
+}
+
 /** Leading bullet marker (`- `/`* `) stripped from a single line, trimmed. */
 export function stripBulletPrefix(line: string): string {
   return line.trim().replace(BULLET_PREFIX, "").trim();
@@ -17,7 +58,10 @@ export function stripBulletPrefix(line: string): string {
 export function firstHeading(content: string, level: number = 1): string | undefined {
   const marker = "#".repeat(level);
   const pattern = new RegExp(`^${marker}(?!#)\\s+(.+)$`);
-  for (const rawLine of splitLines(content)) {
+  const lines = splitLines(content);
+  const fenced = markdownFenceMask(lines);
+  for (const [index, rawLine] of lines.entries()) {
+    if (fenced[index] === true) continue;
     const match = pattern.exec(rawLine.trim());
     const captured = match?.[1];
     if (captured !== undefined) return captured.trim();
@@ -28,15 +72,29 @@ export function firstHeading(content: string, level: number = 1): string | undef
 /**
  * Body text under a heading matching `heading` exactly (e.g. `"## Patikra"`), up to the
  * next ATX heading of any level (1-6) or end of document. Empty string when not found.
+ *
+ * FENCE-AWARE nuo 2026-08-24 (RAG auditas 4). Iki tol funkcija buvo akla fenced code blokams
+ * abiem kryptimis, ir abi puses tyliai iškraipydavo task'ą:
+ *
+ *   • PABAIGA: ```bash blokas su `# build` eilute nutraukdavo sekciją ties tuo komentaru. Task'as,
+ *     kurio `## Veiksmas` turi komandų pavyzdį, prarasdavo VISUS po jo einančius punktus — o tai
+ *     yra ir worker'io „done" apibrėžimas, ir BM25 užklausos pusė.
+ *   • PRADŽIA: `findIndex` imdavo PIRMĄ eilutę, lygią antraštei, tad užduoties šabloną cituojantis
+ *     ```text blokas su `## Neįtraukta` tapdavo tos sekcijos pradžia, ir į pack'ą patekdavo
+ *     pavyzdžio turinys vietoj tikrojo.
+ *
+ * Ta pati taisyklė kaip `chunkMarkdownByHeading` — ir tas pats `markdownFenceMask`, ne antra kopija.
  */
 export function extractSection(content: string, heading: string): string {
   const lines = splitLines(content);
-  const start = lines.findIndex((line) => line.trim() === heading);
+  const fenced = markdownFenceMask(lines);
+  const start = lines.findIndex((line, index) => fenced[index] !== true && line.trim() === heading);
   if (start === -1) return "";
   const body: string[] = [];
   for (let i = start + 1; i < lines.length; i += 1) {
     const line = lines[i];
-    if (line === undefined || /^#{1,6}\s/.test(line)) break;
+    if (line === undefined) break;
+    if (fenced[i] !== true && /^#{1,6}\s/.test(line)) break;
     body.push(line);
   }
   return body.join("\n").trim();

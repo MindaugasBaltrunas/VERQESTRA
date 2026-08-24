@@ -15,7 +15,8 @@
   "deviation_catalog": {
     "rag-c3": "Antraščių sekcija baigiama ties tokio paties ar aukštesnio lygio antrašte (įdėtos posekcijos nebeprarandamos).",
     "rag-c4": "`spec_fragment_truncated` — kirpimo būsena keliauja su fragmentu, ne atskirame įspėjimų bloke.",
-    "rag-c12": "`spec_dropped_count` ir `code_context_dropped_count` — atskiri skaičiai trims praradimų stadijoms."
+    "rag-c12": "`spec_dropped_count` ir `code_context_dropped_count` — atskiri skaičiai trims praradimų stadijoms.",
+    "rag-audit-4-selection-loss": "Spec ref'ai, kuriuos numeta graph-first biudžetas, ĮVARDIJAMI `spec_fragment_warnings` lauke. Iki tol jie dingdavo be pėdsako: įspėjimai buvo užrakinami spec fazėje, o ši atranka vyksta po jos, ir vienintelė žymė buvo bendras `dropped N item(s)` `code_context.notes` viduje — pastabų, kurių VISAI nėra, kai task'as neturi kodo taikinių."
   },
   "workspace": {
     "files": {
@@ -485,10 +486,11 @@
               "tester"
             ],
             "spec_fragments": [
-              "doc/large.md#gama\n# Gama\n\nGamos pastraipa 1: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 2: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 3: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 4: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 5: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 6: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 7: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 8: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 9: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 10: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 11: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 12: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.",
-              "doc/spec.md#alfa\n# Alfa\n\nAlfa sekcijos tekstas: modulio kontraktas."
+              "doc/large.md#gama\n# Gama\n\nGamos pastraipa 1: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 2: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 3: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 4: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 5: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 6: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 7: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 8: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 9: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 10: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 11: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis.\nGamos pastraipa 12: ilgas aprasas, kuris sunaudoja biudzeta ir verstu budgeteri rinktis."
             ],
-            "spec_fragment_warnings": [],
+            "spec_fragment_warnings": [
+              "spec fragments dropped by the context budget: 2 (doc/spec.md#alfa, doc/spec.md#beta)"
+            ],
             "acceptance_criteria": [
               "Pakeisti eksporta.",
               "Padengti testu."
@@ -496,7 +498,7 @@
             "stop_condition": "Kai patikros zalios, sustok.",
             "architecture_rules": [
               "code_context is advisory only; allowed_paths remains the hard edit boundary",
-              "context truncated by policy limits: dropped 5 item(s)"
+              "context truncated by policy limits: dropped 6 item(s)"
             ],
             "checks": [
               "pnpm test"
@@ -518,7 +520,7 @@
               ],
               "notes": [
                 "code_context is advisory only; allowed_paths remains the hard edit boundary",
-                "context truncated by policy limits: dropped 5 item(s)"
+                "context truncated by policy limits: dropped 6 item(s)"
               ],
               "symbol_fragments": [
                 {
@@ -575,7 +577,7 @@
           "metrics": {
             "task_id": "0044-shrink",
             "cache_status": "miss",
-            "dropped_item_count": 5,
+            "dropped_item_count": 6,
             "code_context_rebuilt": false
           }
         }
@@ -584,11 +586,12 @@
         {
           "path": "0.pack_chars",
           "op": "set",
-          "value": 3628,
+          "value": 3644,
           "deviations": [
-            "rag-c4"
+            "rag-c4",
+            "rag-audit-4-selection-loss"
           ],
-          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e."
+          "reason": "Išvestinė C4 pasekmė: naujas (šiuose atvejuose tuščias) `spec_fragment_truncated` masyvas kainuoja 33 simbolius užkoduotame pack'e. 2026-08-24 (RAG auditas 4): pack'as ėmė ĮVARDYTI spec ref'us, kuriuos numetė graph-first biudžetas — anksčiau jie dingdavo be pėdsako. Šis fixture'as sąmoningai paliktas 22 simbolių atsargos nuo `max_context_chars: 3650`, tad viena įspėjimo eilutė čia kainuoja vieną fragmentą (`doc/spec.md#alfa`) — tikruose pack'uose tai apvalinimo paklaida. Kryptis teisinga: nepilnas spec'as, kuris apie tai sako, yra saugesnis už pilnesnį, kuris tyli."
         },
         {
           "path": "0.pack_key_order",

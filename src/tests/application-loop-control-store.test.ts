@@ -58,6 +58,8 @@ function storeWorld(files: Record<string, string> = {}): StoreWorld {
     createLockDirectory: (): Promise<"created" | "exists"> => Promise.resolve("created"),
     removeDirectory: (): Promise<void> => Promise.resolve(),
     directoryModifiedAtMs: (): Promise<number | undefined> => Promise.resolve(undefined),
+    // `loop-control-store` nesirakina — laukas yra tik dėl porto tipo (žr. `loop-lifecycle`).
+    renamePath: (): Promise<void> => Promise.resolve(),
     removeIfExists: (): Promise<void> => Promise.resolve(),
   };
   return {

@@ -38,7 +38,7 @@ import { estimateTokensFromChars } from "../metrics.js";
 import { COMPRESSION_FALLBACK_SIZE, compileWorkerPromptTaskForDispatch } from "../worker-prompt-compilation.js";
 import { systemClock, type ContextCachePort, type ContextPackFileSystemPort } from "../ports.js";
 import { explicitAllowedPaths, parseTaskMarkdown } from "./parse-task.js";
-import { runSpecPhase } from "./spec-phase.js";
+import { capSpecRetrievalWarnings, runSpecPhase, specSelectionDropWarning } from "./spec-phase.js";
 import {
   autoGatherCodeContextCandidates,
   gatherCodeContextCandidates,
@@ -239,6 +239,17 @@ export async function assembleContextPack(
       .map((key) => fragmentByKey.get(key))
       .filter((fragment): fragment is RetrievedFragment => Boolean(fragment));
 
+  /**
+   * Spec ref'ai, kurių atranka NEIŠLAIKĖ: paimti kandidatai minus išlikę.
+   *
+   * Skaičiuojama iš SKIRTUMO, o ne iš `selection.dropped` eilučių: taip ji nepriklauso nuo tų
+   * įrašų teksto formato, kurį valdo kitas modulis.
+   */
+  const droppedSpecRefs = (selection: GraphFirstSelection): string[] => {
+    const keptKeys = new Set(selection.spec_refs);
+    return specPhase.kept.filter((fragment) => !keptKeys.has(fragmentKey(fragment))).map((fragment) => fragment.ref);
+  };
+
   const buildCodeContext = (selection: GraphFirstSelection): CodeContext | undefined =>
     codeCandidates === undefined
       ? undefined
@@ -258,7 +269,19 @@ export async function assembleContextPack(
           ],
         };
 
-  const buildPack = (selection: GraphFirstSelection): ContextPack => {
+  /**
+   * `droppedRefs` paduodamas ATSKIRAI, o ne išvedamas iš `selection` (2026-08-24, RAG auditas 4).
+   *
+   * Rezervo matavimas (`EMPTY_SELECTION`) turi atsakyti „kiek pack'as sveria BE nemetamo turinio",
+   * ir praradimų įspėjimo ten dar nėra — jo tiesiog nėra ko rašyti. Išvedus jį iš selection'o,
+   * tuščia atranka reikštų „viskas prarasta", ir rezervas iš anksto nupirktų vietą įspėjimui, kurio
+   * dažniausiai neprireiks — o šiame pack'e ta vieta yra fragmentas.
+   *
+   * Perviršį, atsirandantį įspėjimui realiai atsiradus, tvarko perrinkimo ciklas žemiau. Tai saugu
+   * BŪTENT todėl, kad įspėjimas yra viena eilutė su pastoviomis lubomis: jis nebeauga su kiekvienu
+   * nauju praradimu, tad ciklas negali persekioti savo paties diagnostikos.
+   */
+  const buildPack = (selection: GraphFirstSelection, droppedRefs: string[]): ContextPack => {
     const codeContext = buildCodeContext(selection);
     const keptFragments = keptFragmentsOf(selection);
     return parseWithSchema(
@@ -280,7 +303,15 @@ export async function assembleContextPack(
         agents,
         spec_fragments: keptFragments.map(fragmentKey),
         spec_fragment_truncated: keptFragments.filter((fragment) => fragment.truncated).map((fragment) => fragment.ref),
-        spec_fragment_warnings: specPhase.warnings,
+        // Įspėjimai sudedami TIK ČIA, kai selection jau žinoma (2026-08-24, RAG auditas 4).
+        // Iki tol jie buvo užrakinami spec fazėje, o graph-first atranka numesdavo spec ref'us
+        // PO to — tyliai: pack'e likdavo tik bendras „dropped N item(s)" `code_context.notes`
+        // viduje, o tų pastabų VISAI nėra, kai task'as neturi kodo taikinių. Worker'is gaudavo
+        // nepilną specifikaciją be jokio ženklo, kad ji nepilna.
+        spec_fragment_warnings: capSpecRetrievalWarnings([
+          ...specPhase.warnings,
+          ...[specSelectionDropWarning(droppedRefs)].filter((warning) => warning !== undefined),
+        ]),
         acceptance_criteria: parsedTask.acceptanceCriteria,
         ...(parsedTask.stopCondition ? { stop_condition: parsedTask.stopCondition } : {}),
         architecture_rules: codeContext?.notes ?? [],
@@ -303,7 +334,7 @@ export async function assembleContextPack(
   const encode = (pack: ContextPack): string => `${JSON.stringify(pack, null, 2)}\n`;
 
   // Exact fixed overhead: the encoded pack with every droppable context source empty.
-  let reservedChars = encode(buildPack(EMPTY_SELECTION)).length;
+  let reservedChars = encode(buildPack(EMPTY_SELECTION, [])).length;
 
   // REF/SIG/SRC tiers (task 0023). The tier decision runs against the overhead measured
   // ABOVE — before any slice text enters the pack; the enriched symbols then become part
@@ -313,7 +344,7 @@ export async function assembleContextPack(
     const tiered = applyCodeContextTiers(codeCandidates, selectionLimits, reservedChars);
     codeCandidates.symbolFragments = tiered.symbols;
     codeCandidates.notes.push(...tiered.notes);
-    reservedChars = encode(buildPack(EMPTY_SELECTION)).length;
+    reservedChars = encode(buildPack(EMPTY_SELECTION, [])).length;
   }
 
   const droppableKept = (selection: GraphFirstSelection): number =>
@@ -348,7 +379,7 @@ export async function assembleContextPack(
       // praradimas: simbolis lieka pack'e, tik su mažiau detalių. Kopėčios rungas yra KUMULIATYVI
       // būsena, tad reikšmė perrašoma, o ne kaupiama.
       codeContextDroppedCount = reduction.dropped.length;
-      reservedChars = encode(buildPack(EMPTY_SELECTION)).length;
+      reservedChars = encode(buildPack(EMPTY_SELECTION, [])).length;
       if (reservedChars <= budget.max_context_chars) {
         break;
       }
@@ -360,14 +391,14 @@ export async function assembleContextPack(
   // the *same* priority model to drop one more lowest-priority item by shrinking its
   // effective budget just below current usage, then re-measure.
   let selection = selectGraphFirstContext(candidateSet, selectionLimits, reservedChars);
-  let pack = buildPack(selection);
+  let pack = buildPack(selection, droppedSpecRefs(selection));
   let encoded = encode(pack);
   while (encoded.length > budget.max_context_chars && droppableKept(selection) > 0) {
     // Tightened against the SELECTION ceiling the estimate was produced by, so the next
     // pass gives up exactly one more lowest-priority item.
     const tightenedReserved = selectionLimits.max_context_chars - (selection.estimated_chars - 1);
     selection = selectGraphFirstContext(candidateSet, selectionLimits, tightenedReserved);
-    pack = buildPack(selection);
+    pack = buildPack(selection, droppedSpecRefs(selection));
     encoded = encode(pack);
   }
 

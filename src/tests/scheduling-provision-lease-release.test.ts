@@ -12,44 +12,14 @@ import { createWaveProvisioningCoordinator } from "../application/scheduling/wav
 import { listWorkerLeases } from "../application/scheduling/worker-lease-store.js";
 import type { SchedulingFileSystemPort } from "../application/scheduling/ports.js";
 import type { WorktreeProvisionOutcome } from "../application/scheduling/wave-provisioning.js";
+import { memorySchedulingFs } from "./helpers/memory-scheduling-fs.js";
 
 const ROOT = "D:/repo";
 const NOW = "2026-08-23T12:00:00.000Z";
 const TARGET = { worker_index: 1, task_id: "0042", file: "AG/tasks/queue/0042.md" };
 
 function memoryFs(): SchedulingFileSystemPort {
-  const files = new Map<string, string>();
-  const dirs = new Set<string>();
-  const norm = (value: string): string => value.replace(/\\/g, "/");
-  const port: SchedulingFileSystemPort = {
-    readTextFileIfExists: async (p) => files.get(norm(p)),
-    listDirectoryIfExists: async (dir) => {
-      const prefix = `${norm(dir)}/`;
-      const names = [...files.keys()]
-        .filter((key) => key.startsWith(prefix))
-        .map((key) => key.slice(prefix.length))
-        .filter((name) => !name.includes("/"));
-      return names.length === 0 && !dirs.has(norm(dir)) ? undefined : names;
-    },
-    writeTextFileAtomic: async (p, content) => {
-      files.set(norm(p), content);
-    },
-    makeDirectory: async (dir) => {
-      dirs.add(norm(dir));
-    },
-    exists: async (p) => files.has(norm(p)) || dirs.has(norm(p)),
-    createLockDirectory: async (dir) => {
-      const key = norm(dir);
-      if (dirs.has(key)) return "exists";
-      dirs.add(key);
-      return "created";
-    },
-    removeDirectory: async (dir) => {
-      dirs.delete(norm(dir));
-    },
-    directoryModifiedAtMs: async (dir) => (dirs.has(norm(dir)) ? Date.parse(NOW) : undefined),
-  };
-  return port;
+  return memorySchedulingFs(Date.parse(NOW)).port;
 }
 
 async function provisionWith(create: () => Promise<WorktreeProvisionOutcome>): Promise<{ held: number; logs: string[] }> {

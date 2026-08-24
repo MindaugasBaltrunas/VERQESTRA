@@ -22,7 +22,7 @@ import path from "node:path";
 import { z } from "zod";
 import { formatAttemptId, formatWorkerId, type AttemptRef } from "../../application/scheduling/worker-limits.js";
 import { validateRuntimeSegment, type RuntimeSegmentKind } from "../runtime-paths.js";
-import { createAttempt, nextAttemptId, openAttempt, type RuntimeAttemptHandle } from "../persistence/runtime-artifact-store.js";
+import { createAttempt, nextAttemptId, openAttempt } from "../persistence/runtime-artifact-store.js";
 import { RUNTIME_GRAPH_HASH_NONE } from "../persistence/runtime-attempt-schema.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { tryParseJson } from "../../shared/json.js";
@@ -189,12 +189,9 @@ async function claimAttempt(
   return retried.ok ? { ok: true, ref: retryRef } : { ok: false, reason: "store", errors: retried.errors };
 }
 
-export type ResolvedActiveAttempt = {
-  ref: AttemptRef;
-  handle: RuntimeAttemptHandle;
-  evidence: AttemptRefEvidence;
-  taskIdOriginal?: string;
-};
+// `ResolvedActiveAttempt` ištrintas 2026-08-24: forma be vartotojo, kurią pakeitė aktyvus kelias —
+// `resolveActiveAttempt` grąžina `AttemptResolutionResult` (`./attempt-resolution.ts`), o ne šį
+// tipą. Dvi to paties rezultato formos šalia viena kitos yra kvietimas jas išskirti.
 
 export async function resolveActiveAttempt(options: ActiveAttemptOptions): Promise<AttemptResolutionResult> {
   const env = options.env ?? process.env;

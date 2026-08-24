@@ -22,7 +22,8 @@ import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { gitHead } from "../git/git-client.js";
 import type { AttemptResolutionPort } from "./attempt-resolution.js";
 
-export type ResumeActor = "supervisor" | "claude";
+// `ResumeActor` ištrintas 2026-08-24: sąjunga be vartotojo ir be inline dublikato (tikrinta
+// `"supervisor" | "claude"` paieška per visą `src`) — jos niekas nei kviečia, nei kartoja.
 
 /** Kviečiančiojo paduodami laukai (CLI `ResumeCheckpointEntry` juos tenkina struktūriškai). */
 export type ResumeCheckpointInput = {

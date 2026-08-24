@@ -25,17 +25,59 @@ import test from "node:test";
 const SRC_ROOT = path.resolve(process.cwd(), "src");
 
 /**
+ * Ženklai, po kurių `/` pradeda REGEX literalą, o ne dalybą.
+ *
+ * Klasikinė JS leksavimo dviprasmybė. Heuristika ta pati, kurią naudoja minifikatoriai: po
+ * operatoriaus, skliausto ar kablelio gali eiti tik reikšmė, tad `/` yra literalo pradžia; po
+ * identifikatoriaus, skaičiaus ar `)` — dalyba.
+ */
+const REGEX_ALLOWED_AFTER = new Set("(,=:[!&|?{};+-*%~^<>".split(""));
+const REGEX_ALLOWED_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await",
+]);
+
+/**
  * Komentarų šalinimas BŪSENOS mašina, o ne regexu.
  *
  * `body.replace(/\/\*[\s\S]*?\*\//g, "")` nežino, kad `/*` gali stovėti eilutės komentare arba
  * eilutėje, ir tada praryja kodą iki artimiausio uždarymo. Būsenos mašina to negali padaryti:
  * komentaro pradžia atpažįstama TIK iš kodo būsenos. Eilučių lūžiai išlaikomi, kad `^export`
  * inkarai ir eilučių numeriai liktų teisingi.
+ *
+ * REGEX literalai sekami atskirai (2026-08-24, antras tos pačios klasės radinys). Be jų
+ * `.replace(/^`+|`+$/g, "")` pirmą backtick'ą paverčia template eilutės pradžia ir praryja kodą
+ * iki kito backtick'o kitoje funkcijoje — `domain/tasks/size.ts` taip prarado kvietimą į
+ * `matchProfileSourceRoot`. Kryptis PAVOJINGA: prarytas gabalas slepia KVIETĖJĄ, tad gyvas
+ * eksportas paskelbiamas mirusiu. Simbolių klasė (`[^/*]`) irgi sekama — kitaip jos viduje
+ * esantis `/` uždarytų literalą per anksti, o `/*` atidarytų fantominį bloką.
  */
 function stripComments(source: string): string {
   let out = "";
-  let state: "code" | "line" | "block" | "sq" | "dq" | "tpl" = "code";
+  let state: "code" | "line" | "block" | "sq" | "dq" | "tpl" | "regex" = "code";
+  let inCharClass = false;
   let i = 0;
+
+  /** Paskutinis reikšmingas jau išvestas ženklas — pagal jį sprendžiama regex vs dalyba. */
+  const startsRegex = (): boolean => {
+    const trimmed = out.replace(/\s+$/, "");
+    if (trimmed === "") return true;
+    const last = trimmed[trimmed.length - 1] ?? "";
+    if (REGEX_ALLOWED_AFTER.has(last)) return true;
+    const word = /([A-Za-z_$][\w$]*)$/.exec(trimmed);
+    return word !== null && REGEX_ALLOWED_KEYWORDS.has(word[1] ?? "");
+  };
 
   while (i < source.length) {
     const c = source[i];
@@ -52,9 +94,31 @@ function stripComments(source: string): string {
         i += 2;
         continue;
       }
+      if (c === "/" && startsRegex()) {
+        state = "regex";
+        inCharClass = false;
+        out += c;
+        i += 1;
+        continue;
+      }
       if (c === "'") state = "sq";
       else if (c === '"') state = "dq";
       else if (c === "`") state = "tpl";
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    if (state === "regex") {
+      if (c === "\\") {
+        out += c + (next ?? "");
+        i += 2;
+        continue;
+      }
+      if (c === "[") inCharClass = true;
+      else if (c === "]") inCharClass = false;
+      else if (c === "/" && !inCharClass) state = "code";
+      else if (c === "\n") state = "code"; // neužsidaręs literalas negali ryti kitų eilučių
       out += c;
       i += 1;
       continue;
@@ -118,6 +182,19 @@ function tokenCounts(body: string): Map<string, number> {
   return counts;
 }
 
+/**
+ * Vartas tikrina REIKŠMES (`function`, `const`, `class`), o ne tipus — sąmoningai.
+ *
+ * 2026-08-24 pjūvis rado 9 nenaudojamus tipus, ir beveik visi buvo `z.infer<typeof xSchema>` arba
+ * `(typeof xConst)[number]` šalia NAUDOJAMOS reikšmės. Tai modulio konvencija („zod prie
+ * modulio"), o ne šiukšlė: schemos ir jos tipo pora rašoma kartu, ir tipas dažnai prireikia
+ * pirmam kvietėjui, kuris ateis. Įtraukus tipus vartas baustų už teisingą idiomą ir stumtų
+ * neeksportuoti tipo — t. y. gadintų kodą, kad praeitų patikra. Tipai runtime nekainuoja nieko.
+ *
+ * Tikras tipų perteklius (grynas pervadinimas, forma, kurią pakeitė kita) randamas auditu ir
+ * trinamas rankomis — 2026-08-24 taip ištrinti `CodexProcessRunner`, `ResumeActor` ir
+ * `ResolvedActiveAttempt`.
+ */
 const EXPORTED_FUNCTION = /^export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm;
 const EXPORTED_BINDING = /^export\s+(?:const|class)\s+([A-Za-z_$][\w$]*)/gm;
 
@@ -231,6 +308,19 @@ test("gate savipatikra: `/*` eilutės komentare nepraryja už jo einančio kodo"
   assert.doesNotMatch(stripped, /tikras/, "tikras blokinis komentaras privalo dingti");
   assert.equal(stripped.split("\n").length, sample.split("\n").length, "eilučių skaičius nekinta");
   assert.match(stripComments('const a = "// ne komentaras";'), /ne komentaras/, "eilutėje `//` nėra komentaras");
+
+  // REGEX literalai — antras tos pačios klasės radinys, užrakintas TIKRU atveju iš
+  // `domain/tasks/size.ts`. Backtick'as regex'e nėra template eilutės pradžia, o `[^/*]`
+  // viduje esantis `/*` nėra bloko pradžia. Abu variantai anksčiau prarydavo tikrą kvietimą.
+  const withRegex = ['const norm = raw.replace(/^`+|`+$/g, "");', "const hit = norm.match(/^(apps\\/[^/*]+)/);", "callTarget(hit);"].join(
+    "\n",
+  );
+  const strippedRegex = stripComments(withRegex);
+  assert.match(strippedRegex, /\bcallTarget\b/, "regex literalas negali praryti už jo einančio kodo");
+  assert.equal(strippedRegex.split("\n").length, withRegex.split("\n").length, "eilučių skaičius nekinta");
+  // Dalyba NĖRA regex pradžia — kitaip `a / b` atidarytų literalą ir prarytų likutį.
+  assert.match(stripComments("const ratio = total / count;\nconst after = 1;"), /\bafter\b/, "dalyba lieka dalyba");
+
   assert.ok(files.length > 0, "nerasta nė vieno šaltinio — skenavimo šaknis neteisinga");
 });
 

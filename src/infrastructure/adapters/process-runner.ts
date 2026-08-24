@@ -11,4 +11,6 @@ export type ExecutionProcessRunner = (
   timeoutMs?: number,
 ) => Promise<CommandResult>;
 
-export type CodexProcessRunner = ExecutionProcessRunner;
+// `CodexProcessRunner` ištrintas 2026-08-24: grynas `ExecutionProcessRunner` pervadinimas be nė
+// vieno vartotojo. Adapteriui specifiškas vardas tam pačiam tipui tik leidžia dviem keliams
+// atrodyti skirtingiems, nors kontraktas vienas.

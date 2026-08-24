@@ -193,6 +193,33 @@ test("nodeIdForQueuedTask: tikslus vardas ir split-vaiko prefiksas", () => {
   assert.equal(nodeIdForQueuedTask(progress, "kitas-taskas"), undefined);
 });
 
+// 2026-08-24: ta pati klasė kaip `dependencyMatches` radiniuose — tapatybė, sprendžiama prefiksu.
+// Čia prefiksas TEISĖTAS (split-vaikas priklauso tėvo mazgui), bet atsakymas buvo renkamas
+// pirmas pagal `Object.entries` tvarką, tad tas pats klausimas turėjo du atsakymus.
+test("nodeIdForQueuedTask: tikslus atitikmuo nusveria prefiksą, dviprasmybė atmetama", () => {
+  const nodes = {
+    A: nodeProgress({ queued_tasks: ["AG/tasks/queue/0042-fix.md"] }),
+    B: nodeProgress({ queued_tasks: ["AG/tasks/queue/0042-fix-more.md"] }),
+  };
+  const progress: ArchitectureProgress = { graph_hash: "h", nodes };
+  // Ta pati aibė, tik kita raktų tvarka — atsakymas privalo nesikeisti.
+  const flipped: ArchitectureProgress = { graph_hash: "h", nodes: { B: nodes.B, A: nodes.A } };
+
+  // Anksčiau grąžindavo „A": task'as, priklausantis B PAŽODŽIUI, būdavo priskiriamas A, ir
+  // `verified-done` gaudavo ne tas mazgas — o `done` atrakina downstream.
+  assert.equal(nodeIdForQueuedTask(progress, "0042-fix-more"), "B", "tikslus atitikmuo laimi");
+  assert.equal(nodeIdForQueuedTask(flipped, "0042-fix-more"), "B", "raktų tvarka atsakymo nekeičia");
+
+  // Vaikas, kurio prefiksai yra ABU mazgai: „nežinau" vietoj spėjimo. Mazgas lieka `queued` —
+  // matomas sustojimas vietoj tylaus neteisingo atrakinimo.
+  assert.equal(nodeIdForQueuedTask(progress, "0042-fix-more-01-dalis"), undefined);
+  assert.equal(nodeIdForQueuedTask(flipped, "0042-fix-more-01-dalis"), undefined);
+
+  // Vienareikšmis split-vaikas ir toliau randa savo tėvą.
+  const single: ArchitectureProgress = { graph_hash: "h", nodes: { B: nodes.B } };
+  assert.equal(nodeIdForQueuedTask(single, "0042-fix-more-01-dalis"), "B");
+});
+
 const SYNC_GRAPH: ArchitectureGraph = {
   source_path: "s",
   imported_at: "t",

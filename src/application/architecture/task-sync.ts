@@ -27,16 +27,29 @@ export type ArchitectureTaskSyncResult =
  * nesinchronizuodavo ir mazgas amžinai likdavo "queued").
  */
 export function nodeIdForQueuedTask(progress: ArchitectureProgress, taskId: string): string | undefined {
+  const exact: string[] = [];
+  const childOf: string[] = [];
+
   for (const [nodeId, node] of Object.entries(progress.nodes)) {
     for (const rel of node.queued_tasks ?? []) {
-      const baseName = rel.replace(/\\/g, "/").split("/").pop() ?? "";
-      const base = baseName.replace(/\.md$/, "");
-      if (base && (taskId === base || taskId.startsWith(`${base}-`))) {
-        return nodeId;
-      }
+      const base = (rel.replace(/\\/g, "/").split("/").pop() ?? "").replace(/\.md$/, "");
+      if (!base) continue;
+      if (taskId === base) exact.push(nodeId);
+      else if (taskId.startsWith(`${base}-`)) childOf.push(nodeId);
     }
   }
-  return undefined;
+
+  // TIKSLUS atitikmuo nusveria prefiksą. Iki 2026-08-24 laimėdavo tas, kuris pasitaikydavo
+  // pirmas `Object.entries` tvarkoje: mazgui su task'u `0042-fix` ir mazgui su `0042-fix-more`
+  // užduotis `0042-fix-more` grįždavo kaip PIRMOJO mazgo — nors jam ji priklauso pažodžiui.
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return undefined;
+
+  // Vienintelis split-tėvas. Dviprasmybė (`0042-fix` ir `0042-fix-more` abu yra prefiksai)
+  // grąžina „nežinau", o ne pirmą pagal raktų tvarką — tas pats klausimas negali turėti dviejų
+  // atsakymų. Fail-closed čia yra MATOMAS sustojimas (mazgas lieka `queued`), o klaidingas
+  // atsakymas pažymėtų `verified-done` ne tą mazgą ir ATRAKINTŲ downstream.
+  return childOf.length === 1 ? childOf[0] : undefined;
 }
 
 /**
@@ -64,8 +77,13 @@ export async function reconcileArchitectureProgress(
     for (const rel of node.queued_tasks ?? []) {
       const base = (rel.replace(/\\/g, "/").split("/").pop() ?? "").replace(/\.md$/, "");
       if (!base) continue;
+      // Kandidatai atrenkami prefiksu, bet PRIIMAMI tik tie, kuriuos ta pati kanoninė
+      // rezoliucija grąžina ATGAL į šį mazgą. Be to antro žingsnio mazgas su task'u `0042-fix`
+      // pasiimdavo ir svetimą `0042-fix-more.md` — t. y. kito mazgo darbą — ir sinchronizuodavo
+      // jį kaip savo užbaigimą. Viena taisyklė abiejose vietose, o ne dvi panašios.
       const completed = doneFiles
-        .filter((file) => file === `${base}.md` || (file.startsWith(`${base}-`) && file.endsWith(".md")))
+        .filter((file) => file.endsWith(".md") && (file === `${base}.md` || file.startsWith(`${base}-`)))
+        .filter((file) => nodeIdForQueuedTask(progress, file.replace(/\.md$/, "")) === nodeId)
         .sort();
       for (const file of completed) {
         const result = await syncArchitectureTaskCompletion(

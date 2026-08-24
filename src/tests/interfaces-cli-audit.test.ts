@@ -217,6 +217,10 @@ test("securityVerifyCommand: radinys blokuoja (exit 1), eilutės etalono formos"
     loadPolicy: async () => securityPolicySchema.parse({ dangerous_code_patterns: ["eval"] }),
     changedFiles: async () => ["src/a.ts"],
     readTextFile: async () => 'eval("x");\n',
+    // Šis testas modeliuoja SĖKMINGAI perskaitytą failą, tad `statPathKind` kelio net
+    // nepasiekia (`security-verify` jo klausia tik tada, kai `readTextFile` metė). `"file"` yra
+    // ta reikšmė, kuri atitinka testo scenarijų, o ne patogus numatytasis.
+    statPathKind: async () => "file",
     writeResult: async () => {},
   };
   const { io, out } = captureIo();

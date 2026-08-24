@@ -102,9 +102,12 @@ function makeSecurityPorts(input: {
   policy?: { blocked_file_patterns: string[]; dangerous_code_patterns: string[]; no_secrets_in_repo: boolean };
   changed?: string[];
   files?: Record<string, string>;
+  /** Keliai, kurie EGZISTUOJA, bet neįskaitomi (teisės, katalogas) — atskirai nuo ištrintų. */
+  unreadableButPresent?: string[];
 }): { ports: SecurityVerifyPorts; results: SecurityVerifyResult[] } {
   const results: SecurityVerifyResult[] = [];
   const contents = new Map(Object.entries(input.files ?? {}));
+  const present = input.unreadableButPresent ?? [];
   const ports: SecurityVerifyPorts = {
     loadPolicy: async () =>
       input.policy ?? { blocked_file_patterns: [".env"], dangerous_code_patterns: ["eval("], no_secrets_in_repo: true },
@@ -114,6 +117,10 @@ function makeSecurityPorts(input: {
       const hit = [...contents.entries()].find(([suffix]) => normalized.endsWith(suffix));
       if (!hit) throw new Error(`ENOENT: ${normalized}`);
       return hit[1];
+    },
+    statPathKind: async (absolutePath) => {
+      const normalized = absolutePath.replace(/\\/g, "/");
+      return present.some((suffix) => normalized.endsWith(suffix)) ? "file" : "absent";
     },
     writeResult: async (result) => void results.push(result),
   };
@@ -152,6 +159,25 @@ test("securityVerify: švarus failas → ok; eksplicitinis neperskaitomas/už ro
   const outsideResult = await securityVerify(outside.ports, ["../evil.ts"], "/repo");
   assert.equal(outsideResult.status, "blocked");
   assert.equal(outsideResult.blocked_paths[0]?.pattern, "outside-project");
+});
+
+// 2026-08-24 auditas (vartų sluoksnis): „neperskaitėme" turėjo DVI priežastis ir vieną atsakymą.
+// Neaiškiai (ne `explicit`) atkeliavęs pakeistas failas, kurio nepavyko perskaityti, likdavo
+// NENUSKENUOTAS, o `warning` grąžina exit 0 (`blocked ? 1 : 0`) — nežinia virsdavo leidimu.
+test("securityVerify: EGZISTUOJANTIS bet neįskaitomas pakeistas failas blokuoja, ištrintas — ne", async () => {
+  // Ištrintas pakeistas failas: turinio nebėra, tad skenuoti nėra ko — blokuoti būtų neteisinga.
+  const deleted = makeSecurityPorts({ changed: ["src/deleted.ts"], files: {} });
+  const deletedResult = await securityVerify(deleted.ports, [], "/repo");
+  assert.equal(deletedResult.status, "warning", "ištrintas failas nėra rizika");
+  assert.deepEqual(deletedResult.blocked_paths, []);
+  assert.ok(deletedResult.warnings.some((line) => line.includes("src/deleted.ts")), "priežastis vis tiek matoma");
+
+  // Tas pats neperskaitymas, bet failas TEBEEGZISTUOJA (teisės, katalogas, laikina FS klaida):
+  // jo turinys nepatikrintas, tad vartas privalo blokuoti, o ne praleisti su įspėjimu.
+  const locked = makeSecurityPorts({ changed: ["src/locked.ts"], files: {}, unreadableButPresent: ["src/locked.ts"] });
+  const lockedResult = await securityVerify(locked.ports, [], "/repo");
+  assert.equal(lockedResult.status, "blocked");
+  assert.deepEqual(lockedResult.blocked_paths, [{ file: "src/locked.ts", pattern: "unreadable" }]);
 });
 
 function makeSpecPorts(input: {

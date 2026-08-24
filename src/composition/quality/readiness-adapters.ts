@@ -55,6 +55,7 @@ export function securityVerifyPorts(projectRoot: string, runtimeRoot: string): S
     loadPolicy: () => loadSecurityPolicy(policyConfigFs, runtimeRoot),
     changedFiles: () => collectChangedFiles(projectRoot, runtimeRoot),
     readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
+    statPathKind: (absolutePath) => nodeFsAdapter.statKind(absolutePath),
     writeResult: (result: SecurityVerifyResult) =>
       nodeFsAdapter.writeTextFile(securityVerifyResultPath(runtimeRoot), toPrettyJson(result)),
   };

@@ -1,5 +1,6 @@
-// Leksinių kalbų grandinė GALAS Į GALĄ: tikri failai → `buildCodeIndex` → `queryCodeGraph` →
-// architektūros ribų vartas.
+// Kalbų grandinė GALAS Į GALĄ: tikri failai → `buildCodeIndex` → `queryCodeGraph` → architektūros
+// ribų vartas. Apima ir leksines kalbas (Python, PHP, C#, .NET), ir CommonJS — jos eina skirtingais
+// ištraukimo keliais, bet nepadengta grandinės dalis buvo ta pati.
 //
 // Esami testai dengia dalis atskirai: `code-intelligence-language-indexers` tikrina ištraukėjus,
 // `code-intelligence-language-edges` — `indexLexicalSource` išvestį ir `queryCodeGraphData` su
@@ -108,6 +109,47 @@ test("test_main.py UŽ tests/ katalogo ribų yra testas ir pasiekia impacted_tes
 
     const query = await queryCodeGraph(nodeFsTestPort, root, "src/main.py");
     assert.deepEqual(query.impacted_tests, ["src/test_main.py"], "Python testas privalo pasiekti impacted_tests");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// CommonJS eina NE leksiniu, o tuo pačiu `ts.createSourceFile` AST keliu kaip TypeScript, bet
+// nepadengta grandinės dalis buvo ta pati: esamas testas kviečia `indexTypeScriptFiles` su FAKE fs,
+// tad „`.cjs` faile require ir module.exports davė tuščius imports/exports" tekdavo atsakyti
+// skaitymu. Čia — tikri failai diske, tikras `buildCodeIndex`, tikra saugykla.
+test("CommonJS `.cjs` faile require ir module.exports duoda importus, eksportus IR briaunas", async () => {
+  const root = await world({
+    "src/b.cjs": "function helper() {\n  return 1;\n}\nmodule.exports = { helper };\n",
+    "src/a.cjs": "const { helper } = require('./b.cjs');\n\nfunction run() {\n  return helper();\n}\nmodule.exports.run = run;\n",
+    "src/legacy.js": "const util = require('./b.cjs');\nexports.go = function go() {\n  return util;\n};\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    const fileOf = (candidate: string) => index.files.find((file) => file.path === candidate);
+
+    assert.deepEqual(fileOf("src/a.cjs")?.imports, ["src/b.cjs"], "`require` yra importas");
+    assert.deepEqual(fileOf("src/a.cjs")?.exports, ["run"], "`module.exports.run` yra eksportas");
+    assert.deepEqual(fileOf("src/b.cjs")?.exports, ["helper"], "`module.exports = { helper }` yra eksportas");
+    assert.deepEqual(fileOf("src/legacy.js")?.imports, ["src/b.cjs"], "CJS stiliaus `.js` irgi");
+    assert.ok(fileOf("src/legacy.js")?.symbols.includes("go"), "`exports.go = function go()` atgauna simbolį");
+
+    // Ir grandinės galas: briauna saugykloje plius užklausa. Be jos indekse importas matytųsi, o
+    // grafe jo nebūtų — tiksliai ta pusinė būklė, kurią radinys aprašo.
+    assert.ok(
+      index.edges.some((edge) => edge.type === "imports" && edge.from === "src/a.cjs" && edge.to === "src/b.cjs"),
+      "imports briauna privalo egzistuoti",
+    );
+    assert.deepEqual((await queryCodeGraph(nodeFsTestPort, root, "src/a.cjs")).imports, ["src/b.cjs"]);
+
+    // INVARIANTAS, kurį uždarė 2026-08-24 auditas: kiekvienas eksportuojamas vardas turi simbolį,
+    // nes `exports` briaunos rodo į `failas#vardas`.
+    for (const file of ["src/a.cjs", "src/b.cjs", "src/legacy.js"]) {
+      const entry = fileOf(file);
+      for (const name of entry?.exports ?? []) {
+        assert.ok(entry?.symbols.includes(name), `${file}: eksportas ${name} be simbolio duotų kabančią briauną`);
+      }
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

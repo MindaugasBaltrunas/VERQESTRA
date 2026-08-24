@@ -37,6 +37,13 @@ export type SecurityVerifyPorts = {
   changedFiles(): Promise<string[]>;
   /** Failo tekstas; meta klaidą, kai failo perskaityti negalima. */
   readTextFile(absolutePath: string): Promise<string>;
+  /**
+   * Kelio rūšis — kad „failo NĖRA" būtų atskirta nuo „failas YRA, bet neįskaitomas".
+   *
+   * Ta pati forma kaip `PreflightPorts.statPathKind`, `CodeIntelligenceFileSystemPort.statKind`
+   * ir `nodeFsAdapter.statKind` — ketvirtos taisyklės tam pačiam klausimui neatsiranda.
+   */
+  statPathKind(absolutePath: string): Promise<"file" | "directory" | "absent">;
   writeResult(result: SecurityVerifyResult): Promise<void>;
 };
 
@@ -82,7 +89,14 @@ export async function securityVerify(
       content = await ports.readTextFile(resolved);
     } catch (error: unknown) {
       warnings.push(`could not read ${file}: ${(error as Error).message}`);
-      if (explicit) {
+      // 2026-08-24 auditas: „neperskaitėme" turi DVI skirtingas priežastis, ir jos negali gauti to
+      // paties atsakymo. IŠTRINTAS pakeistas failas neperskaitomas natūraliai, ir blokuoti už tai
+      // būtų neteisinga — jo turinio nebėra. Bet failas, kuris TEBEEGZISTUOJA (teisės, katalogas,
+      // laikina FS klaida), lieka NENUSKENUOTAS dėl pavojingų šablonų, o `warning` grąžina exit 0
+      // (`interfaces/cli/audit/security-verify`: `blocked ? 1 : 0`) — t. y. nežinia virsdavo
+      // leidimu. Iki tol blokuota tik `explicit` atveju, nors rizika nuo to nepriklauso.
+      const kind = await ports.statPathKind(resolved).catch(() => "absent" as const);
+      if (explicit || kind !== "absent") {
         blockedPaths.push({ file, pattern: "unreadable" });
       }
       continue;

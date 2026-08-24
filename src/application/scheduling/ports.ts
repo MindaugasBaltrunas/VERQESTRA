@@ -66,6 +66,13 @@ export function schedulingOwnedLockIo(fs: SchedulingFileSystemPort, clock: Sched
     nowMs: () => clock.now().getTime(),
     sleep: (ms) => clock.sleep(ms),
     newLockId: () => randomUUID(),
+    // Gyvybės žymė lease ir scope registro užraktams. `unref` — kad loop komanda baigtųsi iškart,
+    // o ne lauktų paskutinio intervalo.
+    scheduleHeartbeat: (intervalMs, tick) => {
+      const timer = setInterval(tick, intervalMs);
+      timer.unref?.();
+      return () => clearInterval(timer);
+    },
   };
 }
 

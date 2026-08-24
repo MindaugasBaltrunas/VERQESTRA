@@ -10,16 +10,10 @@
 
 import path from "node:path";
 
-/**
- * Vieno git kvietimo planas: kur ir su kokiu argv.
- *
- * Lieka kaip TIPAS — jį naudoja `infrastructure/git/git-client#runGitPlan`. Konstruktorius
- * (`gitCommandPlan`) pašalintas kartu su planuokliu: jo vieninteliai kvietėjai buvo jame.
- */
-export type GitCommandPlan = {
-  root: string;
-  args: string[];
-};
+// `GitCommandPlan` PAŠALINTAS 2026-08-24 (audito patikra). Pirmą kartą jį palikau pagrindęs tuo,
+// kad „jį naudoja `infrastructure/git/git-client#runGitPlan`" — bet `runGitPlan` pats kvietėjų
+// neturėjo, tad grandinė buvo mirusi visa. Aktyvus kelias (`infrastructure/git/worktrees`) git
+// argumentus statosi ir vykdo pats, be tarpinio plano tipo.
 
 export type WorktreePolicy = {
   enabled: boolean;

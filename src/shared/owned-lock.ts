@@ -51,6 +51,17 @@ export type OwnedLockIo = {
   sleep: (ms: number) => Promise<void>;
   /** Unikalus tokenas. Turi būti unikalus tarp PROCESŲ, ne tik šio proceso viduje. */
   newLockId: () => string;
+  /**
+   * Periodinis „aš gyvas" tiksėjimas, kol vyksta `work()`. Grąžina ATŠAUKIMO funkciją.
+   *
+   * NEPRIVALOMAS: be jo elgesys lieka lygiai toks pat, koks buvo — tai leidžia esamiems io
+   * fake'ams likti nepaliestiems. Testų `sleep` fake'as prasuka laikrodį momentiškai, tad
+   * heartbeat, pastatytas ant `sleep`, juose suktųsi be galo; atskiras laukas tą atskiria.
+   *
+   * Realizacija PRIVALO nelaikyti proceso gyvo (`unref`) — kitaip CLI komanda nebesibaigtų, kol
+   * neišsikvėps paskutinis intervalas.
+   */
+  scheduleHeartbeat?: (intervalMs: number, tick: () => void) => () => void;
 };
 
 export type OwnedLockTiming = {
@@ -107,6 +118,83 @@ function isStaleOwner(owner: LockOwner | undefined, mtimeMs: number, nowMs: numb
   return nowMs - heldSinceMs > staleMs;
 }
 
+/** Tiksėjimo dažnis: trečdalis stale ribos — du praleisti tiksėjimai dar neperžengia ribos. */
+export function heartbeatIntervalMs(staleMs: number): number {
+  return Math.max(1, Math.floor(staleMs / 3));
+}
+
+/**
+ * Laiko `created_at` ŠVIEŽIĄ, kol vyksta `work()` (2026-08-24, operatoriaus radinys P1).
+ *
+ * Kodėl to reikėjo. Atlaisvinimo tvora (`releaseOwnedLock`) remiasi teiginiu „kol esame jauni,
+ * niekas neturi teisės mūsų perimti". Be tiksėjimo `created_at` reiškia PAĖMIMO momentą, tad
+ * ilgesnė kritinė sekcija pati save paverčia stale: perėmimas tampa teisėtas, o senasis savininkas
+ * vis dar mano turįs teisę trinti. Tiksėjimas paverčia `created_at` GYVYBĖS žyme, tad prielaida,
+ * ant kurios stovi tvora, nustoja būti tuščia.
+ *
+ * Ko tai NEPADARO: `readOwner` → `removeDirectory` lieka du žingsniai, ir jų sulipdyti atomiškai
+ * failų sistemoje be compare-and-delete nėra kaip. Rename atlaisvinimas tai padarytų, bet jis
+ * IŠMATUOTAS kaip blogesnis (žr. `releaseOwnedLock` antraštę). Tiksėjimas šalina PRIELAIDĄ, o ne
+ * lenktyniauja dėl trynimo: kad perėmimas būtų teisėtas, procesas turi būti sustojęs ilgiau nei
+ * `staleMs`, o tada tvora, skaičiuojama nuo paskutinio tiksėjimo, trynimo nebeleidžia.
+ *
+ * Tiksėjimas RAŠO tik tada, kai įrašas tebėra mūsų: svetimo lock'o „atnaujinimas" prikeltų jau
+ * perimtą nuosavybę.
+ */
+function startHeartbeat(io: OwnedLockIo, lockDir: string, claim: LockOwner, staleMs: number): () => void {
+  if (io.scheduleHeartbeat === undefined) return () => undefined;
+
+  let cancel: () => void = () => undefined;
+  let stopped = false;
+  let beating = false;
+
+  cancel = io.scheduleHeartbeat(heartbeatIntervalMs(staleMs), () => {
+    // Praleisti tiksėjimai NESIKAUPIA: lėtas diskas kitaip duotų eilę persidengiančių rašymų.
+    if (beating || stopped) return;
+    beating = true;
+    void (async () => {
+      try {
+        const current = await readOwner(io, lockDir);
+        if (current?.lock_id !== claim.lock_id) {
+          stopped = true;
+          cancel();
+          return;
+        }
+        const beatAtMs = io.nowMs();
+        await io.writeTextFileAtomic(ownerPath(lockDir), JSON.stringify({ ...claim, created_at: beatAtMs }));
+        // Tvora skaito TĄ PATĮ objektą, tad ji remiasi paskutiniu tiksėjimu, ne paėmimu.
+        claim.created_at = beatAtMs;
+      } catch {
+        // Tiksėjimo klaida nenutraukia darbo: praleistas signalas tik priartina stale ribą.
+      } finally {
+        beating = false;
+      }
+    })();
+  });
+
+  return () => {
+    stopped = true;
+    cancel();
+  };
+}
+
+/** Laiko lock'ą per `work()` su gyvybės žyme; tvora atlaisvinime remiasi paskutiniu tiksėjimu. */
+async function holdAndWork<T>(
+  io: OwnedLockIo,
+  lockDir: string,
+  claim: LockOwner,
+  timing: OwnedLockTiming,
+  work: () => Promise<T>,
+): Promise<T> {
+  const stopHeartbeat = startHeartbeat(io, lockDir, claim, timing.staleMs);
+  try {
+    return await work();
+  } finally {
+    stopHeartbeat();
+    await releaseOwnedLock(io, lockDir, claim, timing.staleMs);
+  }
+}
+
 /**
  * Laiko lock'ą per VISĄ `work()` ir garantuoja, kad kritinėje sekcijoje yra ne daugiau nei vienas
  * procesas. Nepavykus paimti per `timeoutMs` — METAMA: tylus tęsimas be lock'o yra lygiai tas
@@ -139,11 +227,7 @@ export async function withOwnedLock<T>(
       // trename (katalogas priklauso kitam), o tiesiog laukiame toliau.
       const confirmed = await readOwner(io, lockDir);
       if (confirmed?.lock_id === claim.lock_id) {
-        try {
-          return await work();
-        } finally {
-          await releaseOwnedLock(io, lockDir, claim, timing.staleMs);
-        }
+        return await holdAndWork(io, lockDir, claim, timing, work);
       }
     } else {
       // Katalogas užimtas — bet gal MŪSŲ pačių. Taip atsitinka, kai ankstesnės iteracijos
@@ -152,11 +236,7 @@ export async function withOwnedLock<T>(
       // Svetimo tokeno čia sutikti neįmanoma — jis unikalus šiam kvietimui.
       const current = await readOwner(io, lockDir);
       if (current !== undefined && ourClaims.has(current.lock_id)) {
-        try {
-          return await work();
-        } finally {
-          await releaseOwnedLock(io, lockDir, current, timing.staleMs);
-        }
+        return await holdAndWork(io, lockDir, current, timing, work);
       }
       await stealStaleOwnedLock(io, lockDir, timing.staleMs);
     }

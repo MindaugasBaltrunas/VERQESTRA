@@ -3,7 +3,6 @@
 // gitStatusPorcelain (ReliabilityPorts kontraktas 1:1).
 
 import path from "node:path";
-import type { GitCommandPlan } from "../../application/scheduling/worktree-policy.js";
 import { run, runWithInput } from "../process/run-process.js";
 
 export type GitExecutor = (args: string[], root: string) => Promise<{ code: number; stdout: string }>;
@@ -230,7 +229,11 @@ export async function gitWorktreeList(root = process.cwd(), execute: GitExecutor
   return result.code === 0 ? parseWorktreePorcelain(result.stdout) : [];
 }
 
-/** Application sudaryto GitCommandPlan vykdytojas. */
-export async function runGitPlan(plan: GitCommandPlan, execute: GitExecutor = executeGit): Promise<{ code: number; stdout: string }> {
-  return await execute(plan.args, plan.root);
-}
+// `runGitPlan` PAŠALINTAS 2026-08-24 (audito patikra). Jis vykdė `GitCommandPlan`, kurį sudarydavo
+// `application/scheduling/worktree-policy` planuoklis — o tas planuoklis tą pačią dieną buvo
+// ištrintas kaip pakeistas aktyviu keliu (`infrastructure/git/worktrees` argumentus statosi pats).
+// Vykdytojas liko be nė vieno kvietėjo, tad kartu miršta ir pats `GitCommandPlan` tipas.
+//
+// PAMOKA: tada `GitCommandPlan` palikau PAGRINDĘS tuo, kad „jį naudoja `runGitPlan`" — ir
+// nepatikrinau, ar `runGitPlan` pats turi kvietėjų. Grandinė nutraukta vienu nariu per anksti;
+// „turi vartotoją" galioja tik tada, kai tas vartotojas pats gyvas.

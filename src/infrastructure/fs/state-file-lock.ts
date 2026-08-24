@@ -29,6 +29,12 @@ const stateFileLockIo: OwnedLockIo = {
   nowMs: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   newLockId: () => randomUUID(),
+  // `unref` PRIVALOMAS: be jo CLI komanda laukia paskutinio intervalo, nors darbas jau baigtas.
+  scheduleHeartbeat: (intervalMs, tick) => {
+    const timer = setInterval(tick, intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  },
 };
 
 /**

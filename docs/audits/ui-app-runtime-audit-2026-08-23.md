@@ -780,6 +780,60 @@ buvo būtent dažniausiai spaudžiami valdikliai (WCAG 2.5.8).
 - `pnpm test:ui` — **53/53 failai, 435/435** testai.
 - `pnpm test` — **1603/1603**.
 
+## Dvyliktas ratas: miręs kodas, dublikatai, logikos klaidos (2026-08-24)
+
+Kitas audito tipas — higienos šluostė, ne kontraktai. Du radiniai uždaryti, keturios vietos
+patikrintos ir pripažintos ŠVARIOMIS. Pastarosios užrašomos sąmoningai: „radau nulį" yra tokia
+pat audito išvada kaip radinys, ir be jos kitas auditas tikrins tą patį iš naujo.
+
+### Rasta: DVI to paties saugos sprendimo kopijos — SUVIENODINTA
+
+„Kuriuos ciklo mygtukus leidžia būsena" buvo persakyta dviejose vietose: `buildLoopControlsView`
+(`#/system`) ir `buildLoopControls` (Header). Kopijos JAU buvo prasilenkusios:
+
+| Būsena | `#/system` | Header |
+|---|---|---|
+| `unknown` / `undefined` | paleidimas UŽDARYTAS | paleidimas **LEIDŽIAMAS** |
+
+Header'io šaka rėmėsi pagrindimu „fresh project, loop never ran", kuris nebegalioja nuo pirmo šio
+audito rato: serveris `runtime` sąrašą siunčia VISADA, tad „įrašo nėra" nebereiškia švaraus
+projekto — jis reiškia netvarkingą atsakymą, kur paleidimo siūlyti tuo labiau negalima. Ir tai
+prieštaravo paties failo antraštei, kuri sako, kad nežinomybėje paleidimas uždaromas, nes antras
+orkestratorius tame pačiame repo yra reali žala.
+
+Antras skirtumas buvo tylesnis: du ŠALTINIAI tam pačiam klausimui — Header skaitė
+`runtime["AG loop"].status`, `#/system` — `loopRunStateOf` (kuris pirmenybę duoda
+`loopControl.loop.status`). Nuo pirmo rato jie sutampa, bet tai mano pataisos atsitiktinumas, ne
+garantija.
+
+Dabar taisyklė VIENA (`loopActionAllowed`), šaltinis vienas, o naujas vartas tvirtina, kad Header
+ir `#/system` atsako vienodai KIEKVIENAI būsenai — iki šiol abu tikrino tik savo pusę atskirai.
+
+### Rasta: sąjungos narys, kurio wire negali atnešti — PAŠALINTA
+
+`PolicyProposalRouting` kliente turėjo `"openspec"`, o serverio `z.enum(POLICY_ROUTINGS)` leidžia
+tik `queue` ir `human-review`. Ne runtime klaida (perteklinis narys inertiškas), bet kvietimas
+parašyti `if (routing === "openspec")` šaką, kuri niekada neįvyks ir atrodys kaip veikianti.
+
+Naujas `src/tests/ui-restated-contracts.test.ts` dengia ŠEŠIAS persakytas sąjungas
+(`TaskBucket`, `LoopSlotMode`, `LoopWorkerId`, `LoopSlotState`, `AgentStatus`,
+`PolicyProposalRouting`). Kaip ir benchmark vartas, jis turi DANTIS: tuščia literalų aibė yra
+klaida, nes `deepEqual([], [])` būtų sutapimas be turinio.
+
+### Patikrinta ir ŠVARU
+
+| Įtarimas | Verdiktas |
+|---|---|
+| `taskFileName` dviejuose failuose | **Ne dublikatas.** HTTP versija atmeta separatorių ir `..`, CLI versija apkarpo `basename` — dvi skirtingos saugos laikysenos dviem skirtingiems įvesties šaltiniams, ir skirtumas užrašytas vietoje |
+| `filterTokenUsageRecords` abiejose laido pusėse | **Ne dublikatas.** Serveris filtruoja instantus, klientas prideda `task_id` substring paiešką, kurios serveris negali daryti |
+| Datos ribos: serveris UTC para, klientas vietinė para | **Ne klaida.** `useTokenUsageController` datą paverčia vietinės paros ISO riba PRIEŠ užklausą, tad serveris gauna tikslų momentą ir jo neinterpretuoja; sulygiavimą jau laiko testas. Serverio pusėje užrašyta, kad plikas `YYYY-MM-DD` duoda UTC parą — kitiems klientams (mobile-gateway) tai KITAS langas |
+| Mirę moduliai `ui-app/` | **Nėra.** Visi 60+ modulių turi importuotoją; `ui-model` ir `interfaces/http` eksportai turi kvietėjus |
+
+### Patikros po dvylikto rato
+
+- `pnpm test` — **1614/1614**; `pnpm test:ui` — 53/53 failai, **436/436**.
+- `pnpm typecheck:ui` — praeina.
+
 ### Patikros po aštunto rato
 
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.

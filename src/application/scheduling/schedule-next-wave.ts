@@ -151,9 +151,10 @@ export type ScheduleNextWaveInput = {
    * pjūvis (`queued` mazgai) ir priklausomybių rezoliucija. Antro, atlaidaus variklio nebėra:
    * jis egzistavo kaip lygiagreti tiesa ir keturiose vietose prieštaravo kanoninei.
    *
-   * `tasks` reikalingas ir su grafu: iš jo skaičiuojama BANGOS tapatybė (`graph_hash`), kuri
-   * sąmoningai lieka atskira nuo kanoninio `tg` hash'o, ir tikrinama, ar eilė nuo grafo
-   * neišsiskyrė (`gate:graph-state-mismatch`).
+   * `tasks` reikalingas ir su grafu, bet TIK kryžminei patikrai (`gate:graph-state-mismatch`).
+   * BANGOS TAPATYBĖ (`graph_hash`, atskiras nuo kanoninio `tg`) imama iš GRAFO pjūvio, NE iš
+   * `tasks` — aprašas apie tai melavo iki 2026-08-24. Kūne tapatybės šaltinis yra VIETINIS
+   * `tasks` (`nodes.map(…)`), UŽDENGIANTIS `input.tasks`; tas užtemdymas ir slėpė melą.
    */
   graph: TaskGraph;
   /** Task'ai, kurių darbas jau priimtas (commit arba done) — jų priklausomybės tenkinamos. */
@@ -169,8 +170,10 @@ export type ScheduleNextWaveInput = {
 /**
  * Ar šis TASK'AS yra rinkinyje. Tapatybė, ne nuoroda — tad tikslus palyginimas.
  *
- * Rinkiniai (`completed`, `blocked`) jau normalizuoti kvietėjo; `isSameTask` normalizuoja ir
- * antrą pusę, todėl kelio ar `.md` formos ID irgi randamas.
+ * `isSameTask` čia NEKVIEČIAMA (aprašas tai teigė iki 2026-08-24): normalizuojama tik ieškoma
+ * pusė, o rinkinyje daroma `has`. Rezultatai sutampa TIK todėl, kad `completed`/`blocked`
+ * normalizuoja KVIETĖJAS — tai kontraktas, ne smulkmena: nenormalizuotas rinkinys tyliai
+ * nustotų atpažinti kelio formos ID, o vartai žemiau yra SUBTRACT-ONLY (task'as dingtų negrįžtamai).
  */
 function containsTask(ids: ReadonlySet<string>, taskId: string): boolean {
   const normalized = normalizeTaskReference(taskId);
@@ -179,10 +182,13 @@ function containsTask(ids: ReadonlySet<string>, taskId: string): boolean {
 
 
 /**
- * Kanoninė kandidatų forma: normalizuoti ID, POSIX keliai, be dublikatų, be placeholder'ių
- * ir be nuorodų į patį save (savęs nuoroda kitaip užrakintų task'ą amžiams). Rūšiuojama
- * pagal failo vardą — tokia pat tvarka, kokią grąžina eilės sąrašas, todėl be
+ * Kanoninė kandidatų forma: normalizuoti ID, POSIX keliai, be dublikatų, be placeholder'ių.
+ * Rūšiuojama pagal failo vardą — tokia pat tvarka, kokią grąžina eilės sąrašas, todėl be
  * priklausomybių elgsena nesiskiria nuo ligšiolinės.
+ *
+ * SAVĘS NUORODA NENUIMAMA (2026-08-24; šis aprašas teigė priešingai iki 2026-08-24 — žr.
+ * pagrindimą kūne). `a → a` iškyla kaip `dependency-cycle` blokas iš grafo pusės, o filtras
+ * tik apakindavo tapatybę: `computeGraphHash` gaudavo tą patį įėjimą su briauna ir be jos.
  */
 export function normalizeSchedulableTasks(tasks: readonly SchedulableTask[]): SchedulableTask[] {
   const byId = new Map<string, SchedulableTask>();

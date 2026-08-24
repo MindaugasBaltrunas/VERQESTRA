@@ -30,7 +30,7 @@ import { createWaveGraphCoordinator } from "./wave-graph.js";
 import type { ReadySetBudget } from "./build-ready-set.js";
 import { createWaveIntegrationCoordinator } from "./wave-integration-coordinator.js";
 import { createWaveOutcomeRecorder } from "./wave-outcome.js";
-import { createWaveRefillCoordinator } from "./wave-refill.js";
+import { createWaveRefillCoordinator, workerIndexOf } from "./wave-refill.js";
 import { createWaveSchedulerState } from "./wave-scheduler-state.js";
 import { createSafeTelemetry } from "./safe-telemetry.js";
 import { persistWaveSnapshot } from "./wave-snapshot-persist.js";
@@ -253,7 +253,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     toWorkerCandidates: provisioning.toWorkerCandidates,
     provisionSlotLease: provisioning.provisionSlotLease,
     releaseUnusedProvision: (workerId, taskId) =>
-      provisioning.releaseWaveProvisionLease({ task_id: taskId, worker_index: workerIndexOfId(workerId) }),
+      provisioning.releaseWaveProvisionLease({ task_id: taskId, worker_index: workerIndexOf(workerId) }),
     rememberCandidate: (candidate) => state.admittedCandidates.set(candidate.task_id, candidate),
     candidateWriteSet: (taskId, graph) => candidateWriteSet(taskId, graph),
   });
@@ -490,10 +490,4 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
 
     refillSlot: refill.refillSlot,
   };
-}
-
-/** `w2` → 2; neatpažinta forma duoda pirminį slot'ą. Ta pati taisyklė kaip papildyme. */
-function workerIndexOfId(workerId: string): number {
-  const parsed = Number.parseInt(workerId.replace(/^w/i, ""), 10);
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
 }

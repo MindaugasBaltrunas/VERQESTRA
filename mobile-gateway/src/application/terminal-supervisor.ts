@@ -151,12 +151,19 @@ export class TerminalSupervisor {
         runtime.processIdentity = await core.processes?.identify(runtime.handle.pid);
         core.emitSessionState(runtime);
         core.emitLease(runtime);
-        core.createRequests.set(idempotencyKey, sessionId);
         // PIRMAS durable rašymas — vienintelis, kuris yra PRIVALOMAS. Tyliai pralaimėjęs, jis
         // grąžindavo `state=live` be jokio įrašo, o `reconcile()` tokio seanso po restarto net
         // negali pažymėti `orphaned`: ji iteruoja tik EGZISTUOJANČIUS įrašus. Klaida čia krenta į
         // tą patį `catch`, kuris uždaro handle ir atšaukia lease.
         await core.syncRegistry(runtime, { required: true });
+        // Idempotencijos raktas registruojamas TIK po sėkmingo durable rašymo (2026-08-24).
+        //
+        // Iki tol jis buvo įrašomas PRIEŠ jį, tad nepavykus registrui raktas likdavo rodyti į
+        // seansą, kurio nėra: pakartotinis TAS PATS `requestId` grįždavo per `createRequests`
+        // šaką ir gaudavo arba `requireRuntime` klaidą, arba `failed` seanso snapshot'ą — t. y.
+        // klientas nebegalėdavo pakartoti prašymo, kuris niekada nepavyko. Po šios eilutės nieko,
+        // kas galėtų mesti, nebėra, tad raktas ir įrašas atsiranda kartu arba nė vienas.
+        core.createRequests.set(idempotencyKey, sessionId);
         return snapshotOf(runtime);
       } catch (error) {
         if (runtime !== undefined) {

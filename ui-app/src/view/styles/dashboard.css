@@ -3748,6 +3748,20 @@ main {
 .more-menu > summary {
   min-height: 44px;
 }
+/* 2026-08-24, tęsinys: vienuoliktas ratas taisyklę pritaikė TIK `.button` šeimai, tad likę
+   interaktyvūs taikiniai jos niekada negavo — filtrų presetai ir puslapiavimas 30 px, paieškos
+   ir filtrų laukai 34–36 px. Operatorius pamatė LT/EN, nes jie siauriausi; klasė ta pati.
+   Įrašomi VARDAIS, o ne per `button, input, select`: pastarasis paliestų ir tuos elementus,
+   kurių dydį diktuoja lentelės eilutė, ir sugriautų tankias lenteles. */
+.filter-presets button,
+.table-pagination button,
+.filter-reset,
+.segmented-control button,
+.failure-query-toolbar input,
+.failure-query-toolbar select,
+.policy-search input {
+  min-height: 44px;
+}
 /* Ikoninius/tekstinius taikinius reikia ir horizontaliai: 44px aukštis be pločio vis tiek
    palieka siaurą juostelę. */
 .button, .small-button { min-width: 44px; }

@@ -28,7 +28,7 @@ const GATEWAY_INSTANCE = "123e4567-e89b-42d3-a456-4266141740a0";
 const NOW = new Date("2026-08-24T10:00:00.000Z");
 
 async function world(
-  options: { registryFailure?: Error; identifySucceeds?: boolean } = {},
+  options: { registryFailure?: Error; identifySucceeds?: boolean; closeFails?: boolean } = {},
 ): Promise<{
   supervisor: TerminalSupervisor;
   counters: { starts: number; closes: number; terminates: number; allocations: number };
@@ -85,6 +85,8 @@ async function world(
         },
         async close() {
           counters.closes += 1;
+          // Hostas NEPATVIRTINO uždarymo — seansas negali būti laikomas uždarytu.
+          if (options.closeFails === true) throw new Error("host did not confirm the close");
         },
       };
     },
@@ -156,6 +158,86 @@ test("PIRMO durable rašymo klaida NEGRĄŽINA gyvo seanso", async () => {
     // Tas pats valymas kaip starto klaidoje: PTY neturi likti gyvas be apskaitos.
     assert.equal(counters.starts, 1);
     assert.equal(counters.closes, 1, "neapskaitytas PTY privalo būti uždarytas");
+  } finally {
+    await cleanup();
+  }
+});
+
+// 2026-08-24: idempotencijos raktas buvo registruojamas PRIEŠ durable rašymą, tad nepavykus
+// registrui jis likdavo rodyti į seansą, kurio nėra. Pakartotinis TAS PATS `requestId` grįždavo
+// per `createRequests` šaką ir gaudavo `failed` seanso snapshot'ą — klientas nebegalėdavo
+// pakartoti prašymo, kuris niekada nepavyko.
+test("nepavykęs kūrimas NEUŽRAKINA `requestId` — pakartojimas vėl bandomas", async () => {
+  const { supervisor, counters, cleanup } = await world({
+    registryFailure: new Error("disk full"),
+    identifySucceeds: true,
+  });
+  try {
+    const attempt = (): Promise<unknown> =>
+      supervisor.createSession({
+        projectId: PROJECT_ID,
+        ownerDeviceId: OWNER_DEVICE_ID,
+        requestId: "req-tas-pats",
+        provider: "codex",
+        workspaceMode: "isolated-worktree",
+        cols: 80,
+        rows: 24,
+      });
+
+    await assert.rejects(attempt, /persisted|terminal/i);
+    // Su senuoju eiliškumu ANTRAS kvietimas grąžindavo `failed` snapshot'ą, o ne bandymą iš naujo.
+    await assert.rejects(attempt, /persisted|terminal/i, "tas pats requestId privalo būti bandomas vėl");
+
+    assert.equal(counters.starts, 2, "antras bandymas realiai vyko");
+    assert.equal(counters.closes, 2, "ir abu neapskaityti PTY uždaryti");
+  } finally {
+    await cleanup();
+  }
+});
+
+// Nepavykęs uždarymas: hostas NEPATVIRTINO, tad seansas negali būti laikomas uždarytu. Jis lieka
+// `orphaned`, o `activeSessionId` NEVALOMAS — naujas seansas blokuojamas, kol gyvas PTY galbūt
+// dar sukasi. Testas pin'ina abu dalykus kartu: būseną ir blokavimą.
+test("nepavykęs uždarymas palieka `orphaned` ir BLOKUOJA naują seansą", async () => {
+  const { supervisor, cleanup } = await world({ identifySucceeds: true, closeFails: true });
+  try {
+    const created = (await supervisor.createSession({
+      projectId: PROJECT_ID,
+      ownerDeviceId: OWNER_DEVICE_ID,
+      requestId: "req-1",
+      provider: "codex",
+      workspaceMode: "isolated-worktree",
+      cols: 80,
+      rows: 24,
+    })) as { sessionId: string; lease: { leaseId: string; generation: number } };
+
+    await assert.rejects(
+      () =>
+        supervisor.close({
+          projectId: PROJECT_ID,
+          sessionId: created.sessionId,
+          ownerDeviceId: OWNER_DEVICE_ID,
+          leaseId: created.lease.leaseId,
+          leaseGeneration: created.lease.generation,
+        }),
+      /outcome is unknown/,
+      "nepatvirtintas uždarymas nėra sėkmė",
+    );
+
+    await assert.rejects(
+      () =>
+        supervisor.createSession({
+          projectId: PROJECT_ID,
+          ownerDeviceId: OWNER_DEVICE_ID,
+          requestId: "req-2",
+          provider: "codex",
+          workspaceMode: "isolated-worktree",
+          cols: 80,
+          rows: 24,
+        }),
+      /Another mobile terminal session is active/,
+      "orphaned seansas privalo blokuoti naują",
+    );
   } finally {
     await cleanup();
   }

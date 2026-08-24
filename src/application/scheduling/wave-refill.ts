@@ -77,7 +77,15 @@ export type WaveRefillDeps = {
   candidateWriteSet: (taskId: string, graph: TaskGraph | undefined) => WorkerCandidate["write_set"];
 };
 
-/** `w2` → 2. Neatpažinta forma duoda 1 — pirminis slot'as yra saugus default'as. */
+/**
+ * `w2` → 2. Neatpažinta forma duoda 1 — pirminis slot'as yra saugus default'as.
+ *
+ * VIENINTELIS šios taisyklės šaltinis visai wave grandinei. Iki 2026-08-24 `wave-scheduler`
+ * laikė pažodinę kopiją (`workerIndexOfId`) su komentaru „ta pati taisyklė kaip papildyme" —
+ * t. y. dublikatas buvo žinomas ir vis tiek paliktas. Dvi to paties parserio kopijos išsiskiria
+ * TYLIAI: slot'o indeksas eina į lease nuosavybę, tad išsiskyrimas reikštų, kad papildymas ir
+ * planuoklis mano skirtingus dalykus apie tą patį workerį.
+ */
 export function workerIndexOf(workerId: string): number {
   const parsed = Number.parseInt(workerId.replace(/^w/i, ""), 10);
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;

@@ -115,6 +115,24 @@ test("scheduleNextWave dependency semantics: internal and unresolvable both bloc
   );
 });
 
+// `containsTask` NEKVIEČIA `isSameTask`: jis normalizuoja tik ieškomą pusę ir daro `has`.
+// Rezultatai sutampa TIK todėl, kad rinkinius normalizuoja kvietėjas — iki 2026-08-24 ta prielaida
+// buvo tik apraše (ir apraše KLAIDINGAME), o visi testai davė jau plikus ID, tad niekas jos netikrino.
+// Vartai yra SUBTRACT-ONLY: prielaidai lūžus task'as dingtų iš bangos negrįžtamai.
+test("kelio ir `.md` formos `completedTaskIds` atpažįstami — kvietėjas normalizuoja rinkinius", () => {
+  const tasks = [
+    schedulable("0001", "AG/tasks/queue/0001.md"),
+    schedulable("0002", "AG/tasks/queue/0002.md", ["0001"]),
+  ];
+
+  const plan = scheduleNextWave(wavePlanInput({ tasks, completedTaskIds: ["AG/tasks/queue/0001.md"] }));
+  assert.deepEqual(
+    plan.ready.map((task) => task.task_id),
+    ["0002"],
+    "kelio formos ID turi atrakinti priklausinį lygiai taip pat, kaip plikas `0001`",
+  );
+});
+
 // 2026-08-24 (operatoriaus radinys, P2): bangos tapatybė nematė self-edge.
 //
 // `normalizeSchedulableTasks` nuimdavo `a → a` kaip savęs nuorodą, tad `computeGraphHash` gaudavo

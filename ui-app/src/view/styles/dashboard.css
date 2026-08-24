@@ -3699,6 +3699,11 @@ main {
 .delta-better { color: var(--success, #15803d); }
 .delta-worse { color: var(--danger, #b91c1c); }
 
+.compression-combination { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.compression-combination h3 { margin: 0 0 4px; font-size: 13px; }
+.compression-combination ul { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; }
+.compression-combination code { font-size: 11px; }
+
 /* --- Signalai, taikiniai ir „Daugiau" meniu (2026-08-24, operatoriaus nurodymai) ---------- */
 
 /* Trys skirtingi faktai stovi šalia, bet kaip ATSKIRI ženklai — ne kaip vienas jungtinis. */

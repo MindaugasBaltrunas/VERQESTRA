@@ -144,6 +144,24 @@ const PACKAGE_EXECUTION_PLAN = path.join(
   "ports",
   "execution-plan.ts",
 );
+const PACKAGE_COMPRESSION_VERDICT = path.join(
+  process.cwd(),
+  "AG",
+  "benchmark",
+  "src",
+  "domain",
+  "compression",
+  "compression-verdict.ts",
+);
+const PACKAGE_COMPRESSION_SECTION = path.join(
+  process.cwd(),
+  "AG",
+  "benchmark",
+  "src",
+  "application",
+  "report",
+  "compression-report-section.ts",
+);
 const CLIENT_TYPES = path.join(process.cwd(), "ui-app", "src", "model", "types.ts");
 
 /** Eilučių literalai iš `as const` sąrašo arba iš tipo sąjungos — abi formos duoda tą pačią aibę. */
@@ -180,6 +198,44 @@ test("persakyti verdiktai sutampa visose TRIJOSE vietose", async () => {
   // nuo šiol tą teiginį laiko vartas, ne komentaras.
   assert.deepEqual([...BENCHMARK_REPORT_VERDICTS], packageValues);
   assert.deepEqual(await clientUnion("BenchmarkComparisonVerdict"), packageValues);
+});
+
+test("persakyti kompresijos verdiktai sutampa: paketas ↔ ui-app", async () => {
+  // Šeštas tos pačios klasės atvejis, ir jis atsirado ne dėl nesutapimo, o dėl NEBUVIMO:
+  // `report.compression` keliavo per laidą nuo BENCH-10, o klientas neturėjo net tipo, tad
+  // kohortos ekrane nebuvo. Pridėjus tipą, persakymas atsirado kartu su juo — ir vartas su juo.
+  assert.deepEqual(
+    await clientUnion("BenchmarkCompressionVerdict"),
+    await packageLiterals(PACKAGE_COMPRESSION_VERDICT, "COMPRESSION_VERDICTS"),
+    "klientas rodytų nežinomą kompresijos verdiktą arba praleistų paketo priimamą",
+  );
+});
+
+test("persakyta kompresijos varianto eilutė nepraleidžia nė vieno paketo lauko", async () => {
+  // Serveris benchmark dokumentą persiunčia PAŽODŽIUI (`looseObject`), tad schema kliento pusėje
+  // nieko netikrina: praleistas laukas nesukelia klaidos — jis tiesiog nematomas. Vienintelis
+  // būdas tai pagauti yra sulyginti laukų vardus su paketo deklaracija.
+  const declaration = await declared(
+    PACKAGE_COMPRESSION_SECTION,
+    /export interface ReportCompressionVariantRow \{([\s\S]+?)\n\}/,
+    "ReportCompressionVariantRow",
+  );
+  const packageFields = [...declaration.matchAll(/^\s*readonly ([A-Za-z]+)[?]?:/gm)].map(
+    (match) => match[1] as string,
+  );
+  assert.ok(packageFields.length > 0, "laukai neišparsinti — sulyginimas būtų tuščias");
+
+  const clientDeclaration = await declared(
+    CLIENT_TYPES,
+    /export type BenchmarkCompressionVariant = \{([\s\S]+?)\n\};/,
+    "BenchmarkCompressionVariant",
+  );
+  const clientFields = new Set(
+    [...clientDeclaration.matchAll(/^\s{2}([A-Za-z]+)[?]?:/gm)].map((match) => match[1] as string),
+  );
+
+  const missing = packageFields.filter((field) => !clientFields.has(field));
+  assert.deepEqual(missing, [], `kohortos laukai atkeliauja, bet ekrane nematomi: ${missing.join(", ")}`);
 });
 
 test("persakyti režimų skirtumų aspektai sutampa: paketas ↔ ui-app", async () => {

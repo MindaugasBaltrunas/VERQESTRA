@@ -589,12 +589,39 @@ export type BenchmarkCompressionVariant = {
   /** Saugos KPI: žalias srautas tuo pačiu vardikliu, su savo slenksčiu. */
   rawTokensPerAcceptedTask?: number;
   rawTokensPerAcceptedTaskDelta?: number;
+  rawTokensPerAcceptedTaskRelativeDelta?: number;
   acceptedRate?: number;
   securityFailureRate?: number;
   outOfScopeRate?: number;
   repairsPerTask?: number;
   humanReviewEventsPerTask?: number;
   usage: BenchmarkCompressionUsage;
+  /** Simbolių skaitikliai prieš baseline. DIAGNOSTIKA: jokio verdikto jie nesprendžia. */
+  diagnostics: BenchmarkMetricRow[];
+};
+
+/**
+ * Kiek prisidėjo VIENA funkcija, išmatuota ant jos pačios vieno-požymio varianto.
+ *
+ * Ženklas priešingas eilučių deltoms tyčia: čia tai SUTAUPYMAS (`baseline - variantas`), tad
+ * teigiamas skaičius yra neišleisti pinigai. Klientas ženklo neverčia — jį verstų atbulai.
+ */
+export type BenchmarkCompressionContribution = {
+  feature: string;
+  /** Variantas, ant kurio išmatuota, arba `""`, kai kohorta tokio nedeklaruoja. */
+  variantId: string;
+  contribution?: number;
+  relativeContribution?: number;
+};
+
+export type BenchmarkCompressionCombination = {
+  variantId: string;
+  featureContributions: BenchmarkCompressionContribution[];
+  /** Apatinė riba, kai bent vienas vieno-požymio variantas nepaleistas. */
+  sumOfSingleFeatureContributions?: number;
+  observedCombinationContribution?: number;
+  /** Stebėta minus suma. Faktas apie derinį, nepriskiriamas nė vienai funkcijai. */
+  interactionResidual?: number;
 };
 
 export type BenchmarkCompressionSection = {
@@ -603,6 +630,7 @@ export type BenchmarkCompressionSection = {
   costKpiVersion: number;
   baselineVariantId: string;
   variants: BenchmarkCompressionVariant[];
+  combination?: BenchmarkCompressionCombination;
   /** Bandymai, nepriklausantys nė vienam deklaruotam variantui: į jokį agregatą jie NEĮĖJO. */
   unattributedSampleCount: number;
   limitations: string[];

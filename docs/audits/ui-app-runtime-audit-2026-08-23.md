@@ -923,10 +923,9 @@ Vykdymo priskyrimas nedingo: `deriveLoopSlots` snapshot'o `live_slots` toliau na
 autoritetą, tik DTO susiaurintas iki `{worker_id, task_id, attempt}` — be `started_at` (jo niekas
 nerodo) ir be `worktree_path`.
 
-### Ko NEPADARIAU
+### Ko nepadariau keturioliktame rate (uždaryta penkioliktame)
 
-Benchmark `report.compression` lieka nerodomas: tai `AG/benchmark` paketo duomuo, ir jo panelė yra
-BENCH apimties darbas, ne šio audito.
+Benchmark `report.compression` liko nerodomas. Uždaryta 2026-08-24 — žr. penkioliktą ratą.
 
 ### Vartai (keturioliktas ratas)
 
@@ -955,3 +954,71 @@ paleisti abu.
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.
 - `pnpm test` — **1587/1587**; `pnpm test:ui` — 51/51 failai, **421/421** (+4).
 - `pnpm build:ui` — praeina.
+
+---
+
+## Penkioliktas ratas (2026-08-24) — kompresijos kohorta ir klasė „laukas atkeliauja, bet nematomas"
+
+### Radinys: visas eksperimentas nematomas
+
+`AG/benchmark` nuo BENCH-10 skaičiuoja `report.compression` — canary vs control kohortą, kuri yra
+**vienintelė vieta, kur kompresijos nauda apskritai falsifikuojama**. Serveris tą dokumentą
+persiunčia pažodžiui (`looseObject`, `modes: z.array(z.unknown())`), tad sekcija į naršyklę
+keliavo visą laiką. Klientas neturėjo net jos TIPO, todėl ekrane jos nebuvo: kas ją matė, matė
+tik terminale.
+
+Tai atskira defektų klasė nuo ankstesnių ratų: ne „laukas nesutampa" ir ne „mechanizmas be
+kvietėjo", o **laukas, kuris atkeliauja tvarkingai ir nėra nuskaitomas**. Pažodinis persiuntimas
+reiškia, kad tokio praleidimo NIEKAS nesignalizuoja — nei schema, nei tipai, nei testai.
+
+### Ką panelė teigia ir ko neteigia
+
+`ui-app/src/view/components/CompressionCohortPanel.tsx` neperskaičiuoja nė vieno skaičiaus:
+deltas, rodiklius ir verdiktą suveda paketas. Trys taisyklės, kurios yra jos kontraktas:
+
+| Taisyklė | Kodėl |
+|---|---|
+| **Nematuota ≠ nulis** | `undefined` KPI rodomas kaip „—". Nulis reikštų IŠMATUOTĄ nulinę kainą — tiksliai priešingą teiginį nei „duomenų nėra" |
+| **Priežastys — kodai** | Verdikto priežastys neverčiamos ir neperfrazuojamos: būtent jų ieškoma ataskaitoje ir žurnale |
+| **Apribojimai visada matomi** | Sekcija, parodyta be to, ko ji negali teigti, perskaitoma kaip įrodymas, kurio ji neneša |
+
+Iš tos pačios logikos plaukia dar du sprendimai. Nesuvesta kohorta (`compression` nėra) **nieko
+nepiešia** — tuščia lentelė būtų perskaityta kaip „kompresija nieko nedavė", o tai kitas teiginys
+nei „niekas nematavo". Ir funkcijos, kurios vieno požymio variantas nepaleistas, indėlis rodomas
+kaip „nepaleista", o ne išvedamas atimtimi iš derinio: tai paskelbtų aritmetinę tapatybę kaip
+matavimą.
+
+Ženklų kryptys paliktos tokios, kokias suvedė paketas, ir įvardytos ekrane: lentelės delta yra
+`variantas − baseline` (neigiama = pigiau, todėl žalia), o funkcijos indėlis — `baseline −
+variantas` (teigiama = neišleisti tokenai). Suvienodinus jas „kad būtų gražiau", viena pusė būtų
+skaitoma atbulai.
+
+### Trys laukai, kurių tipas neturėjo
+
+Rašant vartą paaiškėjo, kad pirmoji kliento tipo redakcija praleido
+`rawTokensPerAcceptedTaskRelativeDelta`, `diagnostics` ir visą `combination` bloką — t. y. per tą
+pačią spragą, kurią ratas uždarinėjo. Pridėti visi; `combination` (funkcijų indėliai ir sąveikos
+likutis) dabar turi savo bloką.
+
+### Radinys pakeliui: `.table-scroll` be nė vienos taisyklės
+
+Klasė naudojama PENKIOSE `#/benchmark` lentelėse ir CSS'e neturėjo jokio įrašo — pažadėjo
+slinkimą ir jo neteikė, tad plati lentelė stumdavo visą puslapį horizontaliai. Tiksliai tas
+gedimas, kurį operatorius aprašė siaurame ekrane, tik kitame ekrane nei tada tikrinta. Pridėta
+`max-width: 100%; overflow-x: auto`.
+
+### Vartai (penkioliktas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `src/tests/benchmark-restated-contracts.test.ts` (+2) | `COMPRESSION_VERDICTS` ↔ `BenchmarkCompressionVerdict`; ir **visi** `ReportCompressionVariantRow` laukų vardai turi turėti atitikmenį kliento tipe |
+| `ui-app/src/view/components/CompressionCohortPanel.test.tsx` (naujas, 6) | tyla be sekcijos; „—" vietoje nulio; priežastys kaip kodai; nepriskirti bandymai įvardijami; apribojimai rodomi; nepaleisto varianto indėlis neišvedamas |
+
+Antrasis serverio vartas svarbus dėl to, ką jis gaudo: pažodinis persiuntimas praleisto lauko
+nesignalizuoja, tad **vienintelis būdas pastebėti naują paketo lauką yra sulyginti vardus**.
+Paketui pridėjus stulpelį, vartas krenta su „atkeliauja, bet ekrane nematomi".
+
+### Patikros po penkiolikto rato
+
+- `pnpm test` — **1619/1619** (+2); `pnpm test:ui` — **55/55 failai, 450/450** (+6).
+- `pnpm typecheck:ui`, `pnpm run build:ui` — praeina.

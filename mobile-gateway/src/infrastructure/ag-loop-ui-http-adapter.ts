@@ -241,7 +241,7 @@ export class AgLoopUiHttpAdapter implements AgLoopUiReadPort {
    * ribomis, ir tai prikalta `src/tests/ui-log-query.test.ts`.
    */
   async logs(log: AgLoopLogName, lines: number): Promise<AgLoopLogs> {
-    if (!AG_LOOP_LOG_NAMES.includes(log)) throw new Error("Invalid log name");
+    if (!AG_LOOP_LOG_NAMES.includes(log)) throw new Error("Invalid AG Loop log name");
     const bounded = clamp(lines, 1, AG_LOOP_LOG_LINE_LIMIT);
     return projectLogsPayload(
       await this.#get(`/api/logs?log=${encodeURIComponent(log)}&lines=${bounded}`),

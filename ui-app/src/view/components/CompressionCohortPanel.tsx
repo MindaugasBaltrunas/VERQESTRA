@@ -138,6 +138,37 @@ export function CompressionCohortPanel({ section }: { section: BenchmarkCompress
         </div>
       )}
 
+      {section.combination && (
+        <div className="compression-combination">
+          <h3>
+            {t("Feature contributions")} <code>{section.combination.variantId}</code>
+          </h3>
+          {/* Ženklas čia PRIEŠINGAS lentelės deltoms: tai sutaupymas, todėl teigiamas skaičius yra
+              neišleisti tokenai. Perverstas ženklas skaitytojui reikštų tiksliai atvirkščiai, tad
+              jis paliekamas toks, kokį suvedė paketas, ir įvardijamas paantraštėje. */}
+          <p className="panel-subtitle">{t("Positive means tokens not spent. Contributions do not add up.")}</p>
+          <ul>
+            {section.combination.featureContributions.map((entry) => (
+              <li key={entry.feature}>
+                <code>{entry.feature}</code>{" "}
+                {/* Funkcija, niekada nepaleista atskirai, yra „—", o ne atimtis iš derinio:
+                    pastaroji paskelbtų aritmetinę tapatybę kaip matavimą. */}
+                {entry.variantId === ""
+                  ? t("no single-feature variant was run")
+                  : `${format.num(entry.contribution)} (${format.pct(entry.relativeContribution)})`}
+              </li>
+            ))}
+          </ul>
+          <p className="panel-subtitle">
+            {t("Sum of measured contributions")}: {format.num(section.combination.sumOfSingleFeatureContributions)}
+            {" · "}
+            {t("Observed")}: {format.num(section.combination.observedCombinationContribution)}
+            {" · "}
+            {t("Interaction residual")}: {format.num(section.combination.interactionResidual)}
+          </p>
+        </div>
+      )}
+
       {rejected.length > 0 && (
         <div className="budget-reasons">
           <strong>{t("Rejected variants")}</strong>

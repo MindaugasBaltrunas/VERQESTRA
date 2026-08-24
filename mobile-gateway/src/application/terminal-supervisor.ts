@@ -152,7 +152,11 @@ export class TerminalSupervisor {
         core.emitSessionState(runtime);
         core.emitLease(runtime);
         core.createRequests.set(idempotencyKey, sessionId);
-        await core.syncRegistry(runtime);
+        // PIRMAS durable rašymas — vienintelis, kuris yra PRIVALOMAS. Tyliai pralaimėjęs, jis
+        // grąžindavo `state=live` be jokio įrašo, o `reconcile()` tokio seanso po restarto net
+        // negali pažymėti `orphaned`: ji iteruoja tik EGZISTUOJANČIUS įrašus. Klaida čia krenta į
+        // tą patį `catch`, kuris uždaro handle ir atšaukia lease.
+        await core.syncRegistry(runtime, { required: true });
         return snapshotOf(runtime);
       } catch (error) {
         if (runtime !== undefined) {

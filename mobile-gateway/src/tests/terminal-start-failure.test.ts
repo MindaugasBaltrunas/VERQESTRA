@@ -27,7 +27,9 @@ const OWNER_DEVICE_ID = "123e4567-e89b-42d3-a456-426614174081";
 const GATEWAY_INSTANCE = "123e4567-e89b-42d3-a456-4266141740a0";
 const NOW = new Date("2026-08-24T10:00:00.000Z");
 
-async function world(): Promise<{
+async function world(
+  options: { registryFailure?: Error; identifySucceeds?: boolean } = {},
+): Promise<{
   supervisor: TerminalSupervisor;
   counters: { starts: number; closes: number; terminates: number; allocations: number };
   cleanup: () => Promise<void>;
@@ -88,12 +90,25 @@ async function world(): Promise<{
     },
   };
 
-  // …o krinta ŽINGSNIS PO JO.
+  // …o krinta ŽINGSNIS PO JO. `identifySucceeds` leidžia atskirti DVI nesėkmes: proceso
+  // identifikavimo (starto kelias) ir durable rašymo (registro kelias).
   const processes: ProcessIdentityPort = {
     async identify() {
+      if (options.identifySucceeds === true) {
+        return { pid: 4321, startedAt: NOW.toISOString(), executable: "C:/tools/codex.cmd" };
+      }
       throw new Error("host refused to identify the pid");
     },
   };
+
+  const store = new AtomicJsonSessionRegistryStore(join(directory, "sessions.json"), GATEWAY_INSTANCE);
+  const registryStore =
+    options.registryFailure === undefined
+      ? store
+      : {
+          read: () => store.read(),
+          update: () => Promise.reject(options.registryFailure),
+        };
 
   // `registry`, `processes` ir `gatewayInstanceId` paduodami KARTU — prižiūrėtojas dalinės
   // konfigūracijos nepriima (fail-closed), o `processes` čia ir yra viso testo esmė.
@@ -103,7 +118,7 @@ async function world(): Promise<{
     worktrees,
     terminals,
     processes,
-    registry: new AtomicJsonSessionRegistryStore(join(directory, "sessions.json"), GATEWAY_INSTANCE),
+    registry: registryStore,
     gatewayInstanceId: GATEWAY_INSTANCE,
     clock: () => NOW,
     leaseTtlMs: 60_000,
@@ -111,6 +126,40 @@ async function world(): Promise<{
 
   return { supervisor, counters, cleanup: () => rm(directory, { recursive: true, force: true }) };
 }
+
+// 2026-08-24 (operatoriaus radinys): registry rašymo klaida tyliai grąžindavo `state=live` be
+// durable įrašo. `syncRegistry` doc'as tai pateisino tuo, kad prarastas įrašas „nusileidžia į
+// orphaned" — bet tai galioja tik ATNAUJINIMAMS: `reconcile()` iteruoja tik EGZISTUOJANČIUS
+// įrašus, tad seansas, kurio įrašo niekada nebuvo, po restarto tiesiog nematomas, o jo PTY ir
+// worktree nebeatgauna niekas.
+test("PIRMO durable rašymo klaida NEGRĄŽINA gyvo seanso", async () => {
+  const { supervisor, counters, cleanup } = await world({
+    registryFailure: new Error("disk full"),
+    identifySucceeds: true,
+  });
+  try {
+    await assert.rejects(
+      () =>
+        supervisor.createSession({
+          projectId: PROJECT_ID,
+          ownerDeviceId: OWNER_DEVICE_ID,
+          requestId: "req-1",
+          provider: "codex",
+          workspaceMode: "isolated-worktree",
+          cols: 80,
+          rows: 24,
+        }),
+      /persisted|terminal/i,
+      "seansas be durable įrašo negali būti paskelbtas gyvu",
+    );
+
+    // Tas pats valymas kaip starto klaidoje: PTY neturi likti gyvas be apskaitos.
+    assert.equal(counters.starts, 1);
+    assert.equal(counters.closes, 1, "neapskaitytas PTY privalo būti uždarytas");
+  } finally {
+    await cleanup();
+  }
+});
 
 test("klaida PO `terminals.start` uždaro handle — nelieka nevaldomo PTY", async () => {
   const { supervisor, counters, cleanup } = await world();

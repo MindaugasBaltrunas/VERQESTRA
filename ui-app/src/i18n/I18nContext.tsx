@@ -591,6 +591,13 @@ const lt: Record<string, string> = {
   "No reason recorded": "Priežastis neužfiksuota",
   "Samples outside every declared variant": "Mėginiai už visų deklaruotų variantų ribų",
   "This section cannot claim": "Ko ši sekcija negali teigti",
+  "Feature contributions": "Funkcijų indėliai",
+  "Positive means tokens not spent. Contributions do not add up.":
+    "Teigiama reikšmė — neišleisti tokenai. Indėliai nėra sudedami.",
+  "no single-feature variant was run": "vieno požymio variantas nebuvo paleistas",
+  "Sum of measured contributions": "Išmatuotų indėlių suma",
+  "Observed": "Stebėta",
+  "Interaction residual": "Sąveikos likutis",
   "accepted": "Priimta",
   "not_measured": "Nematuota",
   "baseline": "baseline",

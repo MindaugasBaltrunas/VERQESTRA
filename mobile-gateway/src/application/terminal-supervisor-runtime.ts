@@ -79,8 +79,21 @@ export class TerminalSupervisorRuntime {
    * authoritative for this gateway lifetime. The cost of a lost write is that
    * reconciliation treats the session as orphaned after a restart, which is the
    * safe direction.
+   *
+   * 2026-08-24 (operatoriaus radinys): tas pagrindimas galioja tik ATNAUJINIMAMS. Pirmam
+   * rašymui jis melagingas — `SessionReconciliationService.reconcile` iteruoja
+   * `Object.values(snapshot.sessions)`, tad įrašo, kurio NIEKADA nebuvo, ji net negali pažymėti
+   * `orphaned`. Tyliai pralaimėjęs pirmas rašymas palieka gyvą PTY ir allokuotą worktree,
+   * kurių po restarto nebeatgauna niekas: `createSession` grąžindavo `state=live` be jokios
+   * durable pėdsako.
+   *
+   * Todėl `required: true` kelias META. Jį naudoja TIK `createSession` — būtent tas rašymas
+   * paverčia seansą atkuriamu; visi vėlesni lieka best-effort, kaip ir buvo.
+   *
+   * Be sukonfigūruoto registro (`registry`/`gatewayInstanceId` nėra) `required` nieko nekeičia:
+   * grynai in-memory režimas yra sąmoningas pasirinkimas, ne nesėkmė.
    */
-  async syncRegistry(runtime: RuntimeSession): Promise<void> {
+  async syncRegistry(runtime: RuntimeSession, options: { required?: boolean } = {}): Promise<void> {
     if (!this.registry || !this.gatewayInstanceId) return;
     const record: PersistedSessionRecord = {
       sessionId: runtime.session.sessionId,
@@ -111,9 +124,21 @@ export class TerminalSupervisorRuntime {
         },
         result: undefined,
       }));
-    } catch {
+    } catch (error) {
       // See doc comment: a lost record degrades to `orphaned`, never to a
-      // wrongly reattached session.
+      // wrongly reattached session — bet TIK jei įrašas jau egzistuoja.
+      if (options.required === true) {
+        // NAUJAS kodas čia sąmoningai NEPRIDEDAMAS: kodų sąjungos komentaras įspėja, kad naujas
+        // kodas paskelbtų dar vieną gedimo formą KIEKVIENAM įrenginiui per nuotolinį voką.
+        // `terminal_start_failed` semantiškai tikslus — seansas nepradėtas taip, kad jį būtų
+        // galima atkurti, — ir jis jau turi nuotolinį atvaizdavimą.
+        throw new TerminalSupervisorError(
+          "terminal_start_failed",
+          `Terminal session could not be persisted; refusing to report it live: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 

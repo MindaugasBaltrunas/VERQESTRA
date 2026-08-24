@@ -250,14 +250,10 @@ function resolveTaskId(request: BudgetEnforcementRequest): string {
   return typeof request.contextPack["task_id"] === "string" ? (request.contextPack["task_id"]).trim() : "";
 }
 
-export async function assertExecutionBudget(
-  ports: TokenBudgetGatePorts,
-  runtimeRoot: string,
-  request: BudgetEnforcementRequest,
-): Promise<void> {
-  const status = await enforceExecutionBudget(ports, runtimeRoot, request);
-  if (!status.ok) throw new Error(`Execution budget rejected: ${status.reasons.join("; ")}`);
-}
+// `assertExecutionBudget` ištrintas 2026-08-24: metantis apvalkalas aplink `enforceExecutionBudget`
+// be nė vieno kvietėjo. Jis prieštaravo ir šio klasterio taisyklei „atmetimas yra REIKŠMĖ, ne
+// išimtis" — sprendimą priima `status.ok`, o ne `try/catch`. Tikrasis vartas prijungtas
+// (`composition/loop/coordinator-execution-adapters`), tad kartu nedingo jokia patikra.
 
 /**
  * Etalono 1073/1074 lockout pamoka: token-usage.jsonl yra append-only visai task'o

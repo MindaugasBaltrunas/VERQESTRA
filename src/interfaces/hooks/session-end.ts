@@ -14,7 +14,6 @@ import {
 } from "./session-hook-context.js";
 import { releaseLoopRuntimeRecord } from "./loop-runtime-store.js";
 import { sessionChangedFiles } from "./session-changes.js";
-import { resolveSessionOwnerPid } from "../../domain/scheduling/loop-runtime.js";
 
 /**
  * Pašalina ŠIOS sesijos runtime įrašą jai baigiantis.
@@ -74,7 +73,7 @@ export async function hookSessionEnd(deps: SessionHookDeps): Promise<number> {
   return SESSION_HOOK_OK_EXIT_CODE;
 }
 
-/** Ar sesijos savininko PID apskritai išsprendžiamas (diagnostikai ir testams). */
-export function sessionOwnerPid(deps: SessionHookDeps): number | undefined {
-  return resolveSessionOwnerPid(deps.ports.parentPid(), (pid) => deps.ports.processIsAlive(pid));
-}
+// `sessionOwnerPid` ištrintas 2026-08-24: apvalkalas, kurio doc'as tvirtino „diagnostikai ir
+// testams", nors nė vienas testas jo nekvietė — doc'as buvo vienintelis jo pateisinimas.
+// Tikroji taisyklė yra `domain/scheduling/loop-runtime#resolveSessionOwnerPid`, ji padengta
+// testais ir tiesiogiai kviečiama `session-start`; čia dubliuotas tik iškvietimas.

@@ -38,7 +38,7 @@ import { readTaskGraphSnapshot, writeTaskGraphSnapshot } from "../../infrastruct
 import { readWaveSnapshot, writeWaveSnapshot } from "../../infrastructure/state/wave-snapshot-store.js";
 import { recordWaveEvent } from "../../infrastructure/state/wave-events.js";
 import { readResumeCheckpoint, recordResumeCheckpoint } from "../../infrastructure/state/resume-checkpoint.js";
-import { ensureWorktreeRuntime } from "../../infrastructure/git/worktrees/worktree-runtime.js";
+import { ensureWorktreeRuntime, PRODUCT_INSTALL_TIMEOUT_MS } from "../../infrastructure/git/worktrees/worktree-runtime.js";
 import { reapOrphanWorktrees } from "../../infrastructure/git/worktrees/orphan-worktree-reaper.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../../infrastructure/process/run-process.js";
@@ -243,8 +243,14 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           optionalJunctions: [],
         },
         log: deps.log,
+        // Laikmatis imamas iš KONSTANTOS, o ne perrašomas skaičiumi (2026-08-24 auditas):
+        // `PRODUCT_INSTALL_TIMEOUT_MS` gyveno šalia install'o aprašo su ta pačia reikšme, bet be
+        // kvietėjo, tad tas pats stabdiklis egzistavo dviem kopijom. Elgesys nesikeičia — keičiasi
+        // tai, kad pakėlus reikšmę vienoje vietoje ji nebelieka sena kitoje.
         runProductInstall: (request) =>
-          run(request.command, request.args, { cwd: request.cwd, timeoutMs: 15 * 60 * 1000 }).then((result) => result.code),
+          run(request.command, request.args, { cwd: request.cwd, timeoutMs: PRODUCT_INSTALL_TIMEOUT_MS }).then(
+            (result) => result.code,
+          ),
       }),
   });
 

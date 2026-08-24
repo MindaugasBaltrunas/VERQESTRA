@@ -99,10 +99,10 @@ export async function currentCommitResolver(projectRoot: string): Promise<string
   return await gitHead(projectRoot);
 }
 
-export async function gitHashObject(filePath: string, root = process.cwd()): Promise<string | undefined> {
-  const result = await run("git", ["-C", root, "hash-object", filePath], { cwd: root });
-  return result.code === 0 ? result.stdout.trim() : undefined;
-}
+// `gitHashObject` ištrintas 2026-08-24: etalone jis buvo `taskFingerprint` pagrindas su sha256
+// atsarga, o VERQESTRA atspaudus skaičiuoja TIK sha256 (`shared/hash`, `context-cache-key`).
+// Git objekto hash'as čia reikštų antrą atspaudo protokolą, priklausomą nuo repo būsenos —
+// pakeistas aktyviu keliu, ne tiesiog nenaudojamas.
 
 export async function isGitRepository(root = process.cwd()): Promise<boolean> {
   const result = await run("git", ["-C", root, "rev-parse", "--git-dir"], { cwd: root });

@@ -8,7 +8,6 @@
 //      perpanaudojami, ir svetimas procesas tuo pačiu numeriu atrodytų kaip mūsų loop'as.
 
 import { spawn } from "node:child_process";
-import path from "node:path";
 import type {
   ProcessLifecycleFsPort,
   ProcessLifecyclePorts,
@@ -122,7 +121,7 @@ export function processLifecyclePorts(input: UiLifecycleAdapterInput): ProcessLi
   };
 }
 
-/** `vq/state` — kur gyvena PID ir vėliavų failai. */
-export function lifecycleStateDir(runtimeRoot: string): string {
-  return path.join(runtimeRoot, "state");
-}
+// `lifecycleStateDir` ištrintas 2026-08-24: be kvietėjo, o `path.join(runtimeRoot, "state")` ir
+// taip įrašytas ~20 vietų. Pagundos „tegul lieka, kada nors prijungsim" čia nėra — helper'is
+// gyveno `composition/ui`, tad `interfaces` ir `infrastructure` sluoksniai jo apskritai negali
+// importuoti. Bendras `vq/state` kelio helper'is yra atskiras darbas, ir jo namai — ne čia.

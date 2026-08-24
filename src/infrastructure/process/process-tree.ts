@@ -6,7 +6,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 
 export type KillTreeResult = {
   cancel: () => void;
-  done: Promise<void>;
+  /**
+   * Baigties pažadas, grąžinantis PID'us, kurie LIKO GYVI (2026-08-24).
+   *
+   * Tuščias sąrašas = medis tikrai miręs. POSIX kelyje jis visada tuščias: ten žudoma proceso
+   * GRUPĖ, tad atskiro medžio patikrinimo nereikia — grupės signalas yra autoritetas.
+   */
+  done: Promise<number[]>;
 };
 
 export type IgnoredProcessRunner = (command: string, args: string[], timeoutMs?: number) => Promise<boolean>;
@@ -115,27 +121,116 @@ Stop-Process -Id $root -Force -ErrorAction SilentlyContinue
   return runner("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], timeoutMs);
 }
 
-// Verifikuojamas tree-kill: po kiekvieno PS→taskkill bandymo tikrinama, ar root PID tikrai
-// nebegyvas; jei gyvas — kartojama su padvigubintu helper biudžetu.
+/**
+ * Kaip `runIgnoredProcess`, bet grąžina stdout. Reikalinga TIK medžio sąrašui: pats žudymas
+ * išvesties neskaito, ir jam `stdio: "ignore"` lieka teisingas.
+ */
+function runCapturingProcess(command: string, args: string[], timeoutMs: number): Promise<string> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    let output = "";
+    let settled = false;
+    const finish = (value: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      // Nepavykęs SĄRAŠAS negali nutraukti žudymo: tuščias sąrašas reiškia „medžio nežinome",
+      // ir tada verifikuojamas bent root — lygiai kaip iki 2026-08-24.
+      finish("");
+    }, timeoutMs);
+    timer.unref?.();
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.on("error", () => finish(""));
+    child.on("close", () => finish(output));
+  });
+}
+
+/**
+ * Viso medžio PID'ai (be paties root), surinkti PRIEŠ žudymą.
+ *
+ * Po žudymo šito padaryti NEĮMANOMA: mirus tėvui, vaikai persikabina prie kito proceso, ir
+ * apėjimas nuo root jų nebesuranda. Todėl sąrašas fiksuojamas iš anksto ir tik paskui tikrinamas.
+ */
+export function listWindowsProcessTreePids(
+  rootPid: number,
+  timeoutMs: number = helperKillTimeoutMs,
+): Promise<number[]> {
+  const script = `
+$root = ${rootPid}
+$seen = @{}
+$queue = New-Object System.Collections.Queue
+$queue.Enqueue([int]$root)
+$procs = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId
+while ($queue.Count -gt 0) {
+  $parent = [int]$queue.Dequeue()
+  foreach ($proc in $procs | Where-Object { $_.ParentProcessId -eq $parent }) {
+    $id = [int]$proc.ProcessId
+    if (-not $seen.ContainsKey($id)) {
+      $seen[$id] = $true
+      Write-Output $id
+      $queue.Enqueue($id)
+    }
+  }
+}
+`;
+  return runCapturingProcess(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    timeoutMs,
+  ).then((output) =>
+    output
+      .split(/\r?\n/)
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter((pid) => Number.isSafeInteger(pid) && pid > 0),
+  );
+}
+
+/**
+ * Verifikuojamas tree-kill. Grąžina PID'us, kurie po visų bandymų LIKO GYVI.
+ *
+ * 2026-08-24 (operatoriaus sprendimas): verifikuojamas VISAS medis, ne tik root. Iki tol ciklas
+ * baigdavosi ties `!alive(rootPid)`, tad palikuonys — atsiradę po WMI nuotraukos, persikabinę
+ * arba sąmoningai atsijungę — likdavo nepatikrinti, ir funkcija grįždavo tylia „sėkme", nors
+ * agentas galėjo toliau suktis ir naudoti biudžetą.
+ *
+ * Tai NĖRA Job Object pakaitalas: lenktynės tarp nuotraukos ir žudymo lieka, ir procesas,
+ * gimęs PO sąrašo surinkimo, čia nebus pastebėtas. Bet tylus nepavykimas tampa MATOMAS —
+ * grąžintas sąrašas keliauja į timeout/abort žinutę, tad operatorius mato konkrečius PID'us,
+ * o ne tuščią „nužudyta".
+ */
 export async function runWindowsProcessTreeKill(
   rootPid: number,
   runner: IgnoredProcessRunner = runIgnoredProcess,
   alive: (pid: number) => boolean = isProcessAlive,
-): Promise<void> {
+  listTree: (rootPid: number, timeoutMs?: number) => Promise<number[]> = listWindowsProcessTreePids,
+): Promise<number[]> {
+  // Sąrašas imamas PRIEŠ pirmą bandymą — po jo medžio nebeatkursi.
+  const descendants = await listTree(rootPid, helperKillTimeoutMs).catch(() => []);
+  const targets = [...new Set([rootPid, ...descendants])];
+
+  let survivors: number[] = targets;
   for (let attempt = 0; attempt < treeKillMaxAttempts; attempt += 1) {
     const budgetMs = helperKillTimeoutMs * 2 ** attempt;
     const powershellOk = await runWindowsPowerShellTreeKill(rootPid, runner, budgetMs);
     if (!powershellOk) {
       await runWindowsTaskKill(rootPid, runner, budgetMs);
     }
-    if (!alive(rootPid)) {
-      return;
+    survivors = targets.filter((pid) => alive(pid));
+    if (survivors.length === 0) {
+      return [];
     }
   }
+  return survivors;
 }
 
 export function killTree(child: ChildProcess, platform: NodeJS.Platform = process.platform): KillTreeResult {
-  if (child.pid === undefined) return { cancel: () => undefined, done: Promise.resolve() };
+  if (child.pid === undefined) return { cancel: () => undefined, done: Promise.resolve([]) };
 
   if (platform === "win32") {
     const rootPid = child.pid;
@@ -152,20 +247,22 @@ export function killTree(child: ChildProcess, platform: NodeJS.Platform = proces
   }
 
   let cancelForceKill = (): void => undefined;
-  const done = new Promise<void>((resolve) => {
+  // POSIX: žudoma proceso GRUPĖ, tad atskiro medžio patikrinimo nereikia — grupės signalas
+  // pasiekia visus narius, ir „likusiųjų" sąvokos čia nėra.
+  const done = new Promise<number[]>((resolve) => {
     const forceKill = setTimeout(() => {
       try {
         process.kill(-child.pid!, "SIGKILL");
       } catch {
         child.kill("SIGKILL");
       } finally {
-        resolve();
+        resolve([]);
       }
     }, posixForceKillGraceMs);
     forceKill.unref?.();
     cancelForceKill = (): void => {
       clearTimeout(forceKill);
-      resolve();
+      resolve([]);
     };
   });
 

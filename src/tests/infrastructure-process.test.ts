@@ -3,12 +3,17 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isProcessAlive } from "../infrastructure/process/process-tree.js";
+import {
+  isProcessAlive,
+  runWindowsProcessTreeKill,
+  treeKillMaxAttempts,
+} from "../infrastructure/process/process-tree.js";
 import {
   packageManagerExecutable,
   run,
   runWithInput,
   shellInvocationForPlatform,
+  withSurvivorNote,
 } from "../infrastructure/process/run-process.js";
 
 const node = process.execPath;
@@ -75,4 +80,66 @@ test("gryni pagalbininkai: shell invokacija pagal platformą ir .cmd priesaga", 
 
 test("isProcessAlive: savas procesas gyvas", () => {
   assert.equal(isProcessAlive(process.pid), true);
+});
+
+// 2026-08-24 (operatoriaus sprendimas): tree-kill verifikuoja VISĄ medį, ne tik root PID.
+//
+// Iki tol ciklas baigdavosi ties `!alive(rootPid)`, tad palikuonys likdavo nepatikrinti, o
+// funkcija grįždavo tylia „sėkme" — agentas po timeout'o galėjo toliau suktis ir naudoti
+// biudžetą. Sąrašas imamas PRIEŠ žudymą: mirus tėvui, vaikai persikabina ir apėjimas nuo root
+// jų nebesuranda.
+test("tree-kill: gyvas PALIKUONIS grąžinamas, o ne nutylimas", async () => {
+  const ROOT = 4321;
+  const CHILD = 4322;
+  let attempts = 0;
+
+  const survivors = await runWindowsProcessTreeKill(
+    ROOT,
+    () => {
+      attempts += 1;
+      return Promise.resolve(true);
+    },
+    // Root miršta iškart; vaikas išgyvena visus bandymus.
+    (pid) => pid === CHILD,
+    () => Promise.resolve([CHILD]),
+  );
+
+  assert.deepEqual(survivors, [CHILD], "likęs palikuonis privalo būti ĮVARDYTAS");
+  assert.equal(attempts, treeKillMaxAttempts, "kartojama tol, kol lieka gyvų — ne tik dėl root");
+});
+
+test("tree-kill: miręs medis grąžina tuščią sąrašą ir nekartoja be reikalo", async () => {
+  let attempts = 0;
+  const survivors = await runWindowsProcessTreeKill(
+    4321,
+    () => {
+      attempts += 1;
+      return Promise.resolve(true);
+    },
+    () => false,
+    () => Promise.resolve([4322, 4323]),
+  );
+
+  assert.deepEqual(survivors, []);
+  assert.equal(attempts, 1, "pavykus pirmam bandymui, likusieji nebevykdomi");
+});
+
+test("tree-kill: nepavykęs medžio SĄRAŠAS nenutraukia žudymo — lieka bent root", async () => {
+  // Tuščias sąrašas reiškia „medžio nežinome", ir tada verifikuojamas bent root — lygiai kaip
+  // iki šio pakeitimo. Sąrašo klaida negali paversti žudymo klaida.
+  const survivors = await runWindowsProcessTreeKill(
+    4321,
+    () => Promise.resolve(true),
+    (pid) => pid === 4321,
+    () => Promise.reject(new Error("WMI neprieinamas")),
+  );
+  assert.deepEqual(survivors, [4321]);
+});
+
+test("withSurvivorNote: tuščias sąrašas žinutės nekeičia, likę — įvardijami", () => {
+  assert.equal(withSurvivorNote("timeout", []), "timeout", "nieko neliko — nėra ko pranešti");
+  assert.equal(withSurvivorNote(undefined, [7]), undefined, "nesant žinutės nėra ką papildyti");
+  const noted = withSurvivorNote("timeout", [7, 9]);
+  assert.match(noted ?? "", /2 process\(es\) still alive/);
+  assert.match(noted ?? "", /7, 9/);
 });

@@ -5,6 +5,18 @@
 import { spawn } from "node:child_process";
 import { killTree, timeoutFallbackGraceMsForPlatform, type KillTreeResult } from "./process-tree.js";
 
+/**
+ * Nenužudyti proceso medžio nariai — į TĄ PAČIĄ žinutę, kurią mato operatorius (2026-08-24).
+ *
+ * Iki tol tree-kill verifikuodavo tik root PID, tad likę palikuonys būdavo tyli sėkmė: agentas
+ * po timeout'o galėjo toliau suktis ir naudoti biudžetą, o žinutė apie tai nesakydavo nieko.
+ * Tuščias sąrašas nieko neprideda — pranešama TIK tada, kai realiai kas nors liko.
+ */
+export function withSurvivorNote(message: string | undefined, survivors: readonly number[]): string | undefined {
+  if (survivors.length === 0 || message === undefined) return message;
+  return `${message}\n[process tree: ${survivors.length} process(es) still alive after forced cleanup: ${survivors.join(", ")}]`;
+}
+
 export type SupportedPlatform = NodeJS.Platform;
 export type ShellInvocation = { command: string; args: string[] };
 
@@ -233,14 +245,14 @@ function runProcess(command: string, args: string[], options: RunProcessOptions 
         // finish() privalo įvykti nepriklausomai nuo to, ar kill-tree cleanup pavyko —
         // atmestas cleanup kitaip paliktų runner'į kabėti amžinai.
         timeoutCleanup.done.then(
-          () => finish(124, timeoutMessage),
+          (survivors) => finish(124, withSurvivorNote(timeoutMessage, survivors)),
           () => finish(124, timeoutMessage),
         );
         return;
       }
       if (aborted && abortCleanup) {
         abortCleanup.done.then(
-          () => finish(abortExitCode, abortMessage),
+          (survivors) => finish(abortExitCode, withSurvivorNote(abortMessage, survivors)),
           () => finish(abortExitCode, abortMessage),
         );
         return;

@@ -12,9 +12,9 @@ readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/**`
-
-> BROAD SCOPE: generated allowed paths include src/**; review before execution.
+- `src/application/context-pack/**`
+- `src/application/code-intelligence/retrieval/**`
+- `src/tests/context-pack-*.test.ts`
 
 Draudžiama:
 - `.env`

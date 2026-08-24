@@ -12,9 +12,10 @@ readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/**`
+- `docs/audits/**`
 
-> BROAD SCOPE: generated allowed paths include src/**; review before execution.
+> MATAVIMO task'as: jis PALEIDŽIA loop'ą ir aprašo rezultatą, tad produkcinio kodo neliečia.
+> Platesnis scope čia reikštų, kad matuoklis keičia tai, ką matuoja.
 
 Draudžiama:
 - `.env`

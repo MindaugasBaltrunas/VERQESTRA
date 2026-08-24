@@ -12,9 +12,8 @@ readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/.github/workflows/**`
-- `src/docs/release/**`
-- `src/templates/VERSION/**`
+- `.github/workflows/**`
+- `docs/release.md`
 
 Draudžiama:
 - `.env`

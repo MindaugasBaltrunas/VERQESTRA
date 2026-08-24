@@ -148,7 +148,13 @@ export async function assembleContextPack(
   const cacheEnabled = !args.includes("--no-context-cache") && deps.cache !== undefined;
   const cache = deps.cache;
   let cacheKey: ReturnType<typeof computeContextCacheKey> | undefined;
-  if (cache) {
+  // Šaltiniai renkami TIK kai kešas realiai naudojamas (2026-08-24, operatoriaus radinys).
+  //
+  // `collectSources` perskaito ir suhash'uoja KIEKVIENĄ taikinį, spec šaltinį, architektūros ir
+  // politikos failą — būtent tą darbą `--no-context-cache` ir turi praleisti. Iki tol raktas buvo
+  // skaičiuojamas visada, o naudojamas tik dviejose vietose (`lookup` ir `save`), ir abi jau buvo
+  // po `cacheEnabled` sąlyga: visas rinkimas nueidavo į šiukšles.
+  if (cache && cacheEnabled) {
     const cacheSources = await cache.collectSources({
       taskPath,
       taskText,
@@ -161,29 +167,27 @@ export async function assembleContextPack(
       ...(await contextCompressionCacheSources({ fs: deps.fs, root, runtimeRoot, arrestView })),
     );
     cacheKey = computeContextCacheKey(cacheSources);
-    if (cacheEnabled) {
-      const lookup = await cache.lookup(cacheKey, () => currentCodeIndexDescriptor(deps.codeFs, root));
-      if (lookup.status === "hit") {
-        // The cached artifact is the encoded pack itself, so an unchanged repository writes
-        // byte-identical context-pack.json and execution-context.md without re-retrieving
-        // spec fragments or re-traversing the code index.
-        return await persistContextPack({
-          fs: deps.fs,
-          runtimeRoot,
-          taskText,
-          encoded: lookup.entry.context_pack_json,
-          maxContextChars: budget.max_context_chars,
-          cacheStatus: "hit",
-          droppedItemCount: lookup.entry.dropped_item_count,
-          specDroppedCount: lookup.entry.spec_dropped_count,
-          codeContextDroppedCount: lookup.entry.code_context_dropped_count,
-          codeContextRebuilt: false,
-          canaryFeatures,
-          canarySizeFallback,
-          ...(deps.attemptIdentity === undefined ? {} : { attemptIdentity: deps.attemptIdentity }),
-          ...(deps.artifacts === undefined ? {} : { artifacts: deps.artifacts }),
-        });
-      }
+    const lookup = await cache.lookup(cacheKey, () => currentCodeIndexDescriptor(deps.codeFs, root));
+    if (lookup.status === "hit") {
+      // The cached artifact is the encoded pack itself, so an unchanged repository writes
+      // byte-identical context-pack.json and execution-context.md without re-retrieving
+      // spec fragments or re-traversing the code index.
+      return await persistContextPack({
+        fs: deps.fs,
+        runtimeRoot,
+        taskText,
+        encoded: lookup.entry.context_pack_json,
+        maxContextChars: budget.max_context_chars,
+        cacheStatus: "hit",
+        droppedItemCount: lookup.entry.dropped_item_count,
+        specDroppedCount: lookup.entry.spec_dropped_count,
+        codeContextDroppedCount: lookup.entry.code_context_dropped_count,
+        codeContextRebuilt: false,
+        canaryFeatures,
+        canarySizeFallback,
+        ...(deps.attemptIdentity === undefined ? {} : { attemptIdentity: deps.attemptIdentity }),
+        ...(deps.artifacts === undefined ? {} : { artifacts: deps.artifacts }),
+      });
     }
   }
 

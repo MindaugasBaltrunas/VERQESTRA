@@ -12,12 +12,10 @@ readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/src/commands/**`
-- `src/src/orchestrator/**`
-- `src/apps/**`
-- `src/packages/**`
-- `src/modules/**`
-- `src/workers/**`
+- `ui-app/**`
+- `src/interfaces/http/**`
+- `src/composition/ui/**`
+- `src/tests/composition-ui-*.test.ts`
 - `AG/config/**`
 
 Draudžiama:

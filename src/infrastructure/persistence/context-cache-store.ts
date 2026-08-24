@@ -225,107 +225,17 @@ export async function saveContextCacheEntry(
   return { stored: true };
 }
 
-export type ContextCacheInvalidation = {
-  removed: string[];
-  kept: string[];
-};
-
-/**
- * Invaliduoja BŪTENT nuo pakeistų kelių priklausančius įrašus; kiti paliekami.
- *
- * 2026-08-23 auditas: nei ši, nei `pruneStaleContextCacheEntries` produkcinio kvietėjo NETURI
- * (taip pat ir etalone) — tai operatoriaus priežiūros įrankiai be įėjimo taško. Kešo
- * KOREKTIŠKUMAS nuo jų nepriklauso: lookup kiekvieną kartą perrenka šaltinių hash'us, tad
- * pasikeitęs failas keičia fingerprint'ą ir įrašas natūraliai tampa miss; talpą valdo
- * `enforceContextCacheCapacity`. Paliktos kaip suprojektuota ir ištestuota priežiūros
- * galimybė; jų wiring'as į CLI būtų funkcionalumas, ne audito taisymas.
- */
-export async function invalidateContextCacheForSources(
-  runtimeRoot: string,
-  changedPaths: string[],
-): Promise<ContextCacheInvalidation> {
-  const changed = new Set(changedPaths.map((entry) => normalizeRelative(entry)));
-  const removed: string[] = [];
-  const kept: string[] = [];
-
-  for (const { file, entry } of await readContextCacheEntries(runtimeRoot)) {
-    if (entry.sources.some((source) => changed.has(normalizeRelative(source.path)))) {
-      await evict(file);
-      removed.push(entry.fingerprint);
-    } else {
-      kept.push(entry.fingerprint);
-    }
-  }
-
-  return { removed: removed.sort(), kept: kept.sort() };
-}
-
-/** Numeta įrašus, kurių užfiksuota evidencija nebeatitinka disko (vietos atgavimas + matomumas). */
-export async function pruneStaleContextCacheEntries(
-  projectRoot: string,
-  runtimeRoot: string,
-): Promise<ContextCacheInvalidation> {
-  // Keliai čia ateina iš SAUGOMO įrašo, ne iš task'o, tad juos gali nukreipti ne tik symlink'as,
-  // bet ir sugadintas ar suklastotas cache failas. Nė vienas kelias iš įrašo nepatenka į
-  // `hashFile` neperėjęs vieno iš DVIEJŲ vartų, nes rūšys turi skirtingą kilmę:
-  //
-  //   • `task` / `source` / `spec` — task'o kilmės, laisvos formos → projekto ribų containment;
-  //   • `architecture` / `policy` — MŪSŲ konstruoti iš `runtimeRoot`, baigtinis rinkinys →
-  //     TIKSLUS leidžiamų kelių sąrašas. Containment jiems netiktų: `runtimeRoot` teisėtai gali
-  //     gulėti už `projectRoot`, tad prune taptų griežtesnis už collect. Bet ir palikti juos be
-  //     jokio varto negalima — suklastotas įrašas nurodytų bet kokį kelią.
-  const containment = createProjectContainment(projectRoot);
-  const runtime = path.resolve(runtimeRoot);
-  const runtimeAllowlist = new Set(
-    [
-      path.join(runtime, "state", "architecture", "graph.json"),
-      path.join(runtime, "architecture", "architecture-style.json"),
-      ...CONTEXT_CACHE_POLICY_FILES.map((name) => path.join(runtime, "config", name)),
-      contextCompressionConfigPath(runtime),
-      contextCompressionArrestStatePath(runtime),
-    ].map((entry) => path.resolve(entry)),
-  );
-  // Arrest šaltinio hash'as yra IŠVESTINIS (sprendimo projekcija, ne failo baitai — žr.
-  // compression-cache-sources). Perhash'avus failą palyginimas NIEKADA nesutaptų, tad prune
-  // kiekvieną tokį įrašą klaidingai laikytų pasenusiu. Kelias lieka allowlist'e (jį skaityti
-  // būtų teisėta), bet turinio patikra praleidžiama sąmoningai.
-  const derivedHashPaths = new Set([path.resolve(contextCompressionArrestStatePath(runtime))]);
-
-  const removed: string[] = [];
-  const kept: string[] = [];
-
-  for (const { file, entry } of await readContextCacheEntries(runtimeRoot)) {
-    let stale = entry.version !== CONTEXT_CACHE_VERSION;
-    for (const source of entry.sources) {
-      if (stale) break;
-      const absolute = path.resolve(containment.root, source.path);
-
-      if (source.kind === "task" || source.kind === "source" || source.kind === "spec") {
-        const readable = await containment.containedOrUndefined(absolute);
-        stale = readable === undefined || (await hashFile(readable)) !== source.hash;
-        continue;
-      }
-
-      if (!runtimeAllowlist.has(absolute)) {
-        // Runtime rūšis, rodanti kur nors kitur, reiškia paliestą įrašą. Neskaitoma.
-        stale = true;
-        continue;
-      }
-      if (!derivedHashPaths.has(absolute)) {
-        stale = (await hashFile(absolute)) !== source.hash;
-      }
-    }
-    if (stale) {
-      await evict(file);
-      removed.push(entry.fingerprint);
-    } else {
-      kept.push(entry.fingerprint);
-    }
-  }
-
-  return { removed: removed.sort(), kept: kept.sort() };
-}
-
+// `invalidateContextCacheForSources` ir `pruneStaleContextCacheEntries` PAŠALINTOS 2026-08-24
+// (operatoriaus radinys). 2026-08-23 jos buvo paliktos su prierašu „priežiūros galimybė be įėjimo
+// taško"; tas prierašas pats ir buvo įrodymas, kad jos PAKEISTOS aktyviu keliu, o ne trūkstamos:
+//
+//   • taškinę invalidaciją atlieka pats raktas — šaltinių hash'ai įeina į fingerprint'ą, tad
+//     pasikeitęs failas duoda kitą raktą ir senas įrašas nebeturi kaip būti pasiektas;
+//   • pasenusią evidenciją numeta `lookupContextCache` (`version_mismatch`, `source_drift`,
+//     `code_index_drift` — kiekvienas su `evict`), o vietą riboja `enforceContextCacheCapacity`.
+//
+// Liko tik nepasiekiamas kelias su savo testais, kurie tikrino patys save. Wiring'as į CLI būtų
+// naujas funkcionalumas, ne šio radinio taisymas.
 export async function readContextCacheEntries(
   runtimeRoot: string,
 ): Promise<{ file: string; entry: ContextCacheEntry }[]> {

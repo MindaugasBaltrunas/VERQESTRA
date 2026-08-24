@@ -114,6 +114,82 @@ test("ties pačia riba atlaisvinimas irgi susilaiko — atsarga dviem syscall'am
   assert.equal(await io.createLockDirectory(LOCK), "exists", "prie pat ribos trynimas neleidžiamas");
 });
 
+// SCENARIJUS 5 (operatoriaus radinys 2026-08-24, P1): tvora be gyvybės žymės gina tuščią prielaidą.
+//
+// Tvora remiasi teiginiu „kol esame jauni, niekas neturi teisės mūsų perimti". Be tiksėjimo
+// `created_at` yra PAĖMIMO laikas, tad ilga kritinė sekcija pati save paverčia stale: perėmimas
+// tampa teisėtas dar tebedirbant. Tiksėjimas paverčia `created_at` gyvybės žyme.
+test("TIKSĖJIMAS: ilga kritinė sekcija nebevirsta stale, ir atlaisvinimas lieka teisėtas", async () => {
+  const { io, advance } = lockIo(1_000);
+  const ticks: Array<() => void> = [];
+  const beating: OwnedLockIo = {
+    ...io,
+    scheduleHeartbeat: (_intervalMs, tick) => {
+      ticks.push(tick);
+      return () => void ticks.splice(ticks.indexOf(tick), 1);
+    },
+  };
+
+  const released = await withOwnedLock(
+    beating,
+    LOCK,
+    TIMING,
+    async () => {
+      // Darbas trunka ILGIAU nei stale riba — būtent tai anksčiau nuginkluodavo tvorą.
+      for (let step = 0; step < 4; step += 1) {
+        advance(TIMING.staleMs / 2);
+        for (const tick of [...ticks]) tick();
+        await Promise.resolve();
+      }
+      const owner = await ownerIdOf(beating);
+      assert.equal(owner, "lock-1", "lock'as viso darbo metu lieka mūsų");
+      return "padaryta";
+    },
+    "test",
+  );
+
+  assert.equal(released, "padaryta");
+  assert.equal(
+    await beating.createLockDirectory(LOCK),
+    "created",
+    "po tiksėjimo atlaisvinimas ĮVYKO — be jo tvora būtų jį uždraudusi kaip peržengtą ribą",
+  );
+
+  // KONTRASTAS: tas pats darbo ilgis BE tiksėjimo. Be jo testas įrodytų tik tiek, kad kažkas
+  // praėjo, bet ne kad tiksėjimas yra priežastis.
+  const plain = lockIo(1_000);
+  await withOwnedLock(plain.io, LOCK, TIMING, async () => void plain.advance(TIMING.staleMs * 2), "test");
+  assert.equal(
+    await plain.io.createLockDirectory(LOCK),
+    "exists",
+    "be tiksėjimo ta pati sekcija peržengia stale ribą ir lock'as lieka gulėti",
+  );
+});
+
+test("TIKSĖJIMAS nustoja ir NEPRIKELIA lock'o, kurį jau perėmė kitas", async () => {
+  const { io, advance } = lockIo(1_000);
+  const ticks: Array<() => void> = [];
+  const beating: OwnedLockIo = { ...io, scheduleHeartbeat: (_ms, tick) => (ticks.push(tick), () => undefined) };
+
+  await withOwnedLock(
+    beating,
+    LOCK,
+    TIMING,
+    async () => {
+      // Perėmimas: svetimas savininkas užima TĄ PATĮ katalogą.
+      await beating.writeTextFileAtomic(`${LOCK}/owner.json`, JSON.stringify({ lock_id: "B", created_at: 9_000 }));
+      advance(TIMING.staleMs / 2);
+      for (const tick of [...ticks]) tick();
+      await Promise.resolve();
+
+      assert.equal(await ownerIdOf(beating), "B", "tiksėjimas svetimo įrašo NEPERRAŠO");
+    },
+    "test",
+  );
+
+  assert.equal(await ownerIdOf(beating), "B", "ir atlaisvinimas svetimo lock'o nesunaikina");
+});
+
 test("atlaisvinimas trina TIK savo lock'ą", async () => {
   const { io } = lockIo(1_000);
   await io.createLockDirectory(LOCK);

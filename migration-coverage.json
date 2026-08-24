@@ -4,7 +4,28 @@
     "inventory": "AG_loop: AG/project/v2.7-audits/VQ-002-source-inventory.md",
     "frozen_baseline": "AG_loop: AG/project/v2.7-audits/VQ-001-frozen-baseline.md",
     "ag_loop_head": "9027d627e7e8f2dd75ba1933ecfba074ea463769",
-    "initialized_at": "2026-08-19"
+    "initialized_at": "2026-08-19",
+    "reference_packages_note": "Etalono `pnpm-workspace.yaml` VISI paketai ir jų VERQESTRA atitikmenys. Sąrašas gyvena ČIA, o ne teste, nes būtent jo NEBUVIMAS ir buvo E0..E9 spraga: ledger'is buvo sėtas iš inventoriaus, kuris skaičiavo tris paketus iš šešių, tad „0 pending\" buvo teisingas teiginys apie neteisingą aibę. `src/tests/migration-coverage-ledger.test.ts` riša šį sąrašą prie disko.",
+    "reference_packages": [
+      {
+        "reference": "AG/orchestrator",
+        "verqestra_path": "src",
+        "tracked_as": "VIDINIAIS moduliais, ne vienu įrašu: `core (flat)`, `shared/*`, `domain/*`, `application/*`, `infrastructure/*`, `interfaces/*`, `composition/*` — perstatymas skaidė paketą į sluoksnius, tad vieno įrašo jam nėra ir neturi būti"
+      },
+      {
+        "reference": "AG/orchestrator/ui-app",
+        "verqestra_path": "ui-app/src",
+        "tracked_as": "įrašu `ui-app (ag-ui React)` (VQ-601, E6): etalone paketas gyveno po `AG/orchestrator/`, VERQESTRA'oje jis pakeltas į šaknį, nes `composition/ui-command` sprendžia `packageRoot()/ui-app/dist` — kelias yra kontraktas, ne pasirinkimas"
+      },
+      { "reference": "AG/mobile-gateway", "verqestra_path": "mobile-gateway/src" },
+      { "reference": "AG/mobile-app", "verqestra_path": "mobile-app/src" },
+      { "reference": "AG/mobile-app/native", "verqestra_path": "mobile-app/native/src" },
+      {
+        "reference": "AG/benchmark",
+        "verqestra_path": "AG/benchmark/src",
+        "tracked_as": "įrašu `@ag-loop/benchmark paketas` (E8) — apskaitomas paketo vardu, ne aplanko keliu; `AG/benchmark` kelias VERQESTRA'oje išlaikytas, nes eilės ir paketo kontraktai lieka po `AG/`"
+      }
+    ]
   },
   "rules": {
     "statuses": [
@@ -444,66 +465,77 @@
     {
       "module": "commands/ 13 shim'ų (claude-diagnose, claude-dispatch, claude-loop, audit-director, context-pack, claude-preflight, dispatch, codex-dispatch, loop-guard, on-stop-bridge, preflight, restore-stable, rollback-stable)",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "dead: 0 statinių importerių; vienintelis naudotojas — pačių shim'ų egzistavimą saugantis testas (žiedinis argumentas). VQ-002 §3.1"
     },
     {
       "module": "ui/server.ts + ui/control-plane.ts + ui/log-service.ts",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "dead: 0 produkcinių importerių; interfaces/cli/ui juos sąmoningai aplenkia. VQ-002 §3.2"
     },
     {
       "module": "tombstone'ai: orchestrator/token-usage.ts, application/scheduling/isolation-evidence.ts, application/scheduling/legacy-read-evidence-store.ts",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "dead: export {} tombstone'ai, patys pažymėti trynimui. VQ-002 §3.3"
     },
     {
       "module": "compat re-export shim'ai (~10 failų: core/markdown|task-identity|time|fs-errors|collision-path, orchestrator/adapters/adapter-runtime, orchestrator/quality/final-audit, orchestrator/runtime/release-notes, orchestrator/architecture/openspec-context, orchestrator/bootstrap/bootstrap-openspec, orchestrator/git/commit-message)",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "migracijos likučiai — FQC-2 draudžia perkelti dublikatus. VQ-002 §3.4"
     },
     {
       "module": "rag-lite/chunker.ts + indexer.ts + retrieveRelevantChunks",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "dead: importuoja tik tests/rag-lite.test.ts; produkcija naudoja tik retrieveSpecFragments + ranking. VQ-002 §3.5"
     },
     {
       "module": "browser/",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "disabled-by-decision: 0 produkcinių importerių, DC-04 sprendimas nešalinti AG_loop pusėje. VQ-002 §3.6"
     },
     {
       "module": "mcp/",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "disabled-by-decision: 0 produkcinių importerių, DC-04. VQ-002 §3.6"
     },
     {
       "module": "research/",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "disabled-by-decision: 0 produkcinių importerių, DC-04. VQ-002 §3.6"
     },
     {
       "module": "ci/",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "rewrite: pririštas prie AG_loop dist layout'o; VERQESTRA CI parašytas naujas (.github/workflows/ci.yml). VQ-002 §2"
     },
     {
       "module": "ui-app probe artefaktai (__dupprobe.ts, model/__typecheckProbe.ts)",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "dead: vienkartiniai probe failai. VQ-002 §3.7"
     },
     {
       "module": "orchestrator/tasks/follow-up-task.ts (+task-splitter stableFollowUpTaskBase/followUpTaskFileName/stableTaskSlug)",
       "target": "-",
+      "wave": "E0 (inventorius)",
       "status": "wont-migrate",
       "reason": "PARKED/REFERENCE (etalono RT-04, loop-canonical-decision): vartoja tik parked workflow.ts, kanoninis loop'as follow-up neturi kuo trigger'inti; VERQESTRA parked kodo neneša (FQC-2)"
     },

@@ -260,20 +260,23 @@ export async function withOwnedLock<T>(
  * savininkas reiškia „nebe mūsų" — toks lock'as paliekamas, o jį išvalys stale perėmimas.
  * Klaidos nurauamos: metimas čia užgožtų tikrąjį `work()` rezultatą arba jo klaidą.
  *
- * ŽINOMAS LIKUTIS (operatoriaus radinys 2026-08-24, ATVIRAS ir SĄMONINGAI paliktas): tai
- * check-then-act. Tarp `readOwner` ir `removeDirectory` kitas procesas teoriškai gali perimti
- * lock'ą kaip stale ir sukurti naują tuo pačiu keliu — tada ištrintume jau JO katalogą.
+ * TVOROS PRIELAIDA JAU APGINTA TIKSĖJIMU (2026-08-24, P1). Tvora leidžia trynimą tik tame lange,
+ * kuriame perėmimas draudžiamas, o tas langas skaičiuojamas nuo `claim.created_at`. Anksčiau tai
+ * buvo PAĖMIMO laikas, tad ilga kritinė sekcija pati save paversdavo stale ir tvora imdavo ginti
+ * tuščią teiginį. `startHeartbeat` paverčia `created_at` GYVYBĖS žyme, tad prielaida „kol esame
+ * jauni, niekas neturi teisės mūsų perimti" nustoja būti tuščia. Pinigai `shared-owned-lock.test`:
+ * ta pati 2×`staleMs` sekcija su tiksėjimu atlaisvinama, be jo — lock'as lieka gulėti.
  *
- * Kodėl neuždaryta rename'u: bandyta (`stealStaleLock` atlaisvinimo pusėje, tas pats TOCTOU-saugus
+ * KAS LIEKA: `readOwner` → `removeDirectory` tebėra du žingsniai. Failų sistemoje be
+ * compare-and-delete jų atomiškai sulipdyti nėra kaip, tad likutinė lenktynė reikalauja, kad
+ * procesas sustotų PO tvoros patikros ir stovėtų ilgiau nei `staleMs`. Tai jau ne „ilgas darbas",
+ * o sustojęs procesas — būtent tas atvejis, kuriam stale perėmimas ir skirtas.
+ *
+ * Kodėl ne rename: bandyta (`stealStaleLock` atlaisvinimo pusėje, tas pats TOCTOU-saugus
  * algoritmas) ir IŠMATUOTA kaip blogesnė. Tarpprocesiniame streso teste 12 procesų su rename
  * atlaisvinimu davė 3–4 išlikusius įrašus ir 8–9 nesėkmes („lock is held by another writer"), o su
- * check-then-act — 12/12 ir 24/24, nulis nesėkmių, du bėgimai iš eilės. Mikrosekundžių langas buvo
+ * check-then-act — 12/12 ir 24/24, nulis nesėkmių, du bėgimai iš eilės. Mikrosekundžių langas būtų
  * iškeistas į realiai stringančius lock'us.
- *
- * Lango prielaida: kad kas nors perimtų, MŪSŲ kritinė sekcija jau turi būti viršijusi `staleMs`
- * (30–60 s vienam JSON read-modify-write), ir tik TADA mikrosekundžių lenktynė turi pataikyti.
- * Tikrasis vaistas yra ne rename, o `created_at` atnaujinimas darbo metu (heartbeat), kuris
- * panaikina pačią prielaidą — bet tai laikmatis kritinėje sekcijoje, t. y. atskiras sprendimas.
  */
 export async function releaseOwnedLock(
   io: OwnedLockIo,

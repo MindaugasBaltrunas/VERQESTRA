@@ -50,6 +50,6 @@ test("code-index manifestas neša versiją, iš kurios statoma pack'o tapatybė"
 // šis krisdamas parodys, KUR dar tą kėlimą reikia atspindėti. Skirtumas nuo ankstesnės būklės —
 // deskriptorius jau tvarko invalidaciją pats, tad čia liko tik sąmoningumo vartas.
 test("indekso ir kešo versijos: kėlimas turi būti sąmoningas", () => {
-  assert.equal(codeIndexVersion, "4.4.0", "vienas ir pilnas scope modelis: references + CommonJS");
+  assert.equal(codeIndexVersion, "4.5.0", "Python pjūvio ribos: dekoratorius per tuščią eilutę, blokas ties nuline įtrauka");
   assert.equal(CONTEXT_CACHE_VERSION, 9, "pakelta kartu su fence-aware `parseBacktickChecks`");
 });

@@ -205,8 +205,19 @@ function resolveRelative(filePath: string, dots: number, module: string, knownPa
  * Deklaracijos PRADŽIA su dekoratoriais (2026-08-23, RAG auditas 3).
  *
  * `@route("/x")` virš `def handler():` yra deklaracijos dalis: be jo pjūvis rodo funkciją, kuri
- * atrodo neužregistruota. Imamos gretimos eilutės aukštyn, kol jos prasideda `@` (tarpai ir
- * komentarai tarp dekoratorių leidžiami — juos Python irgi praleidžia).
+ * atrodo neužregistruota.
+ *
+ * Einama aukštyn per VISKĄ, kas tarp dekoratoriaus ir `def` teisėtai gali stovėti, o rezultatu tampa
+ * tik `@` eilutė. Praleidžiamos formos:
+ *   • kelių eilučių dekoratoriaus tęsinys (`@route(\n  "/x",\n)`) — įtraukta eilutė ar uždarantis
+ *     skliaustas;
+ *   • TUŠČIOS eilutės ir komentarai (2026-08-24, operatoriaus radinys). Python juos tarp
+ *     dekoratoriaus ir `def` leidžia, o `blankOutNoise` komentarą paverčia tarpais, tad
+ *     indeksuotojui abi formos atrodo vienodai. Iki tol jos NUTRAUKDAVO paiešką, ir dekoratorius
+ *     likdavo už pjūvio ribų.
+ *
+ * Ėjimas aukštyn saugus, nes tarp dekoratoriaus ir `def` JOKIO kito sakinio būti negali: pirma
+ * reali kodo eilutė paiešką sustabdo, tad svetimas dekoratorius prisikabinti negali.
  */
 function decoratedStart(text: string, start: number): number {
   let result = start;
@@ -220,9 +231,7 @@ function decoratedStart(text: string, start: number): number {
       cursor = lineStart;
       continue;
     }
-    // Kelių eilučių dekoratoriaus (`@route(\n  "/x",\n)`) tęsinys: įtraukta eilutė arba
-    // uždarantis skliaustas. Jos pačios pradžia netampa rezultatu — juo tampa tik `@` eilutė.
-    if (trimmed !== "" && (/^[ \t]/.test(line) || /^[)\]}],?$/.test(trimmed))) {
+    if (trimmed === "" || /^[ \t]/.test(line) || /^[)\]}],?$/.test(trimmed)) {
       cursor = lineStart;
       continue;
     }
@@ -240,6 +249,21 @@ function decoratedStart(text: string, start: number): number {
  * imama paskutinė netuščia eilutė su įtrauka > 0 prieš kitą top-level deklaraciją.
  *
  * Vienos eilutės kūnas (`def f(): pass`) įtrauktų eilučių neturi — tada pabaiga yra pati antraštė.
+ *
+ * 2026-08-24 (operatoriaus radinys): blokas baigiasi ties PIRMA netuščia eilute su nuline įtrauka, o
+ * ne ties paskutine įtraukta prieš kitą deklaraciją. Skirtumas matomas, kai po funkcijos eina
+ * modulio lygio KELIŲ EILUČIŲ išraiška:
+ *
+ *   def handler():
+ *       return 1
+ *
+ *   SECRET = load_secret(     ← nulinė įtrauka: blokas baigėsi ČIA
+ *       "name",               ← įtraukta, bet priklauso MODULIUI
+ *   )
+ *
+ * Ankstesnė taisyklė paskutine įtraukta eilute laikė `"name",` ir įtraukdavo į funkcijos pjūvį
+ * svetimą kodą. Tęstinė eilutė nulinės įtraukos taisyklės nesugriauna: kelių eilučių išraiška
+ * FUNKCIJOS viduje savo skliaustus laiko įtraukoje, o ne nuliniame stulpelyje.
  */
 function blockEnd(text: string, start: number, matches: RegExpMatchArray[], position: number): number {
   let limit = text.length;
@@ -260,7 +284,10 @@ function blockEnd(text: string, start: number, matches: RegExpMatchArray[], posi
     const lineEnd = text.indexOf("\n", cursor);
     const stop = lineEnd === -1 || lineEnd > limit ? limit : lineEnd;
     const line = text.slice(cursor, stop);
-    if (line.trim() !== "" && indentAt(text, cursor) > 0) end = stop === limit ? limit - 1 : stop;
+    if (line.trim() !== "") {
+      if (indentAt(text, cursor) === 0) break;
+      end = stop === limit ? limit - 1 : stop;
+    }
     if (lineEnd === -1) break;
     cursor = lineEnd + 1;
   }

@@ -70,7 +70,11 @@
 // `references` briaunos scope nepaisė visai — užgožtas importo vardas duodavo nuorodą į importo
 // simbolį; CommonJS pusė nematė hoistintų `var` iš įdėtų blokų nei importuoto binding'o vardu
 // `require`. Keičiasi `references` ir `imports` briaunos tiems patiems failams.
-export const codeIndexVersion = "4.4.0";
+// 4.5.0 (2026-08-24, operatoriaus radiniai): Python pjūvio ribos. Dekoratorius randamas ir per
+// tuščią eilutę ar komentarą (Python juos tarp `@` ir `def` leidžia), o blokas baigiasi ties PIRMA
+// nulinės įtraukos eilute — anksčiau modulio lygio kelių eilučių išraiškos tęsinys patekdavo į
+// ankstesnės funkcijos kūną. Keičiasi simbolių `line`/`endLine`.
+export const codeIndexVersion = "4.5.0";
 
 export type CodeIndexLanguage =
   | "typescript"

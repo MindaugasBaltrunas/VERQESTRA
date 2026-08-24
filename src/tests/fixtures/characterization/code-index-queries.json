@@ -16,10 +16,11 @@
   },
   "deviations": [
     "2026-08-23 (RAG auditas 3, GRIEŽTINANTIS): `symbol_count` 8 -> 9 ir `records_hash` manifeste. Etalone `export { helperFormat } from \"./helpers.js\"` sukurdavo `exports` briauną į `src/lib/index.ts#helperFormat`, kurio SIMBOLIO nebuvo — kabanti briauna. Dabar re-eksportuojamas vardas gauna simbolį, tad bare-name uzklausa mato ir barrel'į.",
-    "2026-08-23 (RAG auditas 3, GRIEŽTINANTIS): `impacted_tests` seka importuotoju uzdarini. Etalone `src/lib/format.ts` grazindavo TUSCIA sarasa, nors grandine `format.ts -> index.ts -> consumer.ts -> consumer.test.ts` egzistuoja — barrel'is testa paslepdavo."
+    "2026-08-23 (RAG auditas 3, GRIEŽTINANTIS): `impacted_tests` seka importuotoju uzdarini. Etalone `src/lib/format.ts` grazindavo TUSCIA sarasa, nors grandine `format.ts -> index.ts -> consumer.ts -> consumer.test.ts` egzistuoja — barrel'is testa paslepdavo.",
+    "2026-08-24 (GRIEŽTINANTIS): `exported_symbols` grazina VIESUS VARDUS, ne visus pasiekiamus simbolius. `UpperFormatter.render` yra eksportuotos klases NARYS, o ne modulio eksportas — importuotojas jo tuo vardu gauti negali. Ta pati riba, kuria `file.exports` gavo 2026-08-24; iki tol uzklausa ir failo eksportu sarasas viena kitam priestaravo. Kartu tai isima `export { local as renamed }` paslepta `local`."
   ],
   "expected_manifest": {
-    "version": "4.4.0",
+    "version": "4.5.0",
     "file_count": 8,
     "symbol_count": 9,
     "edge_count": 32,
@@ -94,8 +95,7 @@
         "exported_symbols": [
           "src/consumer.ts#describeFormatter",
           "src/lib/format.ts#Formatter",
-          "src/lib/format.ts#UpperFormatter",
-          "src/lib/format.ts#UpperFormatter.render"
+          "src/lib/format.ts#UpperFormatter"
         ],
         "related_files": ["src/consumer.ts", "src/lib/format.ts", "src/lib/index.ts", "src/tests/consumer.test.ts"],
         "impacted_tests": ["src/tests/consumer.test.ts"]

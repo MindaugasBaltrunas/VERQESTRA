@@ -214,6 +214,35 @@ test("impacted_tests grąžina VISŲ kalbų testus, ne tik TypeScript", () => {
   );
 });
 
+// 2026-08-24 (operatoriaus radinys): `exported_symbols` grąžindavo PASIEKIAMUS simbolius, ne viešus
+// vardus. `export { local as renamed }` pažymi `local` pasiekiamu (jį realiai galima gauti — tik ne
+// tuo vardu), tad užklausa grąžindavo abu; tas pats liesdavo eksportuotų klasių narius.
+test("exported_symbols grąžina VIEŠUS vardus, ne paslėptus aliasus", () => {
+  const data = {
+    manifest: {},
+    files: [
+      {
+        ...fileOf("src/a.ts", "typescript"),
+        exports: ["renamed", "Service"],
+        symbols: ["local", "renamed", "Service", "Service.run"],
+      },
+    ],
+    symbols: [
+      { id: "src/a.ts#local", file: "src/a.ts", name: "local", kind: "function", exported: true },
+      { id: "src/a.ts#renamed", file: "src/a.ts", name: "renamed", kind: "function", exported: true },
+      { id: "src/a.ts#Service", file: "src/a.ts", name: "Service", kind: "class", exported: true },
+      { id: "src/a.ts#Service.run", file: "src/a.ts", name: "Service.run", kind: "function", exported: true },
+    ],
+    edges: [],
+  } as unknown as CodeIndexData;
+
+  assert.deepEqual(
+    queryCodeGraphData(data, "src/a.ts").exported_symbols,
+    ["src/a.ts#Service", "src/a.ts#renamed"],
+    "`local` importuotojas įvardyti negali, o `Service.run` yra narys, ne modulio eksportas",
+  );
+});
+
 // 2026-08-23 (RAG auditas 3): `impacted_tests` matė TIK tiesioginius testus.
 //
 // `testedBy` briauna gimsta ten, kur testas realiai importuoja. Grandinėje

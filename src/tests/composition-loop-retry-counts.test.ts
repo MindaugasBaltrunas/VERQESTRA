@@ -134,7 +134,14 @@ test("lygiagretūs inkrementai NEPRARANDAMI — read-modify-write serializuotas"
 
     // Be užrakto abu kvietimai perskaitytų tą pačią reikšmę ties `await readCounts()` ir vienas
     // kito rezultatą perrašytų — limitas leistų daugiau bandymų, nei nustatyta.
-    const WRITERS = 8;
+    //
+    // KETURI, o ne aštuoni (2026-08-24): rašytojai serializuojasi, tad bendras laikas auga
+    // tiesiškai, o pilname rinkinyje vienas paėmimas po disko apkrova kainuoja ~600 ms. Aštuoni
+    // rėmėsi į `withStateFileLock` 5 s ribą ir vieną kartą ją peržengė — testas krito ne dėl
+    // prarasto inkremento, o dėl laukimo. Įrodymui užtenka dviejų; keturi palieka atsargos, bet
+    // nebekonkuruoja su timeout'u. Testas, kuris matuoja mašinos apkrovą, o ne invariantą, yra
+    // blogesnis už jokio testo.
+    const WRITERS = 4;
     await Promise.all(
       Array.from({ length: WRITERS }, () =>
         store.update((counts) => {

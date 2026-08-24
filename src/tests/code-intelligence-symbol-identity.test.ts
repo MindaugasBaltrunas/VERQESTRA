@@ -251,6 +251,64 @@ test("Python deklaracijos pjūvis apima dekoratorių ir baigiasi ties bloko įtr
   assert.equal(handler?.endLine, 4, "modulio lygio `SECRET` funkcijai nepriklauso");
 });
 
+// 2026-08-24 (operatoriaus radiniai): dvi Python pjūvio ribos formos.
+test("KELIŲ EILUČIŲ dekoratorius patenka į simbolio pradžią", () => {
+  const source = [
+    "@route(",
+    '    "/x",',
+    ")",
+    "def handler():",
+    "    return 1",
+    "",
+  ].join("\n");
+
+  const result = indexLexicalSource(fileOf("src/api.py", "python"), source, { knownPaths: new Set<string>(), psr4: new Map() });
+  assert.ok(result);
+  const handler = result.symbols.find((symbol) => symbol.name === "handler");
+  assert.equal(handler?.line, 1, "pjūvis be dekoratoriaus rodo funkciją, kuri atrodo neužregistruota");
+  assert.equal(handler?.endLine, 5);
+});
+
+// Tarp dekoratoriaus ir `def` Python leidžia tuščias eilutes ir komentarus. `blankOutNoise` komentarą
+// paverčia tarpais, tad abi formos indeksuotojui atrodo vienodai — ir abi turi būti praeinamos.
+test("dekoratorius randamas ir per tuščią eilutę ar komentarą", () => {
+  const cases: [string, string[]][] = [
+    ["tuščia eilutė", ["@route", "", "def handler():", "    return 1", ""]],
+    ["komentaras", ["@route", "# pastaba", "def handler():", "    return 1", ""]],
+    ["sukrauti dekoratoriai", ["@route", "@cached", "", "def handler():", "    return 1", ""]],
+  ];
+
+  for (const [label, lines] of cases) {
+    const result = indexLexicalSource(fileOf("src/api.py", "python"), lines.join("\n"), {
+      knownPaths: new Set<string>(),
+      psr4: new Map(),
+    });
+    assert.ok(result, label);
+    assert.equal(result.symbols.find((symbol) => symbol.name === "handler")?.line, 1, label);
+  }
+});
+
+test("modulio lygio tęstinė eilutė NEPATENKA į ankstesnės funkcijos kūną", () => {
+  const source = [
+    "def handler():",
+    "    return 1",
+    "",
+    "SECRET = load_secret(",
+    '    "name",',
+    ")",
+    "",
+  ].join("\n");
+
+  const result = indexLexicalSource(fileOf("src/api.py", "python"), source, { knownPaths: new Set<string>(), psr4: new Map() });
+  assert.ok(result);
+  const handler = result.symbols.find((symbol) => symbol.name === "handler");
+  assert.equal(
+    handler?.endLine,
+    2,
+    "top-level išraiškos tęsinys yra ĮTRAUKTAS, bet priklauso moduliui, ne funkcijai",
+  );
+});
+
 test("BM25 skaido ne ASCII tekstą", () => {
   const documents = ["nesusijęs dokumentas apie kitką", "интерфейс модуля описан здесь", "užduoties įrodymas ir sąrašas"];
 

@@ -52,8 +52,23 @@ export function queryCodeGraphData(
   // tad užklausa apie `core.ts` grąžindavo TUŠČIĄ sąrašą — o barrel'is arba tarpinis servisas yra
   // ne išimtis, o įprasta forma. Testai ieškomi ir per importuotojų uždarinį.
   const impactedTests = relatedTargets(data, importerClosure(data, targetFiles), "testedBy", "out");
+  // VIEŠI VARDAI, ne pasiekiami simboliai (2026-08-24, operatoriaus radinys).
+  //
+  // `symbol.exported` reiškia PASIEKIAMUMĄ iš išorės, ir tai sąmoningai platesnė sąvoka nei viešas
+  // vardas: `export { local as renamed }` pažymi `local` pasiekiamu, nes jį realiai galima gauti —
+  // tik ne tuo vardu. Filtruojant vien pagal tą vėliavą, užklausa grąžindavo IR `local`, kurio
+  // importuotojas įvardyti negali, IR sintetinį `renamed`; tas pats liesdavo eksportuotų klasių
+  // narius (`Service.run`), kurie yra simboliai, bet ne modulio eksportai.
+  //
+  // Failo `exports` sąrašas jau yra kanoninis atsakymas „kokiais vardais šis failas eksportuoja",
+  // tad jis ir atrenka. Antro sąrašo nekuriama.
+  const publicNames = new Map(data.files.filter((file) => targetFiles.has(file.path)).map((file) => [file.path, new Set(file.exports)]));
   const exportedSymbols = Array.from(
-    new Set(data.symbols.filter((symbol) => targetFiles.has(symbol.file) && symbol.exported).map((symbol) => symbol.id)),
+    new Set(
+      data.symbols
+        .filter((symbol) => symbol.exported && publicNames.get(symbol.file)?.has(symbol.name) === true)
+        .map((symbol) => symbol.id),
+    ),
   ).sort();
   const relatedFiles = Array.from(new Set([...targetFiles, ...imports, ...importers, ...impactedTests])).sort();
   return {

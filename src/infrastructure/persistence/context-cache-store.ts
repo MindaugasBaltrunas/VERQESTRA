@@ -25,10 +25,6 @@ import {
   type ContextCacheLookup,
 } from "../../application/context-pack/context-cache-key.js";
 import { CHANGE_DIR_FILES, specRefFilePart } from "../../application/code-intelligence/retrieval/spec-fragments.js";
-import {
-  contextCompressionArrestStatePath,
-  contextCompressionConfigPath,
-} from "../../application/context-pack/effective-compression-policy.js";
 import { resolveProjectPath } from "../../shared/paths.js";
 import { createProjectContainment, type ProjectContainment } from "../fs/project-containment.js";
 import type { ContextCachePort } from "../../application/context-pack/ports.js";

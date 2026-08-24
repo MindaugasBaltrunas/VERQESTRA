@@ -3,9 +3,7 @@
 // vartai ir session evidencijos tiekėjai.
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
-import { relative } from "node:path";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -18,9 +16,7 @@ import { createAttempt, openAttempt } from "../infrastructure/persistence/runtim
 import {
   collectContextCacheSources,
   createContextCacheAdapter,
-  invalidateContextCacheForSources,
   lookupContextCache,
-  pruneStaleContextCacheEntries,
   saveContextCacheEntry,
 } from "../infrastructure/persistence/context-cache-store.js";
 import {
@@ -109,8 +105,8 @@ test("context-cache: absent sentinelis, save/hit, code-index drift evict'ina, in
   });
   assert.deepEqual(stale, { stored: false, reason: "code_index_stale" });
 
-  // Tikslinė invalidacija: pašalinamas tik nuo pakeisto kelio priklausantis įrašas.
-  await saveContextCacheEntry(runtimeRoot, {
+  // UNUSED indekso assembly saugomas — indeksas nedalyvavo, tad jo šviežumas įrašui nesvarbus.
+  const stored = await saveContextCacheEntry(runtimeRoot, {
     key,
     taskId: "t1",
     contextPackJson: "{}",
@@ -119,9 +115,7 @@ test("context-cache: absent sentinelis, save/hit, code-index drift evict'ina, in
     selectedTokenEstimate: 1,
     droppedItemCount: 0,
   });
-  const invalidated = await invalidateContextCacheForSources(runtimeRoot, ["src/taikinys.ts"]);
-  assert.deepEqual(invalidated.removed, [key.fingerprint]);
-  assert.deepEqual(invalidated.kept, []);
+  assert.deepEqual(stored, { stored: true });
 });
 
 // A2 regresijos tinklas. Change KATALOGO ref'as anksčiau hash'uodavosi per `readFile` ant
@@ -193,70 +187,13 @@ test("context-cache: symlink į išorę nehash'uojamas, o fiksuojamas absent (C1
   }
 });
 
-// Prune perhash'uoja kelius iš SAUGOMO įrašo, tad juos gali nukreipti ne tik symlink'as, bet ir
-// sugadintas cache failas. Fikstūra sudėliota taip, kad BE varto prune pasakytų „šviežia": įrašo
-// hash'as sutampa su tikru symlink'o taikinio turiniu. Su vartu kelias neskaitomas, o įrašas
-// numetamas — nežinia apie evidenciją negali reikšti „vis dar galioja".
-test("context-cache prune: už ribų vedantis įrašo kelias numetamas, o ne perskaitomas (C14)", async () => {
-  const outside = await mkdtemp(path.join(tmpdir(), "vq-prune-out-"));
-  try {
-    const target = path.join(outside, "svetimas.md");
-    await nodeFsAdapter.writeTextFile(target, "svetimas turinys\n");
-    // Junction'as dėl tos pačios priežasties kaip C10: be pakeltų teisių, bet per TĄ PATĮ
-    // `realpath` vartą.
-    await symlink(outside, path.join(projectRoot, "prune-nuoroda"), "junction");
-
-    const realHash = createHash("sha256").update(await readFile(target)).digest("hex");
-    const sources = [{ kind: "source" as const, path: "prune-nuoroda/svetimas.md", hash: realHash }];
-    const key = computeContextCacheKey(sources);
-    await saveContextCacheEntry(runtimeRoot, {
-      key,
-      taskId: "t-prune",
-      contextPackJson: "{}",
-      codeIndexDescriptor: CODE_INDEX_UNUSED,
-      selectedChars: 1,
-      selectedTokenEstimate: 1,
-      droppedItemCount: 0,
-    });
-
-    const pruned = await pruneStaleContextCacheEntries(projectRoot, runtimeRoot);
-    assert.ok(pruned.removed.includes(key.fingerprint), "už ribų vedantis šaltinis daro įrašą pasenusiu");
-    assert.ok(!pruned.kept.includes(key.fingerprint));
-  } finally {
-    await rm(outside, { recursive: true, force: true });
-  }
-});
-
-// `architecture` ir `policy` keliai containment'o netikrinami (runtimeRoot teisėtai gali gulėti
-// už projectRoot), tad juos saugo TIKSLUS leidžiamų kelių sąrašas. Suklastotas įrašas, nurodantis
-// bet kokį kitą kelią, privalo baigtis numetimu, o ne skaitymu.
-test("context-cache prune: suklastotas architecture/policy kelias neskaitomas (C21)", async () => {
-  const outside = await mkdtemp(path.join(tmpdir(), "vq-prune-runtime-"));
-  try {
-    const target = path.join(outside, "svetimas.json");
-    await nodeFsAdapter.writeTextFile(target, "{}\n");
-    const realHash = createHash("sha256").update(await readFile(target)).digest("hex");
-
-    // Kelias, kurio hash'as SUTAMPA su tikru turiniu — be varto prune pasakytų „šviežia".
-    const sources = [{ kind: "policy" as const, path: relative(projectRoot, target), hash: realHash }];
-    const key = computeContextCacheKey(sources);
-    await saveContextCacheEntry(runtimeRoot, {
-      key,
-      taskId: "t-forged",
-      contextPackJson: "{}",
-      codeIndexDescriptor: CODE_INDEX_UNUSED,
-      selectedChars: 1,
-      selectedTokenEstimate: 1,
-      droppedItemCount: 0,
-    });
-
-    const pruned = await pruneStaleContextCacheEntries(projectRoot, runtimeRoot);
-    assert.ok(pruned.removed.includes(key.fingerprint), "ne allowlist'e esantis runtime kelias — įrašas numetamas");
-  } finally {
-    await rm(outside, { recursive: true, force: true });
-  }
-});
-
+// C14 ir C21 vartai ČIA NEBĖRA (2026-08-24): juos saugojo `pruneStaleContextCacheEntries`, o ta
+// funkcija pašalinta. Abi grėsmės buvo tos pačios formos — SAUGOMO įrašo kelias nukreipiamas už
+// projekto ribų arba už runtime allowlist'o, ir prune jį perskaito. Prune buvo VIENINTELIS kodas,
+// skaitantis įrašo pateiktus kelius: `lookupContextCache` lygina `entry.sources` su ŠVIEŽIAI
+// surinktais `key.sources` (jie jau perėję containment vartą) ir disko neliečia. Grėsmė uždaryta
+// konstrukcija, o ne varto perkėlimu — skaitytojo nebeliko. Tą patį containment vartą gyvajame
+// kelyje (`collectContextCacheSources`) prikala aukščiau esantis C10 testas.
 test("createContextCacheAdapter tenkina ContextCachePort kontraktą", async () => {
   const adapter = createContextCacheAdapter(projectRoot, runtimeRoot);
   const sources = await adapter.collectSources({

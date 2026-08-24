@@ -24,7 +24,7 @@ describe("resolveFreshness", () => {
     expect(resolveFreshness({ ...base, refreshFailed: true }).state).toBe("failed");
   });
 
-  it("nutrūkęs srautas atima žodį „gyvi", bet duomenų neteisingais nedaro", () => {
+  it("nutrūkęs srautas atima šviežumo žodį, bet duomenų neteisingais nedaro", () => {
     expect(resolveFreshness({ ...base, status: "disconnected" }).state).toBe("stale");
   });
 

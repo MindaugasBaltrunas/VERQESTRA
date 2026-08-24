@@ -124,12 +124,16 @@ export const RuntimePanel = memo(function RuntimePanel({
       <section className={`system-health-hero system-health-${overall}`} aria-labelledby="system-health-title">
         <div>
           <p className="usage-eyebrow">{t("Overall status")}</p>
-          <h2 id="system-health-title">{t(overall === "healthy" ? "System operational" : overall === "attention" ? "System needs attention" : "System unavailable")}</h2>
-          {/* Sakinys negali tvirtinti daugiau, nei `overall` patikrino. Iki 2026-08-24
-              (operatoriaus radinys) čia buvo „All observable runtime components are available",
-              nors verdiktas remiasi TIK dviem faktais: ar veikia UI procesas ir ar nėra nežinomų
-              būsenų. Sustabdytas ciklas į jį neįeina — todėl ekrane vienu metu stovėdavo
-              „Sistema veikia" ir „1/3 vykdoma", ir puslapis prieštaraudavo pats sau. */}
+          {/* ANTRAŠTĖ ĮVARDIJA SAVO DALYKĄ, o ne „sistemą". `overall` remiasi TIK dviem faktais:
+              ar veikia UI procesas ir ar nėra `unknown` būsenų. Sustabdytas ciklas į verdiktą
+              NEĮEINA — todėl „Sistema veikia" šalia „Ciklas: sustabdytas" ir „1/3" skambėjo kaip
+              prieštaravimas, nors abu teiginiai teisingi.
+
+              Pirmas taisymas (dešimtas ratas) pakeitė tik SAKINĮ po antrašte; operatorius tą patį
+              konfliktą pamatė vėl, nes skaitomas dydis ekrane yra H2. „Valdymo sąsaja pasiekiama"
+              ir „Ciklas: sustabdytas" viena kitai neprieštarauja — tai du skirtingi dalykai, ir
+              dabar taip ir pavadinti. */}
+          <h2 id="system-health-title">{t(overall === "healthy" ? "Operator interface available" : overall === "attention" ? "Runtime state is incomplete" : "Operator interface unavailable")}</h2>
           <p>{t(overall === "healthy"
             ? "The operator interface is available and every component reported a definite state."
             : overall === "attention"

@@ -67,6 +67,7 @@ export type CodeIndexLanguage =
   | "csharp"
   | "dotnet"
   | "json"
+  | "config"
   | "markdown"
   | "text";
 

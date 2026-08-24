@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ROUTE_LABELS, type Route } from "../../controller/useRoute";
+import { useThemeController } from "../../controller/useThemeController";
 import { useI18n } from "../../i18n/I18nContext";
 
 /**
@@ -25,7 +26,8 @@ export function MoreMenu(props: {
   canResumeLoop?: boolean | undefined;
   canStopLoop?: boolean | undefined;
 }) {
-  const { t } = useI18n();
+  const { t, language, setLanguage } = useI18n();
+  const { theme, toggleTheme } = useThemeController();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDetailsElement>(null);
 
@@ -110,6 +112,30 @@ export function MoreMenu(props: {
         >
           ↻ {t("Refresh")}
         </button>
+        {/* Tema ir kalba čia atsirado 2026-08-24 kartu su kompaktiška mobilia juosta: juostai
+            susitraukus iki vienos eilutės, jos abi būtų dingusios BE pakaitalo — tiksliai ta klaida,
+            kurią dešimtas ratas uždarė ciklo mygtukams. Meniu dengia viską, ką juosta rodė. */}
+        <button type="button" className="more-menu-item" onClick={() => toggleTheme()}>
+          {theme === "dark" ? `☀ ${t("Light")}` : `🌙 ${t("Dark")}`}
+        </button>
+        <div className="more-menu-languages" role="group" aria-label={t("Language")}>
+          <button
+            type="button"
+            className={language === "lt" ? "more-menu-item active" : "more-menu-item"}
+            aria-pressed={language === "lt"}
+            onClick={() => setLanguage("lt")}
+          >
+            LT
+          </button>
+          <button
+            type="button"
+            className={language === "en" ? "more-menu-item active" : "more-menu-item"}
+            aria-pressed={language === "en"}
+            onClick={() => setLanguage("en")}
+          >
+            EN
+          </button>
+        </div>
       </div>
     </details>
   );

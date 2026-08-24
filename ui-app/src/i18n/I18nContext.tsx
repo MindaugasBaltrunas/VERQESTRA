@@ -151,9 +151,12 @@ const lt: Record<string, string> = {
   "Runtime health": "Vykdymo aplinkos būklė",
   "Current process availability and identity": "Dabartinis procesų pasiekiamumas ir tapatybė",
   "Overall status": "Bendra būsena",
-  "System operational": "Sistema veikia",
-  "System needs attention": "Sistemai reikia dėmesio",
-  "System unavailable": "Sistema nepasiekiama",
+  // Antraštė įvardija tai, ką `overall` realiai patikrino — UI procesą ir būsenų žinomumą.
+  // „Sistema veikia" tvirtino daugiau ir prieštaravo šalia stovinčiam „Ciklas: sustabdytas".
+  "Operator interface available": "Valdymo sąsaja pasiekiama",
+  "Runtime state is incomplete": "Vykdymo būsena nepilna",
+  "Operator interface unavailable": "Valdymo sąsaja nepasiekiama",
+  "Real-time channel for the agent chain": "Realaus laiko kanalas agentų grandinei",
   // 2026-08-24 (operatoriaus radinys): senas sakinys tvirtino daugiau, nei verdiktas tikrino, ir
   // prieštaravo šalia stovinčiam „1/3 vykdoma". Raktas paliktas — jį dar gali turėti senas `dist`.
   "All observable runtime components are available.": "Visi stebimi vykdymo komponentai yra pasiekiami.",

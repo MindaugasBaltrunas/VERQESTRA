@@ -99,6 +99,30 @@ export const codeIndexLanguageCapabilities: CodeIndexLanguageCapability[] = [
     extracts_tests: false,
     priority: 5,
   },
+  {
+    /*
+     * Projekto manifestai, kurie NIEKO neištraukia, bet KEIČIA ištraukimą (2026-08-24, operatoriaus
+     * radinys).
+     *
+     * `pyproject.toml`, `setup.cfg` ir `tox.ini` daro katalogą Python paketo šaknimi, tad nuo jų
+     * priklauso, ar `from app.service import run` virsta keliu, ar lieka tekstu. Iki tol jie nebuvo
+     * indeksuojami, o šaknys buvo randamos atskiru FS zondavimu — ir tai sulaužė invariantą, kurį
+     * `scanner.computeSourceHash` deklaruoja: kas veikia indeksą, tas privalo būti jo atspaude.
+     * Pasekmė: pridėjus `pyproject.toml` importų prasmė pasikeisdavo, o `source_hash` — ne, tad
+     * indeksas likdavo „fresh" ir grąžindavo seną grafą iki priverstinio perstatymo.
+     *
+     * Sprendimas yra INDEKSUOTI juos, o ne pridėti antrą atspaudo šaltinį: viena taisyklė, viena
+     * vieta. Zondavimas dėl to nebereikalingas — markeriai vėl matomi per `knownPaths`.
+     */
+    language: "config",
+    extensions: [".toml", ".cfg", ".ini"],
+    parser: "config-scan",
+    extracts_files: true,
+    extracts_imports: false,
+    extracts_symbols: false,
+    extracts_tests: false,
+    priority: 5,
+  },
 ];
 
 export function languageForExtension(extension: string): CodeIndexLanguage {

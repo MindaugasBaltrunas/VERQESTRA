@@ -3572,8 +3572,13 @@ header .toolbar-divider {
   display: none;
 }
 
+/* `min-width: 0` čia SUNAIKINDAVO WCAG 2.5.8 taisyklę žemiau (`.button { min-width: 44px }`):
+   `header .toolbar .button` yra specifiškesnis, tad laimėdavo nepriklausomai nuo tvarkos, ir
+   LT/EN mygtukai likdavo 27–30 px pločio — tiksliai tiek, kiek išmatavo operatorius. Vartas,
+   kurį nutildo kita to paties failo taisyklė, nėra vartas.
+   44 px vis dar mažiau už turinio plotį, tad ellipsis veikia kaip veikęs. */
 header .toolbar .button {
-  min-width: 0;
+  min-width: 44px;
   padding: 8px 7px;
   overflow: hidden;
   font-size: 11px;
@@ -3763,6 +3768,10 @@ main {
   color: var(--muted);
 }
 .more-menu-panel nav { display: grid; gap: 2px; }
+.more-menu-languages { display: flex; gap: 4px; }
+.more-menu-languages .more-menu-item { flex: 1 1 0; min-width: 44px; text-align: center; }
+/* Maršruto vardas juostoje reikalingas TIK tada, kai skirtukų nematyti (siauras ekranas). */
+.topbar-route { display: none; }
 .more-menu-item {
   min-height: 44px;
   text-align: left;
@@ -4094,52 +4103,54 @@ main {
 }
 
 @media (max-width: 760px) {
+  /* LIPNI ANTRAŠTĖ — VIENA EILUTĖ (2026-08-24, operatoriaus radinys: 230 px = 27,3 % ekrano).
+     Ją sudarydavo trys sudėtos eilutės: prekės ženklas, laužoma įrankių juosta ir devynių
+     skirtukų slinkiklis. Lipnus elementas yra tas, kurio KAINA mokama visą laiką, tad jame lieka
+     tik tai, be ko negalima dirbti: kas tai per ekranas ir kaip patekti į bet kurį kitą.
+     Skirtukai ir juosta paslepiami TIK todėl, kad „Daugiau" meniu neša viską, ką jie rodė —
+     devynis ekranus, ciklo veiksmus, atnaujinimą, temą ir kalbą. Be to pakaitalo tai būtų
+     dešimto rato klaida iš naujo. */
   header {
     position: sticky;
     inset: 0;
     width: auto;
-    padding: 11px 14px;
+    padding: 8px 14px;
   }
-  .topbar { height: auto; gap: 10px; }
-  .brand .muted { display: none; }
-  /* Veiksmai NEBESLEPIAMI (2026-08-24, operatoriaus radinys).
-     `header .toolbar > .button { display: none }` siaurame ekrane atimdavo „Sustabdyti ciklą" —
-     vienintelį veiksmą, kurį UI leidžia BET KURIOJE būsenoje, įskaitant `unknown` — plius
-     „Atnaujinti" ir temos jungiklį. Pakaitalo nebuvo jokio: mygtukai tiesiog dingdavo be žinutės.
-     Valdiklis, dingstantis be pakaitalo, yra tylus galimybės praradimas, o ne prisitaikymas prie
-     ekrano. Vietoj slėpimo juosta LAUŽIASI ir gauna savo eilutę. */
-  header .toolbar {
+  .topbar { height: auto; gap: 0; }
+  .topbar-primary {
     display: flex;
-    flex-wrap: wrap;
     width: 100%;
-    margin-left: 0;
-    gap: 6px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
   }
-  /* Skirtukas lieka paslėptas: jis dekoratyvus (`aria-hidden`) ir laužomoje juostoje
-     atsidurtų eilutės pradžioje, kur nieko neskiria. */
-  header .toolbar > .toolbar-divider {
-    display: none;
+  .brand .muted { display: none; }
+  .brand h1 { font-size: 15px; }
+  /* Vardas atsako į „kur aš esu" — be jo susitraukusi juosta atsakytų tik į „ką galiu daryti". */
+  .topbar-route {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .brand { order: 1; }
-  header .toolbar { order: 2; }
+  header .nav-tabs,
+  header .toolbar { display: none; }
   /* Pilnas ekranų ir įrankių sąrašas atsiranda TIK čia: plačiame ekrane visi devyni skirtukai
      matomi vienu metu, tad meniu ten būtų antra to paties navigacija. */
   .more-menu { display: inline-block; }
+  .more-menu > summary { min-width: 44px; }
+  /* Kalbos mygtukai meniu — šalia vienas kito, bet abu su pilnu taikiniu. */
+  .more-menu-languages { display: flex; gap: 4px; }
+  .more-menu-languages .more-menu-item { flex: 1 1 0; min-width: 44px; text-align: center; }
   /* Užduočių kategorijos — VIENAS stulpelis. Du siauri stulpeliai laužo tekstą per vidurį ir
      nesutaupo nieko: bucket'ų yra septyni, tad vertikalus sąrašas vis tiek slenkamas, o
      kiekvienas jų gauna visą plotį ir tampa įskaitomas. */
   .workflow-board { grid-template-columns: 1fr; }
-  .nav-tabs {
-    display: flex;
-    order: 3;
-    width: 100%;
-    overflow-x: auto;
-  }
-  .nav-tab {
-    width: auto;
-    flex: 0 0 auto;
-    padding: 8px 10px;
-  }
   main {
     margin-left: 0;
     padding: 20px 14px 36px;
@@ -4276,8 +4287,11 @@ main {
   border-radius: 8px;
 }
 
+/* Dviejų raidžių etiketė nesuteikia pločio pati: 36 px buvo pasirinkti tekstui, ne pirštui.
+   WCAG 2.5.8 minimumas taikomas ir čia — LT/EN spaudžiami taip pat dažnai kaip bet kas kitas. */
 .language-switch .button {
-  min-width: 36px;
+  min-width: 44px;
+  min-height: 44px;
   padding-inline: 8px;
 }
 

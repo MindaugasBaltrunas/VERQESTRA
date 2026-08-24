@@ -73,18 +73,24 @@ export function FreshnessIndicator(props: { refreshFailed: boolean; loadedAt: nu
 }
 
 /**
- * Ryšio ženklas: ar realaus laiko srautas gyvas.
+ * Ryšio ženklas: ar `/api/events` ryšys gyvas.
  *
- * Atskiras nuo šviežumo, nes atsako į KITĄ klausimą. Nutrūkęs srautas nedaro dashboard'o duomenų
+ * Atskiras nuo šviežumo, nes atsako į KITĄ klausimą. Nutrūkęs ryšys nedaro dashboard'o duomenų
  * neteisingų — jis atima tik agentų grandinės realų laiką, ir būtent tai čia ir pasakoma.
+ *
+ * ŽENKLAS NEBEVADINAMAS „SRAUTU" (2026-08-24, operatoriaus radinys). Lietuviškai „srautas" šiame
+ * produkte jau reiškia ciklo slot'ą — „Ciklo srautai", „Stabdyti visus srautus", „Srautas 1".
+ * Todėl „Srautas gyvas" prie sustabdyto ciklo skaitėsi kaip teiginys, kad DIRBA ciklo srautas,
+ * nors jų veikė nulis. Ženklas visą laiką sakė tiesą apie SSE ryšį — tik ne apie tai, ką
+ * skaitytojas girdėjo. Tikslus daiktavardis čia yra visas taisymas.
  */
 export function StreamIndicator({ status }: { status: AgentActivityStatus }) {
   const { t } = useI18n();
   const label =
-    status === "live" ? t("Stream live") : status === "connecting" ? t("Stream connecting") : t("Stream offline");
+    status === "live" ? t("Live connection") : status === "connecting" ? t("Connecting") : t("Connection lost");
 
   return (
-    <span className={`freshness-indicator stream-${status}`} role="status">
+    <span className={`freshness-indicator stream-${status}`} role="status" title={t("Real-time channel for the agent chain")}>
       <i aria-hidden="true" /> {label}
     </span>
   );

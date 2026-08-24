@@ -45,12 +45,30 @@ export function Header({
   return (
     <header>
       <div className="topbar">
-        <div className="brand brand-row">
-          <div className="app-mark">AG</div>
-          <div>
-            <h1>VERQESTRA</h1>
-            <div className="muted">{root}</div>
+        {/* Siaurame ekrane STICKY lieka tik ši eilutė (2026-08-24, operatoriaus radinys: antraštė
+            užėmė 230 px = 27,3 % ekrano aukščio — trys sudėtos eilutės). Skirtukai ir įrankių
+            juosta ten paslepiami, nes „Daugiau" meniu neša VISUS devynis ekranus, ciklo veiksmus,
+            atnaujinimą, temą ir kalbą — pakaitalas pilnas, o ne dalinis.
+            Dabartinio ekrano vardas lieka juostoje: be jo susitraukusi juosta atsakytų į „ką
+            galiu daryti", bet nebe į „kur aš esu". */}
+        <div className="topbar-primary">
+          <div className="brand brand-row">
+            <div className="app-mark">AG</div>
+            <div>
+              <h1>VERQESTRA</h1>
+              <div className="muted">{root}</div>
+            </div>
           </div>
+          <span className="topbar-route" aria-hidden="true">{t(ROUTE_LABELS[activeRoute])}</span>
+          <MoreMenu
+            activeRoute={activeRoute}
+            onNavigate={onNavigate}
+            onRefresh={onRefresh}
+            onResumeLoop={onResumeLoop}
+            onStopLoop={onStopLoop}
+            canResumeLoop={canResumeLoop}
+            canStopLoop={canStopLoop}
+          />
         </div>
         <nav ref={navigationRef} className="nav-tabs" aria-label={t("Primary navigation")}>
           {/* Pavadinimai imami iš `ROUTE_LABELS`, o ne rašomi čia: tą patį sąrašą naudoja dokumento
@@ -99,17 +117,6 @@ export function Header({
             <button className={`button ghost small-button${language === "en" ? " active" : ""}`} type="button" onClick={() => setLanguage("en")} aria-pressed={language === "en"}>EN</button>
           </div>
           <ThemeToggle />
-          {/* Pilnas ekranų ir įrankių sąrašas. Matomas TIK siaurame ekrane (CSS), kur skirtukų
-              slinkiklis nerodo, kas apskritai yra. */}
-          <MoreMenu
-            activeRoute={activeRoute}
-            onNavigate={onNavigate}
-            onRefresh={onRefresh}
-            onResumeLoop={onResumeLoop}
-            onStopLoop={onStopLoop}
-            canResumeLoop={canResumeLoop}
-            canStopLoop={canStopLoop}
-          />
         </div>
       </div>
     </header>

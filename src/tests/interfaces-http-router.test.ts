@@ -57,6 +57,7 @@ function routerWorld(): RouterWorld {
     proposePolicyChange: (group, input) => record(`propose:${group}`, { proposal: { group, ...input } }),
     decidePolicyProposal: (verb, input) => record(`decide:${verb}`, { verb, input }),
     tokenUsage: (query) => record("token-usage", { model: query.get("model") }),
+    logs: (query) => record("logs", { log: query.get("log"), lines: [], truncated: false }),
     tokenAnalytics: () => record("token-analytics", {}),
     reliabilityAnalytics: (fresh) => record(`reliability:${fresh ? "fresh" : "cached"}`, {}),
     benchmarkReport: () => record("benchmark", {}),

@@ -12,6 +12,13 @@ import {
   type TokenUsageQueryResponse,
 } from "../../application/analytics/token-usage-query.js";
 import {
+  buildUiLogsResponse,
+  isUiLogName,
+  normalizeUiLogLines,
+  uiLogFileName,
+  type UiLogsResponse,
+} from "../../application/analytics/ui-log-query.js";
+import {
   buildTokenAnalyticsResponse,
   type TokenAnalyticsResponse,
 } from "../../application/learning/token-analytics-snapshot.js";
@@ -45,6 +52,28 @@ export async function tokenUsageQuery(
   const raw = await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "logs", "token-usage.jsonl"));
   const { filter, pagination } = tokenUsageQueryFrom(query);
   return buildTokenUsageQueryResponse(raw, filter, pagination);
+}
+
+/**
+ * `GET /api/logs` — vieno žurnalo uodega.
+ *
+ * NAUJAS maršrutas (2026-08-24, operatoriaus sprendimas). Priežastis ir priimti sprendimai —
+ * `application/analytics/ui-log-query.ts`; čia lieka tik IO: failo vardą parenka SERVERIS iš
+ * allowlist'o, tad kliento reikšmė niekada nepatenka į kelią.
+ *
+ * `undefined` grąžinama TIK nežinomam žurnalo vardui — maršrutas iš to daro 400. Nesantis
+ * failas duoda tuščią voką, nes žurnalas, į kurį dar niekas nerašė, yra normali būsena.
+ */
+export async function uiLogs(
+  input: AnalyticsAdapterInput,
+  query: URLSearchParams,
+): Promise<UiLogsResponse | undefined> {
+  const log = query.get("log");
+  if (!isUiLogName(log)) return undefined;
+  const raw = await nodeFsAdapter.readTextFileIfExists(
+    path.join(input.runtimeRoot, "logs", uiLogFileName(log)),
+  );
+  return buildUiLogsResponse(log, raw, normalizeUiLogLines(query.get("lines")));
 }
 
 /**

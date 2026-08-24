@@ -115,6 +115,24 @@ async function handleGet(deps: UiRouterDeps, pathname: string, url: URL): Promis
       return await guarded(() => ports.listPolicyProposals());
     case "/api/token-usage":
       return await guarded(() => ports.tokenUsage(url.searchParams));
+    case "/api/logs": {
+      // Nežinomas žurnalo vardas yra 400, o ne numatytasis žurnalas: klientas paprašė kažko
+      // konkretaus, ir atiduoti jam KITĄ žurnalą tuo pačiu voku reikštų atsakymą, kurio jis
+      // negali atskirti nuo teisingo. Portas tam grąžina `undefined`.
+      //
+      // `guarded` čia netaikomas, nes jis kiekvieną baigtį verčia į 200 arba 500, o šis
+      // maršrutas turi TRIS: 200, 400 ir 500. Klaidos kelias toks pat kaip `/api/tasks`.
+      try {
+        const view = await ports.logs(url.searchParams);
+        if (view === undefined) {
+          return { kind: "json", status: 400, data: { error: "invalid log name" } };
+        }
+        return json(view);
+      } catch (error) {
+        ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
+        return toResponse(INTERNAL_ERROR_RESPONSE);
+      }
+    }
     case "/api/token-analytics":
       return await guarded(() => ports.tokenAnalytics());
     case "/api/reliability-analytics":

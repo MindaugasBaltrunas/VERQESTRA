@@ -491,9 +491,14 @@ tbody tr:hover {
 /* ---- Grids ------------------------------------------------------------ */
 .workflow-board {
   display: grid;
-  /* auto-fit + compact min width: all buckets share one row on desktop widths
-     and wrap gracefully on narrow screens instead of overflowing. */
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  /* Stulpelio MINIMUMAS yra užduoties VARDO reikalavimas, ne bucket'ų skaičiaus.
+     Iki 2026-08-24 (operatoriaus radinys) čia buvo 150px, pasirinkti tam, kad visi septyni
+     bucket'ai tilptų į vieną eilutę. Kaina buvo ta, kad 11px šriftu telpa ~20 simbolių, o
+     užduoties vardas yra `0042-aprasomasis-slug.md`: nukirsdavo būtent SLUG'ą, t. y. vienintelę
+     dalį, kuri vieną užduotį skiria nuo kitos. Lenta, kurios stulpelių negalima perskaityti,
+     neatlieka savo darbo — tad viena eilutė nusileidžia įskaitomumui ir bucket'ai persineša į
+     dvi eilutes. Horizontalaus slinkimo neatsiranda nė viename plotyje. */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 10px;
 }
 .runtime-grid {
@@ -1415,7 +1420,9 @@ tbody tr:hover {
   display: grid;
   gap: 4px;
   align-content: start;
-  max-height: 120px;
+  /* Pakelta kartu su vardų laužymu: dviejų eilučių įrašas kitaip perpus sumažintų matomų
+     užduočių skaičių, ir vienas taisymas pagimdytų kitą trūkumą. */
+  max-height: 170px;
   overflow: auto;
   padding-right: 2px;
 }
@@ -1426,9 +1433,10 @@ tbody tr:hover {
   padding: 5px 8px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Vardas LAUŽOMAS, o ne kerpamas daugtaškiu. Nukirptas `0042-perkelti-loop-…` atrodo kaip
+     informacija, bet jos neneša: skiriamoji dalis yra būtent uodegoje. `anywhere` reikalingas,
+     nes slug'as yra vientisas žodis su brūkšneliais ir be jo eilutė nesilaužytų. */
+  overflow-wrap: anywhere;
   min-width: 0;
   transition: background var(--speed) var(--ease), transform var(--speed) var(--ease);
 }
@@ -3961,12 +3969,21 @@ main {
   }
   .topbar { height: auto; gap: 10px; }
   .brand .muted { display: none; }
+  /* Veiksmai NEBESLEPIAMI (2026-08-24, operatoriaus radinys).
+     `header .toolbar > .button { display: none }` siaurame ekrane atimdavo „Sustabdyti ciklą" —
+     vienintelį veiksmą, kurį UI leidžia BET KURIOJE būsenoje, įskaitant `unknown` — plius
+     „Atnaujinti" ir temos jungiklį. Pakaitalo nebuvo jokio: mygtukai tiesiog dingdavo be žinutės.
+     Valdiklis, dingstantis be pakaitalo, yra tylus galimybės praradimas, o ne prisitaikymas prie
+     ekrano. Vietoj slėpimo juosta LAUŽIASI ir gauna savo eilutę. */
   header .toolbar {
     display: flex;
-    width: auto;
-    margin-left: auto;
+    flex-wrap: wrap;
+    width: 100%;
+    margin-left: 0;
+    gap: 6px;
   }
-  header .toolbar > .button,
+  /* Skirtukas lieka paslėptas: jis dekoratyvus (`aria-hidden`) ir laužomoje juostoje
+     atsidurtų eilutės pradžioje, kur nieko neskiria. */
   header .toolbar > .toolbar-divider {
     display: none;
   }

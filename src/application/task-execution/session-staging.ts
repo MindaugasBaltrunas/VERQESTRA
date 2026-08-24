@@ -101,10 +101,10 @@ export function unplannedProductPaths(statusOutput: string, plannedPaths: readon
   return Array.from(new Set(gap));
 }
 
-/** Ledger-only staging vaizdas (pre-1100 kontraktas) — kvietėjams be apsaugos. */
-export function sessionStagePaths(statusOutput: string, sessionWrites: readonly string[]): string[] {
-  return sessionStagePlan(statusOutput, sessionWrites).paths;
-}
+// 2026-08-24: `sessionStagePaths` PAŠALINTA. Ji buvo pre-1100 kontrakto vaizdas „kvietėjams be
+// apsaugos" ir produkcinio kvietėjo neturėjo — visi keliai eina per `sessionStagePlan`, kuris
+// grąžina ne tik `paths`, bet ir apsaugos sprendimą. Plikas `paths` vaizdas buvo tyliai
+// silpnesnis: jis atmesdavo būtent tą informaciją, dėl kurios 1100 kontraktas ir atsirado.
 
 /**
  * Failai, iš kurių Stop hook'as generuoja AUTOMATINĘ commit žinutę (etalono 2026-07-29

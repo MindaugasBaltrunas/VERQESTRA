@@ -54,6 +54,20 @@ export type UiRouterPorts = {
   proposePolicyChange(group: PolicyProposalGroup, input: PolicyProposalInput): Promise<unknown>;
   decidePolicyProposal(verb: "approve" | "reject" | "apply", input: PolicyDecisionRequest): Promise<unknown>;
   tokenUsage(query: URLSearchParams): Promise<unknown>;
+  /**
+   * Vieno žurnalo uodega (`?log=claude|orchestrator|checks&lines=N`).
+   *
+   * NAUJAS maršrutas (2026-08-24, operatoriaus sprendimas): etalonas jo neaptarnavo, nors
+   * `AG/mobile-gateway` adapteris jo prašė — žr. `application/analytics/ui-log-query.ts`.
+   * Grąžina `undefined` NEŽINOMAM žurnalo vardui, kad maršrutas galėtų atsakyti 400, o ne
+   * tyliai atiduoti numatytąjį žurnalą.
+   *
+   * Tipas yra `Promise<unknown>`, o ne `Promise<unknown | undefined>`: `unknown` jau apima
+   * `undefined`, tad sąjunga skaitytojui nieko nepasakytų, o lint'as ją teisingai vadina
+   * perteklinę. Sutartis dėl `undefined` gyvena šiame komentare ir maršruto patikroje, ir ją
+   * prikala `ui-log-query` testai.
+   */
+  logs(query: URLSearchParams): Promise<unknown>;
   tokenAnalytics(): Promise<unknown>;
   /** `fresh` apeina 10 s kešą — tai operatoriaus „Atnaujinti" mygtuko prasmė. */
   reliabilityAnalytics(fresh: boolean): Promise<unknown>;

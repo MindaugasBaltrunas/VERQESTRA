@@ -1,7 +1,6 @@
 // Grynų git taisyklių testai (E4 VQ-402 1/2): domain/git + session staging + worktree policy.
 
 import assert from "node:assert/strict";
-import path from "node:path";
 import { test } from "node:test";
 import {
   changedFilesFromStatus,
@@ -18,11 +17,7 @@ import {
   taskBaselineWasClean,
   unplannedProductPaths,
 } from "../application/task-execution/session-staging.js";
-import {
-  parseWorktreePolicy,
-  planTaskWorktree,
-  planWorktreeCleanup,
-} from "../application/scheduling/worktree-policy.js";
+import { parseWorktreePolicy } from "../application/scheduling/worktree-policy.js";
 
 test("normalizeGitPath: quotePath oktaliniai escape'ai dekoduojami į UTF-8, separatoriai — į /", () => {
   assert.equal(normalizeGitPath('"AG/tasks/queue/u\\305\\276duotis.md"'), "AG/tasks/queue/užduotis.md");
@@ -107,22 +102,17 @@ test("taskBaselineWasClean: reikalauja task-id atitikmens, validaus baseline ir 
   );
 });
 
-test("worktree policy: parse atmeta nesaugias reikšmes, planas lieka projekto viduje", () => {
+// 2026-08-24: planuoklio teiginiai (`planTaskWorktree`, `planWorktreeCleanup`) pašalinti kartu su
+// pačiu planuokliu — jis buvo be produkcinio kvietėjo. Jo saugos savybė NEPRARASTA: gyvasis kelias
+// (`infrastructure/git/worktrees/worktree-reaper`) prieš destruktyvų `remove` tikrina DVI ribas —
+// projekto ir `WORKTREE_ROOT_DIR` — o planuoklis tikrino tik pirmąją. Politikos parse'as, kuris
+// TURI kvietėją (`wave-scheduler-adapters#loadWorktreePolicy`), toliau tikrinamas čia.
+test("worktree policy: parse atmeta nesaugias reikšmes", () => {
   assert.throws(() => parseWorktreePolicy({}), /enabled must be boolean/);
   assert.throws(() => parseWorktreePolicy({ enabled: true, root: "../pabėgimas" }), /safe relative path/);
 
   const policy = parseWorktreePolicy({ enabled: true, root: ".ag-worktrees", branchPrefix: "AG Task", pathPrefix: "task" });
   assert.equal(policy.branchPrefix, "ag-task");
-
-  const disabled = planTaskWorktree({ projectRoot: "/repo", taskId: "t1", baseRef: "HEAD", policy: { ...policy, enabled: false } });
-  assert.equal(disabled.status, "disabled");
-
-  const plan = planTaskWorktree({ projectRoot: "/repo", taskId: "0042 Didysis", baseRef: "abc", policy });
-  assert.equal(plan.status, "planned");
-  if (plan.status !== "planned") return;
-  assert.equal(plan.branchName, "ag-task/0042-didysis");
-  assert.ok(plan.worktreePath.startsWith(path.resolve("/repo")));
-  assert.deepEqual(plan.create.args.slice(0, 3), ["worktree", "add", "-b"]);
-
-  assert.throws(() => planWorktreeCleanup("/repo", "/kitur/worktree"), /outside the project root/);
+  assert.equal(policy.root, ".ag-worktrees");
+  assert.equal(policy.pathPrefix, "task");
 });

@@ -14,7 +14,18 @@ export const WORKER_LEASE_SCHEMA_VERSION = 1;
 /** Lease galiojimo trukmė. Trumpesnė nei tipinis dispatch, todėl heartbeat privalomas. */
 export const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
 
-/** Kiek laiko lease'o įrašas laikomas po atlaisvinimo (fencing skaitiklio atmintis). */
+/**
+ * Kiek laiko lease'o įrašas laikomas po atlaisvinimo (fencing skaitiklio atmintis).
+ *
+ * BE VYKDYTOJO (įvardyta 2026-08-24, operatoriaus inventorius). Nė vienas kelias `released`
+ * įrašų nešveičia, tad realiai jie laikomi AMŽINAI. Kryptis saugi — ilgesnis saugojimas fencing'ui
+ * tik geriau, nes ištrintas įrašas leistų `fencing_token` skaitliukui pradėti iš naujo ir senas
+ * workeris pratektų pro fencing'ą, — bet `vq/state/worker-leases/` auga be ribos.
+ *
+ * Konstanta NEPAŠALINTA sąmoningai: ji yra vienintelis vietoje užrašytas politikos teiginys, o
+ * šveitėjo įvedimas TRINA runtime būseną ir gali paliesti fencing'ą, tad reikalauja sprendimo,
+ * o ne tylaus pridėjimo. Vieta, kur jis priklausytų — `reapDeadWorkerLeases`.
+ */
 export const RELEASED_LEASE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type WorkerLeaseStatus = "held" | "released";

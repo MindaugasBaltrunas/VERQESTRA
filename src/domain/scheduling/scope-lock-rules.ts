@@ -39,6 +39,15 @@ export type ScopeLockRegistry = {
   locks: ScopeLock[];
 };
 
+/**
+ * BE KVIETĖJO — kaip ir `pruneScopeLocks` (įvardyta 2026-08-24, operatoriaus inventorius).
+ *
+ * Abu yra scope-lock mechanikos dalys, ir jos mirusios ne savaime, o dėl to, kad registro NIEKAS
+ * NEUŽPILDO: `acquireScopeLocksInStore` ir `releaseScopeLocksInStore` produkcinių kvietėjų neturi,
+ * tad `authorizeScopedWrite` skaito amžinai tuščią registrą ir visada leidžia. Kol tas sprendimas
+ * atviras (prijungti ar išimti visą sluoksnį), šių dviejų trynimas pašalintų būtent tas dalis,
+ * kurių prijungimui reikėtų — todėl jos paliktos ĮVARDYTOS, o ne tyliai.
+ */
 export const EMPTY_SCOPE_LOCK_REGISTRY: ScopeLockRegistry = { schema_version: SCOPE_LOCK_SCHEMA_VERSION, locks: [] };
 
 export class ScopeLockError extends Error {}
@@ -192,7 +201,14 @@ export function releaseScopeLocks(registry: ScopeLockRegistry, leaseId: string):
   };
 }
 
-/** Išvalo pasibaigusius lock'us — vienintelis kelias, kuriuo krachas neužrakina scope amžiams. */
+/**
+ * Išvalo pasibaigusius lock'us — vienintelis kelias, kuriuo krachas neužrakina scope amžiams.
+ *
+ * BE KVIETĖJO (įvardyta 2026-08-24) — dėl tos pačios priežasties kaip `EMPTY_SCOPE_LOCK_REGISTRY`:
+ * registro niekas neužpildo, tad nėra ko šveisti. Prijungiant scope lock'us ŠI funkcija privalo
+ * būti prijungta KARTU: be jos pirmas krachas užrakintų scope amžiams, ir gilumo apsauga taptų
+ * gilumo blokada.
+ */
 export function pruneScopeLocks(registry: ScopeLockRegistry, now: Date): ScopeLockRegistry {
   return { schema_version: SCOPE_LOCK_SCHEMA_VERSION, locks: activeScopeLocks(registry, now) };
 }

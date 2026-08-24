@@ -644,6 +644,71 @@ atsakymas, o ne nutrūkęs ryšys.
 - `pnpm test` — **1590/1590**; `pnpm test:ui` — 52/52 failai, **427/427** (+6).
 - `pnpm build:ui` — praeina.
 
+## Dešimtas ratas: keturi OPERATORIAUS radiniai (2026-08-24)
+
+Antras srautas radinių iš žmogaus, žiūrinčio į realų ekraną. Visi keturi tikri, ir vienas jų —
+ne kosmetika.
+
+### 1. Siauras ekranas PASLĖPDAVO ciklo, atnaujinimo ir temos veiksmus
+
+> Siaura apžvalga — vizualiai gera, bet paslepiami ciklo, atnaujinimo ir temos veiksmai.
+
+```css
+@media (max-width: 760px) { header .toolbar > .button { display: none } }
+```
+
+Tai atimdavo **„Sustabdyti ciklą"** — vienintelį veiksmą, kurį UI leidžia BET KURIOJE būsenoje,
+įskaitant `unknown` (paties repo taisyklė: stabdymas nekenksmingas, o antro orkestratoriaus
+paleidimas — reali žala). Kartu dingdavo „Atnaujinti" ir temos jungiklis. Pakaitalo nebuvo jokio.
+
+**Valdiklis, dingstantis be pakaitalo, yra tylus galimybės praradimas, ne prisitaikymas prie
+ekrano.** Juosta nuo šiol LAUŽIASI ir gauna savo eilutę; paslėptas lieka tik dekoratyvus
+skirtukas (`aria-hidden`), kuris laužomoje juostoje nieko neskirtų.
+
+### 2. „Sistema veikia" prieš „1/3 vykdoma"
+
+> Sistema — vidutinė; „Sistema veikia" konfliktuoja su „1/3 vykdoma".
+
+`overall` skaičiuojamas iš DVIEJŲ faktų — ar veikia UI procesas ir ar nėra `unknown` būsenų —
+o antraštė tvirtino „**All** observable runtime components are available". Sustabdytas ciklas į
+verdiktą neįeina, tad ekrane vienu metu stovėdavo teiginys ir jį paneigiantis skaičius.
+
+Tas pats šablonas kaip „Gyvi duomenys": **teiginys, platesnis už savo įrodymą.** Sakinys pakeistas
+į tai, kas realiai patikrinta („sąsaja pasiekiama, ir kiekvienas komponentas pranešė apibrėžtą
+būseną"), o šalia atsirado atskira **ciklo būsena** — nes `1/3` be jos skaitosi kaip gedimas,
+nors sustabdytas ciklas ir nedirbantis vartotojo terminalas yra normalios būsenos. Trys procesai
+NĖRA lygiaverčiai, ir jų sudėjimas į vieną santykį sulygina tai, kas nesulyginama.
+
+### 3. Užduočių stulpeliai per siauri, vardai neįskaitomi
+
+> Užduotys — reikia taisyti; stulpeliai per siauri, failų pavadinimai neįskaitomi.
+> Siauros užduotys — prasta; dviejų stulpelių išdėstymas laužo tekstą.
+
+Šaknis buvo užrašyta pačiame CSS komentare: `minmax(150px, 1fr)` pasirinkta tam, kad **visi
+septyni bucket'ai tilptų į vieną eilutę**. Kaina — 11px šriftu telpa ~20 simbolių, o vardas yra
+`0042-aprasomasis-slug.md`, tad `text-overflow: ellipsis` nukirsdavo būtent SLUG'ą, t. y.
+vienintelę dalį, kuri vieną užduotį skiria nuo kitos.
+
+Stulpelio minimumas nuo šiol yra **vardo reikalavimas, ne bucket'ų skaičiaus**: 260px, bucket'ai
+persineša į dvi eilutes, horizontalaus slinkimo neatsiranda nė viename plotyje. Vardai
+LAUŽIAMI (`overflow-wrap: anywhere`), o ne kerpami — nukirptas vardas atrodo kaip informacija,
+bet jos neneša. `max-height` pakeltas kartu, kad dviejų eilučių įrašas perpus nesumažintų matomų
+užduočių skaičiaus: vienas taisymas neturi pagimdyti kito trūkumo.
+
+### 4. Pasikartojančios nulinės būsenos
+
+> Peržiūros — gera, nors nulinės būsenos kartojamos.
+
+Tuščiame `#/reviews` operatorius matydavo TRIS tą patį sakančius blokus: `ReviewSummary` sakinį,
+`HumanReviewPanel` tuščią būseną ir `PolicyProposalsPanel` inbox-zero. Traukiasi tas, kuris neša
+mažiausiai — hero sakinys; panelė žemiau tą patį pasako su kontekstu ir veiksmais. Skaičius lieka:
+jis yra maršruto antraštė, ne pakartojimas.
+
+### Patikros po dešimto rato
+
+- `pnpm typecheck:ui`, `pnpm test:ui` (52/52 failai, **427/427**), `pnpm build:ui` — praeina.
+- Serverio pusė šiame rate NELIESTA (pakeitimai tik `ui-app/`).
+
 ### Patikros po aštunto rato
 
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.

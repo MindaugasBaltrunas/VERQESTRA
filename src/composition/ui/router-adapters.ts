@@ -33,7 +33,7 @@ import { contextPackFs } from "../quality/readiness-adapters.js";
 import { schedulingFs } from "../loop/adapters.js";
 import { processLifecyclePorts } from "./lifecycle-adapters.js";
 import { dashboardViewPorts } from "./dashboard-adapters.js";
-import { benchmarkReport, reliabilityAnalytics, tokenAnalytics, tokenUsageQuery } from "./analytics-adapters.js";
+import { benchmarkReport, reliabilityAnalytics, tokenAnalytics, tokenUsageQuery, uiLogs } from "./analytics-adapters.js";
 import { decidePolicyProposal, listPolicyProposals, proposePolicyChange } from "./policy-adapters.js";
 import { homedir } from "node:os";
 
@@ -94,6 +94,7 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
     decidePolicyProposal: (verb, decision) => decidePolicyProposal(input.runtimeRoot, verb, decision),
 
     tokenUsage: (query) => tokenUsageQuery(input, query),
+    logs: (query) => uiLogs(input, query),
     tokenAnalytics: () => tokenAnalytics(input),
     reliabilityAnalytics: (fresh) => reliabilityAnalytics(input, fresh),
     benchmarkReport: () => benchmarkReport(input),

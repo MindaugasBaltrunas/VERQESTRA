@@ -125,13 +125,26 @@ export const RuntimePanel = memo(function RuntimePanel({
         <div>
           <p className="usage-eyebrow">{t("Overall status")}</p>
           <h2 id="system-health-title">{t(overall === "healthy" ? "System operational" : overall === "attention" ? "System needs attention" : "System unavailable")}</h2>
+          {/* Sakinys negali tvirtinti daugiau, nei `overall` patikrino. Iki 2026-08-24
+              (operatoriaus radinys) čia buvo „All observable runtime components are available",
+              nors verdiktas remiasi TIK dviem faktais: ar veikia UI procesas ir ar nėra nežinomų
+              būsenų. Sustabdytas ciklas į jį neįeina — todėl ekrane vienu metu stovėdavo
+              „Sistema veikia" ir „1/3 vykdoma", ir puslapis prieštaraudavo pats sau. */}
           <p>{t(overall === "healthy"
-            ? "All observable runtime components are available."
+            ? "The operator interface is available and every component reported a definite state."
             : overall === "attention"
               ? "Core services are available, but some runtime state is not confirmed."
               : "The operator interface runtime is not confirmed as available.")}</p>
         </div>
         <div className="system-health-metrics">
+          {/* Ciklo būsena rodoma ATSKIRAI, nes ji yra vienintelė, kurios operatorius klausia.
+              Be jos `1/3` skaitosi kaip gedimas, nors sustabdytas ciklas ir nedirbantis
+              vartotojo terminalas yra visiškai normalios būsenos: trys procesai NĖRA lygiaverčiai,
+              ir jų sudėjimas į vieną santykį sulygina tai, kas nesulyginama. */}
+          <div>
+            <span>{t("Loop")}</span>
+            <strong>{t(loop?.status === "running" ? "running" : loop?.status === "stopped" ? "stopped" : "unknown")}</strong>
+          </div>
           <div><span>{t("Running")}</span><strong>{running} / {processes.length}</strong></div>
           <div><span>{t("State visibility")}</span><strong>{known} / {processes.length}</strong></div>
         </div>

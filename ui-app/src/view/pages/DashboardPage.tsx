@@ -350,5 +350,18 @@ function QueueSnapshot({ buckets, onNavigate }: { buckets: Array<{ name: string;
 function ReviewSummary({ buckets }: { buckets: Array<{ name: string; totalTasks: number }> }) {
   const { t } = useI18n();
   const human = buckets.find((bucket) => bucket.name === "human-review")?.totalTasks ?? 0;
-  return <section className="review-hero"><div><span>{t("Open decisions")}</span><strong>{human}</strong></div><p>{t(human ? "Review tasks that automation cannot complete without a human decision." : "No tasks currently require a human decision.")}</p></section>;
+  // Nulinė būsena sakoma VIENĄ kartą (2026-08-24, operatoriaus radinys: „nulinės būsenos
+  // kartojamos"). Tuščiame `#/reviews` operatorius matydavo tris tą patį sakančius blokus:
+  // šį sakinį, `HumanReviewPanel` tuščią būseną ir `PolicyProposalsPanel` inbox-zero. Šis
+  // sakinys traukiasi, nes jis neša MAŽIAUSIAI: panelė žemiau tą patį pasako su kontekstu ir
+  // veiksmais. Skaičius lieka — jis yra maršruto antraštė, ne pakartojimas.
+  return (
+    <section className="review-hero">
+      <div>
+        <span>{t("Open decisions")}</span>
+        <strong>{human}</strong>
+      </div>
+      {human > 0 && <p>{t("Review tasks that automation cannot complete without a human decision.")}</p>}
+    </section>
+  );
 }

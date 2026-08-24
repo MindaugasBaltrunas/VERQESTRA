@@ -50,6 +50,11 @@ function world(): World {
     proposePolicyChange: (group, input) => record("propose", { group, input }, { proposal: { group } }),
     decidePolicyProposal: (verb, input) => record("decide", { verb, input }, { proposals: [] }),
     tokenUsage: (query) => record("token-usage", query.toString(), { records: [] }),
+    logs: (query) =>
+      record("logs", query.toString(), query.get("log") === "claude"
+        ? { log: "claude", lines: [], truncated: false }
+        // Nežinomas vardas grąžina `undefined` — maršrutas iš to privalo padaryti 400.
+        : undefined),
     tokenAnalytics: () => record("token-analytics", null, { groups: [], candidates: [], history: [] }),
     reliabilityAnalytics: (fresh) => record("reliability", { fresh }, {}),
     benchmarkReport: () => record("benchmark", null, {}),

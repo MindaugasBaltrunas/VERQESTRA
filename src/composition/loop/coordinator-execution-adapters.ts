@@ -18,6 +18,7 @@ import { resolveLoopDispatchAdapter } from "../../application/task-execution/ada
 import { archiveAutoOpenSpecChangeOnDone } from "../../application/task-execution/openspec-archive.js";
 import { enqueueChildTasks } from "../../application/task-execution/enqueue-child-tasks.js";
 import { routeBlockedTasksToHumanReview } from "../../application/task-execution/task-graph-import.js";
+import { childTaskLedgerPath } from "../../application/task-execution/task-ledger-rules.js";
 import { syncArchitectureTaskCompletion } from "../../application/architecture/task-sync.js";
 import { enforceExecutionBudget } from "../../application/token-governance/tool-budget-gates.js";
 import { buildTaskUsageLedger, parseTaskUsageEntries } from "../../domain/tokens/usage-ledger.js";
@@ -184,7 +185,7 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
     },
     enqueueChildTasks: async (taskId, decision): Promise<ChildTaskEnqueueResult> => {
       const queueDir = path.join(input.agRoot, "tasks", "queue");
-      const ledgerPath = path.join(input.runtimeRoot, "state", "child-tasks.json");
+      const ledgerPath = childTaskLedgerPath(input.runtimeRoot);
       const outcome = await enqueueChildTasks(
         {
           readLedger: async () => {

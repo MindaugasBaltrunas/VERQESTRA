@@ -154,7 +154,12 @@ const lt: Record<string, string> = {
   "System operational": "Sistema veikia",
   "System needs attention": "Sistemai reikia dėmesio",
   "System unavailable": "Sistema nepasiekiama",
+  // 2026-08-24 (operatoriaus radinys): senas sakinys tvirtino daugiau, nei verdiktas tikrino, ir
+  // prieštaravo šalia stovinčiam „1/3 vykdoma". Raktas paliktas — jį dar gali turėti senas `dist`.
   "All observable runtime components are available.": "Visi stebimi vykdymo komponentai yra pasiekiami.",
+  "The operator interface is available and every component reported a definite state.":
+    "Operatoriaus sąsaja pasiekiama, o kiekvienas komponentas pranešė apibrėžtą būseną.",
+  "Loop": "Ciklas",
   "Core services are available, but some runtime state is not confirmed.": "Pagrindinės paslaugos veikia, tačiau dalies vykdymo būsena nepatvirtinta.",
   "The operator interface runtime is not confirmed as available.": "Operatoriaus sąsajos vykdymo aplinka nepatvirtinta kaip pasiekiama.",
   "State visibility": "Būsenos matomumas",

@@ -187,7 +187,8 @@ export type ChildTaskLedgerEntry = {
 };
 
 /**
- * Child-task ledger'io (`vq/state/child-task-ledger.json`) ir eilės failų efektai per portą.
+ * Child-task ledger'io (`vq/state/child-tasks.json`; kelias — `childTaskLedgerPath`) ir eilės
+ * failų efektai per portą.
  * `writeUniqueTaskFile` privalo išlaikyti etalono `writeUniqueFile` semantiką: užimtas vardas
  * gauna `-2` … `-1000` priesagą prieš `.md`, grąžinamas realiai įrašytas kelias.
  */

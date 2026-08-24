@@ -8,9 +8,17 @@ export function taskLedgerPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, "state", "task-ledger.json");
 }
 
-/** Child-task idempotency ledger'io kelias (žr. `enqueue-child-tasks.ts`). */
+/**
+ * Child-task idempotency ledger'io kelias (kvietėjas — `composition/loop/coordinator-execution`).
+ *
+ * 2026-08-24: failo vardas ISTAISYTAS iš `child-task-ledger.json` į `child-tasks.json`, ir funkcija
+ * PRIJUNGTA. Iki tol ji buvo be kvietėjo, o kompozicija tą patį kelią statė inline — su KITU vardu.
+ * Tai buvo spąstai, ne tik dublikatas: kas nors, prijungęs šią „kanoninę" funkciją, būtų nukreipęs
+ * skaitymą į tuščią failą ir TYLIAI praradęs idempotenciją, t. y. vaikinės užduotys būtų įrašytos
+ * į eilę antrą kartą. Pataisytas vardas, o ne gyvasis kelias: taip esama apskaita nelieka orfanu.
+ */
 export function childTaskLedgerPath(runtimeRoot: string): string {
-  return path.join(runtimeRoot, "state", "child-task-ledger.json");
+  return path.join(runtimeRoot, "state", "child-tasks.json");
 }
 
 export type TaskLedgerEntry = {

@@ -1,0 +1,20 @@
+{
+  "task": {
+    "checks": [
+      { "cmd": "pnpm", "args": ["build"] },
+      { "cmd": "pnpm", "args": ["test"] }
+    ]
+  },
+  "feature": {
+    "checks": [
+      { "cmd": "pnpm", "args": ["build"] },
+      { "cmd": "pnpm", "args": ["test"] }
+    ]
+  },
+  "milestone": {
+    "checks": [
+      { "cmd": "pnpm", "args": ["build"] },
+      { "cmd": "pnpm", "args": ["test"] }
+    ]
+  }
+}

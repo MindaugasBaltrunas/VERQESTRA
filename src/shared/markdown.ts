@@ -87,17 +87,48 @@ export function firstHeading(content: string, level: number = 1): string | undef
  */
 export function extractSection(content: string, heading: string): string {
   const lines = splitLines(content);
+  const bounds = findSectionBounds(lines, (line) => line.trim() === heading);
+  return bounds === undefined ? "" : lines.slice(bounds.start + 1, bounds.end).join("\n").trim();
+}
+
+/** Antraštės eilutės indeksas ir pirmoji eilutė PO sekcijos (`end` — eksklusyvus). */
+export type MarkdownSectionBounds = { start: number; end: number };
+
+/**
+ * Sekcijos ribos eilučių indeksais — VIENA vieta, kur gyvena „kur sekcija baigiasi" taisyklė.
+ *
+ * 2026-08-24 (RAG auditas 5): tas pats `findIndex(heading)` + `/^#{1,6}\s/` ciklas buvo užrašytas
+ * PENKIUOSE failuose (`extractSection`, `preflight-rules.backtickBareBullets`,
+ * `claude-preflight.appendSpecSourceRef`, `repair-prompt.replaceOrAppendSection`,
+ * `route-model.stripAgentaiSection`), nors `domain/tasks/sections` antraštė nuo pat pradžių sakė
+ * „never re-derive that rule elsewhere". Kai auditas 4 padarė `extractSection` fence-aware, kitos
+ * keturios kopijos liko aklos — ir kiekviena tyliai savo būdu:
+ *   • `backtickBareBullets` nustodavo backtick'uoti bullet'us po fenced bloko, tad `## Patikra`
+ *     komandos preflight'ui tapdavo nematomos;
+ *   • `appendSpecSourceRef` įterpdavo naują spec ref'ą Į FENCED bloko vidų, kur retrieval jo
+ *     niekada nepamato — tyliai ignoruotas spec šaltinis;
+ *   • `replaceOrAppendSection` perrašydavo sekciją ne ties ta riba, kurią mato `extractSection`;
+ *   • `stripAgentaiSection` išmesdavo per mažai, tad agentų vardai vėl patekdavo į rizikos
+ *     klasifikaciją, nuo kurios TOK-02 juos ir atskyrė.
+ *
+ * Antraštės atitikimas paduodamas predikatu, nes kvietėjai skiriasi (tiksli eilutė vs. šablonas),
+ * bet RIBA yra viena ir ji čia.
+ */
+export function findSectionBounds(
+  lines: readonly string[],
+  matchesHeading: (line: string) => boolean,
+): MarkdownSectionBounds | undefined {
   const fenced = markdownFenceMask(lines);
-  const start = lines.findIndex((line, index) => fenced[index] !== true && line.trim() === heading);
-  if (start === -1) return "";
-  const body: string[] = [];
-  for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line === undefined) break;
-    if (fenced[i] !== true && /^#{1,6}\s/.test(line)) break;
-    body.push(line);
+  const start = lines.findIndex((line, index) => fenced[index] !== true && matchesHeading(line));
+  if (start === -1) {
+    return undefined;
   }
-  return body.join("\n").trim();
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (fenced[index] !== true && /^#{1,6}\s/.test(lines[index] ?? "")) {
+      return { start, end: index };
+    }
+  }
+  return { start, end: lines.length };
 }
 
 /**

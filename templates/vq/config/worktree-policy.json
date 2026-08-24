@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "root": ".ag-worktrees",
+  "branchPrefix": "ag-task",
+  "pathPrefix": "task"
+}

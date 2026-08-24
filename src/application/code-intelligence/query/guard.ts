@@ -3,6 +3,7 @@
 // pakeistas iš `ag code-index build` į engine-neutralų — CLI forma prisistato E5.
 
 import path from "node:path";
+import { extractSection } from "../../../shared/markdown.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
 import { buildCodeIndex } from "../indexing/builder.js";
 import { checkCodeIndexFreshness } from "../store/code-index-store.js";
@@ -30,10 +31,31 @@ export async function assertFreshCodeIndexForGraphAwareTask(
   }
 }
 
+const GRAPH_CONTEXT_REQUEST = /--with-code-graph|code graph context|code graph kontekst|code intelligence/i;
+const INDEX_BUILD_ACTION = /code-index storage|code-index build|Build code-index/i;
+
+/**
+ * Ar task'ui prieš dispatch'ą reikia ŠVIEŽIO code index.
+ *
+ * VIENA vieta (2026-08-24, RAG auditas 5). Iki tol ta pati taisyklė buvo užrašyta DU kartus — čia
+ * ir `quality-gates/preflight` — ir kopijos jau buvo IŠSISKYRUSIOS: preflight nepažino nei
+ * `code intelligence` (tad task'ą, kurį šis vartas dispatch'o metu blokuoja, jis praleisdavo kaip
+ * galiojantį), nei `Build code-index` (tad task'ui, kurio DARBAS yra pastatyti indeksą, jis
+ * priekaištaudavo, kad indeksas nešviežias). Vieno varto dvi taisyklės nesutampa tyliai, kol
+ * kas nors nepaklausia, kuri iš jų teisinga.
+ *
+ * Carve-out'as (`buildsIndex`) skaitomas iš teksto BE `## Neįtraukta` sekcijos. Ta sekcija yra
+ * aiškus NE-tikslas: ten paminėta frazė reiškia „šito NEDAROME", o skaitant ją kartu su visu tekstu
+ * eilutė `- code-index build (jį daro kitas task'as)` IŠJUNGDAVO vartą būtent tam task'ui, kuris
+ * indekso nestato — fail-open per neigimą.
+ */
 export function requiresFreshCodeIndex(taskText: string): boolean {
-  const requestsGraphContext = /--with-code-graph|code graph context|code graph kontekst|code intelligence/i.test(taskText);
-  const buildsIndex = /code-index storage|code-index build|Build code-index/i.test(taskText);
-  return requestsGraphContext && !buildsIndex;
+  if (!GRAPH_CONTEXT_REQUEST.test(taskText)) {
+    return false;
+  }
+  const outOfScope = extractSection(taskText, "## Neįtraukta");
+  const claimedWork = outOfScope.length > 0 ? taskText.replace(outOfScope, "") : taskText;
+  return !INDEX_BUILD_ACTION.test(claimedWork);
 }
 
 /**

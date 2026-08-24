@@ -162,6 +162,11 @@ export async function withOwnedLock<T>(
 /**
  * Atlaisvina lock'ą TIK jei jis vis dar mūsų.
  *
+ * Eksportuota SĄMONINGAI, nors produkcijoje ją kviečia tik `withOwnedLock`: lenktynės, dėl kurios
+ * visa tai atsirado (senasis savininkas atlaisvina PO to, kai lock'ą perėmė kitas), per
+ * `withOwnedLock` neatkuriama — reikia paleisti atlaisvinimą atskirai nuo paėmimo. Tas pats
+ * galioja `stealStaleOwnedLock`. Be jų testas įrodytų tik tai, kad laimingu keliu viskas gerai.
+ *
  * Būtent besąlyginis trynimas čia ir įleisdavo trečią rašytoją. Nesutapęs arba neperskaitytas
  * savininkas reiškia „nebe mūsų" — toks lock'as paliekamas, o jį išvalys stale perėmimas.
  * Klaidos nurauamos: metimas čia užgožtų tikrąjį `work()` rezultatą arba jo klaidą.

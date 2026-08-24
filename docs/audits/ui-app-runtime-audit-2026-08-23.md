@@ -455,3 +455,43 @@ keliu (`humanReviewApprovalMarkerPath`), o pranešama nauju `humanReviewApproval
 
 - `pnpm typecheck`, `pnpm lint` — praeina.
 - `pnpm test` — **1565/1565**; `pnpm test:ui` — 51/51 failai, **417/417**.
+
+## Šeštas ratas: `AG/benchmark` ↔ `ui-app` riba (2026-08-24)
+
+Penktame rate šią ribą ĮVARDIJAU kaip nepatikrintą ir priklausančią BENCH apimčiai. Šeštas ratas
+ją patikrino — nes „įvardyta" nėra „uždaryta", o `#/benchmark` yra ištisas ekranas, kurio wire
+kontraktas niekada nebuvo sulygintas.
+
+### Rezultatas: struktūriškai ŠVARU
+
+Sulyginta laukas į lauką: `ReportIdentity`, `ReportRunFacts`, `ReportMetricRow`,
+`ReportModeSection`, `ReportScenarioSection`, `DistributionStatistics`, `ReportReproduction` —
+visi sutampa su `ui-app` atitikmenimis. Sutampa ir visos trys sąjungos: `EXECUTION_MODES`,
+`COMPARISON_VERDICTS`, `MODE_DIFFERENCE_ASPECTS`.
+
+Viena asimetrija, palikta SĄMONINGAI: paketas raportuoja `compression: ReportCompressionSection`,
+o klientas šio lauko nei tipuoja, nei rodo. Tai ne klaida, o nepadaryta funkcija (kompresijos
+kohortos panelė) — tos pačios klasės kaip trečiame rate rastas `logBytes`. Įvardyta, kad nedingtų.
+
+### Ko trūko: sąjungos buvo persakytos TRIS kartus be varto
+
+Švara be varto yra šios dienos būsena, ne savybė. Kiekviena iš trijų sąjungų gyvena trijose
+vietose — paketo domene (šaltinis), orkestratoriaus DTO sluoksnyje ir `ui-app` tipuose — ir jas
+laikė TIK komentaras „Mirrors `COMPARISON_VERDICTS` of the benchmark package". Paketui pridėjus
+ketvirtą režimą, klientas jį rodytų kaip nežinomą, o abu galai liktų žali — lygiai kaip pirmame
+šio audito rate.
+
+Vartas ne naujas: praplėstas jau egzistavęs `src/tests/benchmark-restated-contracts.test.ts`,
+kurio antraštė šią klasę jau įvardija („Persakymas be saugiklio yra tos pačios klasės ketvirtas").
+Šis — penktas ir didžiausias. Šaltinis skaitomas kaip TEKSTAS, nes importas ir būtų tas pats
+BENCH-1 pažeidimas, dėl kurio persakymas atsirado; `ui-app` — dėl to, kad tai atskiras workspace
+su savo toolchain'u.
+
+Vartas turi DANTIS: `packageLiterals` reikalauja ne tuščios aibės. Be to pakeitus deklaracijos
+formą abi pusės grąžintų `[]`, o `deepEqual([], [])` yra sutapimas be turinio — vartas, kurio
+negalima sulaužyti, nėra vartas.
+
+### Patikros po šešto rato
+
+- `pnpm typecheck`, `pnpm lint` — praeina.
+- `pnpm test` — **1569/1569** (+4); `pnpm test:ui` — 51/51 failai, **417/417**.

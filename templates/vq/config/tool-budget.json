@@ -1,0 +1,12 @@
+{
+  "default": {
+    "browser": false,
+    "scraper": false,
+    "mcp": false,
+    "max_llm_calls": 3,
+    "max_total_llm_calls": 12,
+    "max_total_billable_tokens": 10000000,
+    "max_context_chars": 12000,
+    "max_files": 8
+  }
+}

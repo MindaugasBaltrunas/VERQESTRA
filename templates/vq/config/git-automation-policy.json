@@ -1,0 +1,9 @@
+{
+  "auto_commit_enabled": true,
+  "auto_push_enabled": true,
+  "conventional_commits_required": true,
+  "pr_after_successful_task": true,
+  "pr_requires_create_flag": true,
+  "release_notes_after_final_audit": true,
+  "release_notes_path": "vq/project/release-notes.md"
+}

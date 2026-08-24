@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "features": {
+    "worker_task_ir": false,
+    "compact_dsl": false,
+    "symbol_slices": false,
+    "bash_output_digest": false,
+    "dispatch_tool_schema": false
+  },
+  "canary": {
+    "percent": 0,
+    "salt": "v1"
+  }
+}

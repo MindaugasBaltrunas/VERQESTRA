@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "required": [
+    "verdict",
+    "task_id",
+    "architecture_valid",
+    "was_reformulated",
+    "selected_model",
+    "target_agent_chain",
+    "reason",
+    "claude_task",
+    "child_tasks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["delegate", "reformulate_delegate", "human_review", "reject"]
+    },
+    "task_id": { "type": "string" },
+    "architecture_valid": { "type": "boolean" },
+    "was_reformulated": { "type": "boolean" },
+    "selected_model": {
+      "type": "string",
+      "enum": ["haiku", "sonnet"]
+    },
+    "target_agent_chain": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "architect",
+          "data-model",
+          "coder",
+          "debugger",
+          "tester",
+          "reviewer",
+          "security",
+          "migrator",
+          "schedule-domain",
+          "performance",
+          "i18n",
+          "documenter",
+          "supervisor"
+        ]
+      }
+    },
+    "reason": { "type": "string", "maxLength": 1000 },
+    "claude_task": { "type": "string", "minLength": 20, "maxLength": 5000 },
+    "child_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "claude_task"],
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 3, "maxLength": 120 },
+          "claude_task": { "type": "string", "minLength": 20, "maxLength": 5000 }
+        }
+      }
+    }
+  }
+}

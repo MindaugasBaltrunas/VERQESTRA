@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "required": [
+    "verdict",
+    "task_id",
+    "error_signature",
+    "retry_key",
+    "selected_model",
+    "target_agent",
+    "risk_level",
+    "reason",
+    "claude_repair_task"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["done", "repair", "human_review", "rollback_stop"]
+    },
+    "task_id": { "type": "string" },
+    "error_signature": { "type": "string" },
+    "retry_key": { "type": "string" },
+    "selected_model": {
+      "type": "string",
+      "enum": ["haiku", "sonnet"]
+    },
+    "target_agent": {
+      "type": "string",
+      "enum": [
+        "debugger",
+        "coder",
+        "tester",
+        "reviewer",
+        "security",
+        "migrator",
+        "data-model",
+        "schedule-domain",
+        "i18n",
+        "performance",
+        "documenter",
+        "architect",
+        "supervisor"
+      ]
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "reason": { "type": "string", "maxLength": 1000 },
+    "claude_repair_task": { "type": "string", "maxLength": 4000 }
+  }
+}

@@ -230,7 +230,12 @@ async function matchArchitectureNodes(
   if (graph.kind === "unreadable") {
     // Sugadintas grafas anksčiau tyliai virsdavo „architektūros mazgų nėra" — neatskiriama nuo
     // projekto, kuris grafo tiesiog neturi. Degradacija privalo būti matoma (task 975 taisyklė).
-    return { nodes: [], notes: [`architecture graph unreadable: ${graph.reason}; architecture nodes were skipped`] };
+    //
+    // Priežastis yra UŽDARAS sąrašas, o ne parserio žinutė (2026-08-24, RAG auditas 5). `JSON.parse`
+    // klaidos tekste Node įdeda sugadinto failo IŠTRAUKĄ, o ši pastaba keliauja į `architecture_rules`,
+    // kuris renderyje yra `trusted` blokas be aptvaro — tad svetimas turinys atsidurtų tarp mūsų
+    // pačių nurodymų. Kategorijos operatoriui pakanka: failas įvardytas, gedimo rūšis irgi.
+    return { nodes: [], notes: [`architecture graph unreadable (${graph.reason}); architecture nodes were skipped`] };
   }
 
   const tokens = new Set(targets.flatMap((target) => target.toLowerCase().split(/[^\p{L}\p{N}]+/u)).filter(Boolean));
@@ -251,10 +256,13 @@ function matchesTargetTokens(marker: string, tokens: ReadonlySet<string>): boole
   return words.every((word) => tokens.has(word));
 }
 
+/** Gedimo RŪŠIS, ne jo tekstas: pastaba keliauja į `trusted` renderio bloką. */
+type ArchitectureGraphFailure = "read failed" | "not valid JSON" | "no `nodes` array";
+
 type ArchitectureGraphRead =
   | { kind: "graph"; nodes: Array<{ id: string; label: string }> }
   | { kind: "absent" }
-  | { kind: "unreadable"; reason: string };
+  | { kind: "unreadable"; reason: ArchitectureGraphFailure };
 
 async function readArchitectureGraph(
   fs: ContextPackFileSystemPort,
@@ -263,19 +271,19 @@ async function readArchitectureGraph(
   let raw: string | undefined;
   try {
     raw = await fs.readTextFileIfExists(path.join(projectRoot, "vq", "state", "architecture", "graph.json"));
-  } catch (error) {
-    return { kind: "unreadable", reason: error instanceof Error ? error.message : String(error) };
+  } catch {
+    return { kind: "unreadable", reason: "read failed" };
   }
   if (raw === undefined) return { kind: "absent" };
 
   let parsed: { nodes?: Array<{ id?: unknown; label?: unknown }> };
   try {
     parsed = JSON.parse(raw) as { nodes?: Array<{ id?: unknown; label?: unknown }> };
-  } catch (error) {
-    return { kind: "unreadable", reason: error instanceof Error ? error.message : String(error) };
+  } catch {
+    return { kind: "unreadable", reason: "not valid JSON" };
   }
   if (!Array.isArray(parsed.nodes)) {
-    return { kind: "unreadable", reason: "graph.json declares no `nodes` array" };
+    return { kind: "unreadable", reason: "no `nodes` array" };
   }
   return {
     kind: "graph",

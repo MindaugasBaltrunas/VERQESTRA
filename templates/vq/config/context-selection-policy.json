@@ -1,0 +1,6 @@
+{
+  "max_related_files": 8,
+  "max_tests": 4,
+  "max_spec_fragments": 8,
+  "max_context_chars": 12000
+}

@@ -1,0 +1,9 @@
+{
+  "tiers": ["haiku", "sonnet", "opus", "fable"],
+  "routing": {
+    "version": 1,
+    "_comment": "defer_steps=1 (2026-08-06 tokenų auditas): pirmas repair kartojamas TA PAČIA pakopa, nes pirmoji nesėkmė paprastai mechaninė, o vienas repair dispatch kainuoja 1,9–3,3 mln. tokenų. Eskaluojama nuo antros nesėkmės.",
+    "escalation": { "on_retry": true, "max_tier": "advanced", "defer_steps": 1 },
+    "freeze_escalation_under_budget_pressure": true
+  }
+}

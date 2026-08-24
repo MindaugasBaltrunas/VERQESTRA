@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "owner": "",
+  "repo": "",
+  "base": "main",
+  "head": "",
+  "draft": true,
+  "labels": [],
+  "issueImport": {
+    "enabled": false
+  }
+}

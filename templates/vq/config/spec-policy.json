@@ -1,0 +1,20 @@
+{
+  "required": [
+    "new projects",
+    "new features",
+    "architecture changes",
+    "public API changes",
+    "database changes",
+    "authentication",
+    "authorization",
+    "security work",
+    "cross-scope refactors"
+  ],
+  "optional": [
+    "typo fixes",
+    "small lint fixes",
+    "small test fixes",
+    "local bug fixes without product behavior changes",
+    "documentation wording changes"
+  ]
+}

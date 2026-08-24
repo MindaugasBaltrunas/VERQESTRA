@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "turnLimits": {
+    "small": 20,
+    "medium": 60,
+    "large": 180,
+    "repair": 30,
+    "semanticReview": 12
+  },
+  "perTurnWallclockAllowanceMs": 20000,
+  "dispatchTimeoutOverheadMs": 2400000,
+  "maxDispatchTokens": 10000000,
+  "maxDispatchBillableTokens": 1500000
+}

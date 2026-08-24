@@ -203,7 +203,7 @@ export async function writeScopeLockRegistry(
   await fs.writeTextFileAtomic(file, toPrettyJson(registry));
 }
 
-export const REGISTRY_LOCK_TIMING: OwnedLockTiming = { staleMs: 60 * 1000, retryMs: 50, timeoutMs: 100 * 50 };
+const REGISTRY_LOCK_TIMING: OwnedLockTiming = { staleMs: 60 * 1000, retryMs: 50, timeoutMs: 100 * 50 };
 
 /**
  * Serializuotas read-modify-write; tas pats protokolas kaip lease store lock'e — nuo 2026-08-24

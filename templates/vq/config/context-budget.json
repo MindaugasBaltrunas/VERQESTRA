@@ -1,0 +1,6 @@
+{
+  "max_context_chars": 12000,
+  "max_spec_fragments": 8,
+  "max_file_fragments": 8,
+  "max_files": 8
+}

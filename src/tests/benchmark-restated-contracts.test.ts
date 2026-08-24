@@ -19,7 +19,10 @@ import {
   BENCHMARK_RUN_LEDGER_DIRECTORY,
   RUN_IDENTITY_SUFFIX,
 } from "../application/benchmark/report-provenance.js";
-import { BENCHMARK_PACKAGE_RELATIVE_PATH } from "../application/benchmark/suite-report-view.js";
+import {
+  BENCHMARK_PACKAGE_RELATIVE_PATH,
+  BENCHMARK_REPORT_VERDICTS,
+} from "../application/benchmark/suite-report-view.js";
 import {
   RUN_IDENTITY_RELATIVE_DIRECTORY,
   RUN_IDENTITY_SUFFIX as COMPRESSION_RUN_IDENTITY_SUFFIX,
@@ -112,4 +115,84 @@ test("persakytas ledger'io vardo šablonas yra TAS PATS regex", async () => {
   assert.ok(!pattern.test("run-20260822t141440313z.unmeasured.jsonl"));
   assert.ok(!pattern.test("run-20260822t141440313z.identity.json"));
   assert.ok(!pattern.test("run-20260822t141440313z.claim"));
+});
+
+// ---------------------------------------------------------------------------
+// `#/benchmark` ekrano sąjungos (2026-08-24 UI audito šeštas ratas)
+// ---------------------------------------------------------------------------
+//
+// Tos pačios klasės PENKTAS atvejis, ir didžiausias: `#/benchmark` renderiui reikia trijų
+// sąjungų, ir kiekviena jų persakyta TRIS kartus — paketo domene (šaltinis), orkestratoriaus
+// DTO sluoksnyje ir `ui-app` tipuose. Iki šio varto jas laikė TIK komentaras „Mirrors
+// COMPARISON_VERDICTS of the benchmark package".
+//
+// Sulyginta ranka ir rasta ŠVARU (visos trys sutampa). Bet švara be varto yra šios dienos
+// būsena, ne savybė: paketui pridėjus ketvirtą režimą, klientas jį rodytų kaip nežinomą, o
+// abu galai liktų žali — lygiai kaip pirmame šio audito rate.
+//
+// `ui-app` skaitomas KAIP TEKSTAS dėl tos pačios priežasties kaip paketas: tai atskiras
+// workspace su savo toolchain'u, ir importas iš `src/` sulaužytų jo build'ą.
+
+const PACKAGE_RESULT = path.join(process.cwd(), "AG", "benchmark", "src", "domain", "result.ts");
+const PACKAGE_VERDICT = path.join(process.cwd(), "AG", "benchmark", "src", "domain", "verdict.ts");
+const PACKAGE_EXECUTION_PLAN = path.join(
+  process.cwd(),
+  "AG",
+  "benchmark",
+  "src",
+  "application",
+  "ports",
+  "execution-plan.ts",
+);
+const CLIENT_TYPES = path.join(process.cwd(), "ui-app", "src", "model", "types.ts");
+
+/** Eilučių literalai iš `as const` sąrašo arba iš tipo sąjungos — abi formos duoda tą pačią aibę. */
+function literalsOf(declaration: string): string[] {
+  return [...declaration.matchAll(/"([^"]+)"/g)].map((match) => match[1] as string);
+}
+
+async function packageLiterals(file: string, constant: string): Promise<string[]> {
+  const values = literalsOf(
+    await declared(file, new RegExp(`export const ${constant} = \\[([^\\]]+)\\]`), constant),
+  );
+  // Be šito vartas praeitų TUŠČIOMIS: pakeitus deklaracijos formą abi pusės grąžintų `[]`, o
+  // `deepEqual([], [])` yra sutapimas be turinio. Vartas, kurio negalima sulaužyti, nėra vartas.
+  assert.ok(values.length > 0, `${constant} neišparsinta į literalus — sulyginimas būtų tuščias`);
+  return values;
+}
+
+async function clientUnion(alias: string): Promise<string[]> {
+  return literalsOf(await declared(CLIENT_TYPES, new RegExp(`export type ${alias} =([^;]+);`), alias));
+}
+
+test("persakyti vykdymo režimai sutampa: paketas ↔ ui-app", async () => {
+  assert.deepEqual(
+    await clientUnion("BenchmarkExecutionMode"),
+    await packageLiterals(PACKAGE_RESULT, "EXECUTION_MODES"),
+    "klientas rodytų nežinomą režimą arba praleistų paketo matuojamą",
+  );
+});
+
+test("persakyti verdiktai sutampa visose TRIJOSE vietose", async () => {
+  const packageValues = await packageLiterals(PACKAGE_VERDICT, "COMPARISON_VERDICTS");
+
+  // Orkestratoriaus kopija turi komentarą „Mirrors COMPARISON_VERDICTS of the benchmark package";
+  // nuo šiol tą teiginį laiko vartas, ne komentaras.
+  assert.deepEqual([...BENCHMARK_REPORT_VERDICTS], packageValues);
+  assert.deepEqual(await clientUnion("BenchmarkComparisonVerdict"), packageValues);
+});
+
+test("persakyti režimų skirtumų aspektai sutampa: paketas ↔ ui-app", async () => {
+  const packageValues = await packageLiterals(PACKAGE_EXECUTION_PLAN, "MODE_DIFFERENCE_ASPECTS");
+  const clientDeclaration = await declared(
+    CLIENT_TYPES,
+    /export type BenchmarkModeDifference = \{\s*aspect:([^;]+);/,
+    "BenchmarkModeDifference.aspect",
+  );
+
+  assert.deepEqual(
+    literalsOf(clientDeclaration),
+    packageValues,
+    "BENCH-3 skirtumas su nežinomu aspektu ekrane liktų nepaaiškintas",
+  );
 });

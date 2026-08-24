@@ -6,7 +6,7 @@
 // varyti testais be FS. parseBacktickChecks yra worker-task-ir kompiliatoriaus kanoninis
 // parseris (FQC-12: vienas parseris visame repo).
 
-import { extractSection } from "../../shared/markdown.js";
+import { extractSection, findSectionBounds } from "../../shared/markdown.js";
 import { serializeAgentChain } from "../../domain/policies/agent-selection.js";
 import {
   detectForbiddenDependencyViolations,
@@ -268,15 +268,15 @@ function deriveMissingHardSections(taskText: string): string {
  */
 function backtickBareBullets(text: string, heading: string, kind: "check" | "path"): string {
   const lines = text.split(/\r?\n/);
-  const headingIdx = lines.findIndex((line) => line.trim() === heading);
-  if (headingIdx === -1) {
+  // Riba — `shared/markdown.findSectionBounds` (2026-08-24, RAG auditas 5). Vietinis ciklas buvo
+  // fence-aklas: ```bash blokas su `# ...` eilute nutraukdavo backtick'avimą, ir po jo einančios
+  // `## Patikra` komandos preflight'ui likdavo nematomos.
+  const bounds = findSectionBounds(lines, (line) => line.trim() === heading);
+  if (bounds === undefined) {
     return text;
   }
-  for (let i = headingIdx + 1; i < lines.length; i += 1) {
+  for (let i = bounds.start + 1; i < bounds.end; i += 1) {
     const line = lines[i] ?? "";
-    if (/^#{1,6}\s/.test(line)) {
-      break; // sekanti antraštė baigia sekciją
-    }
     const bullet = line.match(/^(\s*[-*]\s+)(.*\S)\s*$/);
     if (!bullet) {
       continue;

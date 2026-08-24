@@ -148,18 +148,11 @@ const SOURCE_CHANGE_PATTERN =
 // agento VARDO. Prieš klasifikavimą sekcija išmetama.
 function stripAgentaiSection(text: string): string {
   const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((line) => /^##\s*Agentai\b/.test(line.trim()));
-  if (start === -1) {
-    return text;
-  }
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^#{1,6}\s/.test(lines[i]!)) {
-      end = i;
-      break;
-    }
-  }
-  return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+  // Riba — `shared/markdown.findSectionBounds` (2026-08-24, RAG auditas 5). Fence-aklas ciklas
+  // išmesdavo per mažai, tad agentų vardai vėl patekdavo į rizikos klasifikaciją — būtent tai,
+  // nuo ko TOK-02 juos ir atskyrė.
+  const bounds = findSectionBounds(lines, (line) => /^##\s*Agentai\b/.test(line.trim()));
+  return bounds === undefined ? text : [...lines.slice(0, bounds.start), ...lines.slice(bounds.end)].join("\n");
 }
 
 /**

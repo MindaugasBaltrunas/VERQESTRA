@@ -1,0 +1,22 @@
+{
+  "no_secrets_in_repo": true,
+  "blocked_file_patterns": [
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.secret",
+    "*.keystore",
+    "node_modules/**",
+    "dist/**"
+  ],
+  "dangerous_code_patterns": [
+    "eval(",
+    "Function(",
+    "child_process.exec",
+    "powershell -enc",
+    "curl | sh"
+  ]
+}

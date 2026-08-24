@@ -2,7 +2,7 @@
 // orchestrator/tasks/task-repair.ts grynoji pusė, VQ-304 3/3). Failų skaitymo/rašymo
 // apvalkalai (write/read/remove) yra `RepairPromptPort` adapterio (E4) darbas — čia jų nėra.
 import path from "node:path";
-import { extractSection, splitLines } from "../../shared/markdown.js";
+import { extractSection, findSectionBounds, splitLines } from "../../shared/markdown.js";
 import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
 import { parseBacktickChecks } from "../quality-gates/preflight-rules.js";
 
@@ -25,18 +25,14 @@ export function taskRepairPath(runtimeRoot: string, taskId: string): string {
  */
 function replaceOrAppendSection(taskText: string, heading: string, body: string): string {
   const lines = splitLines(taskText);
-  const start = lines.findIndex((line) => line.trim() === heading);
-  if (start === -1) {
+  // Riba — ta pati, kurią mato `extractSection` (2026-08-24, RAG auditas 5): vietinis ciklas buvo
+  // fence-aklas, tad sekcija būdavo perrašoma ne ties ta riba, pagal kurią ją vėliau skaito
+  // kvietėjai.
+  const bounds = findSectionBounds(lines, (line) => line.trim() === heading);
+  if (bounds === undefined) {
     return `${taskText.trimEnd()}\n\n${heading}\n${body}`;
   }
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^#{1,6}\s/.test(lines[i]!)) {
-      end = i;
-      break;
-    }
-  }
-  return [...lines.slice(0, start + 1), body, ...lines.slice(end)].join("\n");
+  return [...lines.slice(0, bounds.start + 1), body, ...lines.slice(bounds.end)].join("\n");
 }
 
 /**

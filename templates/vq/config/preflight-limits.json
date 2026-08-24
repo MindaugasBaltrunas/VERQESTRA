@@ -1,0 +1,11 @@
+{
+  "maxLines": 120,
+  "maxAllowedPaths": 8,
+  "maxDomains": 2,
+  "maxActionBullets": 6,
+  "autoOpenSpec": true,
+  "fastPath": true,
+  "llmMaxTurns": 12,
+  "dispatchMaxTurns": 120,
+  "maxSplitDepth": 3
+}

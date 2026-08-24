@@ -1,0 +1,10 @@
+{
+  "docsSource": {
+    "enabled": false,
+    "allowedDomains": [],
+    "maxSources": 3,
+    "maxSourceTextChars": 20000,
+    "maxSummaryChars": 1000,
+    "maxOutputChars": 5000
+  }
+}

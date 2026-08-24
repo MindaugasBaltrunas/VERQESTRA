@@ -15,7 +15,7 @@ import path from "node:path";
 import { withOwnedLock, type OwnedLockIo, type OwnedLockTiming } from "../../shared/owned-lock.js";
 import { nodeFsAdapter } from "./node-fs-adapter.js";
 
-export const STATE_FILE_LOCK_TIMING: OwnedLockTiming = { staleMs: 30_000, retryMs: 25, timeoutMs: 5_000 };
+const STATE_FILE_LOCK_TIMING: OwnedLockTiming = { staleMs: 30_000, retryMs: 25, timeoutMs: 5_000 };
 
 /** `nodeFsAdapter` → `shared/owned-lock` efektai. Vienintelė vieta, kur šis modulis liečia FS. */
 const stateFileLockIo: OwnedLockIo = {

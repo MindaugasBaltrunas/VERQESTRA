@@ -19,6 +19,7 @@ import {
   type AgentSelection,
 } from "../../domain/policies/agent-selection.js";
 import { classifyTask, type TaskClassification, type TaskClassificationPolicy } from "../../domain/policies/task-classification.js";
+import { requiresFreshCodeIndex } from "../code-intelligence/query/guard.js";
 import { buildTaskSplitPlan, type TaskSplitPlan } from "../task-execution/task-splitting.js";
 import { optimizeTokenBudget, type TokenBudgetDecision } from "../token-governance/token-budget-optimizer.js";
 import type { ContextBudgetSettings } from "../policy-governance/context-budget.js";
@@ -221,8 +222,9 @@ function isInside(root: string, candidate: string): boolean {
   }
 }
 
-export function requiresFreshCodeIndex(taskText: string): boolean {
-  const requestsGraphContext = /--with-code-graph|code graph context|code graph kontekst/i.test(taskText);
-  const buildsIndex = /code-index storage|code-index build/i.test(taskText);
-  return requestsGraphContext && !buildsIndex;
-}
+// `requiresFreshCodeIndex` re-eksportuojamas, o ne užrašytas antrą kartą (2026-08-24, RAG
+// auditas 5). Antra kopija čia egzistavo nuo pat pradžių ir jau buvo išsiskyrusi su kanonine:
+// nepažino nei `code intelligence`, nei `Build code-index`, tad tas pats task'as gaudavo skirtingą
+// atsakymą iš preflight'o ir iš dispatch varto. Jei taisyklė reikalinga dviejose vietose, ji turi
+// būti VIENAS importuojamas modulis, o ne teiginys dviejuose failuose.
+export { requiresFreshCodeIndex };

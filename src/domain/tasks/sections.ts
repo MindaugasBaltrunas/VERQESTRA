@@ -2,13 +2,26 @@
 // answers "give me the body under THIS heading"; compiling a task into a worker IR needs
 // the complementary question — "what sections does this task actually have?" — so an
 // unanticipated heading is preserved verbatim instead of silently disappearing. Boundaries
-// use the exact same rule as extractSection (`/^#{1,6}\s/`, trimmed body) — never
-// re-derive that rule elsewhere. Pure: string in, structure out.
+// use the exact same rule as extractSection (`/^#{1,6}\s/` OUTSIDE fenced code, trimmed
+// body) — never re-derive that rule elsewhere. Pure: string in, structure out.
 // Behaviour etalon: AG_loop domain/tasks/task-sections.ts, pinned by task-sections.json.
+//
+// ## FENCE-AWARE nuo 2026-08-24 (RAG auditas 5, griežtinantis nukrypimas)
+//
+// Antraštė aukščiau visą laiką deklaravo „tą pačią taisyklę kaip extractSection", ir 2026-08-24
+// (auditas 4) ta taisyklė tapo fence-aware TIK vienoje pusėje — tad deklaracija tapo netiesa, o
+// task'ų parsinimas gavo dvi nesutampančias sekcijų ribas. Šis kelias yra jautresnis už
+// `extractSection`, nes iš jo gimsta worker IR, PAKEIČIANTIS neapdorotą task'ą prompte:
+//   • ```bash blokas su `# build` eilute PERSKELDAVO sekciją, tad `## Veiksmas` strukturizuoti
+//     acceptance criteria apsikarpydavo, o likutis atsirasdavo kaip atskiras elementas su
+//     beprasme antrašte;
+//   • užduoties šablonas ```text bloke duodavo ANTRĄ `## Patikra`, ir `duplicate_section`
+//     atmesdavo visą kompiliaciją — kompresija tokiems task'ams tyliai niekada neapsimokėdavo.
+// Fence taisyklė paimama iš `shared/markdown` — ta pati funkcija, ne trečia kopija.
 
-import { splitLines, stripBulletPrefix } from "../../shared/markdown.js";
+import { markdownFenceMask, splitLines, stripBulletPrefix } from "../../shared/markdown.js";
 
-/** Same boundary rule as `extractSection`: any ATX heading, levels 1-6. */
+/** Same boundary rule as `extractSection`: any ATX heading, levels 1-6, outside fenced code. */
 const HEADING_BOUNDARY = /^#{1,6}\s/;
 
 /** A bullet list item line. Non-bullet prose is deliberately NOT an item. */
@@ -83,8 +96,9 @@ export function enumerateTaskSections(taskMarkdown: string): TaskSection[] {
     });
   };
 
-  for (const line of lines) {
-    if (HEADING_BOUNDARY.test(line)) {
+  const fenced = markdownFenceMask(lines);
+  for (const [index, line] of lines.entries()) {
+    if (fenced[index] !== true && HEADING_BOUNDARY.test(line)) {
       flush();
       const parts = HEADING_PARTS.exec(line);
       current = { heading: line.trim(), level: parts?.[1]?.length ?? 1, body: [] };

@@ -164,7 +164,7 @@ export async function listWorkerLeases(fs: SchedulingFileSystemPort, projectRoot
   return leases;
 }
 
-export const LEASE_STORE_LOCK_TIMING: OwnedLockTiming = {
+const LEASE_STORE_LOCK_TIMING: OwnedLockTiming = {
   staleMs: 60 * 1000,
   retryMs: 50,
   // Buvo 100 bandymų po 50 ms — ta pati riba, tik išreikšta laiku, kaip jos ir prašo protokolas.

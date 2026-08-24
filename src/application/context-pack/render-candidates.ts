@@ -8,10 +8,11 @@
 // mazgų etiketės). Failų KELIAI ir mūsų pačių generuotas tekstas lieka `trusted` — žr.
 // `executionContextTrustSchema` paaiškinimą `context-pack-schema` faile.
 
-import type {
-  ContextPack,
-  ExecutionContextPriority,
-  ExecutionContextSection,
+import {
+  SPEC_HEADING_MISS_WARNING,
+  type ContextPack,
+  type ExecutionContextPriority,
+  type ExecutionContextSection,
 } from "./context-pack-schema.js";
 
 export type Candidate = {
@@ -77,6 +78,36 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     body: pack.checks.map((check) => `- \`${check}\``).join("\n"),
   });
 
+  // PRARADIMO įspėjimai stovi PRIEŠ fragmentus ir yra `high` (2026-08-24, RAG auditas 5).
+  //
+  // Iki tol visi paėmimo įspėjimai gulėjo viename `medium` bloke PO fragmentų. `DROP_ORDER` yra
+  // low → medium → high, o metama nuo canonical tvarkos GALO, tad prie ankšto biudžeto eilutė
+  // „spec fragments dropped by the context budget: 2 (…)" iškrisdavo PIRMIAU už pačius fragmentus,
+  // kuriuos ji aprašo. Pack'as sakydavo tiesą, o `execution-context.md` — tai, ką worker'is realiai
+  // skaito, — jos nebeturėdavo. Tai tiksliai ta pati klasė kaip C4 (kirpimo žyma atskirame,
+  // anksčiau iškrentančiame bloke), tik viena pakopa aukščiau.
+  //
+  // Skaidoma pagal PRASMĘ, o ne visas blokas keliamas: „šio įrodymo NĖRA" ir „šis įrodymas
+  // platesnis, nei prašei" reikalauja skirtingų veiksmų ir turi skirtingą vertę prie ankšto
+  // biudžeto. Skirtukas — jau egzistuojantis `SPEC_HEADING_MISS_WARNING` prefiksas, kuriuo
+  // remiasi ir `headingMissCount` telemetrija; naujo kontrakto nekuriama.
+  const headingFallbacks = pack.spec_fragment_warnings.filter((warning) =>
+    warning.startsWith(SPEC_HEADING_MISS_WARNING),
+  );
+  const evidenceLosses = pack.spec_fragment_warnings.filter(
+    (warning) => !warning.startsWith(SPEC_HEADING_MISS_WARNING),
+  );
+
+  pushIfPresent(candidates, {
+    id: "spec-losses",
+    section: "spec",
+    title: "Spec evidence NOT retrieved",
+    priority: "high",
+    reason:
+      "spec sources the task named that are absent from this context; treat the specification below as INCOMPLETE",
+    body: evidenceLosses.map((warning) => `- ${warning}`).join("\n"),
+  });
+
   // Kirpimo žyma gyvena TAME PAČIAME bloke kaip ir fragmentas. Anksčiau ji buvo tik `medium`
   // prioriteto įspėjimų bloke, kuris prie ankšto biudžeto iškrisdavo PIRMIAU už `high`
   // fragmentą — ir worker'is gaudavo nepilną specifikaciją be jokio ženklo, kad ji nepilna.
@@ -107,13 +138,15 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     });
   });
 
+  // Antraštės nepataikymas lieka `medium`: fragmentas pack'e YRA, tik platesnis nei prašyta.
+  // Prie ankšto biudžeto tai vertingiau atiduoti nei patį fragmentą.
   pushIfPresent(candidates, {
     id: "spec-warnings",
     section: "spec",
-    title: "Spec retrieval warnings",
+    title: "Spec heading fallbacks",
     priority: "medium",
     reason: "a spec reference did not resolve exactly; the fragment above may be broader than requested",
-    body: pack.spec_fragment_warnings.map((warning) => `- ${warning}`).join("\n"),
+    body: headingFallbacks.map((warning) => `- ${warning}`).join("\n"),
   });
 
   const codeContext = pack.code_context;

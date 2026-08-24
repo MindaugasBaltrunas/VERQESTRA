@@ -538,3 +538,62 @@ kohortų, apribojimas apie jas yra teiginys apie spragą, kurios nėra — būte
 - `pnpm typecheck` — praeina.
 - `pnpm test` — 1582/1583. **Vienintelis kritimas priklauso lygiagrečiai sesijai**
   (`markdown-readers-real-corpus` — jos RAG audito 5 darbas). Visi UI testai žali.
+
+## Aštuntas ratas: per-srautinės grandinės (2026-08-24)
+
+Aštuntas „mechanizmas be vartotojo" — ir pirmas, kuris ne tylėjo, o **melavo ekrane**.
+
+### Ką serveris siunčia ir ko klientas neskaitė
+
+`/api/events` krovinys nuo daugiaslot'inės bangos neša `slots[]` — kiekvieno gyvo srauto SAVO
+agentų grandinę su `worker_id`, `task_id`, `attempt` ir `log_path`. Serverio `UiSlotActivity`
+komentaras tiksliai pasako, kodėl jis atsirado:
+
+> `AgentActivity` iki daugiaslot'inės bangos buvo projekcija ant VIENO globalaus log'o, kurį
+> lygiagretūs worker'iai perrašo vienas per kitą. Antram slot'ui tai reiškė svetimą grandinę ir
+> svetimą fazę.
+
+Klientas šio lauko **nedeklaravo ir neskaitė**. `slotProgressViewModel` komentaras tai net
+užrašė kaip prielaidą: „Vienas GLOBALUS `AgentActivity` srautas be `worker_id` — susieti su srautu
+galima tik per užduotį." Ta prielaida nustojo galioti tada, kai serveris pradėjo siųsti `slots[]`.
+
+### Pasekmė dviejų srautų bangoje
+
+Grandinė buvo priskiriama spėjant: `correlateActivity` ieško slot'o, kurio `taskId` sutampa su
+GLOBALIOS veiklos `taskId`. Bet globalus `claude-last.log` yra paskutinio rašytojo veidrodis, tad:
+
+- srautas, kuris rašė paskutinis, gaudavo grandinę;
+- **kitas srautas liko be grandinės ir su faze „nežinoma", nors dirbo**;
+- dvi užduotys tuo pačiu vardu duodavo `ambiguous` — grandinės nerodė NIEKAS.
+
+### Taisymas
+
+Per-srautinis įrašas nuo šiol **nugali koreliaciją**: jis ateina iš to srauto bandymo log'o, tad
+priskyrimo klausimo nebelieka. Iš to paties šaltinio imama ir `claudeStatus` — globalaus statuso
+prikabinimas prie savo įrašą turinčio srauto būtų svetimo worker'io būsena.
+
+Trys savybės, kurios yra šio surišimo kontraktas:
+
+1. **Atgaliai suderinama.** Be `slots[]` (senas `dist`, tuščia banga) elgesys NEPAKITĘS — visi 417
+   ankstesnių UI testų liko žali be pataisymų.
+2. **`disconnected` nugali viską.** Nutrūkęs srautas panaikina priskyrimą net turint įrašus:
+   skelbti „prisegta" iš pasenusių duomenų būtų tvirtinimas apie tai, ko nebežinome.
+3. **Vienas kadras — vienas `setState` šaltinis.** Globalus aktyvumas ir `slots[]` imami iš TO
+   PATIES kadro; du atskiri šaltiniai leistų akimirką rodyti naujo kadro grandinę su seno kadro
+   slot'ais.
+
+NELIESTA sąmoningai: `#/` „Active execution" panelė ir toliau rodo GLOBALIĄ grandinę su
+`correlateActivity` atribucija. Ji rodo vieną grandinę, o per-srautinį vaizdą dabar duoda
+`SlotStreamsOverview`; jos pakeitimas būtų dizaino sprendimas, ne defekto taisymas.
+
+### Vartai (aštuntas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `ui-app/src/model/slotProgressViewModel.test.ts` (+4) | kiekvienas srautas gauna SAVO grandinę, ne paskutinio rašytojo; vienodi task vardai nebedaro priskyrimo dviprasmiško; be `slots[]` elgesys nepakitęs (tai ir dokumentuoja SENĄJĮ defektą); `disconnected` panaikina priskyrimą |
+
+### Patikros po aštunto rato
+
+- `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.
+- `pnpm test` — **1587/1587**; `pnpm test:ui` — 51/51 failai, **421/421** (+4).
+- `pnpm build:ui` — praeina.

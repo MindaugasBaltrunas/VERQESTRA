@@ -15,7 +15,6 @@ import { canonicalJsonStringify } from "../../shared/json.js";
 import { toPosixPath as toPosix } from "../../shared/paths.js";
 import {
   isPlaceholderDependency,
-  isSameTask,
   normalizeTaskReference,
   resolveTaskReference,
 } from "../../domain/tasks/dependencies.js";
@@ -193,12 +192,21 @@ export function normalizeSchedulableTasks(tasks: readonly SchedulableTask[]): Sc
     const taskId = normalizeTaskReference(task.task_id);
     if (!taskId || byId.has(taskId)) continue;
 
+    // Savęs nuoroda NEBENUIMAMA (2026-08-24, operatoriaus radinys P2).
+    //
+    // Filtras buvo apsauga iš laikų, kai autoritetas buvo pats `scheduleNextWave`: savęs nuoroda
+    // tada užrakindavo task'ą amžinai. Po DAG suvienijimo grafas yra privalomas įėjimas, ir
+    // `a → a` iškyla kaip `dependency-cycle` blokas iš GRAFO pusės — garsiai ir teisingai. Filtras
+    // nuo tada nebesaugojo nieko, tik apakindavo tapatybę: `computeGraphHash` gaudavo tą patį
+    // įėjimą su briauna ir be jos, tad DU skirtingi grafai turėdavo tą patį `graph_hash` ir tą patį
+    // `wave_id`. Kanoninis hash'as ir `decision_hash` skirdavosi (vykdymo leidimas nesusiliedavo),
+    // bet bangos numeravimas, snapshot'ai ir resume checkpoint'o atitikimas remdavosi melu:
+    // checkpoint'as iš grafo BE self-edge būdavo priimtas prieš grafą SU juo.
+    //
+    // Ta pati logika jau buvo pritaikyta sutrumpintai savęs nuorodai; čia ji užbaigiama.
+    // Placeholder'iai (`none`, `-`, `TBD`) nuimami toliau — jie NĖRA briaunos (PDAG-2).
     const dependencies = [...new Set((task.blocked_by ?? []).map((value) => normalizeTaskReference(value)))]
-      // Savęs nuoroda tikrinama TIKSLIAI. Prefiksinis palyginimas laikė `0042-parent` task'o
-      // `0042-parent-02-child` savęs nuoroda ir tą TEISĖTĄ tėvo→vaiko briauną nuimdavo: vaikas
-      // nepatekdavo į lūžusią šaką, o `graph_hash` briaunos nematydavo. Sutrumpinta savęs nuoroda
-      // (`0042` savo paties faile) dabar lieka briauna → ciklas → blokas: GARSU, o ne tylu.
-      .filter((value) => value && !isPlaceholderDependency(value) && !isSameTask(value, taskId))
+      .filter((value) => value && !isPlaceholderDependency(value))
       .sort();
 
     byId.set(taskId, { task_id: taskId, file: toPosix(task.file), blocked_by: dependencies });

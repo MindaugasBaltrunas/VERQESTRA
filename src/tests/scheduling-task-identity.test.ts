@@ -109,11 +109,18 @@ test("P2: normalizavimas nenuima teisėtos tėvo→vaiko briaunos", () => {
   ]);
   assert.deepEqual(normalized?.blocked_by, [PARENT], "tėvas nėra vaiko savęs nuoroda");
 
-  // Tikra savęs nuoroda vis dar nuimama: be jos task'as užsirakintų amžiams.
+  // APVERSTA 2026-08-24 (operatoriaus radinys, P2). Anksčiau čia buvo tvirtinama, kad tikra savęs
+  // nuoroda NUIMAMA — ir būtent tai apakindavo bangos tapatybę: `computeGraphHash` gaudavo tą patį
+  // įėjimą su `a → a` ir be jo, tad du skirtingi grafai turėdavo tą patį `wave_id`. Nuo tada, kai
+  // autoritetas yra kanoninis grafas, savęs nuorodą uždaro ciklo vartas — garsiai, o ne tyliai.
   const [selfReferencing] = normalizeSchedulableTasks([
     { task_id: CHILD, file: `AG/tasks/queue/${CHILD}.md`, blocked_by: [`AG/tasks/queue/${CHILD}.md`, PARENT] },
   ]);
-  assert.deepEqual(selfReferencing?.blocked_by, [PARENT], "sava nuoroda kelio forma vis dar nuimama");
+  assert.deepEqual(
+    selfReferencing?.blocked_by,
+    [CHILD, PARENT].sort(),
+    "sava nuoroda LIEKA briauna (kelio forma normalizuojama) — ją uždaro ciklo vartas",
+  );
 
   const branch = collectBlockedBranch(
     [

@@ -36,7 +36,12 @@ function schedulable(taskId: string, file: string, blockedBy: readonly string[] 
 // savęs nuoroda nuimama, dublikatui paliekamas pirmas failas. Tai NĖRA leidimo taisyklė ir nuo
 // audito nebeturi paskutinio žodžio: kanoninis grafas tuos pačius atvejus vadina ciklu bei
 // dublikatu ir juos sustabdo (žr. „kanoninis grafas NUGALI atlaidų bangos planuoklį" žemiau).
-test("normalizeSchedulableTasks drops placeholders, self-references and duplicates", () => {
+// APVERSTA 2026-08-24 (operatoriaus radinys, P2). Iki tol šis testas tvirtino, kad savęs nuoroda
+// NUIMAMA — t. y. įtvirtindavo kaip laukiamą tą elgesį, kuris apakindavo bangos tapatybę: du
+// skirtingi grafai (su `a → a` ir be jo) gaudavo tą patį `graph_hash` ir tą patį `wave_id`.
+// Testas nebuvo susilpnintas dėl kodo — pakeistas jo TEIGIAMAS, nes senasis buvo neteisingas.
+// Placeholder'iai ir dublikatai tvarkomi kaip anksčiau; jie tikrai nėra briaunos (PDAG-2).
+test("normalizeSchedulableTasks drops placeholders and duplicates, KEEPS self-reference", () => {
   const tasks = normalizeSchedulableTasks([
     schedulable("0002", "AG/tasks/queue/0002-b.md", ["none", "TBD", "-", "0001", "0002"]),
     schedulable("0001", "AG/tasks/queue/0001-a.md"),
@@ -49,7 +54,11 @@ test("normalizeSchedulableTasks drops placeholders, self-references and duplicat
     "sorted by file, duplicate id dropped (first by file order wins)",
   );
   assert.equal(tasks[0]?.file, "AG/tasks/queue/0001-a.md", "duplicate resolution is file-order deterministic");
-  assert.deepEqual(tasks[1]?.blocked_by, ["0001"], "placeholders and self-reference removed");
+  assert.deepEqual(
+    tasks[1]?.blocked_by,
+    ["0001", "0002"],
+    "placeholders removed; `0002 → 0002` LIEKA — ją uždaro ciklo vartas, o hash'as privalo ją matyti",
+  );
 });
 
 test("scheduleNextWave is deterministic and stamps graph identity", () => {
@@ -104,6 +113,40 @@ test("scheduleNextWave dependency semantics: internal and unresolvable both bloc
     ["0002"],
     "įvykdytas blokatorius atrakina savo priklausinį; `0003` toliau laukia neegzistuojančio `0999`",
   );
+});
+
+// 2026-08-24 (operatoriaus radinys, P2): bangos tapatybė nematė self-edge.
+//
+// `normalizeSchedulableTasks` nuimdavo `a → a` kaip savęs nuorodą, tad `computeGraphHash` gaudavo
+// TĄ PATĮ įėjimą su briauna ir be jos: du skirtingi grafai turėdavo tą patį `graph_hash` ir tą patį
+// `wave_id`. Kanoninis hash'as ir `decision_hash` skirdavosi, tad vykdymo leidimas nesusiliedavo —
+// bet bangos numeravimas, snapshot'ai ir resume checkpoint'o atitikimas remdavosi melu.
+test("self-edge PAKEIČIA bangos tapatybę ir lieka ciklo blokas", () => {
+  const withoutSelf = [schedulable("a", "AG/tasks/queue/a.md"), schedulable("b", "AG/tasks/queue/b.md")];
+  const withSelf = [schedulable("a", "AG/tasks/queue/a.md", ["a"]), schedulable("b", "AG/tasks/queue/b.md")];
+
+  const bare = computeGraphHash(withoutSelf);
+  const looped = computeGraphHash(withSelf);
+  assert.notEqual(looped, bare, "briauna, kurios hash'as nemato, yra tapatybės melas");
+  assert.match(looped, /^wg2:[0-9a-f]{16}$/);
+
+  // Briauna PALIEKAMA, o ne nuimama: filtras buvo apsauga iš laikų, kai autoritetas buvo pati
+  // banga. Dabar `a → a` yra ciklas, ir jo vieta — bloke, ne šiukšlinėje.
+  const [normalized] = normalizeSchedulableTasks(withSelf);
+  assert.deepEqual(normalized?.blocked_by, ["a"], "savęs nuoroda lieka briauna");
+
+  const plan = scheduleNextWave(wavePlanInput({ tasks: withSelf }));
+  assert.deepEqual(
+    plan.blocked.map((task) => `${task.task_id}:${task.reason}`),
+    ["a:dependency-cycle"],
+    "ciklas blokuojamas garsiai",
+  );
+  assert.deepEqual(plan.ready.map((task) => task.task_id), ["b"], "nepriklausoma šaka nesustoja");
+  assert.notEqual(plan.wave_id, scheduleNextWave(wavePlanInput({ tasks: withoutSelf })).wave_id);
+
+  // Placeholder'iai ir toliau NĖRA briaunos (PDAG-2) — kitaip `depends_on: none` sukurtų ciklą.
+  const [placeholder] = normalizeSchedulableTasks([schedulable("a", "AG/tasks/queue/a.md", ["none", "-"])]);
+  assert.deepEqual(placeholder?.blocked_by, []);
 });
 
 test("scheduleNextWave blocked branch: root and transitive dependents never become ready", () => {

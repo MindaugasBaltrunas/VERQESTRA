@@ -1,0 +1,1045 @@
+openapi: 3.1.0
+info:
+  title: AG Mobile Gateway API
+  version: 1.0.0
+  license:
+    name: UNLICENSED
+    identifier: UNLICENSED
+  description: >
+    Remote API for one paired mobile application. AG Loop resources are
+    read-only. Terminal writes target only gateway-owned isolated worktrees.
+servers:
+  - url: https://{gatewayHost}/v1
+    variables:
+      gatewayHost:
+        default: ag-gateway.invalid
+security:
+  - deviceAccessToken: []
+paths:
+  /pairing-challenges/{challengeId}/redeem:
+    post:
+      security: []
+      summary: Redeem a one-time local pairing challenge
+      operationId: redeemPairingChallenge
+      parameters:
+        - $ref: "#/components/parameters/ChallengeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingRedeemRequest"
+      responses:
+        "200":
+          description: Device identity and refresh credential issued once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingRedeemResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /auth/refresh:
+    post:
+      security: []
+      summary: Rotate device-bound access and refresh tokens
+      operationId: refreshDeviceAccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Rotated access and refresh credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /connections/agents:
+    get:
+      summary: List host agent provider connection states
+      operationId: listAgentConnections
+      responses:
+        "200":
+          description: Host-side provider availability without credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgentProviderStatus"
+        "401":
+          $ref: "#/components/responses/Error"
+  /connections/agents/{provider}:
+    post:
+      summary: Begin host-side agent provider authentication
+      operationId: beginAgentConnection
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Host-side provider authentication flow started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProviderStatus"
+        "401":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Disconnect a host agent provider
+      operationId: disconnectAgent
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Host-side provider connection removed when supported.
+        "401":
+          $ref: "#/components/responses/Error"
+  /connections/github:
+    get:
+      summary: Get the sanitized GitHub connection state
+      operationId: getGitHubConnection
+      responses:
+        "200":
+          description: Sanitized GitHub connection status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubConnection"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Begin host-side GitHub authorization
+      operationId: beginGitHubConnection
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Host-side authorization flow started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubConnection"
+        "401":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Revoke the host GitHub connection
+      operationId: disconnectGitHub
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Host credential revoked; repository retained.
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects:
+    get:
+      summary: List registered projects
+      operationId: listProjects
+      responses:
+        "200":
+          description: Registered projects visible to the device.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProjectSummary"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create an empty Git project under an allowed root
+      operationId: createProject
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [workspaceRootId, name]
+              properties:
+                workspaceRootId:
+                  type: string
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      responses:
+        "201":
+          description: Empty Git project created under an allowed root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSummary"
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/dashboard:
+    get:
+      summary: Get the sanitized read-only AG Loop dashboard
+      operationId: getAgLoopDashboard
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Sanitized read-only projection, never the upstream payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgLoopDashboard"
+        "401":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/tasks:
+    get:
+      summary: Get one read-only AG Loop task bucket
+      operationId: getAgLoopTasks
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: bucket
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/TaskBucket"
+      responses:
+        "200":
+          description: Read-only task filenames for one validated bucket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgLoopTaskBucket"
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/logs:
+    get:
+      summary: Get bounded and redacted AG Loop logs
+      operationId: getAgLoopLogs
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: log
+          in: query
+          required: true
+          schema:
+            enum: [claude, orchestrator, checks]
+        - name: lines
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        "200":
+          description: Bounded and redacted log projection.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [log, lines, truncated]
+                properties:
+                  log:
+                    enum: [claude, orchestrator, checks]
+                  lines:
+                    type: array
+                    maxItems: 200
+                    items:
+                      type: string
+                      maxLength: 4096
+                  truncated:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/events:
+    get:
+      summary: Stream sanitized AG Loop activity events
+      operationId: streamAgLoopEvents
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Sanitized SSE AgentActivity stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/policy-controls:
+    get:
+      summary: Get read-only AG Loop policy controls
+      operationId: getAgLoopPolicyControls
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Read-only projection with no route, command or actions.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [groups]
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReadOnlyPolicyGroup"
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/learning:
+    get:
+      summary: Get read-only AG Loop learning data
+      operationId: getAgLoopLearning
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Read-only learning summary and recommendations.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [summary, recommendations]
+                properties:
+                  summary:
+                    type: object
+                    additionalProperties: true
+                  recommendations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReadOnlyLearningRecommendation"
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/token-usage:
+    get:
+      summary: Get bounded AG Loop token usage
+      operationId: getAgLoopTokenUsage
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Bounded sanitized token usage projection.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [records]
+                properties:
+                  records:
+                    type: array
+                    maxItems: 500
+                    items:
+                      type: object
+                      additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/ag-loop/ui/token-analytics:
+    get:
+      summary: Get sanitized AG Loop token analytics
+      operationId: getAgLoopTokenAnalytics
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Sanitized token analytics projection.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions:
+    post:
+      summary: Create an isolated mobile terminal session
+      operationId: createTerminalSession
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTerminalSessionRequest"
+      responses:
+        "201":
+          description: Isolated worktree session created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions/{sessionId}:
+    get:
+      summary: Get a mobile terminal session snapshot
+      operationId: getTerminalSession
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Current terminal session snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions/{sessionId}/input:
+    post:
+      summary: Write idempotent input to the leased mobile terminal
+      operationId: writeTerminalInput
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalInputRequest"
+      responses:
+        "202":
+          description: Input accepted for PTY delivery.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalInputResult"
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions/{sessionId}/resize:
+    post:
+      summary: Resize the leased mobile terminal
+      operationId: resizeTerminal
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/LeaseFence"
+                - type: object
+                  required: [cols, rows]
+                  properties:
+                    cols:
+                      type: integer
+                      minimum: 20
+                      maximum: 500
+                    rows:
+                      type: integer
+                      minimum: 5
+                      maximum: 300
+              unevaluatedProperties: false
+      responses:
+        "204":
+          description: PTY resized.
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions/{sessionId}/signal:
+    post:
+      summary: Signal only the leased mobile terminal process tree
+      operationId: signalTerminal
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/LeaseFence"
+                - type: object
+                  required: [signal]
+                  properties:
+                    signal:
+                      enum: [interrupt, terminate]
+              unevaluatedProperties: false
+      responses:
+        "202":
+          description: Signal accepted for the mobile PTY only.
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions/{sessionId}/close:
+    post:
+      summary: Gracefully close the leased mobile terminal
+      operationId: closeTerminal
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/LeaseFence"
+              unevaluatedProperties: false
+      responses:
+        "202":
+          description: Graceful close requested.
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/terminal-sessions/{sessionId}/lease:
+    post:
+      summary: Renew the mobile terminal control lease before it expires
+      operationId: renewTerminalLease
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/LeaseFence"
+              unevaluatedProperties: false
+      responses:
+        "200":
+          description: Lease extended; leaseId and generation are unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/github:
+    get:
+      summary: Get project GitHub repository status
+      operationId: getProjectGitHubStatus
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Bound repository and branch status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGitHubStatus"
+        "401":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/github/issues/{issueNumber}/import:
+    post:
+      summary: Import a bound GitHub issue
+      operationId: importGitHubIssue
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: issueNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "202":
+          description: Structured issue import accepted.
+        "409":
+          $ref: "#/components/responses/Error"
+  /projects/{projectId}/github/pull-requests:
+    post:
+      summary: Create a pull request from a reviewed session branch
+      operationId: createGitHubPullRequest
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sessionId, title, draft]
+              properties:
+                sessionId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                draft:
+                  type: boolean
+      responses:
+        "201":
+          description: Pull request created from the reviewed session branch.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [number, url, draft]
+                properties:
+                  number:
+                    type: integer
+                  url:
+                    type: string
+                    format: uri
+                  draft:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    deviceAccessToken:
+      type: http
+      scheme: bearer
+      bearerFormat: short-lived-device-JWT
+  parameters:
+    ChallengeId:
+      name: challengeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 160
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        enum: [claude-code, codex]
+  responses:
+    Error:
+      description: Versioned error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: >
+        Attempt budget for this source is exhausted. The gateway rejects the
+        request before reading the body or verifying any device proof.
+      headers:
+        Retry-After:
+          required: true
+          description: Whole seconds the caller must wait before retrying.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    PairingRedeemRequest:
+      type: object
+      additionalProperties: false
+      required: [oneTimeCode, deviceName, devicePublicKey, nonce, proof]
+      properties:
+        oneTimeCode:
+          type: string
+          minLength: 20
+        deviceName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        devicePublicKey:
+          type: string
+          description: Base64url encoded Ed25519 public key.
+        nonce:
+          type: string
+          minLength: 16
+          description: Fresh client nonce included in the canonical pairing transcript.
+        proof:
+          type: string
+          description: Signature over the canonical challenge transcript.
+    PairingRedeemResponse:
+      type: object
+      additionalProperties: false
+      required: [deviceId, principalId, hostFingerprint, tokens]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        hostFingerprint:
+          type: string
+        tokens:
+          $ref: "#/components/schemas/TokenPair"
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [deviceId, refreshToken, nonce, proof]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        refreshToken:
+          type: string
+        nonce:
+          type: string
+        proof:
+          type: string
+    TokenPair:
+      type: object
+      additionalProperties: false
+      required: [accessToken, accessExpiresAt, refreshToken, refreshExpiresAt]
+      properties:
+        accessToken:
+          type: string
+        accessExpiresAt:
+          type: string
+          format: date-time
+        refreshToken:
+          type: string
+        refreshExpiresAt:
+          type: string
+          format: date-time
+    ProjectSummary:
+      type: object
+      additionalProperties: false
+      required: [projectId, name, repository, branch, agLoopUi]
+      properties:
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        repository:
+          type: string
+          description: Logical repository name, never an absolute host path.
+        branch:
+          type: string
+        agLoopUi:
+          enum: [online, offline, not_configured]
+    AgentProviderStatus:
+      type: object
+      additionalProperties: false
+      required: [provider, status]
+      properties:
+        provider:
+          enum: [claude-code, codex]
+        status:
+          enum: [unavailable, authentication_required, ready, busy, error]
+        version:
+          type: string
+    GitHubConnection:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          enum: [disconnected, authorization_required, connected, error]
+        account:
+          type: string
+        authorizationUrl:
+          type: string
+          format: uri
+          description: Short-lived host-generated URL; never a credential.
+    ProjectGitHubStatus:
+      type: object
+      additionalProperties: false
+      required: [repository, branch, dirty, ahead, behind]
+      properties:
+        repository:
+          type: string
+        branch:
+          type: string
+        dirty:
+          type: boolean
+        ahead:
+          type: integer
+          minimum: 0
+        behind:
+          type: integer
+          minimum: 0
+    TaskBucket:
+      enum: [queue, active, delegated, done, error, failed, human-review]
+    AgLoopTaskBucket:
+      type: object
+      additionalProperties: false
+      required: [bucket, tasks, totalCount]
+      properties:
+        bucket:
+          $ref: "#/components/schemas/TaskBucket"
+        tasks:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 255
+        totalCount:
+          type: integer
+          minimum: 0
+    AgLoopDashboard:
+      type: object
+      additionalProperties: false
+      required: [availability, currentTask, queueCounts, runtime, reviewCount, updatedAt]
+      properties:
+        availability:
+          enum: [online, offline]
+        currentTask:
+          type: object
+          additionalProperties: false
+          required: [id, state]
+          properties:
+            id:
+              type: [string, "null"]
+            state:
+              enum: [none, active, stale]
+        queueCounts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        runtime:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, status]
+            properties:
+              name:
+                type: string
+              status:
+                enum: [running, stopped, unknown]
+        reviewCount:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+    ReadOnlyPolicyGroup:
+      type: object
+      additionalProperties: false
+      required: [id, label, controls]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        controls:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, label, value]
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+              value: {}
+    ReadOnlyLearningRecommendation:
+      type: object
+      additionalProperties: false
+      required: [id, status, summary, labels]
+      properties:
+        id:
+          type: string
+        status:
+          enum: [pending, approved, rejected]
+        summary:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+    CreateTerminalSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, workspaceMode, cols, rows]
+      properties:
+        provider:
+          enum: [claude-code, codex]
+        workspaceMode:
+          const: isolated-worktree
+        cols:
+          type: integer
+          minimum: 20
+          maximum: 500
+        rows:
+          type: integer
+          minimum: 5
+          maximum: 300
+    TerminalSession:
+      type: object
+      additionalProperties: false
+      required:
+        [sessionId, projectId, provider, workspaceMode, branch, state, lease, nextSequence]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        provider:
+          enum: [claude-code, codex]
+        workspaceMode:
+          const: isolated-worktree
+        branch:
+          type: string
+        state:
+          enum: [creating, starting, live, interrupting, closing, ended, failed, orphaned]
+        lease:
+          $ref: "#/components/schemas/TerminalLease"
+        nextSequence:
+          type: integer
+          minimum: 1
+    TerminalLease:
+      type: object
+      additionalProperties: false
+      required: [leaseId, ownerDeviceId, generation, expiresAt]
+      properties:
+        leaseId:
+          type: string
+          format: uuid
+        ownerDeviceId:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        expiresAt:
+          type: string
+          format: date-time
+    LeaseFence:
+      type: object
+      required: [requestId, leaseId, leaseGeneration]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        leaseId:
+          type: string
+          format: uuid
+        leaseGeneration:
+          type: integer
+          minimum: 1
+    TerminalInputRequest:
+      allOf:
+        - $ref: "#/components/schemas/LeaseFence"
+        - type: object
+          required: [inputId, source, text]
+          properties:
+            inputId:
+              type: string
+              format: uuid
+            source:
+              enum: [keyboard, voice]
+            text:
+              type: string
+              minLength: 1
+              maxLength: 16384
+      unevaluatedProperties: false
+    TerminalInputResult:
+      type: object
+      additionalProperties: false
+      required: [inputId, status]
+      properties:
+        inputId:
+          type: string
+          format: uuid
+        status:
+          enum: [accepted, written, rejected, unknown]
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, correlationId, recoverable]
+          properties:
+            code:
+              enum:
+                - unauthenticated
+                - forbidden
+                - invalid_request
+                - not_found
+                - project_not_found
+                - host_busy
+                - stale_terminal_lease
+                - duplicate_request
+                - ag_loop_ui_offline
+                - session_not_live
+                - history_truncated
+                - rate_limited
+                - conflict
+                - internal_error
+            message:
+              type: string
+            correlationId:
+              type: string
+              format: uuid
+            recoverable:
+              type: boolean
+              description: >
+                Decided by `code` alone: each code carries exactly one status and
+                one recoverable verdict, so a client may key its retry policy on
+                the code. Wire-visible change from the earlier per-call-site
+                envelopes: a `conflict` raised because a project is not bound to a
+                GitHub repository now reports `recoverable: true`, where it
+                previously reported `false`.

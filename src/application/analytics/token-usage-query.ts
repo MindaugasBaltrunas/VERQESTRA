@@ -75,6 +75,14 @@ export function parseTokenUsageQueryRecords(raw: string | undefined): TokenUsage
 /**
  * Data BE laiko dalies išplečiama iki visos paros. Be to `to=2026-08-23` atmestų VISUS tos dienos
  * įrašus (`"2026-08-23T09:00:00Z" > "2026-08-23"`), t. y. filtras tyliai prarastų paskutinę dieną.
+ *
+ * PARA ČIA YRA UTC PARA, ir tai svarbu žinoti kiekvienam kvietėjui: dashboard'as šia šaka
+ * NESINAUDOJA — `useTokenUsageController` datą paverčia VIETINĖS paros ISO riba dar prieš
+ * užklausą, tad serveris gauna tikslų momentą ir jo neinterpretuoja (tą sulygiavimą laiko
+ * `useTokenUsageController.test.ts` „sends date inputs as inclusive local-day ISO boundaries").
+ * Bet kuris kitas klientas, atsiuntęs plikas `YYYY-MM-DD`, gaus UTC parą — tai KITAS langas nei
+ * matomas dashboard'e, ir jei tokia semantika netinka, riba privalo būti apskaičiuota kvietėjo
+ * pusėje, kur laiko juosta žinoma. Serveris jos nežino ir spėti negali.
  */
 function inclusiveDateBoundary(value: string | undefined, boundary: "start" | "end"): string | undefined {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;

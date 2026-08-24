@@ -40,7 +40,16 @@ export type UiConfigControl = {
   command?: string;
 };
 
-export type PolicyProposalRouting = "queue" | "openspec" | "human-review";
+/**
+ * Maršrutai, kuriuos serveris REALIAI gali atsiųsti (`POLICY_ROUTINGS`).
+ *
+ * `"openspec"` pašalintas 2026-08-24 (dublikatų auditas): serverio `z.enum(POLICY_ROUTINGS)` jo
+ * neleidžia, tad ta reikšmė laidu niekada neatkeliaudavo. Sąjungos narys, kurio wire negali
+ * atnešti, nėra nekaltas — jis kviečia parašyti `if (routing === "openspec")` šaką, kuri niekada
+ * neįvyks, ir atrodys kaip veikianti. Sutapimą su serveriu nuo šiol laiko vartas
+ * (`src/tests/ui-restated-contracts.test.ts`), ne šis komentaras.
+ */
+export type PolicyProposalRouting = "queue" | "human-review";
 
 export type PolicyProposal = {
   policy_file: string;

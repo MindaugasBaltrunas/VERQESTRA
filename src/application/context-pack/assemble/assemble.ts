@@ -154,7 +154,7 @@ export async function assembleContextPack(
   // politikos failą — būtent tą darbą `--no-context-cache` ir turi praleisti. Iki tol raktas buvo
   // skaičiuojamas visada, o naudojamas tik dviejose vietose (`lookup` ir `save`), ir abi jau buvo
   // po `cacheEnabled` sąlyga: visas rinkimas nueidavo į šiukšles.
-  if (cache) {
+  if (cache && cacheEnabled) {
     const cacheSources = await cache.collectSources({
       taskPath,
       taskText,

@@ -34,6 +34,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
     resumeLabel,
     stopLabel,
     agentActivity,
+    agentSlotActivities,
     agentActivityStatus,
     agentActivityError,
     loopControls,
@@ -71,7 +72,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
           slotActivities: agentSlotActivities,
           activityStatus: agentActivityStatus,
         }),
-    [loopControl, waves, agentActivity, agentActivityStatus],
+    [loopControl, waves, agentActivity, agentSlotActivities, agentActivityStatus],
   );
 
   // `Set` per `useMemo`: naujas rinkinys kiekvienam renderiui panaikintų `memo` naudą visoje

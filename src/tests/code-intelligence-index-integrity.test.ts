@@ -60,6 +60,39 @@ test("briaunos TAIKINIO pakeitimas nekeičiant kiekių NEBEPRAEINA kaip švieži
   }
 });
 
+// Trečias tamperinimo vektorius, atskiras nuo briaunos: pakeista FAILO KONTROLINĖ SUMA
+// `files.jsonl` viduje. Kiekiai nesikeičia, schema praeina (sha256 forma teisinga), o `source_hash`
+// skaičiuojamas iš ŠVIEŽIO skenavimo, tad jis irgi nesikeičia — įrašo hash'as į jį nepatenka.
+//
+// Kodėl tai svarbu konkrečiai: `source-slice` tikrina pjūvį prieš BŪTENT šį `CodeIndexFile.hash`
+// (`verifyIndexedFile`: `hash !== indexed.hash` → `stale_file`). Suklastota kontrolinė suma
+// paverstų pasenusį pjūvį „patikrintu", ir worker'is redaguotų pagal tekstą, kurio nebėra.
+test("pakeista FAILO kontrolinė suma indekse NEBEPRAEINA kaip šviežias", async () => {
+  const root = await temporaryRoot("vq-file-hash-tamper-");
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await writeFile(path.join(root, "src", "main.ts"), "export const a = 1;\n", "utf8");
+    await buildCodeIndex(nodeFsTestPort, root);
+    assert.equal((await checkCodeIndexFreshness(nodeFsTestPort, root)).ok, true, "kontrolė: šviežias");
+
+    const filesPath = codeIndexPath(root, "files.jsonl");
+    const rows = (await readFile(filesPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { path: string; hash: string });
+    const tampered = rows.map((row) => (row.path === "src/main.ts" ? { ...row, hash: "0".repeat(64) } : row));
+    assert.equal(tampered.length, rows.length, "reprodukcija privalo išlaikyti įrašų skaičių");
+    assert.notDeepEqual(tampered, rows, "kontrolė: hash'as tikrai pakeistas");
+    await writeFile(filesPath, `${tampered.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf8");
+
+    const freshness = await checkCodeIndexFreshness(nodeFsTestPort, root);
+    assert.equal(freshness.ok, false, "suklastota kontrolinė suma negali praeiti kaip šviežias indeksas");
+    assert.match(freshness.ok ? "" : freshness.reason, /fingerprint/, "gaudo įrašų atspaudas, ne kiekiai");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("src/bin ir src/dist yra produkto kodas, o ne build'o išvestis", async () => {
   const root = await temporaryRoot("vq-scan-scope-");
   try {

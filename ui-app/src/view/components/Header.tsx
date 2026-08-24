@@ -1,6 +1,7 @@
 import { ROUTE_LABELS, type Route } from "../../controller/useRoute";
 import { useThemeController } from "../../controller/useThemeController";
 import { useI18n } from "../../i18n/I18nContext";
+import { MoreMenu } from "./MoreMenu";
 import { useEffect, useRef } from "react";
 
 export type { Route };
@@ -98,6 +99,17 @@ export function Header({
             <button className={`button ghost small-button${language === "en" ? " active" : ""}`} type="button" onClick={() => setLanguage("en")} aria-pressed={language === "en"}>EN</button>
           </div>
           <ThemeToggle />
+          {/* Pilnas ekranų ir įrankių sąrašas. Matomas TIK siaurame ekrane (CSS), kur skirtukų
+              slinkiklis nerodo, kas apskritai yra. */}
+          <MoreMenu
+            activeRoute={activeRoute}
+            onNavigate={onNavigate}
+            onRefresh={onRefresh}
+            onResumeLoop={onResumeLoop}
+            onStopLoop={onStopLoop}
+            canResumeLoop={canResumeLoop}
+            canStopLoop={canStopLoop}
+          />
         </div>
       </div>
     </header>

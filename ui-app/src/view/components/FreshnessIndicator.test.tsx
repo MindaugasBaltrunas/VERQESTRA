@@ -11,7 +11,7 @@ import { FRESHNESS_STALE_AFTER_MS, resolveFreshness } from "./FreshnessIndicator
  */
 
 const NOW = Date.parse("2026-08-24T10:00:00.000Z");
-const base = { status: "live" as const, refreshFailed: false, loadedAt: NOW - 5_000, now: NOW };
+const base = { refreshFailed: false, loadedAt: NOW - 5_000, now: NOW };
 
 describe("resolveFreshness", () => {
   it("šviežias pollingas su gyvu srautu — ir tik jis — yra `live`", () => {
@@ -24,8 +24,12 @@ describe("resolveFreshness", () => {
     expect(resolveFreshness({ ...base, refreshFailed: true }).state).toBe("failed");
   });
 
-  it("nutrūkęs srautas atima šviežumo žodį, bet duomenų neteisingais nedaro", () => {
-    expect(resolveFreshness({ ...base, status: "disconnected" }).state).toBe("stale");
+  it("SRAUTO būsena šviežumo NEBELIEČIA — tai atskiras faktas", () => {
+    // 2026-08-24 (operatoriaus nurodymas): devintame rate nutrūkęs srautas versdavo duomenis
+    // „pasenusiais", nors `/api/dashboard` pollinimas veikia nepriklausomai nuo SSE ir gali būti
+    // sėkmingas tą pačią sekundę. Sulietas ženklas melavo abiem kryptimis.
+    expect(resolveFreshness(base).state).toBe("live");
+    expect("status" in base).toBe(false);
   });
 
   it("praleisti du pollingai paverčia duomenis pasenusiais", () => {

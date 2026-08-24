@@ -3645,6 +3645,73 @@ main {
 
 /* Ženklelio tonas seka JO PAČIO verdiktą: „gyvi" ir „pasenę" negali atrodyti vienodai, kitaip
    tekstas pasikeičia, o ekranas ir toliau atrodo ramus (2026-08-24 operatoriaus radinys). */
+/* --- Signalai, taikiniai ir „Daugiau" meniu (2026-08-24, operatoriaus nurodymai) ---------- */
+
+/* Trys skirtingi faktai stovi šalia, bet kaip ATSKIRI ženklai — ne kaip vienas jungtinis. */
+.page-heading-signals { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.freshness-indicator.stream-disconnected { color: var(--warning, #b45309); }
+.freshness-indicator.stream-disconnected i,
+.freshness-indicator.stream-connecting i { background: currentColor; animation: none; }
+
+/* Užduoties ID ir pavadinimas: ID monospace ir netraukiamas, pavadinimas gauna likusį plotą. */
+.task-list li { display: flex; gap: 6px; align-items: baseline; }
+.task-id { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+.task-name { min-width: 0; }
+
+/* WCAG 2.5.8: paspaudimo taikinys ne mažesnis nei 44px. Kompaktiški mygtukai buvo 32–41px —
+   pakanka pelei, per maža pirštui, ir būtent jie yra dažniausiai spaudžiami valdikliai. */
+.button,
+.small-button,
+.nav-tab,
+.more-menu > summary {
+  min-height: 44px;
+}
+/* Ikoninius/tekstinius taikinius reikia ir horizontaliai: 44px aukštis be pločio vis tiek
+   palieka siaurą juostelę. */
+.button, .small-button { min-width: 44px; }
+
+.more-menu { position: relative; display: none; }
+.more-menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 220px;
+  max-height: 70vh;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.more-menu-heading {
+  margin: 6px 4px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.more-menu-panel nav { display: grid; gap: 2px; }
+.more-menu-item {
+  min-height: 44px;
+  text-align: left;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.more-menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.more-menu-item.active { background: var(--surface-3); font-weight: 600; }
+.more-menu-item:disabled { opacity: 0.45; cursor: default; }
+
 .freshness-indicator.freshness-stale { color: var(--warning, #b45309); }
 .freshness-indicator.freshness-failed { color: var(--error, #b91c1c); }
 .freshness-indicator.freshness-stale i,
@@ -3989,6 +4056,13 @@ main {
   }
   .brand { order: 1; }
   header .toolbar { order: 2; }
+  /* Pilnas ekranų ir įrankių sąrašas atsiranda TIK čia: plačiame ekrane visi devyni skirtukai
+     matomi vienu metu, tad meniu ten būtų antra to paties navigacija. */
+  .more-menu { display: inline-block; }
+  /* Užduočių kategorijos — VIENAS stulpelis. Du siauri stulpeliai laužo tekstą per vidurį ir
+     nesutaupo nieko: bucket'ų yra septyni, tad vertikalus sąrašas vis tiek slenkamas, o
+     kiekvienas jų gauna visą plotį ir tampa įskaitomas. */
+  .workflow-board { grid-template-columns: 1fr; }
   .nav-tabs {
     display: flex;
     order: 3;

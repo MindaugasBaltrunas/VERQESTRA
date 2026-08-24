@@ -370,6 +370,16 @@ const lt: Record<string, string> = {
   // 2026-08-24 (operatoriaus radinys): ženklelis nustojo būti literalu ir dabar sako, kas yra.
   "Data may be stale": "Duomenys gali būti pasenę",
   "updated": "atnaujinta prieš",
+  // 2026-08-24: ryšio aktyvumas, duomenų šviežumas ir sistemos sveikata — trys atskiri ženklai.
+  "Data current": "Duomenys švieži",
+  "Stream live": "Srautas gyvas",
+  "Stream connecting": "Srautas jungiasi",
+  "Stream offline": "Srautas nutrūkęs",
+  "More": "Daugiau",
+  "Screens": "Ekranai",
+  "All screens": "Visi ekranai",
+  "Tools": "Įrankiai",
+  "The stream has no running task": "Srautas nevykdo jokios užduoties",
   "Showing the latest": "Rodomi naujausi",
   "of": "iš",
   "records": "įrašų",

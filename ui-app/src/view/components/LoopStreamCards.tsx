@@ -98,6 +98,17 @@ export const LoopStreamCards = memo(function LoopStreamCards({
       slot.taskId !== null && onFixTask !== undefined && fixableTaskIds?.has(slot.taskId) ? slot.taskId : null;
     const fixBusy = fixableTaskId !== null && pendingActions.has(fixActionId(fixableTaskId));
 
+    /**
+     * Ar srautas apskritai turi ką stabdyti (2026-08-24, operatoriaus nurodymas).
+     *
+     * `drain` ir `abort` veikia VYKDOMĄ bandymą: pirmas jo neužbaigia anksčiau, antras nenutraukia
+     * iš karto — abu tik nebeduoda naujo darbo. Tuščiam srautui jie nekeičia NIEKO, tad aktyvus
+     * mygtukas žada veiksmą, kurio vienintelė galima pasekmė yra tyla. Aktyvus lieka tik
+     * „Tęsti", nes juo atrakinamas anksčiau sustabdytas srautas — ir tai yra veiksmas net tada,
+     * kai užduoties nėra.
+     */
+    const hasWork = slot.taskId !== null;
+
     return (
       <>
         {drainNote && <p className="runtime-explanation">{drainNote}</p>}
@@ -106,8 +117,9 @@ export const LoopStreamCards = memo(function LoopStreamCards({
         <div className="toolbar">
           <button
             className="button ghost small-button" type="button"
-            disabled={!onStopSlot || slot.desired !== "run" || drainBusy}
+            disabled={!onStopSlot || slot.desired !== "run" || drainBusy || !hasWork}
             aria-busy={drainBusy || undefined}
+            title={hasWork ? undefined : t("The stream has no running task")}
             onClick={() => onStopSlot?.(slot.workerId)}
           >
             {t("Stop stream (drain)")}
@@ -144,7 +156,7 @@ export const LoopStreamCards = memo(function LoopStreamCards({
             confirmLabel={t("Confirm abort")}
             cancelLabel={t("Cancel")}
             tone="danger"
-            disabled={!onAbortSlot}
+            disabled={!onAbortSlot || !hasWork}
             busy={abortBusy}
             onConfirm={() => onAbortSlot?.(slot.workerId)}
           />

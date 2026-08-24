@@ -15,6 +15,7 @@ import {
   taskLedgerKey,
   taskNumberFromFilename,
   taskSlug,
+  taskSlugCandidates,
 } from "../domain/tasks/identity.js";
 import {
   DEPENDENCY_PLACEHOLDERS,
@@ -29,6 +30,7 @@ import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   evaluateRepeatedErrorEscalation,
   evaluateRetryLimit,
+  isValidRetryCount,
   normalizeErrorSignature,
   normalizeMaxRetryAttempts,
 } from "../domain/tasks/retry.js";
@@ -63,7 +65,17 @@ test("identity: stem/number/goal/superseded rules and the unified ledger key", (
   assert.ok(isSupersededStub(stub));
   assert.ok(!hasLeadingTaskHeading(stub), "leading heading rule must ignore the demoted # Task");
   assert.deepEqual(identifyTask("0002-x.md", task), { number: 2, goal: "Vienas tikslas" });
-  assert.equal(taskSlug("Sukurti Naują! Modulį"), "sukurti-nauj-modul");
+  // Iki 2026-08-24 čia stovėjo `sukurti-nauj-modul`: `ą` ir `į` NEBUVO pakeistos, o IŠKRISDAVO,
+  // ir žodis nustodavo būti žodžiu. Transliteracija juos išsaugo, o vardas lieka ASCII.
+  assert.equal(taskSlug("Sukurti Naują! Modulį"), "sukurti-nauja-moduli");
+  assert.equal(taskSlug("Įvardyti sąrašą"), "ivardyti-sarasa");
+  assert.equal(taskSlug("Žingsnis su ūkiu ir šešėliu"), "zingsnis-su-ukiu-ir-seseliu");
+  // ASCII pavadinimas nepasikeičia — sena ir nauja taisyklė jam sutampa, tad kandidatas VIENAS.
+  assert.deepEqual(taskSlugCandidates("Plain ASCII title"), ["plain-ascii-title"]);
+  // Lietuviškam — DU: naujas kūrimui, senasis jau esantiems failams atpažinti. Senoji reikšmė
+  // `vardyti-s-ra` čia stovi kaip įrodymas, kaip toli nueidavo praradimas: iš „sąrašą" likdavo
+  // „s-ra".
+  assert.deepEqual(taskSlugCandidates("Įvardyti sąrašą"), ["ivardyti-sarasa", "vardyti-s-ra"]);
 });
 
 test("dependencies: kv/bullet/inline parsing, PDAG-2 placeholders, notice idempotence", () => {
@@ -106,6 +118,24 @@ test("allowed-paths: structured errors, backtick priority, bare tokens, marker l
   const inline = parseAllowedPaths("# Task\n\n## Failai\nLeidžiama: src/a.ts, src/b/**\n");
   assert.ok(inline.ok);
   assert.deepEqual(inline.ok ? inline.value : [], ["src/a.ts", "src/b/**"]);
+});
+
+test("isValidRetryCount: tik NENEIGIAMAS SAUGUS SVEIKASIS yra skaitiklio būsena", () => {
+  assert.equal(isValidRetryCount(0), true);
+  assert.equal(isValidRetryCount(3), true);
+  assert.equal(isValidRetryCount(Number.MAX_SAFE_INTEGER), true);
+
+  // Visos šios formos yra baigtinės — būtent todėl `Number.isFinite` jų nematė (2026-08-24).
+  assert.equal(isValidRetryCount(-5), false, "neigiamas skaitiklis atstato išnaudotą biudžetą");
+  assert.equal(isValidRetryCount(1.5), false, "trupmena nėra bandymų skaičius");
+  assert.equal(isValidRetryCount(1e300), false, "virš MAX_SAFE_INTEGER `x + 1 === x` — kilpa begalinė");
+  assert.equal(isValidRetryCount(Number.MAX_SAFE_INTEGER + 1), false);
+
+  assert.equal(isValidRetryCount("3"), false, "`\"3\" + 1 === \"31\"`");
+  assert.equal(isValidRetryCount(null), false);
+  assert.equal(isValidRetryCount(undefined), false);
+  assert.equal(isValidRetryCount(Number.NaN), false);
+  assert.equal(isValidRetryCount(Number.POSITIVE_INFINITY), false);
 });
 
 test("retry: max-1 dispatch budget semantics and repeated-signature escalation", () => {

@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import { createServer, type RequestListener, type Server } from "node:http";
+import type { Server as HttpsServer, ServerOptions } from "node:https";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import type {
-  GatewayHttpRequest,
-  GatewayHttpResponse,
+import { DeviceAuthService } from "../application/device-auth-service.js";
+import { AtomicJsonDeviceAuthStateStore } from "../infrastructure/atomic-json-device-auth-state-store.js";
+import { InMemoryAuditLog } from "../infrastructure/in-memory-audit-log.js";
+import {
   RemoteGatewayRouter,
+  type GatewayHttpRequest,
+  type GatewayHttpResponse,
 } from "../interfaces/http/remote-gateway-router.js";
-import { createGatewayRequestListener } from "../interfaces/http/tls-gateway-server.js";
+import {
+  createGatewayRequestListener,
+  createGatewayTlsServer,
+  GATEWAY_TLS_LIMITS,
+} from "../interfaces/http/tls-gateway-server.js";
 import { assertEnvelopeMatchesTables } from "./envelope-assertions.js";
 
 /**
@@ -133,5 +144,51 @@ test("a stream that fails mid-flight ends the response instead of writing a seco
     assert.equal(await response.text(), frame);
   } finally {
     await harness.close();
+  }
+});
+
+/**
+ * SKAIDYMAS (VERQESTRA): šis testas atkeliavo iš `remote-gateway-router.test.ts` (etalone 888
+ * eilučių). Jis tikrina TLS serverio fabriką, ne maršrutizatorių — o TLS transportas gyvena
+ * būtent šiame faile. Etalone jis stovėjo pas routerį vien dėl to, kad ten buvo `router`
+ * egzempliorius; čia jis atsiduria prie savo tikrojo subjekto.
+ */
+test("TLS server factory enforces TLS 1.3 and bounded HTTP limits without listening", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ag-mobile-tls-factory-"));
+  try {
+    const router = new RemoteGatewayRouter({
+      deviceAuth: new DeviceAuthService(
+        new AtomicJsonDeviceAuthStateStore(join(directory, "state.json")),
+      ),
+      audit: new InMemoryAuditLog(),
+    });
+    let capturedOptions: ServerOptions | undefined;
+    let capturedListener: RequestListener | undefined;
+    const fakeServer = {
+      maxHeadersCount: 0,
+      headersTimeout: 0,
+      requestTimeout: 0,
+      keepAliveTimeout: 0,
+    } as unknown as HttpsServer;
+    const server = createGatewayTlsServer({
+      certificate: "test-certificate",
+      privateKey: "test-private-key",
+      router,
+      factory: (options, listener) => {
+        capturedOptions = options;
+        capturedListener = listener;
+        return fakeServer;
+      },
+    });
+    assert.equal(server, fakeServer);
+    assert.equal(capturedOptions?.minVersion, "TLSv1.3");
+    assert.equal(capturedOptions?.maxVersion, "TLSv1.3");
+    assert.equal(typeof capturedListener, "function");
+    assert.equal(server.maxHeadersCount, GATEWAY_TLS_LIMITS.maxHeadersCount);
+    assert.equal(server.headersTimeout, GATEWAY_TLS_LIMITS.headersTimeoutMs);
+    assert.equal(server.requestTimeout, GATEWAY_TLS_LIMITS.requestTimeoutMs);
+    assert.equal(server.keepAliveTimeout, GATEWAY_TLS_LIMITS.keepAliveTimeoutMs);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });

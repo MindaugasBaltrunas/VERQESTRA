@@ -21,6 +21,27 @@ export type RetryLimitDecision = {
   remaining: number;
 };
 
+/**
+ * Ar reikšmė gali būti retry skaitiklis (`vq/state/retry-counts.json` vertė).
+ *
+ * NENEIGIAMAS SAUGUS SVEIKASIS. `Number.isFinite` (buvusi patikra trijose vietose) to
+ * neužtikrina, ir kiekviena praleista forma sugenda savaip (2026-08-24, operatoriaus radinys):
+ *
+ *   `-5`  — `applyRetryCountUpdate` klaidos skaitikliui daro `-5 + 1 = -4`, tad reikia 7
+ *           inkrementų iki `2`; task skaitiklį `Math.max(…, 0)` nutempia į 0, t. y. biudžetą
+ *           išnaudojęs task'as gauna ŠVIEŽIĄ. Abiem atvejais limitas leidžia daugiau, nei nustatyta.
+ *   `1.5` — skaitiklis, kuris nėra bandymų skaičius; `Math.floor` žemiau tai UŽMASKUOJA.
+ *   `1e300` — `Number.isFinite` praleidžia, bet virš `MAX_SAFE_INTEGER` galioja `x + 1 === x`:
+ *           skaitiklis NUSTOJA augti ir repair kilpa tampa begaline.
+ *
+ * Žemiau esantys `Math.max`/`Math.floor` yra gilioji gynyba, o ne leidimas priimti šiukšles:
+ * jie normalizuoja reikšmę TYLIAI, o skaitytojo kontraktas reikalauja klaidos — operatoriui
+ * ištrinti failą turi likti sąmoningas sprendimas, ne šalutinis efektas.
+ */
+export function isValidRetryCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 export function normalizeMaxRetryAttempts(value: unknown, fallback = DEFAULT_MAX_RETRY_ATTEMPTS): number {
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number.parseInt(value, 10) : Number.NaN;
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;

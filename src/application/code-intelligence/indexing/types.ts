@@ -57,7 +57,11 @@
 // iš keturių deklaruotų markerių realiai veikė tik `setup.py`. Keičiasi `imports` ir jų briaunos
 // tiems patiems failams, tad tas pats `source_hash` dabar reiškia kitą grafą — MINOR pakanka, nes
 // manifesto forma nesikeičia, o deskriptorius neša versiją ir anuliuoja pack'us pats.
-export const codeIndexVersion = "4.1.0";
+// 4.2.0 (2026-08-24, operatoriaus radinys): projekto manifestai (`.toml`, `.cfg`, `.ini`) tapo
+// INDEKSUOJAMI (`config` kalba). Jie nieko neištraukia, bet KEIČIA ištraukimą — nuo jų priklauso,
+// ar Python absoliutus importas virsta keliu. Zonduojant juos per FS portą rezoliucija keisdavosi,
+// o `source_hash` ne, tad indeksas likdavo klaidingai šviežias. Keičiasi failų sąrašas IR atspaudas.
+export const codeIndexVersion = "4.2.0";
 
 export type CodeIndexLanguage =
   | "typescript"

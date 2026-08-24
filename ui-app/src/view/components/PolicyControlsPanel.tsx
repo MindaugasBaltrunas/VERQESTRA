@@ -81,6 +81,10 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
   const [submitting, setSubmitting] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PolicyFilter>("all");
+  // VIENA sąlyga trims vietoms — mygtuko išjungimui, jo `title` ir paaiškinimui. Trys atskiros
+  // kopijos anksčiau ar vėliau nesutartų, ir mygtukas būtų išjungtas be paaiškinimo arba
+  // atvirkščiai.
+  const reasonMissing = formReason.trim() === "";
   const controls = groups.flatMap((group) => group.controls);
   const editableCount = controls.filter((control) => control.editable).length;
   const pendingCount = controls.filter((control) => control.pending_proposal).length;
@@ -196,7 +200,11 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
               <article key={control.id} className={`policy-control-card${control.pending_proposal ? " is-pending" : ""}`}>
                 <div className="policy-control-topline">
                   <div>
-                    <div className="metric-label">{t(control.label)}</div>
+                    {/* Vardas turi `id`, nes formos laukai jį pasiima į savo PRIEINAMĄ vardą
+                        (`aria-labelledby`): matoma etiketė sako „Nauja reikšmė", o ekrano
+                        skaitytuvas girdi „Maksimalūs bandymai Nauja reikšmė". Pakartoti vardą
+                        matomai būtų triukšmas — jis stovi tiesiai virš lauko. */}
+                    <div className="metric-label" id={`${control.id}-name`}>{t(control.label)}</div>
                     <code>{control.id}</code>
                   </div>
                   <Badge text={control.editable ? t("Editable") : t("Read-only")} variant="neutral" />
@@ -240,10 +248,19 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                       void handleSubmit(control.route!, control.id, control.value);
                     }}
                   >
+                    {/* MATOMA ETIKETĖ, ne placeholder (2026-08-24, operatoriaus radinys).
+                        Placeholder dingsta vos pradėjus rašyti, tad laukas, į kurį jau kažkas
+                        įvesta, nebeturi vardo — o būtent tada jo reikia, tikrinant prieš siunčiant.
+                        `aria-label` tą vardą duodavo tik ekrano skaitytuvui; regintis operatorius
+                        jo neturėjo. `<label for>` aptarnauja abu, tad `aria-label` nebereikia. */}
+                    <label className="policy-field-label" id={`${control.id}-value-label`} htmlFor={`${control.id}-value`}>
+                      {t("New value")}
+                    </label>
                     {availableValues(control).length > 0 ? (
                       <div className="policy-field-with-help">
                         <select
-                          aria-label={`${control.label} ${t("New value").toLowerCase()}`}
+                          id={`${control.id}-value`}
+                          aria-labelledby={`${control.id}-name ${control.id}-value-label`}
                           value={formValue}
                           onChange={(e) => setFormValue(e.target.value)}
                           disabled={submitting}
@@ -258,20 +275,28 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                       </div>
                     ) : (
                       <input
-                        aria-label={`${control.label} ${t("New value").toLowerCase()}`}
+                        id={`${control.id}-value`}
+                        aria-labelledby={`${control.id}-name ${control.id}-value-label`}
                         type="text"
                         value={formValue}
                         onChange={(e) => setFormValue(e.target.value)}
-                        placeholder={t("New value")}
                         disabled={submitting}
                       />
                     )}
+                    {/* Priežastis pažymėta privaloma TEN, kur ji prašoma. Iki šiol vienintelis
+                        ženklas, kad jos trūksta, buvo išjungtas mygtukas — reikalavimas, kurį
+                        operatorius turėjo atspėti. */}
+                    <label className="policy-field-label" id={`${control.id}-reason-label`} htmlFor={`${control.id}-reason`}>
+                      {t("Change reason")} <span className="policy-required">{t("(required)")}</span>
+                    </label>
                     <textarea
-                      aria-label={`${control.label} ${t("Change reason").toLowerCase()}`}
+                      id={`${control.id}-reason`}
+                      aria-labelledby={`${control.id}-name ${control.id}-reason-label`}
                       value={formReason}
                       onChange={(e) => setFormReason(e.target.value)}
-                      placeholder={t("Reason")}
                       rows={2}
+                      required
+                      aria-describedby={reasonMissing ? `${control.id}-reason-help` : undefined}
                       disabled={submitting}
                     />
                     <p className="policy-form-preview">
@@ -287,7 +312,10 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                       <button
                         className="button small-button"
                         type="submit"
-                        disabled={submitting || !formReason.trim()}
+                        disabled={submitting || reasonMissing}
+                        // Išjungtas mygtukas privalo pasakyti KODĖL: kitaip jis neatskiriamas nuo
+                        // sugedusio. Priežastis pasiekiama ir užvedus, ir tekstu žemiau.
+                        title={reasonMissing ? t("Enter a reason for the change") : undefined}
                       >
                         {submitting ? t("Sending...") : t("Send")}
                       </button>
@@ -300,6 +328,11 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                         {t("Cancel")}
                       </button>
                     </div>
+                    {reasonMissing && (
+                      <p className="policy-form-help" id={`${control.id}-reason-help`}>
+                        {t("Enter a reason for the change")}
+                      </p>
+                    )}
                   </form>
                 )}
               </article>

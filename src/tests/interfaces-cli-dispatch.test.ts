@@ -135,6 +135,17 @@ test("loop-preconditions: dirty produkto medis, stale index.lock ir stable-ref b
 // retry-counts
 // ---------------------------------------------------------------------------
 
+test("retry-counts: NEIGIAMAS skaitiklis mutacijoje nebeduoda papildomų bandymų", () => {
+  // 2026-08-24 (operatoriaus radinys): `finiteCount` praleisdavo `-5`, tad klaidos skaitiklis
+  // eidavo `-5 → -4 → … ` ir limito `2` pasiekdavo tik po 7 inkrementų. Dabar netinkama reikšmė
+  // normalizuojama į 0, t. y. pirmas inkrementas duoda 1, o ne -4.
+  const counts: Record<string, number> = { "task:0042": -5, "error:type-error": -5 };
+  const update = applyRetryCountUpdate(counts, "0042", "type-error");
+  assert.equal(update.errorCount, 1, "neigiamas klaidos skaitiklis nebetęsiamas nuo -4");
+  assert.equal(update.taskCount, 1);
+  assert.ok(update.errorCount > 0 && update.taskCount > 0, "joks skaitiklis nelieka neigiamas");
+});
+
 test("retry-counts: legacy raktų migracija, max taisyklė ir store round-trip", async () => {
   const counts: Record<string, number> = { "0042": 2, "0042:senas-err": 1, "error:kitas": 5 };
   const update = applyRetryCountUpdate(counts, "0042", "type-error");

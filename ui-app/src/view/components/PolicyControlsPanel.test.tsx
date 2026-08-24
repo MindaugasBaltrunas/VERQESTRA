@@ -47,8 +47,10 @@ describe("PolicyControlsPanel", () => {
     render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Propose change" })[0]);
-    fireEvent.change(screen.getByLabelText("Maksimalūs bandymai new value"), { target: { value: "7" } });
-    fireEvent.change(screen.getByLabelText("Maksimalūs bandymai change reason"), {
+    // Prieinamas vardas tebeturi valdiklio vardą, tik dabar jį duoda MATOMOS etiketės
+    // (`aria-labelledby`), o ne nematomas `aria-label`: placeholder dingdavo vos pradėjus rašyti.
+    fireEvent.change(screen.getByLabelText("Maksimalūs bandymai New value"), { target: { value: "7" } });
+    fireEvent.change(screen.getByLabelText(/Maksimalūs bandymai Change reason/), {
       target: { value: "Didesnė tolerancija" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -68,8 +70,8 @@ describe("PolicyControlsPanel", () => {
     render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Propose change" })[1]);
-    fireEvent.change(screen.getByLabelText("Griežtas režimas new value"), { target: { value: "false" } });
-    fireEvent.change(screen.getByLabelText("Griežtas režimas change reason"), {
+    fireEvent.change(screen.getByLabelText("Griežtas režimas New value"), { target: { value: "false" } });
+    fireEvent.change(screen.getByLabelText(/Griežtas režimas Change reason/), {
       target: { value: "Laikinas pakeitimas" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));

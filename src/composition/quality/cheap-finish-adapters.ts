@@ -18,7 +18,7 @@
 
 import path from "node:path";
 import type { CheapFinishMarker, CheapFinishPort } from "../../application/task-execution/run-coordinator-ports.js";
-import { incrementTaskRetryCount } from "../../application/task-execution/retry-counts.js";
+import { incrementTaskRetryCount, isValidRetryCount } from "../../application/task-execution/retry-counts.js";
 import { evaluateRetryLimit } from "../../domain/tasks/index.js";
 import { AUTO_ESCALATION_CEILING, loadRoutingPolicy, ROUTING_TIERS, routeModel } from "../../application/token-governance/route-model.js";
 import { routingTierRank, type RoutingTier } from "../../domain/tokens/routing-tier.js";
@@ -145,7 +145,9 @@ export function cheapFinishPort(input: CheapFinishAdapterInput, overlay: CheapFi
     async retryBudget(taskId) {
       const counts = await retryCountsStore(runtimeRoot).read();
       const raw = counts[`task:${taskId}`];
-      const count = typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+      // Ta pati taisyklė kaip skaitytojo vartuose ir mutacijos normalizatoriuje: `Math.max`/
+      // `Math.floor` čia UŽMASKUODAVO `-5` ir `1.5` vietoj to, kad juos atmestų kaip būseną.
+      const count = isValidRetryCount(raw) ? raw : 0;
       // TA PATI aritmetika kaip retry vartuose: skaitiklis didinamas PRIEŠ dispatch'ą, tad
       // „kitas bandymas" yra `count + 1`.
       const next = evaluateRetryLimit(count + 1, await maxRetriesPerError(runtimeRoot));

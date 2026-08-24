@@ -29,7 +29,10 @@ describe("RuntimePanel", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "System needs attention" })).toBeInTheDocument();
+    // Antraštė įvardija tai, ką `overall` PATIKRINO (UI procesą ir būsenų žinomumą), o ne
+    // „sistemą": „Sistema veikia" šalia „Ciklas: sustabdytas" ir „1 / 3" skaitėsi kaip
+    // prieštaravimas, nors abu teiginiai teisingi.
+    expect(screen.getByRole("heading", { name: "Runtime state is incomplete" })).toBeInTheDocument();
     expect(screen.getByText("1 / 3")).toBeInTheDocument();
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
     expect(screen.getByText("D:/project")).toBeInTheDocument();

@@ -6,7 +6,7 @@
 // AG/spec ir AG/openspec abu eina per bendrą `parseSpecTaskLines`.
 
 import path from "node:path";
-import { taskSlug } from "../../domain/tasks/identity.js";
+import { taskSlug, taskSlugCandidates } from "../../domain/tasks/identity.js";
 import { taskBuckets, type TaskBucket } from "../../domain/tasks/buckets.js";
 import { parseSpecTaskLines } from "../task-planning/spec-task-lines.js";
 
@@ -14,7 +14,8 @@ const incompleteBuckets = ["active", "delegated", "error", "failed", "human-revi
 const statusFiles = ["project/status.md", "project/next-tasks.md"] as const;
 
 type ActiveSpec = { id: string; changeDir: string; provider: "AG/spec" | "AG/openspec" };
-type PlannedTask = { title: string; slug: string; queueId?: string; complete?: boolean };
+/** `slug` — kanoninis (ataskaitoms); `slugs` — jis plius senasis, TIK atpažinimui. */
+type PlannedTask = { title: string; slug: string; slugs: string[]; queueId?: string; complete?: boolean };
 
 export type ConvergeIssue = {
   kind: "missing-task" | "incomplete-work" | "stale-status";
@@ -125,6 +126,7 @@ async function readPlannedTasks(ports: ConvergePorts, spec: ActiveSpec): Promise
     return {
       title: task.title,
       slug: taskSlug(task.title),
+      slugs: taskSlugCandidates(task.title),
       ...(queueId === undefined ? {} : { queueId }),
       ...(task.complete === undefined ? {} : { complete: task.complete }),
     };
@@ -143,10 +145,17 @@ async function readTaskFiles(ports: ConvergePorts, agRoot: string): Promise<Reco
 
 // `hasTaskFile` sąmoningai lieka substring (`file.includes(slug)`) match — task failo vardas
 // turi papildomą `<NNN>-` prefiksą ir gali būti apkarpytas, tad tikslus lygumas netiktų.
+//
+// Slug'ų yra DU (2026-08-24): dabartinis, transliteruojantis lietuviškas raides, ir senasis, kuris
+// jas išmesdavo. Jau esantys failai sukurti pagal senąjį, ir jų niekas nepervadina, tad
+// atpažinimas privalo priimti abu — kitaip `converge` kiekvieną lietuvišką užduotį paskelbtų
+// dingusia tą pačią akimirką, kai pasikeitė vardų taisyklė.
 function hasTaskFile(task: PlannedTask, taskFiles: Record<TaskBucket, string[]>): boolean {
   return taskBuckets.some((bucket) =>
     taskFiles[bucket].some(
-      (file) => (task.queueId !== undefined && file.toLowerCase().startsWith(`${task.queueId}-`)) || file.includes(task.slug),
+      (file) =>
+        (task.queueId !== undefined && file.toLowerCase().startsWith(`${task.queueId}-`)) ||
+        task.slugs.some((slug) => file.includes(slug)),
     ),
   );
 }

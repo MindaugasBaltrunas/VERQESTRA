@@ -58,7 +58,7 @@ function uniqueSymbols(symbols: readonly CodeIndexSymbol[]): CodeIndexSymbol[] {
 function extract(file: CodeIndexFile, text: string, context: LexicalIndexContext): LanguageIndexResult | undefined {
   switch (file.language) {
     case "python":
-      return indexPythonSource(file, text, context.knownPaths, context.pythonRoots ?? new Set());
+      return indexPythonSource(file, text, context.knownPaths);
     case "php":
       return indexPhpSource(file, text, context.knownPaths, context.psr4);
     case "csharp":

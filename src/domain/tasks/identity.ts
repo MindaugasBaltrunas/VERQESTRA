@@ -143,15 +143,73 @@ export function identifyTask(fileOrPath: string, content: string): TaskIdentity 
 }
 
 /**
+ * Diakritiniai ženklai → ASCII pagrindas (2026-08-24, operatoriaus radinys: „užduočių tekstuose
+ * dingsta lietuviškos raidės").
+ *
+ * `[^a-z0-9]` kiekvieną `ą č ę ė į š ų ū ž` pavertė brūkšneliu, tad „Įvardyti sąrašą" virsdavo
+ * `vardyti-sara` — raidės ne pakeičiamos, o IŠKRENTA, ir žodis nustoja būti žodžiu. Vardas
+ * sąraše yra vienintelis dalykas, kuris vieną užduotį skiria nuo kitos, tad tai ne kosmetika.
+ *
+ * Sprendimas yra transliteracija, ne ne-ASCII vardai: failų vardai lieka ASCII (jie keliauja per
+ * git, Windows ir POSIX), o žodis lieka perskaitomas — `ivardyti-sarasa`.
+ *
+ * NFD suskaido raidę į bazę + kirtį, tad bendrieji Europos diakritikai (á, ö, ç) susitvarko
+ * savaime; `ė ų ū` po NFD irgi virsta `e u u`. Lieka tik tai, ko Unikodas neskaido — `ž š č`
+ * turi savo bazes, o vokiškas `ß` ir šiaurietiškos `ø æ` bazės neturi visai.
+ */
+const SLUG_TRANSLITERATION: ReadonlyArray<readonly [RegExp, string]> = [
+  [/[žźż]/g, "z"],
+  [/[šśş]/g, "s"],
+  [/[čćç]/g, "c"],
+  [/[ñń]/g, "n"],
+  [/[đð]/g, "d"],
+  [/ß/g, "ss"],
+  [/[øœ]/g, "o"],
+  [/æ/g, "ae"],
+  [/ł/g, "l"],
+  [/þ/g, "th"],
+];
+
+/** `Įvardyti sąrašą` → `ivardyti-sarasa`. Rezultatas visada ASCII. */
+export function transliterateForSlug(value: string): string {
+  let normalized = value.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  for (const [pattern, replacement] of SLUG_TRANSLITERATION) {
+    normalized = normalized.replace(pattern, replacement);
+  }
+  return normalized;
+}
+
+/**
  * Stable kebab-case slug for a task title, matching the task-splitter filename
  * normalization. `maxLength` reproduces a caller-specific cap (48 filenames, 56 matching).
  */
 export function taskSlug(title: string, maxLength: number = DEFAULT_TASK_SLUG_MAX_LENGTH): string {
   return (
-    title
-      .toLowerCase()
+    transliterateForSlug(title)
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, maxLength) || "task"
   );
+}
+
+/**
+ * Slug'ai, kuriais galima ATPAŽINTI jau esantį failą: dabartinis ir senasis (iki transliteracijos).
+ *
+ * Be šito `converge` kiekvieną lietuvišką užduotį, sukurtą pagal senąją taisyklę, paskelbtų
+ * dingusia: jos failo varde yra `vardyti-sara`, o planas dabar skaičiuoja `ivardyti-sarasa`.
+ * Kūrimas naudoja TIK naują formą — senoji lieka vien atpažinimui, ir nė vienas failas
+ * nepervadinamas.
+ */
+export function taskSlugCandidates(
+  title: string,
+  maxLength: number = DEFAULT_TASK_SLUG_MAX_LENGTH,
+): string[] {
+  const legacy =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, maxLength) || "task";
+  const current = taskSlug(title, maxLength);
+  return current === legacy ? [current] : [current, legacy];
 }

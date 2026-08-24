@@ -1098,3 +1098,104 @@ sluoksnių (`application/scheduling`, `interfaces/http`, `ui-app` tipų).
 - Tarpiniuose bėgimuose matyti svetimi kritimai (`shared-owned-lock`, `contract-mobile-dashboard`,
   `characterization-code-index`), atsirandantys ir dingstantys tarp bėgimų — lygiagreti sesija
   commit'ina to paties bėgimo metu. Nė vienas jų nėra šio rato failuose.
+
+---
+
+## Septynioliktas ratas (2026-08-24) — šeši operatoriaus radiniai iš ekrano
+
+Visi šeši uždaryti. Keturiuose iš jų šaknis buvo NE ta, kurią rodė simptomas.
+
+### P1 — „Srautas gyvas" prieštarauja sustabdytam ciklui
+
+Ženklas visą laiką sakė tiesą apie `/api/events` ryšį. Prasilenkė ŽODIS: lietuviškai „srautas"
+šiame produkte jau reiškia ciklo slot'ą — „Ciklo srautai", „Stabdyti visus srautus", „Srautas 1".
+Todėl „Srautas gyvas" prie nulio veikiančių slot'ų skambėjo kaip teiginys, kad ciklas dirba.
+
+Vienuoliktas ratas atskyrė tris faktus (šviežumas / ryšys / sveikata) ir tai buvo teisinga; ko jis
+nepadarė — nepatikrino, ar lietuviškas ženklo vardas neužima jau užimtos vietos. Ženklas dabar
+vadinasi „Ryšys gyvas / Jungiamasi / Ryšys nutrūkęs". Tikslus daiktavardis yra visas taisymas.
+
+### P1 — „Sistema veikia" prieštarauja 1/3
+
+Dešimtas ratas šį patį konfliktą jau taisė — bet pakeitė tik SAKINĮ po antrašte, o skaitomas
+dydis ekrane yra H2. `overall` remiasi TIK dviem faktais: ar veikia UI procesas ir ar nėra
+`unknown` būsenų; sustabdytas ciklas į verdiktą neįeina. Antraštė dabar įvardija tai, ką realiai
+patikrino — „Valdymo sąsaja pasiekiama". Ji ir „Ciklas: sustabdytas" viena kitai neprieštarauja.
+
+**Pamoka:** taisant „teiginys platesnis už savo įrodymą", taisyti reikia DIDŽIAUSIĄ teiginį
+puslapyje, ne pirmą rastą.
+
+### P1 — mobili lipni antraštė 230 px (27,3 % ekrano)
+
+Tai buvo trys sudėtos eilutės: prekės ženklas, laužoma įrankių juosta ir devynių skirtukų
+slinkiklis. Lipnaus elemento kaina mokama visą laiką, tad jame liko tik tai, be ko negalima
+dirbti: kuriame ekrane esu ir kaip patekti į bet kurį kitą (~56 px).
+
+Skirtukai ir juosta siaurame ekrane paslepiami — o tai TIKSLIAI tai, ką dešimtas ratas įvardijo
+kaip klaidą. Skirtumas vienas ir esminis: tada pakaitalo nebuvo, dabar „Daugiau" meniu neša
+visus devynis ekranus, ciklo veiksmus, atnaujinimą, o kartu su šiuo ratu — ir temą bei kalbą.
+Be tų dviejų priedų slėpimas būtų buvęs ta pati klaida iš naujo.
+
+### P2 — tuščia peržiūrų būsena nustumia politikas
+
+`.inbox-zero` buvo ~170 px centruota „herojinė" tuštuma, sakanti vieną dalyką: čia nieko nėra.
+`#/reviews` prieš politikų valdiklius stovi dvi tokios. Dešimtas ratas sprendė tai TRINDAMAS
+vieną iš trijų blokų; likusios dvi parodė, kad problema ne kiekis, o dydis. Dabar tai eilutė
+(~52 px). Benchmark'o „ataskaitos nėra" blokas lieka stulpeliu — jis neša komandą, kurią reikia
+paleisti, ir eilutei per platus.
+
+### P2 — angliški stulpelių pavadinimai
+
+Priežastis NEBUVO trūkstamas `t()` — jį turi visi `<th>`. `t()` nerastą raktą grąžina tokį, koks
+jis yra, tad praleistas vertimas atrodo lygiai kaip veikiantis kodas. Tyliai degraduojantis
+fallback teisingas runtime'e ir bevertis kaip signalas, todėl signalas pastatytas atskirai:
+naujas `ui-app/src/i18n/coverage.test.ts` skaito visus `t("…")` literalus ir lygina su žodynu.
+Jis rado tiksliai tris: `Value` (diagnostikos stulpelis — būtent tas, kurį matė operatorius) ir
+du `HumanReviewPanel` sakinius. Visi išversti.
+
+### P2 — dingstančios lietuviškos raidės
+
+Šaknis yra `taskSlug`: `[^a-z0-9]` kiekvieną `ą č ę ė į š ų ū ž` vertė brūkšneliu, tad iš
+„sąrašą" likdavo `s-ra`. Raidės ne pakeičiamos, o iškrenta, ir žodis nustoja būti žodžiu.
+
+Taisymas — transliteracija, ne ne-ASCII failų vardai: `Įvardyti sąrašą` → `ivardyti-sarasa`.
+Vardai lieka ASCII (jie keliauja per git, Windows ir POSIX), o žodis lieka perskaitomas.
+
+**Regresija, kurios reikėjo išvengti:** `converge` ieško plano užduočių per `file.includes(slug)`.
+Pakeitus taisyklę, kiekviena JAU sukurta lietuviška užduotis būtų paskelbta dingusia. Todėl
+`taskSlugCandidates` grąžina abi formas, ir atpažinimas priima abi; kūrimas naudoja tik naują, o
+nė vienas failas nepervadinamas.
+
+### P2 — politikos forma
+
+Du dalykai viename: „Siųsti" buvo išjungtas be paaiškinimo (vienintelis ženklas, kad trūksta
+priežasties, buvo pats išjungtas mygtukas — reikalavimas, kurį reikėjo atspėti), o laukų vardus
+nešė `placeholder`, dingstantis vos pradėjus rašyti. Dabar etiketės matomos, priežastis pažymėta
+privaloma ten, kur jos prašoma, o išjungtas mygtukas turi ir `title`, ir tekstą po juo. Prieinamas
+vardas nenukentėjo: `aria-labelledby` surenka valdiklio vardą ir lauko etiketę.
+
+### P2 — LT/EN 27–30 px
+
+Vienuoliktas ratas įvedė `.button { min-width: 44px }`. Jį TYLIAI nutildė dvi specifiškesnės to
+paties failo taisyklės: `header .toolbar .button { min-width: 0 }` ir
+`.language-switch .button { min-width: 36px }`. Abi laimėdavo pagal specifiškumą, tad vartas
+buvo įrašytas ir neveikė nuo pirmos dienos — operatoriaus išmatuoti 27–30 px yra tikslus to
+rezultatas.
+
+**Pamoka:** CSS vartas, kurį gali nutildyti kita to paties failo taisyklė, nėra vartas. Skirtingai
+nuo testų, čia niekas nekrenta.
+
+### Vartai (septynioliktas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `ui-app/src/i18n/coverage.test.ts` (naujas, 2) | kiekvienas šaltinyje užrašytas `t("…")` raktas turi lietuvišką vertimą; tuščias parse yra klaida |
+| `src/tests/domain-tasks.test.ts` (+4) | transliteracija išsaugo `ą į ž ū š`; ASCII vardui kandidatas VIENAS, lietuviškam — DU |
+| `RuntimePanel.test.tsx` (griežtinta) | antraštė įvardija patikrintą dalyką, ne „sistemą" |
+| `PolicyControlsPanel.test.tsx` (griežtinta) | laukai pasiekiami per MATOMŲ etikečių sudarytą vardą |
+
+### Patikros po septynioliktojo rato
+
+- `pnpm test:only` — **1631/1631**; `pnpm lint` — švarus.
+- `pnpm test:ui` — **56/56 failai, 458/458**.
+- `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm run build:ui` — praeina.

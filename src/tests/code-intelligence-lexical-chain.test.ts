@@ -16,7 +16,7 @@ import path from "node:path";
 import { buildCodeIndex } from "../application/code-intelligence/indexing/builder.js";
 import { queryCodeGraph } from "../application/code-intelligence/query/query.js";
 import { findArchitectureBoundaryViolations } from "../application/code-intelligence/boundary/architecture-boundary.js";
-import { readCodeIndex } from "../application/code-intelligence/store/code-index-store.js";
+import { checkCodeIndexFreshness, readCodeIndex } from "../application/code-intelligence/store/code-index-store.js";
 import { isTestPath } from "../application/code-intelligence/indexing/scanner.js";
 import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
 import { nodeFsTestPort } from "./helpers/node-fs-port.js";
@@ -244,23 +244,62 @@ test("monorepo `src` išdėstymas BET KURIAME gylyje yra paketo šaknis", async 
 });
 
 // Antra to paties radinio pusė: iš keturių deklaruotų markerių realiai veikė TIK `setup.py`, nes jis
-// vienintelis yra indeksuojamas plėtinys. `pyproject.toml`, `setup.cfg` ir `tox.ini` į `knownPaths`
-// nepatenka iš principo, tad sąrašas apsimetinėjo platesniu, nei buvo.
-test("pyproject.toml daro katalogą paketo šaknimi, nors indeksas jo nemato", async () => {
+// vienintelis buvo indeksuojamas plėtinys — likusieji į `knownPaths` nepatekdavo iš principo, ir
+// sąrašas apsimetinėjo platesniu, nei buvo.
+//
+// Sprendimas — juos INDEKSUOTI (`config` kalba), o ne zonduoti atskirai: markeris, keičiantis importų
+// prasmę, privalo būti ir indekse, ir jo atspaude. Todėl žemiau tikrinama ir tai, kad jis TEN YRA.
+test("pyproject.toml daro katalogą paketo šaknimi ir pats patenka į indeksą", async () => {
   const root = await world({
-    "packages/api/pyproject.toml": "[project]\nname = \"api\"\n",
+    "packages/api/pyproject.toml": '[project]\nname = "api"\n',
     "packages/api/app/service.py": "def run():\n    return 1\n",
     "packages/api/app/main.py": "from app.service import run\n",
   });
   try {
     const index = await readCodeIndex(nodeFsTestPort, root);
-    assert.ok(
-      !index.files.some((file) => file.path.endsWith("pyproject.toml")),
-      "kontrolė: markeris tikrai NĖRA indekse — todėl jį ir turi surasti builder'is",
-    );
+    const marker = index.files.find((file) => file.path === "packages/api/pyproject.toml");
+    assert.equal(marker?.language, "config", "markeris indeksuojamas — būtent todėl jis ir pasendina indeksą");
+    assert.deepEqual(marker?.imports, [], "`config` kalba nieko neištraukia; ji tik dalyvauja atspaude");
     assert.deepEqual(
       index.files.find((file) => file.path === "packages/api/app/main.py")?.imports,
       ["packages/api/app/service.py"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 2026-08-24 (operatoriaus radinys): markeris keičia importų PRASMĘ, tad jo atsiradimas privalo
+// pasendinti indeksą. Trumpai buvusi realizacija markerius zondavo per FS portą — jie nebuvo
+// indeksuojami, tad rezoliucija pasikeisdavo, o `source_hash` ne, ir indeksas likdavo klaidingai
+// „fresh" iki priverstinio perstatymo. Tai sulaužė `computeSourceHash` invariantą: kas veikia
+// indeksą, tas privalo būti jo atspaude.
+test("pridėtas pyproject.toml PASENDINA indeksą, o ne tyliai pakeičia prasmę", async () => {
+  const root = await world({
+    "packages/api/app/service.py": "def run():\n    return 1\n",
+    "packages/api/app/main.py": "from app.service import run\n",
+  });
+  try {
+    // Prieš markerį `packages/api` nėra paketo šaknis, tad importas teisėtai lieka tekstinis.
+    const before = await readCodeIndex(nodeFsTestPort, root);
+    assert.deepEqual(
+      before.files.find((file) => file.path === "packages/api/app/main.py")?.imports,
+      ["app.service"],
+      "kontrolė: be markerio šaknies nėra",
+    );
+    assert.equal((await checkCodeIndexFreshness(nodeFsTestPort, root)).ok, true);
+
+    await writeFile(path.join(root, "packages", "api", "pyproject.toml"), '[project]\nname = "api"\n', "utf8");
+
+    const freshness = await checkCodeIndexFreshness(nodeFsTestPort, root);
+    assert.equal(freshness.ok, false, "markeris keičia rezoliuciją — indeksas nebegali būti šviežias");
+
+    await buildCodeIndex(nodeFsTestPort, root);
+    const after = await readCodeIndex(nodeFsTestPort, root);
+    assert.deepEqual(
+      after.files.find((file) => file.path === "packages/api/app/main.py")?.imports,
+      ["packages/api/app/service.py"],
+      "po perstatymo importas išsprendžiamas",
     );
   } finally {
     await rm(root, { recursive: true, force: true });

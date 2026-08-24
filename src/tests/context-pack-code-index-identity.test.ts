@@ -50,6 +50,6 @@ test("code-index manifestas neša versiją, iš kurios statoma pack'o tapatybė"
 // šis krisdamas parodys, KUR dar tą kėlimą reikia atspindėti. Skirtumas nuo ankstesnės būklės —
 // deskriptorius jau tvarko invalidaciją pats, tad čia liko tik sąmoningumo vartas.
 test("indekso ir kešo versijos: kėlimas turi būti sąmoningas", () => {
-  assert.equal(codeIndexVersion, "4.1.0", "Python paketo šaknys: `src` bet kuriame gylyje + manifestai per FS portą");
+  assert.equal(codeIndexVersion, "4.2.0", "Python paketo šaknys: `src` bet kuriame gylyje + manifestai INDEKSE");
   assert.equal(CONTEXT_CACHE_VERSION, 9, "pakelta kartu su fence-aware `parseBacktickChecks`");
 });

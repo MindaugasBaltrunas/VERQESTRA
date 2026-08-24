@@ -7,7 +7,11 @@
 
 import path from "node:path";
 import { withStateFileLock } from "../../infrastructure/fs/state-file-lock.js";
-import type { RetryCountsStorePort, SupervisorRetryDecision } from "../../application/task-execution/retry-counts.js";
+import {
+  isValidRetryCount,
+  type RetryCountsStorePort,
+  type SupervisorRetryDecision,
+} from "../../application/task-execution/retry-counts.js";
 import type { JsonReadResult } from "../../application/task-execution/run-coordinator-ports.js";
 import { loadAgentPolicy } from "../../application/policy-governance/agent-policy.js";
 import type { LoopPreconditionPorts } from "../../application/scheduling/loop-preconditions.js";
@@ -74,10 +78,17 @@ export function retryCountsStore(runtimeRoot: string): RetryCountsStorePort {
     }
     // Reikšmės tikrinamos irgi: ne skaičius (`"3"`, `null`, objektas) tyliai virstų šiukšlėmis
     // pirmame inkremente (`"3" + 1 === "31"`), ir limitas skaičiuotų ne tai, ką turi.
+    //
+    // 2026-08-24 (operatoriaus radinys): `Number.isFinite` čia buvo PER SILPNA — `-5`, `1.5` ir
+    // `1e300` yra baigtiniai, bet nė vienas nėra bandymų skaičius, ir kiekvienas savaip praplečia
+    // repair biudžetą. Taisyklė — VIENA, domain pusėje (`isValidRetryCount`); ta pati, kurią
+    // naudoja mutacijos normalizatorius ir cheap-finish biudžetas.
     const counts = parsed.value as Record<string, unknown>;
     for (const [key, value] of Object.entries(counts)) {
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        throw new Error(`retry counts file is corrupt: ${file} (${key} is not a finite number)`);
+      if (!isValidRetryCount(value)) {
+        throw new Error(
+          `retry counts file is corrupt: ${file} (${key} is not a non-negative safe integer)`,
+        );
       }
     }
     return counts as Record<string, number>;

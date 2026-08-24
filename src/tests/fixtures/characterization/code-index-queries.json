@@ -19,7 +19,7 @@
     "2026-08-23 (RAG auditas 3, GRIEŽTINANTIS): `impacted_tests` seka importuotoju uzdarini. Etalone `src/lib/format.ts` grazindavo TUSCIA sarasa, nors grandine `format.ts -> index.ts -> consumer.ts -> consumer.test.ts` egzistuoja — barrel'is testa paslepdavo."
   ],
   "expected_manifest": {
-    "version": "4.1.0",
+    "version": "4.2.0",
     "file_count": 8,
     "symbol_count": 9,
     "edge_count": 32,

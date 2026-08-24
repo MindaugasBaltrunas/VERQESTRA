@@ -6,7 +6,15 @@
 // Sankcionuotas interfaces → application → domain tiltas (tas pats šablonas kaip
 // evaluateRepeatedErrorEscalation retry-repair.ts): retry-guard CLI limito taisyklę ima
 // per šį modulį, ne tiesiogiai iš domain/tasks.
-export { DEFAULT_MAX_RETRY_ATTEMPTS, evaluateRetryLimit, normalizeMaxRetryAttempts } from "../../domain/tasks/index.js";
+export {
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+  evaluateRetryLimit,
+  isValidRetryCount,
+  normalizeMaxRetryAttempts,
+} from "../../domain/tasks/index.js";
+
+// `export … from` NEsukuria vietinio ryšio — predikatui reikia tikro importo.
+import { isValidRetryCount } from "../../domain/tasks/index.js";
 
 export type RetryCountUpdate = {
   taskKey: string;
@@ -28,17 +36,22 @@ export type SupervisorRetryDecision = {
   error_signature?: string;
 };
 
-function finiteCount(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+/**
+ * Skaitiklio reikšmė mutacijai. Netinkama forma virsta `0`, o ne savimi: `-5 + 1 = -4` leistų
+ * papildomus repair bandymus (žr. {@link isValidRetryCount}). Tai NORMALIZATORIUS, ne vartai —
+ * fail-closed patikra gyvena skaitytojo pusėje (`retryCountsStore.read`).
+ */
+function safeCount(value: unknown): number {
+  return isValidRetryCount(value) ? value : 0;
 }
 
 // State schema v2 migracija: pre-v2 `<taskId>[:error]` skaitikliai suglaudinami vieną
 // kartą ir pašalinami (etalono migrateLegacyTaskRetryCount 1:1).
 function migrateLegacyTaskRetryCount(retryCounts: Record<string, number>, taskId: string, taskKey: string): number {
   const legacyKeys = Object.keys(retryCounts).filter((key) => key === taskId || key.startsWith(`${taskId}:`));
-  const legacyCount = legacyKeys.reduce((sum, key) => sum + finiteCount(retryCounts[key]), 0);
+  const legacyCount = legacyKeys.reduce((sum, key) => sum + safeCount(retryCounts[key]), 0);
   for (const key of legacyKeys) delete retryCounts[key];
-  return Math.max(finiteCount(retryCounts[taskKey]), legacyCount);
+  return Math.max(safeCount(retryCounts[taskKey]), legacyCount);
 }
 
 /** GRYNA skaitiklių mutacija: task ir error skaitikliai +1, legacy raktai sugeriami. */
@@ -51,7 +64,7 @@ export function applyRetryCountUpdate(
   const errorKey = `error:${retryKey}`;
   const currentTaskCount = migrateLegacyTaskRetryCount(retryCounts, taskId, taskKey);
   const taskCount = currentTaskCount + 1;
-  const errorCount = finiteCount(retryCounts[errorKey]) + 1;
+  const errorCount = safeCount(retryCounts[errorKey]) + 1;
 
   retryCounts[taskKey] = taskCount;
   retryCounts[errorKey] = errorCount;

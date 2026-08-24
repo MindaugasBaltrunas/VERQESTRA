@@ -18,16 +18,11 @@ const IMPORT_FROM = /^[ \t]*from[ \t]+(\.*)([A-Za-z0-9_.]*)[ \t]+import[ \t]+([^
 const DECLARATION = /^([ \t]*)(async[ \t]+def|def|class)[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
 const ALL_LIST = /__all__\s*=\s*[[(]([^\])]*)[\])]/;
 
-export function indexPythonSource(
-  file: CodeIndexFile,
-  text: string,
-  knownPaths: ReadonlySet<string>,
-  declaredRoots: ReadonlySet<string> = new Set(),
-): LanguageIndexResult {
+export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths: ReadonlySet<string>): LanguageIndexResult {
   const clean = blankOutNoise(text, "hash", PYTHON_QUOTES);
   const offsets = lineIndex(clean);
   const imports = new Set<string>();
-  const roots = pythonRoots(knownPaths, declaredRoots);
+  const roots = pythonRoots(knownPaths);
 
   for (const match of clean.matchAll(IMPORT_PLAIN)) {
     for (const part of splitList(match[1] ?? "")) {
@@ -102,12 +97,13 @@ export function indexPythonSource(
 /**
  * Failai, kurių buvimas kataloge daro jį Python paketo šaknimi (`sys.path` įrašu).
  *
- * Šio sąrašo PATS INDEKSAS nemato: `.toml`, `.cfg` ir `.ini` nėra indeksuojami plėtiniai, tad jie
- * niekada nepatenka į `knownPaths`. Todėl juos suranda BUILDER'is per FS portą ir paduoda kaip
- * `declaredRoots` — tas pats kelias, kuriuo skaitomas `composer.json` (2026-08-24, operatoriaus
- * radinys: iš keturių markerių realiai veikė tik `setup.py`, nes jis vienintelis yra `.py`).
+ * Visi keturi YRA indeksuojami (`config` kalba, 2026-08-24), tad jie matomi per `knownPaths` ir
+ * KARTU patenka į `source_hash`. Tai ne patogumas, o invariantas: markeris keičia importų prasmę,
+ * vadinasi, jo atsiradimas privalo pasendinti indeksą. Trumpai buvusi tarpinė realizacija juos
+ * zondavo per FS portą — tada rezoliucija pasikeisdavo, o atspaudas ne, ir indeksas likdavo
+ * klaidingai „fresh" iki priverstinio perstatymo.
  */
-export const PYTHON_ROOT_MARKERS = ["pyproject.toml", "setup.py", "setup.cfg", "tox.ini"];
+const PYTHON_ROOT_MARKERS = ["pyproject.toml", "setup.py", "setup.cfg", "tox.ini"];
 
 /**
  * Katalogai, nuo kurių absoliutus importas gali prasidėti.
@@ -119,10 +115,10 @@ export const PYTHON_ROOT_MARKERS = ["pyproject.toml", "setup.py", "setup.cfg", "
  *     `packages/api/src/app/main.py` importas `app.service` likdavo tekstinis — su juo dingdavo ir
  *     importai, ir architektūros pažeidimai, ir `impacted_tests`. `src` layout yra dominuojanti
  *     Python paketavimo forma, tad tai buvo ne kraštinis atvejis;
- *   • katalogai, kuriuose guli projekto manifestas (`declaredRoots`, žr. `PYTHON_ROOT_MARKERS`).
+ *   • katalogai, kuriuose guli projekto manifestas (žr. `PYTHON_ROOT_MARKERS`).
  */
-function pythonRoots(knownPaths: ReadonlySet<string>, declaredRoots: ReadonlySet<string>): string[] {
-  const roots = new Set<string>(["", ...declaredRoots]);
+function pythonRoots(knownPaths: ReadonlySet<string>): string[] {
+  const roots = new Set<string>([""]);
   for (const candidate of knownPaths) {
     const slash = candidate.lastIndexOf("/");
     const directory = slash === -1 ? "" : candidate.slice(0, slash);

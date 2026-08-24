@@ -3704,6 +3704,17 @@ main {
 .delta-better { color: var(--success, #15803d); }
 .delta-worse { color: var(--danger, #b91c1c); }
 
+/* Politikos formos etiketės. Matomos, nes placeholder dingsta vos pradėjus rašyti. */
+.policy-field-label {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.policy-required { font-weight: 400; color: var(--danger, #b91c1c); }
+.policy-form-help { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+
 /* Kaina ir kartojimo priežastys: kodai monospace, kad juos būtų galima nukopijuoti į žurnalo
    paiešką — tas pats sprendimas kaip `.budget-reasons`. */
 .usage-cost-line { margin: 10px 0 0; font-size: 13px; }
@@ -4050,35 +4061,54 @@ main {
   margin-bottom: 10px;
 }
 
+/* TUŠČIA BŪSENA UŽIMA TIEK, KIEK NEŠA (2026-08-24, operatoriaus radinys).
+   Centruota 44 px paraštėmis apjuosta „herojinė" tuštuma buvo ~170 px aukščio ir sakė vieną
+   dalyką: čia nieko nėra. `#/reviews` ekrane prieš politikų valdiklius stovi DVI tokios, ir jos
+   nustumdavo valdiklius už matomos ribos — vienintelį dalyką tame ekrane, su kuriuo galima
+   dirbti. Dabar tai eilutė: piktograma ir tekstas šalia, ~52 px.
+   Dešimtas ratas sprendė tą patį TRINDAMAS vieną iš trijų blokų; likusios dvi rodė, kad problema
+   ne kiekis, o dydis. */
 .inbox-zero {
-  display: grid;
-  justify-items: center;
-  padding: 44px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
   color: var(--muted);
-  text-align: center;
+  text-align: left;
 }
 
 .inbox-zero > span {
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  margin-bottom: 10px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--good-bg);
   color: var(--good);
-  font-size: 18px;
+  font-size: 14px;
 }
 
 .inbox-zero strong {
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: 13px;
 }
 
+/* Paaiškinimas eina PO antrašte, bet tame pačiame stulpelyje — antra eilutė, ne antras blokas. */
+.inbox-zero > strong { flex: 0 1 auto; }
 .inbox-zero p {
-  margin: 4px 0 0;
+  flex: 1 1 100%;
+  margin: 0;
   color: var(--faint);
   font-size: 11px;
+}
+/* `panel inbox-zero` (benchmark „ataskaitos nėra") nešą daugiau nei vieną sakinį — komandą,
+   kurią reikia paleisti. Jam eilutė per siaura, tad jis lieka stulpeliu. */
+.panel.inbox-zero {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px 20px;
 }
 
 .usage-page {

@@ -70,7 +70,40 @@ test("ne skaitinė reikšmė yra sugadinimas, o ne nulis", async () => {
   try {
     // `"3" + 1 === "31"`: be šios patikros limitas skaičiuotų ne tai, ką turi.
     await writeFile(file, JSON.stringify({ "task:0042": "3" }), "utf8");
-    await assert.rejects(() => retryCountsStore(root).read(), /not a finite number/);
+    await assert.rejects(() => retryCountsStore(root).read(), /not a non-negative safe integer/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 2026-08-24 (operatoriaus radinys): `Number.isFinite` praleisdavo tris formas, ir kiekviena
+// savaip PRAPLĖSDAVO repair biudžetą. Visos trys yra baigtiniai skaičiai — būtent todėl senoji
+// patikra jų nematė.
+for (const [label, value, why] of [
+  ["neigiamas", -5, "`-5 + 1 = -4`: klaidos skaitikliui reikia 7 inkrementų iki 2, o task skaitiklį `Math.max(…, 0)` nutempia į 0 — išnaudotas biudžetas atsistato"],
+  ["trupmeninis", 1.5, "ne bandymų skaičius; `Math.floor` žemiau tai užmaskuotų"],
+  ["virš MAX_SAFE_INTEGER", 1e300, "`x + 1 === x` — skaitiklis nustoja augti, repair kilpa tampa begaline"],
+] as const) {
+  test(`${label} skaitiklis yra sugadinimas (${why})`, async () => {
+    const { root, file } = await runtimeRoot();
+    try {
+      await writeFile(file, JSON.stringify({ "task:0042": value }), "utf8");
+      const store = retryCountsStore(root);
+      // Abu keliai fail-closed: vartai, kurie negali suskaičiuoti, sustoja.
+      await assert.rejects(() => store.read(), /not a non-negative safe integer/);
+      await assert.rejects(() => store.update((counts) => counts), /not a non-negative safe integer/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("0 ir didelis GALIOJANTIS skaitiklis praeina — patikra neišplėsta per plačiai", async () => {
+  const { root, file } = await runtimeRoot();
+  try {
+    const valid = { "task:0042": 0, "error:x": Number.MAX_SAFE_INTEGER };
+    await writeFile(file, JSON.stringify(valid), "utf8");
+    assert.deepEqual(await retryCountsStore(root).read(), valid);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

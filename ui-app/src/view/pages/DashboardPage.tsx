@@ -6,7 +6,7 @@ import { fixableTaskIds } from "../../model/loopControlsViewModel";
 import { buildQueuePipeline } from "../../model/queuePipelineViewModel";
 import { buildSlotProgressViews, correlateActivity } from "../../model/slotProgressViewModel";
 import { AgentChainProgress } from "../components/AgentChainProgress";
-import { FreshnessIndicator } from "../components/FreshnessIndicator";
+import { FreshnessIndicator, StreamIndicator } from "../components/FreshnessIndicator";
 import { Header, type Route } from "../components/Header";
 import { HumanReviewPanel } from "../components/HumanReviewPanel";
 import { LearningPanel } from "../components/LearningPanel";
@@ -162,12 +162,10 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
           {/* Ženklelis privalo UŽSITARNAUTI žodį „gyvi": besąlygiškas literalas čia tvirtindavo
               šviežumą net nutrūkus srautui, ir tame pačiame ekrane prieštaraudavo apžvalgos
               metrikai „Pasenusi užduoties būsena" (operatoriaus radinys, 2026-08-24). */}
-          <FreshnessIndicator
-            status={agentActivityStatus}
-            refreshFailed={refreshError !== null}
-            loadedAt={loadedAt}
-            now={Date.now()}
-          />
+          <div className="page-heading-signals">
+            <FreshnessIndicator refreshFailed={refreshError !== null} loadedAt={loadedAt} now={Date.now()} />
+            <StreamIndicator status={agentActivityStatus} />
+          </div>
         </div>
         {notice && (
           <div className="notice notice-warning" role="status">

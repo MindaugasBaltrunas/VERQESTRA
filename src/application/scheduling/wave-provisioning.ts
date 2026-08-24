@@ -196,12 +196,20 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
         return false;
       }
 
+      // Kopija JAU egzistuoja diske (kartu su savo owner žyma), tad nuo ŠIOS eilutės lease'o
+      // grąžinti nebegalima — ir `held` privalo apie ją žinoti PRIEŠ bet kurį galintį mesti
+      // žingsnį (2026-08-24, operatoriaus radinys).
+      //
+      // Iki tol `held` likdavo `acquired.lease` be `worktree_path`, tad `releaseHeldLease` sargas
+      // („už lease'o stovi kopija") skaitydavo pasenusią reikšmę ir NESUVEIKDAVO būtent tuo
+      // atveju, kuriam buvo skirtas: `writeWorkerLease` metus, lease būdavo atlaisvinamas, nors
+      // kopija su owner žyma jau gulėjo diske. Kitas bandymas gaudavo NAUJĄ claim'ą, ir ta pati
+      // kopija jam atrodydavo `foreign-owner` — t. y. karantinas dėl mūsų pačių darbo.
+      held = { ...acquired.lease, worktree_path: created.relativePath };
+
       // Kelias į lease rašomas TIK po sėkmingo sukūrimo: lease su keliu, kurio nėra, kitiems
       // skaitytojams atrodytų kaip paruošta izoliacija.
-      await writeWorkerLease(deps.leaseStore.fs, deps.workspaceRoot, {
-        ...acquired.lease,
-        worktree_path: created.relativePath,
-      });
+      await writeWorkerLease(deps.leaseStore.fs, deps.workspaceRoot, held);
       // Nuo šios eilutės aprūpinimas PAVYKO — lease priklauso gyvai kopijai, ir grąžinti jo
       // nebegalima net jei žemiau kas nors mestų.
       held = undefined;

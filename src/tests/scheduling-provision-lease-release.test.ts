@@ -68,6 +68,64 @@ test("worktree infrastruktūros klaida nepalieka aktyvaus lease", async () => {
   assert.equal(result.held, 0, `infrastruktūros klaida privalo grąžinti lease; log:\n  ${result.logs.join("\n  ")}`);
 });
 
+// 2026-08-24 (operatoriaus radinys): trys testai aukščiau krenta PRIEŠ worktree sukūrimą, tad nė
+// vienas jų nedengė kelio, kuriame kopija JAU egzistuoja. Ten atsakymas priešingas: lease privalo
+// LIKTI. `held` iki tol būdavo `acquired.lease` be `worktree_path`, tad sargas „už lease'o stovi
+// kopija" skaitydavo pasenusią reikšmę ir lease būdavo atlaisvinamas — o kitas bandymas su NAUJU
+// claim'u tą pačią kopiją klasifikuodavo kaip `foreign-owner` ir siųsdavo į karantiną.
+test("metaduomenų rašymo klaida PO sėkmingo worktree PALIEKA lease kopijai", async () => {
+  const fs = memoryFs();
+  const logs: string[] = [];
+  const write = fs.writeTextFileAtomic.bind(fs);
+  let leaseWrites = 0;
+
+  const failingFs: SchedulingFileSystemPort = {
+    ...fs,
+    writeTextFileAtomic: async (p, content) => {
+      // Pirmas rašymas — lease'o paėmimas; antras — metaduomenys su `worktree_path`.
+      if (content.includes("worktree_path")) {
+        leaseWrites += 1;
+        throw new Error("disk full");
+      }
+      await write(p, content);
+    },
+  };
+
+  const coordinator = createWaveProvisioningCoordinator({
+    workspaceRoot: ROOT,
+    runId: "r1",
+    ownerId: "pid-1",
+    leaseStore: { fs: failingFs },
+    worktree: {
+      policyEnabled: () => Promise.resolve(true),
+      rootIsIgnored: () => Promise.resolve(true),
+      // Kopija sukuriama SĖKMINGAI — nuo čia ji egzistuoja diske su savo owner žyma.
+      create: () => Promise.resolve({ status: "created", relativePath: ".ag/worktrees/w1" } as never),
+    },
+    now: () => NOW,
+    log: (line: string) => {
+      logs.push(line);
+      return Promise.resolve();
+    },
+    graph: () => undefined,
+    running: () => new Set<string>(),
+  } as never);
+
+  assert.equal(await coordinator.provisionSlotLease(TARGET), false, "slot'as neišduodamas");
+  assert.equal(leaseWrites, 1, "metaduomenų rašymas tikrai buvo bandytas");
+
+  const leases = await listWorkerLeases(failingFs, ROOT);
+  assert.equal(
+    leases.filter((lease) => lease.status === "held").length,
+    1,
+    `lease privalo likti prie gyvos kopijos; log:\n  ${logs.join("\n  ")}`,
+  );
+  assert.ok(
+    logs.some((line) => line.includes("SLOT LEASE KEPT")),
+    `laukta „KEPT" eilutės — be jos neaišku, ar lease liko sąmoningai; log:\n  ${logs.join("\n  ")}`,
+  );
+});
+
 test("aprūpinimo išimtis nepalieka aktyvaus lease", async () => {
   const result = await provisionWith(() => Promise.reject(new Error("git nulūžo")));
   assert.ok(

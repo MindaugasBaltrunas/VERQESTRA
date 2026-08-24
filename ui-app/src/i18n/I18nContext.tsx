@@ -372,9 +372,13 @@ const lt: Record<string, string> = {
   "updated": "atnaujinta prieš",
   // 2026-08-24: ryšio aktyvumas, duomenų šviežumas ir sistemos sveikata — trys atskiri ženklai.
   "Data current": "Duomenys švieži",
-  "Stream live": "Srautas gyvas",
-  "Stream connecting": "Srautas jungiasi",
-  "Stream offline": "Srautas nutrūkęs",
+  // 2026-08-24, operatoriaus radinys: „Srautas gyvas" prieštaravo sustabdytam ciklui. Priežastis
+  // ne logika, o ŽODIS: šiame produkte „srautas" jau reiškia ciklo slot'ą („Ciklo srautai",
+  // „Stabdyti visus srautus"), tad SSE ryšio ženklas skambėjo kaip teiginys, kad DIRBA ciklo
+  // srautas — nors jų veikė nulis. Ženklas kalba apie /api/events ryšį, todėl taip ir vadinasi.
+  "Live connection": "Ryšys gyvas",
+  "Connecting": "Jungiamasi",
+  "Connection lost": "Ryšys nutrūkęs",
   "More": "Daugiau",
   "Screens": "Ekranai",
   "All screens": "Visi ekranai",

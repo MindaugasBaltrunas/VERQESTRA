@@ -10,6 +10,7 @@ import * as api from "../model/api";
 import { fill } from "../model/fillTemplate";
 import {
   fixActionId,
+  loopActionAllowed,
   loopRunStateOf,
   slotActionId,
   streamIndexOf,
@@ -17,6 +18,7 @@ import {
   LOOP_RESTART_ACTION,
   LOOP_START_ACTION,
   LOOP_STOP_ACTION,
+  type LoopRunState,
 } from "../model/loopControlsViewModel";
 import { runRestartLoop, type RestartLoopOptions } from "../model/restartLoop";
 import type { DashboardData, LoopSlotMode, LoopWorkerId } from "../model/types";
@@ -52,17 +54,25 @@ function resumeLoopLabel(status: string, pid?: number): string {
  * orkestratorius tame pačiame repo yra reali žala.
  *
  * `label` sąlygos palieka trumpą langą po paspaudimo, kad dvigubas paspaudimas nesukurtų dviejų
- * užklausų, kol serveris dar neatnaujino būsenos.
+ * užklausų, kol serveris dar neatnaujino būsenos. Tai VIENINTELIS dalykas, kurį ši funkcija
+ * sprendžia pati — pati leidimo taisyklė gyvena `loopActionAllowed`.
+ *
+ * 2026-08-24 auditas: čia buvo ANTRA leidimo taisyklės kopija, ir ji jau buvo prasilenkusi su
+ * pirmąja. Nežinoma būsena, atėjusi kaip `undefined`, čia virsdavo „sustojusiu" ir LEISDAVO
+ * paleisti — priešingai nei sako ši pati antraštė ir nei elgiasi `#/system` valdikliai.
+ * Pagrindimas „fresh project, loop never ran" nebegalioja nuo tada, kai serveris `runtime` sąrašą
+ * siunčia VISADA: „įrašo nėra" nebereiškia švaraus projekto, o reiškia netvarkingą atsakymą, kur
+ * paleidimo siūlyti tuo labiau negalima.
  */
 export function buildLoopControls(
-  loopStatus: string | undefined,
+  loopStatus: LoopRunState,
   resumeLabel: string,
   stopLabel: string,
 ): { canResume: boolean; canStop: boolean } {
-  const stopped = loopStatus === "stopped" || loopStatus === undefined;
+  const allowed = loopActionAllowed(loopStatus);
   return {
-    canResume: stopped && resumeLabel === "▶ Start loop",
-    canStop: !stopped && stopLabel === "⏹ Stop loop",
+    canResume: allowed.start && resumeLabel === "▶ Start loop",
+    canStop: allowed.stop && stopLabel === "⏹ Stop loop",
   };
 }
 
@@ -494,11 +504,10 @@ export function useDashboardController() {
     pendingActions,
     toasts,
     dismissToast,
-    loopControls: buildLoopControls(
-      data?.runtime.find((process) => process.name === "AG loop")?.status,
-      resumeLabel,
-      stopLabel,
-    ),
+    // TAS PATS šaltinis kaip `#/system` valdikliams (`loopRunStateOf`), o ne antras skaitymas iš
+    // `runtime` sąrašo: du šaltiniai tam pačiam klausimui anksčiau ar vėliau duoda du atsakymus,
+    // ir Header'is su `#/system` imtų siūlyti skirtingus veiksmus tai pačiai būsenai.
+    loopControls: buildLoopControls(data === null ? "unknown" : loopRunStateOf(data), resumeLabel, stopLabel),
     actions: {
       reload: load,
       resumeLoop,

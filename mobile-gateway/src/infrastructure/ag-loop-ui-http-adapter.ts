@@ -218,7 +218,7 @@ export class AgLoopUiHttpAdapter implements AgLoopUiReadPort {
   }
 
   async taskBucket(bucket: string): Promise<AgLoopTaskBucket> {
-    if (!taskBuckets.has(bucket)) throw new Error("Invalid task bucket");
+    if (!taskBuckets.has(bucket)) throw new Error("Invalid AG Loop task bucket");
     return projectTaskBucketPayload(
       await this.#get(`/api/tasks?bucket=${encodeURIComponent(bucket)}`),
       bucket,

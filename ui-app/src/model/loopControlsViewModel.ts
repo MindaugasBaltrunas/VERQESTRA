@@ -46,6 +46,26 @@ export type LoopControlsView = {
  * Bet kuris iš trijų vykdomų veiksmų išjungia visus tris: kol nežinome, kuo baigėsi stabdymas,
  * paleidimo mygtukas būtų pasiūlymas spėlioti.
  */
+/**
+ * Ar būsena LEIDŽIA veiksmą. VIENINTELĖ šios taisyklės vieta.
+ *
+ * Iki 2026-08-24 audito ji buvo persakyta DVIEJOSE vietose: čia (`#/system` valdikliai) ir
+ * `useDashboardController#buildLoopControls` (Header'io mygtukai). Kopijos jau buvo prasilenkusios —
+ * Header'is nežinomą būseną, atėjusią kaip `undefined`, laikė „sustojusiu" ir LEIDO paleisti, nors
+ * ta pati failo antraštė sako priešingai: nežinomybėje paleidimas uždaromas, nes antras
+ * orkestratorius tame pačiame repo yra reali žala. Dvi to paties saugos sprendimo kopijos anksčiau
+ * ar vėliau ima atsakinėti skirtingai — ir viena jų atsakinės neteisingai.
+ */
+export function loopActionAllowed(status: LoopRunState): { start: boolean; stop: boolean; restart: boolean } {
+  return {
+    start: status === "stopped",
+    // Stabdymas leidžiamas ir `unknown` atveju: vėliavos įrašymas nekenksmingas ir veikia net
+    // terminale paleistam ciklui.
+    stop: status !== "stopped",
+    restart: status === "running",
+  };
+}
+
 export function buildLoopControlsView(input: {
   status: LoopRunState;
   handlers: { start: boolean; stop: boolean; restart: boolean };
@@ -62,10 +82,11 @@ export function buildLoopControlsView(input: {
     busy: input.pending.has(id),
   });
 
+  const allowed = loopActionAllowed(input.status);
   return {
-    start: button(LOOP_START_ACTION, input.status === "stopped", input.handlers.start),
-    stop: button(LOOP_STOP_ACTION, input.status !== "stopped", input.handlers.stop),
-    restart: button(LOOP_RESTART_ACTION, input.status === "running", input.handlers.restart),
+    start: button(LOOP_START_ACTION, allowed.start, input.handlers.start),
+    stop: button(LOOP_STOP_ACTION, allowed.stop, input.handlers.stop),
+    restart: button(LOOP_RESTART_ACTION, allowed.restart, input.handlers.restart),
   };
 }
 

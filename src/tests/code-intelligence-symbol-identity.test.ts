@@ -16,7 +16,9 @@ function fileOf(filePath: string, language: CodeIndexLanguage): CodeIndexFile {
   return { path: filePath, hash: "h", size: 0, language, kind: "source", imports: [], exports: [], symbols: [], isTest: false };
 }
 
-async function indexSources(sources: Record<string, string>): Promise<Map<string, { file: CodeIndexFile; symbols: { id: string }[] }>> {
+async function indexSources(
+  sources: Record<string, string>,
+): Promise<Map<string, { file: CodeIndexFile; symbols: { id: string; name: string; line?: number; endLine?: number }[] }>> {
   const scanned = Object.keys(sources).map((filePath) =>
     fileOf(filePath, filePath.endsWith(".ts") ? "typescript" : "javascript"),
   );
@@ -28,6 +30,36 @@ async function indexSources(sources: Record<string, string>): Promise<Map<string
   };
   return await indexTypeScriptFiles(fs as never, "/repo", scanned);
 }
+
+// 2026-08-23 (operatoriaus radinys): simbolių ID nebuvo unikalūs. `code-intelligence-language-edges`
+// prikalė tą invariantą LEKSINĖMS kalboms (`indexLexicalSource`: C#, Python, PHP, .NET), bet
+// TypeScript overload'ai eina AST keliu (`indexTypeScriptFiles`) ir į tą vartą nepatenka — ta pusė
+// iki 2026-08-24 įrodymo neturėjo.
+//
+// ID yra TAPATYBĖ: trys įrašai tuo pačiu `src/over.ts#over` reikštų tris `declares` briaunas į tą
+// patį mazgą, t. y. indeksą, kuris pats nesilaiko savo taisyklės.
+test("gate: TypeScript overload'ai duoda VIENĄ simbolį su platesniu intervalu", async () => {
+  const indexed = await indexSources({
+    "src/over.ts": [
+      "export function over(a: string): void;",
+      "export function over(a: number): void;",
+      "export function over(a: unknown): void {",
+      "  void a;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = indexed.get("src/over.ts");
+  assert.ok(result);
+  const ids = result.symbols.map((symbol) => symbol.id);
+  assert.deepEqual(ids, ["src/over.ts#over"], `trys deklaracijos — vienas simbolis, gauta: ${ids.join(", ")}`);
+
+  // Suliejant imamas PLATESNIS intervalas: overload'o prasmė yra visa grupė, ne paskutinė eilutė.
+  const merged = result.symbols[0];
+  assert.equal(merged?.line, 1, "pradžia — nuo pirmo overload'o");
+  assert.equal(merged?.endLine, 5, "pabaiga — iki implementacijos kūno galo");
+});
 
 test("gate: KIEKVIENAS eksportuojamas vardas turi simbolį", async () => {
   const sources: Record<string, string> = {

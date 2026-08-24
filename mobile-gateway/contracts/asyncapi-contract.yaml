@@ -1,0 +1,260 @@
+asyncapi: 3.1.0
+info:
+  title: AG Mobile Terminal Stream
+  version: 1.0.0
+  description: >
+    Authenticated WebSocket stream for one gateway-owned terminal session.
+    The stream cannot control the separate AG Loop terminal.
+servers:
+  privateGateway:
+    host: "{gatewayHost}"
+    protocol: wss
+    pathname: /v1/terminal-stream
+    variables:
+      gatewayHost:
+        default: ag-gateway.invalid
+        description: Private VPN DNS name or explicitly configured host.
+    security:
+      - $ref: "#/components/securitySchemes/deviceAccessToken"
+channels:
+  terminalSession:
+    address: /v1/terminal-stream
+    messages:
+      clientHello:
+        $ref: "#/components/messages/ClientHello"
+      clientAck:
+        $ref: "#/components/messages/ClientAck"
+      clientHeartbeat:
+        $ref: "#/components/messages/ClientHeartbeat"
+      serverSnapshot:
+        $ref: "#/components/messages/ServerSnapshot"
+      serverOutput:
+        $ref: "#/components/messages/ServerOutput"
+      serverInput:
+        $ref: "#/components/messages/ServerInput"
+      serverLease:
+        $ref: "#/components/messages/ServerLease"
+      serverSession:
+        $ref: "#/components/messages/ServerSession"
+      serverError:
+        $ref: "#/components/messages/ServerError"
+operations:
+  receiveTerminalEvents:
+    action: receive
+    channel:
+      $ref: "#/channels/terminalSession"
+    messages:
+      - $ref: "#/channels/terminalSession/messages/serverSnapshot"
+      - $ref: "#/channels/terminalSession/messages/serverOutput"
+      - $ref: "#/channels/terminalSession/messages/serverInput"
+      - $ref: "#/channels/terminalSession/messages/serverLease"
+      - $ref: "#/channels/terminalSession/messages/serverSession"
+      - $ref: "#/channels/terminalSession/messages/serverError"
+  sendTerminalControl:
+    action: send
+    channel:
+      $ref: "#/channels/terminalSession"
+    messages:
+      - $ref: "#/channels/terminalSession/messages/clientHello"
+      - $ref: "#/channels/terminalSession/messages/clientAck"
+      - $ref: "#/channels/terminalSession/messages/clientHeartbeat"
+components:
+  securitySchemes:
+    deviceAccessToken:
+      type: http
+      scheme: bearer
+      bearerFormat: short-lived-device-JWT
+  messages:
+    ClientHello:
+      name: client.hello
+      payload:
+        $ref: "#/components/schemas/ClientHelloPayload"
+    ClientAck:
+      name: client.ack
+      payload:
+        $ref: "#/components/schemas/ClientAckPayload"
+    ClientHeartbeat:
+      name: client.heartbeat
+      payload:
+        $ref: "#/components/schemas/HeartbeatPayload"
+    ServerSnapshot:
+      name: server.snapshot
+      payload:
+        $ref: "#/components/schemas/SnapshotPayload"
+    ServerOutput:
+      name: server.output
+      payload:
+        $ref: "#/components/schemas/OutputPayload"
+    ServerInput:
+      name: server.input
+      payload:
+        $ref: "#/components/schemas/InputPayload"
+    ServerLease:
+      name: server.lease
+      payload:
+        $ref: "#/components/schemas/LeasePayload"
+    ServerSession:
+      name: server.session
+      payload:
+        $ref: "#/components/schemas/SessionPayload"
+    ServerError:
+      name: server.error
+      payload:
+        $ref: "#/components/schemas/ErrorPayload"
+  schemas:
+    ClientHelloPayload:
+      type: object
+      additionalProperties: false
+      required: [type, projectId, sessionId, lastAckSequence]
+      properties:
+        type:
+          const: client.hello
+        projectId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        lastAckSequence:
+          type: integer
+          minimum: 0
+    ClientAckPayload:
+      type: object
+      additionalProperties: false
+      required: [type, sessionId, sequence]
+      properties:
+        type:
+          const: client.ack
+        sessionId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 1
+    HeartbeatPayload:
+      type: object
+      additionalProperties: false
+      required: [type, timestamp]
+      properties:
+        type:
+          const: client.heartbeat
+        timestamp:
+          type: string
+          format: date-time
+    EventBase:
+      type: object
+      required: [type, sessionId, sequence, timestamp]
+      properties:
+        type:
+          type: string
+        sessionId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 1
+        timestamp:
+          type: string
+          format: date-time
+    SnapshotPayload:
+      type: object
+      additionalProperties: false
+      required: [type, sessionId, timestamp, state, lease, nextSequence, historyTruncated]
+      properties:
+        type:
+          const: server.snapshot
+        sessionId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        state:
+          enum: [creating, starting, live, interrupting, closing, ended, failed, orphaned]
+        lease:
+          type: object
+          additionalProperties: false
+          required: [ownerDeviceId, generation, expiresAt]
+          properties:
+            ownerDeviceId:
+              type: string
+              format: uuid
+            generation:
+              type: integer
+              minimum: 1
+            expiresAt:
+              type: string
+              format: date-time
+        nextSequence:
+          type: integer
+          minimum: 1
+        historyTruncated:
+          type: boolean
+    OutputPayload:
+      allOf:
+        - $ref: "#/components/schemas/EventBase"
+        - type: object
+          required: [data]
+          properties:
+            type:
+              const: server.output
+            data:
+              type: string
+              maxLength: 65536
+              description: Host-sanitized terminal data.
+    InputPayload:
+      allOf:
+        - $ref: "#/components/schemas/EventBase"
+        - type: object
+          required: [inputId, status]
+          properties:
+            type:
+              const: server.input
+            inputId:
+              type: string
+              format: uuid
+            status:
+              enum: [accepted, written, rejected, unknown]
+    LeasePayload:
+      allOf:
+        - $ref: "#/components/schemas/EventBase"
+        - type: object
+          required: [ownerDeviceId, generation, expiresAt]
+          properties:
+            type:
+              const: server.lease
+            ownerDeviceId:
+              type: string
+              format: uuid
+            generation:
+              type: integer
+              minimum: 1
+            expiresAt:
+              type: string
+              format: date-time
+    SessionPayload:
+      allOf:
+        - $ref: "#/components/schemas/EventBase"
+        - type: object
+          required: [state]
+          properties:
+            type:
+              const: server.session
+            state:
+              enum: [creating, starting, live, interrupting, closing, ended, failed, orphaned]
+            reason:
+              type: string
+    ErrorPayload:
+      type: object
+      additionalProperties: false
+      required: [type, code, recoverable, correlationId]
+      properties:
+        type:
+          const: server.error
+        code:
+          type: string
+        recoverable:
+          type: boolean
+        correlationId:
+          type: string
+          format: uuid

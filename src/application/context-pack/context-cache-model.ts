@@ -88,8 +88,16 @@ const nonEmptyString = z.string().trim().min(1);
  *          `architecture_nodes` sudėtis kitokia.
  *      `PACK_SEMANTICS_DESCRIPTOR` gavo `impacted_test_importer_depth`, tad TA konstanta nuo šiol
  *      anuliuoja pati — bet jos įvedimas į deskriptorių pats yra rakto pakeitimas.
+ *  9 — 2026-08-24 RAG auditas 5: `parseBacktickChecks` nustojo skaityti fenced blokus. Iki tol
+ *      ```` ``` ```` fence ribos pačios atrodė kaip backtick span'ai, tad `## Patikra` su komandų
+ *      pavyzdžiu duodavo netikras patikras (`bash\n# pavyzdys`, `-`) IR pamesdavo tikrąją, nes
+ *      uždarančio fence backtick'ai susiporuodavo su jos atidarančiuoju. Keičiasi pack'o `checks`
+ *      — laukas, kurį renderis worker'iui deklaruoja kaip „must pass" komandas.
+ *
+ *      Renderio pakeitimai (praradimų bloko prioritetas ir vieta) šio kėlimo NEREIKALAUJA:
+ *      `execution-context.md` generuojamas iš naujo kiekvieno hit'o metu.
  */
-export const CONTEXT_CACHE_VERSION = 8;
+export const CONTEXT_CACHE_VERSION = 9;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

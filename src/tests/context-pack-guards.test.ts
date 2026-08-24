@@ -192,8 +192,8 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
-    8,
-    "pakelta septintą kartą: fence-aware `extractSection` + įvardyti atrankos praradimai",
+    9,
+    "pakelta aštuntą kartą: `parseBacktickChecks` nebeskaito fenced blokų (keičiasi `checks`)",
   );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,

@@ -4,6 +4,7 @@
 // (task 882) po TOK-2 planning biudžeto vartų.
 
 import path from "node:path";
+import { findSectionBounds } from "../../../../shared/markdown.js";
 import {
   analyzeOpenSpecReferences,
   buildOpenSpecContext,
@@ -39,8 +40,6 @@ export async function hasValidArchitectureNodeReference(
   }
 }
 
-const SPEC_SOURCE_HEADING_RE = /^## Spec source[ \t]*$/m;
-
 /**
  * Prideda spec-source nuorodą NEgamindama antros `## Spec source` antraštės: worker-task-ir
  * kompiliatorius `## Spec source` laiko vienetine sekcija ir dublikatą atmeta su
@@ -49,19 +48,17 @@ const SPEC_SOURCE_HEADING_RE = /^## Spec source[ \t]*$/m;
  * kitaip atidaroma nauja sekcija kaip anksčiau.
  */
 export function appendSpecSourceRef(taskText: string, ref: string): string {
-  if (!SPEC_SOURCE_HEADING_RE.test(taskText)) {
+  const lines = taskText.split(/\r?\n/);
+  // Sekcijos paieška ir riba — `shared/markdown.findSectionBounds` (2026-08-24, RAG auditas 5).
+  // Vietinis kelias buvo fence-aklas iš abiejų galų: ```text bloke cituojama `## Spec source`
+  // antraštė būdavo palaikoma tikra, o įterpimo taškas nusileisdavo Į FENCED bloko vidų — naujas
+  // spec ref'as atsidurdavo ten, kur retrieval jo NIEKADA nepamato. Tyliai ignoruotas šaltinis.
+  const bounds = findSectionBounds(lines, (line) => line.trim() === "## Spec source");
+  if (bounds === undefined) {
     return `${taskText.trimEnd()}\n\n## Spec source\n${ref}\n`;
   }
-  const lines = taskText.split(/\r?\n/);
-  const headingIndex = lines.findIndex((line) => line.trim() === "## Spec source");
-  let insertAt = lines.length;
-  for (let i = headingIndex + 1; i < lines.length; i += 1) {
-    if (/^#{1,6}\s/.test(lines[i] ?? "")) {
-      insertAt = i;
-      break;
-    }
-  }
-  while (insertAt > headingIndex + 1 && (lines[insertAt - 1] ?? "").trim() === "") {
+  let insertAt = bounds.end;
+  while (insertAt > bounds.start + 1 && (lines[insertAt - 1] ?? "").trim() === "") {
     insertAt -= 1;
   }
   lines.splice(insertAt, 0, ref);

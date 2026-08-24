@@ -6,7 +6,7 @@
 // varyti testais be FS. parseBacktickChecks yra worker-task-ir kompiliatoriaus kanoninis
 // parseris (FQC-12: vienas parseris visame repo).
 
-import { extractSection, findSectionBounds } from "../../shared/markdown.js";
+import { extractSection, findSectionBounds, markdownFenceMask, splitLines } from "../../shared/markdown.js";
 import { serializeAgentChain } from "../../domain/policies/agent-selection.js";
 import {
   detectForbiddenDependencyViolations,
@@ -88,9 +88,28 @@ export function extractSpecSources(taskText: string): string[] {
  * context-pack krisdavo (task 872).
  */
 export function parseBacktickChecks(taskText: string | undefined): string[] {
-  return Array.from(extractSection(taskText ?? "", "## Patikra").matchAll(/`([^`]+)`/g), (match) =>
-    (match[1] ?? "").trim(),
-  ).filter(Boolean);
+  // FENCED blokai praleidžiami, ir skenuojama PO EILUTĖS (2026-08-24, RAG auditas 5).
+  //
+  // Anksčiau `/`([^`]+)`/g` bėgo per visą sekcijos kūną, tad ```` ``` ```` fence ribos pačios
+  // atrodydavo kaip backtick span'ai. `## Patikra` su komandų pavyzdžiu duodavo:
+  //
+  //   ```bash          →  patikra „bash\n# pavyzdys"
+  //   # pavyzdys           patikra „-"
+  //   ```                  o TIKRA `pnpm test` komanda būdavo SUVALGYTA, nes uždarančio fence
+  //   - `pnpm test`        backtick'ai susiporuodavo su jos atidarančiuoju.
+  //
+  // Praradimas ir prieaugis vienu metu: task'as netekdavo savo verifikacijos, o į pack'ą
+  // patekdavo eilutės, kurias renderis worker'iui deklaruoja kaip „must pass" komandas.
+  //
+  // Skenuojama po eilutės, nes patikra PAGAL APIBRĖŽIMĄ yra viena komanda: taip daugiaeilis
+  // artefaktas nebeįmanomas net teoriškai.
+  const lines = splitLines(extractSection(taskText ?? "", "## Patikra"));
+  const fenced = markdownFenceMask(lines);
+  return lines
+    .flatMap((line, index) =>
+      fenced[index] === true ? [] : Array.from(line.matchAll(/`([^`]+)`/g), (match) => (match[1] ?? "").trim()),
+    )
+    .filter(Boolean);
 }
 
 // --- Production-loop preflight normalization rules ---------------------------

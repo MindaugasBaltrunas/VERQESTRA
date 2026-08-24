@@ -23,7 +23,7 @@ Draudžiama:
 - `dist/**`
 
 ## Dependencies
-depends_on: 013
+depends_on: none
 
 ## Veiksmas
 - Įgyvendinti: Įtraukti release-check į ci workflow kaip atskirą quality gate žingsnį.

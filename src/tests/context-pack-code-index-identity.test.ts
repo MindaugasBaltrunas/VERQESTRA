@@ -51,5 +51,5 @@ test("code-index manifestas neša versiją, iš kurios statoma pack'o tapatybė"
 // deskriptorius jau tvarko invalidaciją pats, tad čia liko tik sąmoningumo vartas.
 test("indekso ir kešo versijos: kėlimas turi būti sąmoningas", () => {
   assert.equal(codeIndexVersion, "4.0.0", "records_hash manifeste, skenavimo ribos, eksportų tapatybė, scope, rezoliucija");
-  assert.equal(CONTEXT_CACHE_VERSION, 8, "pakelta kartu su fence-aware `extractSection`");
+  assert.equal(CONTEXT_CACHE_VERSION, 9, "pakelta kartu su fence-aware `parseBacktickChecks`");
 });

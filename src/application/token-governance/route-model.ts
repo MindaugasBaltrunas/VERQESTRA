@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { canonicalJsonStringify } from "../../shared/json.js";
+import { findSectionBounds } from "../../shared/markdown.js";
 import {
   AUTO_ESCALATION_CEILING,
   ROUTING_TIERS,

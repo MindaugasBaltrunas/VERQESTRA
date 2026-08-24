@@ -23,7 +23,7 @@ Draudžiama:
 - `dist/**`
 
 ## Dependencies
-depends_on: 007
+depends_on: none
 
 ## Veiksmas
 - Įgyvendinti: Automatizuoti project status ir converge perleidimą po kiekvieno commit'o su telemetry įrašu.

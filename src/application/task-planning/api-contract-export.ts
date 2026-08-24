@@ -6,6 +6,7 @@
 // (VERQESTRA runtime šaknis; etalone — `AG/generated/`).
 
 import path from "node:path";
+import { markdownFenceMask } from "../../shared/markdown.js";
 import { toPosixPath } from "../../shared/paths.js";
 import { findActiveSpec, type TaskPlanningFsPort } from "./spec-source.js";
 
@@ -110,18 +111,23 @@ async function readApiContractSections(
   return sections;
 }
 
+// Fence-aware (2026-08-24, RAG auditas 5): ```text bloke cituojama antraštė nebėra sekcija, o
+// `# komentaras` fenced bloke nebenutraukia jos kūno. Ta pati `markdownFenceMask` taisyklė kaip
+// `extractSection` ir `enumerateTaskSections` — spec dokumentai, iš kurių eksportuojamas API
+// kontraktas, pilni komandų pavyzdžių.
 function markdownSections(text: string, headingPattern: RegExp): Array<{ heading: string; text: string }> {
   const lines = text.split(/\r?\n/);
+  const fenced = markdownFenceMask(lines);
   const sections: Array<{ heading: string; text: string }> = [];
 
   for (let index = 0; index < lines.length; index += 1) {
     const heading = lines[index] ?? "";
-    if (!headingPattern.test(heading.trim())) continue;
+    if (fenced[index] === true || !headingPattern.test(heading.trim())) continue;
 
     const body: string[] = [];
     for (let bodyIndex = index + 1; bodyIndex < lines.length; bodyIndex += 1) {
       const line = lines[bodyIndex] ?? "";
-      if (/^#{1,6}\s/.test(line)) break;
+      if (fenced[bodyIndex] !== true && /^#{1,6}\s/.test(line)) break;
       body.push(line);
     }
     sections.push({ heading: heading.trim(), text: body.join("\n").trim() });

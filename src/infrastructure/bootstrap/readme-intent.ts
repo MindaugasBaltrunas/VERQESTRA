@@ -5,6 +5,7 @@
 // (etalono readTextIfExists semantika) — vien whitespace README yra "readme-empty".
 
 import path from "node:path";
+import { markdownFenceMask } from "../../shared/markdown.js";
 import type { ExplicitStackChoice } from "../../domain/policies/stack-decision-matrix.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 
@@ -54,13 +55,18 @@ export function parseReadmeIntent(content: string): ProductIntent {
     }
   };
 
-  for (const rawLine of lines) {
+  // Fence-aware (2026-08-24, RAG auditas 5): README, iš kurio `bootstrap-project` generuoja
+  // architektūrą ir pirmąsias užduotis, beveik visada turi ```bash blokų su `# komentarais`.
+  // Aklas parseris juos laikė 1 lygio antraštėmis ir suskaidydavo produkto ketinimą į fantomines
+  // sekcijas. Ta pati `markdownFenceMask` taisyklė kaip visur kitur.
+  const fenced = markdownFenceMask(lines);
+  for (const [index, rawLine] of lines.entries()) {
     const trimmedLine = rawLine.trim();
     if (trimmedLine === "") {
       continue;
     }
 
-    const headingMatch = ATX_HEADING_PATTERN.exec(trimmedLine);
+    const headingMatch = fenced[index] === true ? null : ATX_HEADING_PATTERN.exec(trimmedLine);
     if (headingMatch) {
       closeCurrentSection();
       current = {

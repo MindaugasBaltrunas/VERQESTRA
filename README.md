@@ -122,7 +122,7 @@ kita: `verqestra readiness-audit` krinta, jei komanda egzistuoja, bet nera dokum
 | `verqestra claude-dispatch <task-file> [--task-id <id>]` | Paleidžia vykdytojo modelį su maršrutu, biudžetu ir stop-bridge įrodymu |
 | `verqestra claude-preflight <task-file>` | LLM preflight: performulavimas, spec kontekstas, agentai, biudžetas |
 | `verqestra claude-diagnose <task-file>` | Diagnozuoja nepavykusį bandymą ir parašo repair sprendimą |
-| `verqestra loop` | Eilės vykdymo ciklas: bangos, slot'ai ir integracija iki tuščios eilės (0 = darbas baigtas arba operatorius sustabdė, 1 = sustojo palikęs darbą: išsekusi banga, užterštas medis, nedispatch'intas slot'as) |
+| `verqestra loop` | Eilės vykdymo ciklas: bangos, slot'ai ir integracija iki tuščios eilės (0 = darbas baigtas arba operatorius sustabdė, 1 = sustojo palikęs darbą: išsekusi banga, užterštas medis, nedispatch'intas slot'as). Kartu pakelia dashboard'ą — išjungiama `AG_UI_AUTOSTART=0` |
 | `verqestra loop-guard` | Pre-loop patikros be loop'o starto (0 = saugu, 1 = blokuota) |
 | `verqestra dispatch <task-file> [--adapter <kind>]` | Paleidžia vykdymo adapterį PO preflight, biudžeto ir context-pack vartų |
 | `verqestra codex-dispatch <task-id> [--adapter codex]` | Codex adapterio kelias (be --adapter codex — dry-run) |

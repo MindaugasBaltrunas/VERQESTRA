@@ -293,7 +293,7 @@ Sprendimas: `degraded` įtrauktas į `DashboardData`, kontroleris jį perduoda, 
 įvardytą pranešimą (ta pati forma kaip `WavesPanel`), o `#/learning` be control-plane bloko gauna
 aiškią būseną su „bandyti dar kartą", ne tuščią lapą.
 
-### Radinys, PALIKTAS OPERATORIUI: UI autostart neprijungtas
+### UI autostart buvo neprijungtas — PRIJUNGTA (operatoriaus sprendimu)
 
 `interfaces/http/ui-lifecycle.ts` (170 eil.: `ensureUiRunning`, `uiPidFile`, `UI_AUTOSTART_ENV`,
 starto malonės langas) yra pilnai perkeltas ir ištestuotas, bet **produkcinių kvietėjų turi nulį** —
@@ -301,11 +301,26 @@ tik testus. Etalone jį kviečia `interfaces/cli/claude-loop/index.ts:516`, iš 
 vartų: `verqestra loop` ten pakelia dashboard'ą pats. VERQESTRA'oje to kvietimo nėra, tad
 operatorius, paleidęs ciklą, dashboard'o negauna, kol nepaleidžia `verqestra ui` ranka.
 
-**Nepritaikiau sąmoningai.** Prijungimas priverstų `verqestra loop` spawn'inti atsietą serverio
-procesą, užimti prievadą ir perrašyti `vq/state/ui-server.json` — išorinis, sunkiai atšaukiamas
-šalutinis efektas komandai, kurios auditas neapima, o repo šiuo metu sukioja lygiagreti sesija.
-Tai sprendimas operatoriui, ne tylus pataisymas. Tai **septintas** šio repo „mechanizmas be
-wiring'o" atvejis.
+Tai **septintas** šio repo „mechanizmas be wiring'o" atvejis. Iš pradžių jį palikau operatoriui,
+nes prijungimas priverčia `verqestra loop` spawn'inti atsietą serverio procesą, užimti prievadą ir
+perrašyti `vq/state/ui-server.json` — išorinis šalutinis efektas komandai, kurios auditas neapima.
+Operatorius nusprendė jungti.
+
+Prijungta `composition/cli/commands-ops.ts` `loop` komandoje, iš karto po `ensureRuntimeDirs` ir
+**prieš** `runLoopCommand`: po ciklo kvietimas įvyktų tik eilei ištuštėjus, t. y. tada, kai
+dashboard'o nebereikia. Trys sprendimai, kurie yra šio surišimo kontraktas:
+
+1. **Rezultatas neima sprendimo.** UI yra stebėjimo paviršius, ne ciklo prielaida. Nesėkmė pati
+   praneša per `uiStartFailed` → `io.error`, tad ji matoma, bet eilės nestabdo — priešingu atveju
+   užimtas prievadas blokuotų darbą, kurio jis tik nerodo.
+2. **Kiekvienas mūsų spawn'intas vaikas gauna `AG_UI_AUTOSTART=0`** (etalonas: `ui/{loop,ui}-service.ts`).
+   Be to grandinė būtų begalinė: UI paleidžia loop'ą, loop'as pakelia UI, tas vėl paleidžia loop'ą.
+   Vėliava paveldima, tad ji uždaro VISĄ grandinę, ne vieną pakopą.
+3. **Prievado portai (`uiPortPorts`) eksportuoti, o ne nukopijuoti**: juos dabar naudoja du keliai
+   (`ui` komanda ir autostart'as), o antra kopija duotų du skirtingus atsakymus apie tą patį
+   prievadą — būtent porto tapatybė skiria „mūsų serveris" nuo „svetimas procesas".
+
+Išjungiama `AG_UI_AUTOSTART=0`; užrašyta README `loop` eilutėje.
 
 Smulkiau: `useDashboardController.logBytes` buvo skaičiuojamas be nė vieno vartotojo — ištrintas.
 `adaptOverview` gamina 6 metrikas, o `#/` rodo `.slice(0, 4)` (paskutinės dvi — „Latest activity",
@@ -318,11 +333,17 @@ tad palikta kaip produkto sprendimas, ne kaip klaida.
 |---|---|
 | `src/tests/interfaces-http-sse.test.ts` (+2) | šaltinio klaida NEIŠEINA iš hub'o nei tiesioginiame, nei TAIMERIO kelyje; ji pavadinama; klientas lieka prijungtas; pokytis NEPRARANDAMAS ir atkeliauja kitame praėjime; pirmo snapshot'o klaida palieka ryšį atvirą |
 | `ui-app/src/dashboardSmoke.test.tsx` (+2) | degradavęs šaltinis PAVADINAMAS ekrane; `#/learning` be control-plane bloko rodo įvardytą būseną, ne tuščią lapą |
+| `src/tests/composition-ui-autostart.test.ts` (naujas) | `ensureUiRunning` turi produkcinį kvietėją IR jis stovi prieš ciklą; abu spawn'ai neša `AG_UI_AUTOSTART`; vėliavos vardas imamas iš modulio, ne rašomas ranka |
+
+Paskutinis vartas skaito ŠALTINĮ, o ne elgesį — sąmoningai, ir tai ne trumpinys. Visi septyni šio
+repo „mechanizmas be wiring'o" atvejai praėjo pro žalius vienetinius testus, nes vienetinis testas
+tikrina mechanizmą, o ne tai, ar kas nors jį kviečia. Tas pats šablonas jau naudojamas
+`scheduling-safe-telemetry`.
 
 ### Patikros po trečio rato
 
 - `pnpm typecheck`, `pnpm lint`, `pnpm typecheck:ui` — praeina.
-- `pnpm test` — praeina, **1533/1533** (lygiagrečios sesijos kritimai irgi uždaryti).
+- `pnpm test` — praeina, **1542/1542** (lygiagrečios sesijos kritimai irgi uždaryti).
 - `pnpm test:ui` — praeina, 49/49 failai ir **410/410** testai.
 - `pnpm build:ui` — praeina.
 - Realus atidarymas naršyklėje — **vis dar nepatikrintas** (toolchain'e nėra headless naršyklės, o

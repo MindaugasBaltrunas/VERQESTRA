@@ -116,7 +116,6 @@ export type UiDashboardData = {
   claudeLogBytes: number | null;
   claudeLogSource: string;
   workflowBuckets: WorkflowBucketView[];
-  queueCounts: Record<string, number>;
   statusFiles: UiStatusFile[];
   /** Praleidžiamas TIK tada, kai šaltinio perskaityti nepavyko — tada jis yra `degraded` sąraše. */
   controlPlane?: UiControlPlaneData;

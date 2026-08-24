@@ -129,6 +129,61 @@ export type UiControlPlaneData = {
     rejected_recommendations: number;
   };
   policy_controls?: UiPolicyGroup[];
+  /** Projekto stack sprendimas su pasitikėjimu ir human-review vėliava. */
+  stack_decision?: UiStackDecision;
+  /** Token biudžeto lubos ir suvartojimas — atsakymas „kodėl dispatch'as pristabdytas". */
+  token_budget?: UiTokenBudget;
+};
+
+export type UiStackDecision = {
+  selected_language: string | null;
+  selected_framework: string | null;
+  architecture_style: string;
+  confidence: "high" | "medium" | "low";
+  human_review_required: boolean;
+  reason: string;
+};
+
+/** Lubos iš galiojančio profilio; `null` reiškia „neribota". */
+export type UiTokenBudgetLimits = {
+  max_llm_calls: number | null;
+  max_total_llm_calls: number | null;
+  max_total_tokens: number | null;
+};
+
+/**
+ * Du blokus rašo SKIRTINGI momentai, tad jie nesuliejami: bendras skaičius, sudėtas iš dviejų
+ * laiko taškų, meluotų apie abu. Visi laukai optional — dalinis ar senesnio formato turinys
+ * privalo būti praleistas, o ne versti ekraną.
+ */
+export type UiTokenBudget = {
+  budget_enforcement?: {
+    ok?: boolean;
+    task_id?: string;
+    model?: string;
+    profile?: string;
+    llm_calls?: number;
+    total_llm_calls?: number;
+    total_tokens?: number;
+    billable_tokens?: number;
+    limits?: UiTokenBudgetLimits;
+    reduce_context?: boolean;
+    reasons?: string[];
+    soft_reasons?: string[];
+  };
+  llm_call_authorization?: {
+    allowed?: boolean;
+    task_id?: string;
+    phase?: string;
+    total_llm_calls?: number;
+    total_tokens?: number;
+    billable_tokens?: number;
+    remaining_total_llm_calls?: number | null;
+    remaining_total_tokens?: number | null;
+    reduce_context?: boolean;
+    hard_reasons?: string[];
+    soft_reasons?: string[];
+  };
 };
 
 /**

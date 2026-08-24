@@ -20,9 +20,11 @@ import {
   type WorktreeAllocationPort,
 } from "../application/terminal-supervisor.js";
 import type { DirectAgentTerminalPort } from "../application/ports/direct-agent-terminal-port.js";
+import { AtomicJsonSessionRegistryStore } from "../infrastructure/atomic-json-session-registry-store.js";
 
 const PROJECT_ID = "123e4567-e89b-42d3-a456-426614174000";
 const OWNER_DEVICE_ID = "123e4567-e89b-42d3-a456-426614174081";
+const GATEWAY_INSTANCE = "123e4567-e89b-42d3-a456-4266141740a0";
 const NOW = new Date("2026-08-24T10:00:00.000Z");
 
 async function world(): Promise<{
@@ -32,7 +34,8 @@ async function world(): Promise<{
 }> {
   const directory = await mkdtemp(join(tmpdir(), "vq-terminal-start-fail-"));
   const workspace = join(directory, "workspace");
-  await mkdir(join(workspace, "repository"), { recursive: true });
+  // `.git` privalomas: `registerExisting` tikrina, ar kelias tikrai yra repozitorija.
+  await mkdir(join(workspace, "repository", ".git"), { recursive: true });
 
   const registry = await ProjectRegistry.create({ personal: workspace });
   await registry.registerExisting({
@@ -92,12 +95,16 @@ async function world(): Promise<{
     },
   };
 
+  // `registry`, `processes` ir `gatewayInstanceId` paduodami KARTU — prižiūrėtojas dalinės
+  // konfigūracijos nepriima (fail-closed), o `processes` čia ir yra viso testo esmė.
   const supervisor = new TerminalSupervisor({
     projects: registry,
     git,
     worktrees,
     terminals,
     processes,
+    registry: new AtomicJsonSessionRegistryStore(join(directory, "sessions.json"), GATEWAY_INSTANCE),
+    gatewayInstanceId: GATEWAY_INSTANCE,
     clock: () => NOW,
     leaseTtlMs: 60_000,
   });

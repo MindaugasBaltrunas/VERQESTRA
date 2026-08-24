@@ -420,3 +420,38 @@ neatiduoda.
 - `pnpm test` — 1559/1561. **Abu kritimai priklauso lygiagrečiai sesijai** (`context-pack`
   assemble ir `CONTEXT_CACHE_VERSION` priminimo testas — jos darbas tuo metu buvo pusiaukelėje).
   Visi UI ir architektūros vartų testai žali.
+
+## Penktas ratas: kelio nutekėjimas ir GILIŲ DTO sulyginimas (2026-08-24)
+
+Antras ratas sulygino atsakymų **VOKUS** (`{loop}`, `{proposals}`, `{records, pagination}`), bet
+ne jų VIDŲ. Penktas ratas paėmė tris likusius gilius DTO ir vieną radinį, kurį ketvirtame rate
+įvardijau, bet atidėjau.
+
+### Absoliutus kelias, keliaujantis į naršyklę — IŠTAISYTA
+
+`HumanReviewApprovalRequiredError` žinutė nešė ABSOLIUTŲ žymės kelią, o `ui-error-mapping` ją
+perduoda kaip 403 kūną. Į naršyklę taip iškeliaudavo disko raidė, vartotojo vardas ir įdiegimo
+vieta — tiksliai tai, ką `free-text-redaction` sąmoningai kerpa iš bangų vaizdo, o paties
+`ui-error-mapping` antraštė vadina „vidinėmis detalėmis, liekančiomis serverio pusėje". Ta pati
+taisyklė jau taikoma benchmark DTO (`BenchmarkReportSource.path`: „Repo-relative. A DTO served over
+HTTP never discloses a location on the host") — politikų klaida buvo vienintelė išimtis.
+
+**Aklas redagavimas į `<path>` čia būtų buvęs neteisingas taisymas**: šios žinutės VISA prasmė yra
+pasakyti, KUR sukurti failą, tad `sanitizeFreeText` ją paverstų beverte. Sprendimas — repo-reliatyvus
+kelias: veiksmas išsaugotas (operatorius savo šaknį mato Header'yje), o šaknis neišeina. Būtent
+todėl `free-text-redaction` santykinius kelius palieka matomus. Patikra ir toliau eina ABSOLIUČIU
+keliu (`humanReviewApprovalMarkerPath`), o pranešama nauju `humanReviewApprovalMarkerRef`.
+
+### Gilūs DTO: trys sulyginti, vienas įvardytas kaip svetimas
+
+| Riba | Verdiktas |
+|---|---|
+| `/api/token-analytics` | **sutampa** laukas į lauką (`TaskFamilyGroup`, `OptimizationCandidate`, `TokenAnalyticsSnapshot`) |
+| `/api/waves` → `UiWaveSlot` | **sutampa** laukas į lauką (po antrame rate ištaisyto `hard_capped`) |
+| `/api/benchmark/report` vokas | **sutampa**; `source.path` jau repo-reliatyvus pagal savo paties kontraktą |
+| `/api/benchmark/report` DOKUMENTO vidus | **NE šio audito riba.** Serveris jį laiko neskaidriu įrodymu ir persiunčia pažodžiui (`modes: z.array(z.unknown())`, `looseObject` visur, komentaras: „orkestratorius čia kurjeris, ne autorius"). Tikroji riba yra `AG/benchmark` raporto modelis ↔ `ui-app` tipai, ir ji priklauso BENCH apimčiai. Įvardyta, o ne pusiau patikrinta |
+
+### Patikros po penkto rato
+
+- `pnpm typecheck`, `pnpm lint` — praeina.
+- `pnpm test` — **1565/1565**; `pnpm test:ui` — 51/51 failai, **417/417**.

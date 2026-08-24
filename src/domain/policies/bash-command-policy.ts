@@ -99,7 +99,18 @@ const allowedCommandSegments = [
   /^pnpm\s+(?:test|run\s+(?:build(?::[\w-]+)?|typecheck|lint|test(?::[\w-]+)?|test:architecture|check|format:check))\b/i,
   // Quality gates naudoja repo-scoped pnpm --dir formą; leidžiami tik santykiniai keliai
   // ir tik patikros/build script'ai, be "--" argumentų perdavimo.
-  /^pnpm\s+--dir\s+(?![A-Za-z]:)(?![\\/])(?!\.\.(?:[\\/]|$))(?!.*[\\/]\.\.(?:[\\/]|$))[\w.\\/-]+\s+(?:build(?::[\w-]+)?|typecheck|lint|test(?::[\w-]+)?|test:architecture|check|format:check)$/i,
+  //
+  // `benchmark:smoke` (2026-08-24, operatoriaus sprendimas): BENCH-12 offline dūmų testas.
+  // Leidžiamas TIK jis iš benchmark script'ų, ir tik dėl to, kad jo saugumas yra KONSTRUKCIJA,
+  // o ne pažadas: prieš paleisdamas jis tikrina kiekvieną savo komandą prieš
+  // `PAID_MODEL_ARGUMENTS` (`--allow-network`, `--live`), o du iš penkių jo patikrinimų
+  // REIKALAUJA, kad tinklo režimas be leidimo būtų atmestas. Modelio jis nepasiekia, ir
+  // regresija, kuri tai pakeistų, krenta pačiame smoke, o ne sąskaitoje.
+  //
+  // `benchmark:report` čia NEĮRAŠYTAS: jis rašo raportą, o rašantis script'as yra kitas
+  // saugumo profilis nei patikra. `--allow-network` formos lieka neleistinos apskritai, nes
+  // šablonas leidžia TIK script'o vardą — argumentų jis nepriima.
+  /^pnpm\s+--dir\s+(?![A-Za-z]:)(?![\\/])(?!\.\.(?:[\\/]|$))(?!.*[\\/]\.\.(?:[\\/]|$))[\w.\\/-]+\s+(?:build(?::[\w-]+)?|typecheck|lint|test(?::[\w-]+)?|test:architecture|check|format:check|benchmark:smoke)$/i,
   // pnpm leidžia script'us kviesti be "run" — agentų doc (pvz. audit-director) naudoja šią formą.
   /^pnpm\s+(?:typecheck|lint|test:architecture|check|format:check)\b/i,
   /^node\s+--test(?!.*--(?:require|loader|import|env-file|experimental-loader)\b)/i,

@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 import {
+  buildTaskStartStatus,
   resolveTaskScopedRollback,
   type TaskStartStatus,
 } from "../domain/git/rollback-rules.js";
@@ -74,6 +75,64 @@ test("resolveTaskScopedRollback: prieš task'ą buvę ne-runtime pakeitimai blok
   if (decision.ok) return;
   assert.equal(decision.snapshotBaseline, true);
   assert.match(decision.reason, /existed before task start/);
+});
+
+// ---------------------------------------------------------------------------
+// gamintojas ↔ vartotojas: SUJUNGIMAS, ne taisyklė
+// ---------------------------------------------------------------------------
+
+/**
+ * Aukščiau esantys testai tikrina taisyklę su ranka sukonstruota fikstūra. Ši grupė tikrina tai,
+ * kas 2026-08-24 ir buvo sugedę: ar TIKROJO gamintojo išvestis tenkina TIKRĄ vartotoją. Įrašas
+ * keliauja per failą, tad ir čia jis pervaromas per JSON — praradus lauką serializacijoje
+ * simptomas būtų identiškas.
+ */
+const roundTrip = (record: unknown): TaskStartStatus => JSON.parse(JSON.stringify(record)) as TaskStartStatus;
+
+test("buildTaskStartStatus → resolveTaskScopedRollback: švarus medis LEIDŽIA rollback'ą", () => {
+  const record = buildTaskStartStatus({
+    taskId: "0042",
+    baseHead: BASE_HEAD,
+    startedAt: NOW.toISOString(),
+    gitStatus: "",
+  });
+
+  assert.equal(record.baseline_valid, true);
+  assert.deepEqual(resolveTaskScopedRollback(roundTrip(record), "0042"), { ok: true, targetRef: BASE_HEAD });
+});
+
+test("buildTaskStartStatus: neatsakęs git NEGALI atrodyti kaip švarus medis", () => {
+  const record = buildTaskStartStatus({
+    taskId: "0042",
+    baseHead: BASE_HEAD,
+    startedAt: NOW.toISOString(),
+    gitStatus: undefined,
+  });
+
+  const decision = resolveTaskScopedRollback(roundTrip(record), "0042");
+  assert.equal(decision.ok, false);
+  assert.match(decision.ok ? "" : decision.reason, /baseline_valid=false git_status_code=1 error=git status failed/);
+});
+
+test("buildTaskStartStatus: runtime purvas rollback'o neblokuoja, produkto purvas — blokuoja", () => {
+  const runtimeOnly = buildTaskStartStatus({
+    taskId: "0042",
+    baseHead: BASE_HEAD,
+    startedAt: NOW.toISOString(),
+    gitStatus: " M vq/state/task-ledger.json\n M vq/logs/orchestrator.log\n",
+  });
+  assert.deepEqual(runtimeOnly.non_runtime_dirty_entries, []);
+  assert.equal(resolveTaskScopedRollback(roundTrip(runtimeOnly), "0042").ok, true);
+
+  const withProduct = buildTaskStartStatus({
+    taskId: "0042",
+    baseHead: BASE_HEAD,
+    startedAt: NOW.toISOString(),
+    gitStatus: " M vq/logs/orchestrator.log\n M src/domain/git/changes.ts\n",
+  });
+  const blocked = resolveTaskScopedRollback(roundTrip(withProduct), "0042");
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.ok ? "" : blocked.reason, /src\/domain\/git\/changes\.ts/);
 });
 
 // ---------------------------------------------------------------------------

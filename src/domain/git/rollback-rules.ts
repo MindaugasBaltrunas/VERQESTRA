@@ -2,7 +2,7 @@
 // pusė, task 890, + interfaces/cli/rollback-stable resolveTaskScopedRollback). Faktų
 // surinkimas prieš realų repo — infrastructure/git/rollback-scope.
 
-import type { DirtyEntry } from "./changes.js";
+import { nonRuntimeDirtyEntriesFromStatus, type DirtyEntry } from "./changes.js";
 
 export type PushedRollbackFacts = {
   head?: string;
@@ -48,6 +48,65 @@ export type TaskStartStatus = {
   git_status_error?: string;
   non_runtime_dirty_entries?: DirtyEntry[];
 };
+
+/**
+ * Pilnas įrašas, kokį jį PRIVALO parašyti gamintojas: visi laukai, kurių ieško
+ * {@link resolveTaskScopedRollback}, yra privalomi, tad jų praleisti nebeįmanoma.
+ */
+export type TaskStartStatusRecord = {
+  task_id: string;
+  base_head: string;
+  started_at: string;
+  baseline_valid: boolean;
+  git_status_code: number;
+  non_runtime_dirty_entries: DirtyEntry[];
+  /** Tik negaliojančiam baseline'ui: blokavimo priežastis keliauja į operatoriaus žurnalą. */
+  git_status_error?: string;
+};
+
+export type BuildTaskStartStatusInput = {
+  taskId: string;
+  baseHead: string;
+  startedAt: string;
+  /** `git status --porcelain` išvestis; `undefined` reiškia, kad git NEATSAKĖ. */
+  gitStatus: string | undefined;
+};
+
+/**
+ * Task'o startinės būsenos VIENINTELIS gamintojas.
+ *
+ * Egzistuoja tam, kad gamintojas ir vartotojas nebegalėtų prasilenkti. Iki 2026-08-24 įrašą
+ * inline'u dėliojo `composition/loop/coordinator-adapters` iš trijų laukų (`task_id`, `base_head`,
+ * `started_at`), o {@link resolveTaskScopedRollback} reikalauja `baseline_valid === true`.
+ * Rezultatas buvo determinuotas: KIEKVIENAS task-scoped rollback blokuotas su
+ * `invalid task baseline … baseline_valid=undefined`, nė vieno kritusio task'o darbas neatsuktas, o
+ * jo necommit'inti pakeitimai likdavo kito task'o baseline'e ir stabdydavo loop'ą ties „dirty
+ * product tree". Pati taisyklė buvo padengta testais — su ranka sukonstruota fikstūra, kurios
+ * formos realus gamintojas niekada nesukūrė; nepadengtas buvo SUJUNGIMAS.
+ *
+ * Status KODAS yra sprendimo dalis, o ne detalė: tuščias tekstas su atsakymu reiškia švarų medį,
+ * o atsakymo NEBUVIMAS reiškia „git neatsakė". Sulieti juos reikštų, kad nepavykusi patikra
+ * atrodo kaip švarus medis, ir rollback atsuktų į bazę, kurios niekas nepatvirtino.
+ */
+export function buildTaskStartStatus(input: BuildTaskStartStatusInput): TaskStartStatusRecord {
+  const identity = { task_id: input.taskId, base_head: input.baseHead, started_at: input.startedAt };
+  const status = input.gitStatus;
+  if (status === undefined) {
+    return {
+      ...identity,
+      baseline_valid: false,
+      git_status_code: 1,
+      non_runtime_dirty_entries: [{ status: "!!", path: "<git status failed>" }],
+      git_status_error: "git status failed",
+    };
+  }
+  return {
+    ...identity,
+    baseline_valid: true,
+    git_status_code: 0,
+    non_runtime_dirty_entries: nonRuntimeDirtyEntriesFromStatus(status),
+  };
+}
 
 export type TaskScopedRollbackDecision =
   | { ok: true; targetRef: string }

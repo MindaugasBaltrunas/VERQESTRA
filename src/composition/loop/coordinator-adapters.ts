@@ -34,6 +34,7 @@ import { shouldResetSessionWriteLedger } from "../../application/task-execution/
 import { clearSessionWriteLedger } from "../../interfaces/hooks/session-write-ledger.js";
 import type { TaskLedgerEntry } from "../../application/task-execution/task-ledger-rules.js";
 import { taskFileStem, taskLedgerKey } from "../../domain/tasks/identity.js";
+import { buildTaskStartStatus } from "../../domain/git/rollback-rules.js";
 
 import { isInfrastructureExitCode } from "../../shared/exit-codes.js";
 import { WorkflowInfrastructureError } from "../../shared/errors.js";
@@ -259,14 +260,20 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
      * Per-task baseline: `base_head` yra riba, nuo kurios skaičiuojamas šio bandymo darbo
      * įrodymas. Be jos įrodymų langas lieka tuščias, o tai reiškia, kad task'as niekada
      * neužsidarys kaip `done` be žmogaus — griežtesnė pusė.
+     *
+     * Įrašo formą sudėlioja `buildTaskStartStatus` (`domain/git/rollback-rules`) — tas pats modulis,
+     * kuris jį ir skaito. Inline objekto literalas čia buvo priežastis, dėl kurios iki 2026-08-24
+     * trūko `baseline_valid` ir kiekvienas task-scoped rollback buvo blokuotas; sujungimą dabar
+     * saugo bendras tipas, ne sutapimas.
      */
     recordTaskStartStatus: async (taskId) => {
-      const { gitHead } = await import("../../infrastructure/git/git-client.js");
-      const payload = {
-        task_id: taskId,
-        base_head: (await gitHead(input.projectRoot)) ?? "",
-        started_at: new Date().toISOString(),
-      };
+      const { gitHead, gitStatusPorcelain } = await import("../../infrastructure/git/git-client.js");
+      const payload = buildTaskStartStatus({
+        taskId,
+        baseHead: (await gitHead(input.projectRoot)) ?? "",
+        startedAt: new Date().toISOString(),
+        gitStatus: await gitStatusPorcelain(input.projectRoot),
+      });
 
       // Per-TASK session-writes ledger'io pradžia (etalono task 1100 + 0049 + 0056). Iki
       // 2026-08-23 čia buvo plikas `writeTextFile("[]")`: (1) BESĄLYGINIS — to paties task'o

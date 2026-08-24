@@ -57,6 +57,28 @@ test("bash politika: allowlist segmentai, injekcija per skirtukus ir escape šab
   assert.ok(evaluateBashCommandPolicy("rg TODO --pre sh src").blockedPattern, "rg --pre vykdo komandą");
 });
 
+// 2026-08-24, operatoriaus sprendimas: `pnpm --dir` allowlist'as praplėstas VIENU script'u.
+// Testas fiksuoja plyšio DYDĮ, ne tik jo egzistavimą: praplėtimas be ribų testo po pusmečio
+// tampa „benchmark script'ai leidžiami", o būtent to čia ir nenorima.
+test("bash politika: --dir leidžia benchmark:smoke, bet ne mokamas ar rašančias formas", () => {
+  assert.equal(
+    evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:smoke").blockedPattern,
+    undefined,
+    "offline dūmų testas leidžiamas: jis pats tikrina, kad nė viena jo komanda neneša --allow-network/--live",
+  );
+
+  // Rašantis script'as — kitas saugumo profilis, sąmoningai neleidžiamas.
+  assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:report").blockedPattern);
+  // Šablonas leidžia TIK script'o vardą, tad mokamos formos nepraeina net su leistinu vardu.
+  assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:smoke --allow-network").blockedPattern);
+  assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:smoke --live").blockedPattern);
+  // Kelio ribos nepasikeitė kartu su script'o vardu.
+  assert.ok(evaluateBashCommandPolicy("pnpm --dir ../outside benchmark:smoke").blockedPattern);
+  assert.ok(evaluateBashCommandPolicy("pnpm --dir C:/tmp benchmark:smoke").blockedPattern);
+  // Ir svarbiausia: generuoto hook runtime denylist'as liko nepaliestas.
+  assert.match(evaluateBashCommandPolicy("node dist/cli.js benchmark validate").blockedPattern ?? "", /dist[\\/]cli\.js/);
+});
+
 test("bash politika: saugomi runtime keliai — vq ir AG formos, dist runtime, inline executor", () => {
   assert.equal(evaluateBashCommandPolicy("cat vq/state/task-ledger.json").blockedPattern, "vq/state/");
   assert.equal(evaluateBashCommandPolicy("cat AG/state/task-ledger.json").blockedPattern, "AG/state/");

@@ -109,6 +109,8 @@ export function useDashboardController() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  /** Kada PASKUTINĮ kartą pavyko perskaityti `/api/dashboard`; `null` — dar nė karto. */
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [resumeLabel, setResumeLabel] = useState("▶ Start loop");
   const [stopLabel, setStopLabel] = useState("⏹ Stop loop");
   // Vienas mutuojančių veiksmų kelias (task 1235): dvigubo paspaudimo apsauga ir rezultato pranešimas.
@@ -152,6 +154,10 @@ export function useDashboardController() {
       const dashboard = await api.fetchDashboard();
       if (requestId !== requestSequence.current) return;
       const serialized = JSON.stringify(dashboard);
+      // Sėkmingo POLLO laikas, o ne duomenų pakeitimo: „nepasikeitė" yra šviežias atsakymas,
+      // o ne pasenę duomenys. Žymima PRIEŠ ankstyvą grįžimą — kitaip ramus, nieko nekeičiantis
+      // ciklas ekrane atrodytų kaip nutrūkęs ryšys.
+      setLoadedAt(Date.now());
       if (serialized === lastSnapshot.current) {
         // Nothing changed since the last poll — skip the state update so the
         // dashboard does not re-render (and thus does not visually jump).
@@ -475,6 +481,7 @@ export function useDashboardController() {
     // tad vartotojas žiūrėdavo į užšalusius duomenis manydamas, kad viskas gerai.
     notice,
     refreshError,
+    loadedAt,
     resumeLabel,
     stopLabel,
     agentActivity,

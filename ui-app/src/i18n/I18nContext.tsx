@@ -362,6 +362,9 @@ const lt: Record<string, string> = {
   "Cancel": "Atšaukti",
   "Read-only": "Tik skaitymui",
   "Live data": "Gyvi duomenys",
+  // 2026-08-24 (operatoriaus radinys): ženklelis nustojo būti literalu ir dabar sako, kas yra.
+  "Data may be stale": "Duomenys gali būti pasenę",
+  "updated": "atnaujinta prieš",
   "Showing the latest": "Rodomi naujausi",
   "of": "iš",
   "records": "įrašų",

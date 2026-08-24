@@ -3635,6 +3635,14 @@ main {
   font-size: 10px;
 }
 
+/* Ženklelio tonas seka JO PAČIO verdiktą: „gyvi" ir „pasenę" negali atrodyti vienodai, kitaip
+   tekstas pasikeičia, o ekranas ir toliau atrodo ramus (2026-08-24 operatoriaus radinys). */
+.freshness-indicator.freshness-stale { color: var(--warning, #b45309); }
+.freshness-indicator.freshness-failed { color: var(--error, #b91c1c); }
+.freshness-indicator.freshness-stale i,
+.freshness-indicator.freshness-failed i { background: currentColor; animation: none; }
+.freshness-indicator small { opacity: 0.75; }
+
 .freshness-indicator i {
   width: 6px;
   height: 6px;

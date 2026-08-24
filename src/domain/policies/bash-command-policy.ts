@@ -59,6 +59,11 @@ const allowedBenchmarkCliCommands = [
   // Nemokamos formos: `validate` tik skaito, `run --dry-run` išsprendžia planą ir nevykdo nieko.
   // `--allow-network` čia NĖRA, tad ši eilutė negali tapti mokamu keliu.
   /^node\s+dist[\\/]cli\.js\s+benchmark\s+(?:validate|run)(?:\s+(?:--dry-run|--json|--(?:mode|scenario)\s+[\w-]+))*$/i,
+  // `report` ir `verify` BE `--out`: abu tik skaito jau įrašytus sample'us ir rašo į stdout.
+  // Riba čia yra `--out` nebuvimas, ne subkomandos vardas — būtent `--out` paverčia raportą
+  // laisvo kelio rašymu. Įleista 2026-08-24: mokamas ratas be verdikto skaitymo yra
+  // neperskaitytas matavimas, t. y. išleisti pinigai be atsakymo.
+  /^node\s+dist[\\/]cli\.js\s+benchmark\s+(?:report|verify)(?:\s+(?:--json|--format\s+[\w-]+))*$/i,
   // Mokama forma — TIK vienas scenarijus, vienas režimas, ir tik BENCH-9 leidžiamas repeticijų
   // skaičius. Visi trys reikalaujami lookahead'ais, ne leidžiami: be `--mode` paleistų VISUS
   // režimus (du iš jų mokami), be `--scenario` — visą rinkinį.

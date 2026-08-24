@@ -127,9 +127,14 @@ test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subk
     "1 nėra 12 prefiksas",
   );
 
+  // `report`/`verify` be `--out` skaito ir rašo į stdout; su `--out` tampa laisvo kelio rašymu.
+  assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark report --format markdown").blockedPattern, undefined);
+  assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark verify --json").blockedPattern, undefined);
+
   // Kitos subkomandos ir rašantys flag'ai lieka uždrausti.
   assert.match(blocked("node dist/cli.js loop"), /dist[\\/]cli\.js/);
-  assert.match(blocked("node dist/cli.js benchmark report --out r.md"), /dist[\\/]cli\.js/);
+  assert.match(blocked("node dist/cli.js benchmark report --out r.md"), /dist[\\/]cli\.js/, "--out yra laisvo kelio rašymas");
+  assert.match(blocked("node dist/cli.js benchmark report --format markdown --out r.md"), /dist[\\/]cli\.js/);
   assert.match(blocked("node dist/cli.js benchmark baseline create --out b.json"), /dist[\\/]cli\.js/);
   assert.match(blocked("node dist/cli.js benchmark validate; node dist/cli.js loop"), /dist[\\/]cli\.js/);
 });

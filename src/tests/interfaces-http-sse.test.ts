@@ -40,6 +40,9 @@ type SseWorld = {
   timers: { handler: () => void; ms: number; cleared: boolean }[];
   globalReads: number;
   slotReads: string[];
+  errors: string[];
+  /** Įjungus — `readActiveAttempt` meta, kaip mestų Windows EBUSY ties `claude-last.log`. */
+  sourceFailure?: Error | undefined;
   /** Leidžia sulaikyti globalų skaitymą — persidengiančių praėjimų testui. */
   gate?: { promise: Promise<void>; release: () => void };
 };
@@ -51,6 +54,7 @@ function sseWorld(): SseWorld {
     timers: [],
     globalReads: 0,
     slotReads: [],
+    errors: [],
     ports: undefined as unknown as SsePorts,
   };
 
@@ -66,13 +70,15 @@ function sseWorld(): SseWorld {
       return Promise.resolve(activity({ taskId: source.task_id }));
     },
     readLiveSlotSources: () => Promise.resolve(world.slots),
-    readActiveAttempt: () => Promise.resolve(world.attempt),
+    readActiveAttempt: () =>
+      world.sourceFailure ? Promise.reject(world.sourceFailure) : Promise.resolve(world.attempt),
     legacyWatchFiles: () => ["/vq/logs/claude-last.log", "/vq/state/wave-snapshot.json"],
     setInterval: (handler, ms) => {
       const timer = { handler, ms, cleared: false };
       world.timers.push(timer);
       return { clear: () => void (timer.cleared = true) };
     },
+    logError: (message) => world.errors.push(message),
   };
   return world;
 }
@@ -233,4 +239,63 @@ test("miręs klientas išmetamas, o keepalive teka net be pokyčių", async () =
   client.fail = true;
   keepalive?.handler();
   assert.equal(hub.clientCount(), 0);
+});
+
+// 2026-08-24 auditas, P0. Šaltinių skaitymas krisdavo pro `checkAndBroadcast` į taimerio
+// `void checkAndBroadcast()`, t. y. tapdavo NEPERIMTU atmetimu — o Node 15+ tokį verčia neperimta
+// išimtimi ir NUTRAUKIA PROCESĄ. Procesas yra tas pats, kuris aptarnauja dashboard'ą ir valdo
+// loop'ą, o krentantis šaltinis — `claude-last.log`, kurį lygiagrečiai rašo vykdytojas (Windows
+// EBUSY ties juo šiame repo dokumentuotas). Vadinasi, dashboard'as mirdavo aktyvaus dispatch'o
+// metu — tiksliai tada, kai jo labiausiai reikia.
+test("šaltinio klaida praėjime NIEKADA neišeina iš hub'o — ji pavadinama, o srautas gyvena", async () => {
+  const world = sseWorld();
+  const hub = createSseHub(world.ports);
+  const client = fakeClient();
+  await hub.addClient(client.client);
+  const delivered = client.written.length;
+
+  world.sourceFailure = new Error("EBUSY: resource busy or locked, stat 'claude-last.log'");
+  world.mtimes.set("/vq/logs/claude-last.log", 10);
+
+  // Tiesioginis kvietimas: promise NEGALI atmesti.
+  await assert.doesNotReject(() => hub.checkAndBroadcast());
+  // Ir taimerio kelias — tas pats, kuriuo klaida keliaudavo į procesą.
+  const poll = world.timers.find((timer) => timer.ms === SSE_POLL_INTERVAL_MS);
+  poll?.handler();
+  // Taimeris paleidžia praėjimą per `void`, tad jo pabaigos reikia palaukti: kitaip `checkInFlight`
+  // dar būtų `true`, ir kitas kvietimas grįžtų iš karto — testas matuotų savo paties lenktynes.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(hub.clientCount(), 1, "klientas lieka prijungtas");
+  assert.equal(client.written.length, delivered, "sugadintas praėjimas nieko netransliuoja");
+  assert.equal(
+    world.errors.some((line) => line.includes("sse pass failed") && line.includes("EBUSY")),
+    true,
+    "tyli baigtis čia būtų defektas: gedimas privalo palikti pėdsaką",
+  );
+
+  // Šaltiniui atsigavus pokytis NEPRARASTAS: žymės nebuvo pažymėtos kaip matytos.
+  world.sourceFailure = undefined;
+  await hub.checkAndBroadcast();
+  assert.equal(client.written.length, delivered + 1);
+});
+
+test("pirmo snapshot'o klaida palieka ryšį ATVIRĄ, o ne nutraukia jį nė neprasidėjus", async () => {
+  const world = sseWorld();
+  world.sourceFailure = new Error("EACCES: permission denied");
+  const hub = createSseHub(world.ports);
+  const client = fakeClient();
+
+  // Antraštės (200 + text/event-stream) jau išsiųstos, tad išimtis čia reikštų srautą, kuris
+  // niekada neatiduoda nė vieno kadro, o klientas kartotų jungtis su atsitraukimu.
+  await assert.doesNotReject(() => hub.addClient(client.client));
+  assert.equal(hub.clientCount(), 1);
+  assert.equal(client.written.length, 0);
+  assert.equal(world.errors.some((line) => line.includes("sse initial snapshot failed")), true);
+
+  // Pirmą krovinį atneša artimiausias praėjimas — tam pollingas ir egzistuoja.
+  world.sourceFailure = undefined;
+  world.mtimes.set("/vq/logs/claude-last.log", 5);
+  await hub.checkAndBroadcast();
+  assert.equal(client.written.length, 1);
 });

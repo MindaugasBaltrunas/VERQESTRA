@@ -26,6 +26,8 @@ const CLAUDE_LOG_CHANNEL = "claude-last";
 export type SseAdapterInput = {
   projectRoot: string;
   runtimeRoot: string;
+  /** Nepavykusio praėjimo pranešimas; be jo srauto gedimas nepaliktų pėdsako niekur. */
+  logError(message: string): void;
 };
 
 /** Repo-reliatyvus posix kelias rodymui — kilmė matoma, o ne nutylima. */
@@ -120,6 +122,8 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
         stopStatusSource: stopStatus.ok ? relativePosix(projectRoot, stopStatus.value) : "legacy",
       };
     },
+
+    logError: (message) => input.logError(message),
 
     legacyWatchFiles: () => [
       path.join(runtimeRoot, "state", "claude-resume.json"),

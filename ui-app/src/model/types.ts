@@ -214,6 +214,15 @@ export type DashboardData = {
   workerControl?: WorkerControlData;
   /** Neprivalomas dėl tos pačios priežasties: senas `dist` srautų būsenos nesiunčia. */
   loopControl?: LoopControlData;
+  /**
+   * Šaltiniai, kurių serveris NEPERSKAITĖ (`ui-dashboard-view.ts#degraded`).
+   *
+   * Dashboard'as yra diagnostikos paviršius, tad sugadintas artefaktas virsta įvardytu
+   * degradavusiu bloku, o ne 500 — bet TIK tada, kai vardas pasiekia ekraną. Neprivalomas dėl
+   * senesnio `dist`, kuris šio lauko dar nesiunčia; jo nebuvimas reiškia „nežinome", ne „viskas
+   * perskaityta", todėl kontroleris jį verčia tuščiu sąrašu tik po `?? []`.
+   */
+  degraded?: string[];
 };
 
 export type LoopResult = {

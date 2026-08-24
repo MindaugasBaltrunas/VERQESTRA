@@ -70,6 +70,13 @@ export type SsePorts = {
   /** Globalūs veidrodžiai ir bangos snapshot'as — stebimi visada. */
   legacyWatchFiles(): string[];
   setInterval(handler: () => void, ms: number): { clear(): void };
+  /**
+   * Nepavykusio praėjimo pranešimas. PRIVALOMAS, o ne pasirenkamas: iki 2026-08-24 audito šio
+   * porto nebuvo, `checkAndBroadcast` klaidos niekas negaudė, o taimeris ją paleisdavo per
+   * `void checkAndBroadcast()` — t. y. kaip NEPERIMTĄ atmetimą, kuris Node 15+ nutraukia PROCESĄ.
+   * Praleista telemetrijos eilutė būtų tos pačios klaidos tęsinys mažesniu mastu.
+   */
+  logError(message: string): void;
 };
 
 export const SSE_POLL_INTERVAL_MS = 1500;
@@ -159,6 +166,20 @@ export function createSseHub(ports: SsePorts): SseHub {
     keepaliveTimer = undefined;
   };
 
+  /**
+   * Vienas praėjimas. NIEKADA nemeta.
+   *
+   * Tai ne mandagumas, o proceso gyvybė: praėjimą paleidžia taimeris per `void checkAndBroadcast()`,
+   * tad atmetimas čia yra NEPERIMTAS atmetimas, o Node 15+ tokį verčia neperimta išimtimi ir
+   * nutraukia procesą. Procesas yra TAS PATS, kuris aptarnauja dashboard'ą ir valdo loop'ą, o
+   * šaltiniai — `claude-last.log` ir bandymo artefaktai, kuriuos lygiagrečiai RAŠO vykdytojas:
+   * Windows EBUSY ties tuo failu šiame repo jau dokumentuotas (dviejų kanalų rašytojas su backoff).
+   * Vadinasi, dashboard'as krisdavo būtent aktyvaus dispatch'o metu — tada, kai jo labiausiai reikia.
+   *
+   * Nepavykęs praėjimas PRALEIDŽIAMAS, o ne kartojamas iš karto: šaltiniai pollinami kas 1,5 s, tad
+   * kitas praėjimas yra natūralus pakartojimas. Žymės (`lastMtimes`) neatnaujinamos, tad pokytis
+   * neprarandamas — jis bus pastebėtas kitame praėjime.
+   */
   async function checkAndBroadcast(): Promise<void> {
     if (clients.size === 0 || checkInFlight) return;
     checkInFlight = true;
@@ -178,8 +199,13 @@ export function createSseHub(ports: SsePorts): SseHub {
       const changed = mtimes.some((mtime, index) => mtime !== (lastMtimes.get(watched[index] ?? "") ?? 0));
       if (!changed) return;
 
+      const payload = await activityPayload(attempt, sources);
+      // Žymės atnaujinamos TIK sėkmingai sudėjus krovinį: nukritus `activityPayload` jos jau būtų
+      // pažymėtos kaip matytos, ir pokytis dingtų NEGRĮŽTAMAI — kitas praėjimas jo nebematytų.
       mtimes.forEach((mtime, index) => lastMtimes.set(watched[index] ?? "", mtime));
-      broadcast(await activityPayload(attempt, sources));
+      broadcast(payload);
+    } catch (error: unknown) {
+      ports.logError(`[ui] sse pass failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       checkInFlight = false;
     }
@@ -202,8 +228,19 @@ export function createSseHub(ports: SsePorts): SseHub {
       client.on("error", drop);
 
       // Naujas klientas visada gauna ŠVIEŽIĄ būseną (modulio antraštės pirmas punktas).
-      const [attempt, sources] = await Promise.all([ports.readActiveAttempt(), ports.readLiveSlotSources()]);
-      writeToClient(client, `data: ${JSON.stringify(await activityPayload(attempt, sources))}\n\n`);
+      //
+      // Nesėkmė čia NEIŠMETAMA: antraštės jau išsiųstos (200 + `text/event-stream`), tad išimtis
+      // virstų nutrauktu srautu dar jam neprasidėjus, o klientas kartotų jungtis su atsitraukimu
+      // ir niekada negautų nė vieno kadro. Vietoje to ryšys LIEKA atviras, o pirmą krovinį atneša
+      // artimiausias praėjimas — tam pollingas ir egzistuoja.
+      try {
+        const [attempt, sources] = await Promise.all([ports.readActiveAttempt(), ports.readLiveSlotSources()]);
+        writeToClient(client, `data: ${JSON.stringify(await activityPayload(attempt, sources))}\n\n`);
+      } catch (error: unknown) {
+        ports.logError(
+          `[ui] sse initial snapshot failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     },
   };
 }

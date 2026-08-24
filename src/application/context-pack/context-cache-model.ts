@@ -68,6 +68,10 @@ const nonEmptyString = z.string().trim().min(1);
  *      kandidatų TVARKA pakopos viduje, tad v6 įrašas grąžintų kitaip surikiuotą pack'ą. Grynai
  *      loginis pakeitimas — `PACK_SEMANTICS_DESCRIPTOR` jo nemato.
  *
+ *      Tuo pačiu `rag-policy.json` išimtas iš `CONTEXT_CACHE_POLICY_FILES` (jis neturėjo
+ *      skaitytojo, ir šablonas nebesiunčiamas), tad `policy` komponento digest'as pasikeitė ir be
+ *      loginio pakeitimo.
+ *
  *      To paties audito code-index pakeitimai (`codeIndexVersion` 3.6.0 → 4.0.0) šio kėlimo
  *      NEREIKALAUJA: nuo v5 `code_index` deskriptorius neša indekso versiją ir anuliuoja pats.
  */

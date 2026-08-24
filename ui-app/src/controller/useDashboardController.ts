@@ -191,7 +191,15 @@ export function useDashboardController() {
       runtime: adaptRuntime(data.runtime),
       workerControl: adaptWorkerControl(data.workerControl),
       loopControl: adaptLoopControl(data.loopControl),
-      logBytes: new Intl.NumberFormat("lt-LT", { notation: "compact", maximumFractionDigits: 1 }).format(data.claudeLogBytes ?? 0) + " B",
+      /**
+       * Šaltiniai, kurių serveris NEPERSKAITĖ (`/api/dashboard#degraded`).
+       *
+       * Iki 2026-08-24 audito serveris juos įvardydavo, o klientas lauko net neturėjo tipe: kai
+       * `control_plane` sugriūdavo, `#/learning` likdavo TUŠČIAS, o `#/reviews` tyliai netekdavo
+       * politikų valdiklių — be nė vieno požymio, kad kažko trūksta. Degradavimo kanalas be
+       * vartotojo yra tas pats tylus gedimas, kurį jis turėjo padaryti matomą.
+       */
+      degraded: data.degraded ?? [],
       // Eilės srauto lentai reikia `blocked_by`/`reason`: be jų „Blokuojama" stulpelis parodytų
       // užduotį, bet nutylėtų, KAS ją blokuoja. Tuščias masyvas, o ne `undefined` — nežinomybės
       // ir „nieko nelaukia" skirtumą jau neša `controlPlane` buvimas.

@@ -149,4 +149,25 @@ describe("dashboard pirmas ekranas", () => {
     expect(alert.textContent).toContain("stopStatus");
     expect(alert.textContent).toContain("dashboard kontrakto");
   });
+
+  // 2026-08-24 auditas: serveris degradavusį šaltinį ĮVARDIJA, bet klientas lauko neturėjo tipe,
+  // tad trūkstamos panelės atrodydavo kaip „nieko nelaukia", o ne kaip gedimas.
+  it("degradavęs šaltinis PAVADINAMAS ekrane", async () => {
+    stubFetch({ ...DASHBOARD_PAYLOAD, controlPlane: undefined, degraded: ["control_plane"] });
+    render(<AppRoot />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Kai kurių dashboard'o šaltinių nepavyko perskaityti/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/control_plane/)).toBeInTheDocument();
+  });
+
+  it("`#/learning` be control-plane bloko rodo ĮVARDYTĄ būseną, o ne tuščią lapą", async () => {
+    window.location.hash = "#/learning";
+    stubFetch({ ...DASHBOARD_PAYLOAD, controlPlane: undefined, degraded: ["control_plane"] });
+    render(<AppRoot />);
+
+    expect(await screen.findByText("Mokymosi duomenų nėra")).toBeInTheDocument();
+    window.location.hash = "";
+  });
 });

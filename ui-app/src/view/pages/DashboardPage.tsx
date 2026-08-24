@@ -170,6 +170,13 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         {/* Veiksmų rezultatai rodomi VISUOSE route'uose: mutacija gali būti paleista iš `#/system`, o
             atsakymas neturi dingti vien todėl, kad operatorius tuo metu perėjo į kitą skirtuką. */}
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        {/* Serveris ĮVARDIJA šaltinį, kurio neperskaitė, ir būtent vardas yra visa šio bloko
+            prasmė: be jo trūkstamos panelės atrodo kaip „nieko nelaukia", o ne kaip gedimas. */}
+        {dashboard.degraded.length > 0 && (
+          <div className="notice notice-warning" role="status">
+            ⚠ {t("Some dashboard sources could not be read")}: {dashboard.degraded.join(", ")}
+          </div>
+        )}
         {agentActivityStatus === "disconnected" && (
           <div className="notice notice-warning" role="status">
             {t("Live activity stream disconnected — the agent chain below may be stale.")}
@@ -217,14 +224,28 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
             <PolicyProposalsPanel refreshToken={proposalRefreshToken} />
           </div>
         )}
-        {activeRoute === "learning" && dashboard.learning && (
-          <LearningPanel
-            summary={dashboard.learning.summary}
-            recommendations={dashboard.learning.recommendations}
-            onApprove={actions.approveLearning}
-            onReject={actions.rejectLearning}
-          />
-        )}
+        {/* `learning` nėra, kai serveris neatidavė control-plane bloko. Be šios šakos maršrutas
+            rodydavo TIK antraštę ir tuščią lapą — tas pats tylus gedimas, kurį uždarė
+            2026-08-23 auditas, tik vieno ekrano dydžio. */}
+        {activeRoute === "learning" &&
+          (dashboard.learning ? (
+            <LearningPanel
+              summary={dashboard.learning.summary}
+              recommendations={dashboard.learning.recommendations}
+              onApprove={actions.approveLearning}
+              onReject={actions.rejectLearning}
+            />
+          ) : (
+            <div className="panel" role="status">
+              <strong>{t("Learning data is unavailable")}</strong>
+              <p className="panel-subtitle">
+                {t("The server could not read the control-plane block. Check the notice above and the UI server log.")}
+              </p>
+              <button className="button ghost small-button" type="button" onClick={() => void actions.reload()}>
+                {t("Try again")}
+              </button>
+            </div>
+          ))}
         {activeRoute === "system" && (
           <RuntimePanel
             processes={dashboard.runtime}

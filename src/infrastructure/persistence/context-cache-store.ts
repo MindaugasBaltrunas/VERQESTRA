@@ -43,12 +43,14 @@ export const DEFAULT_MAX_CONTEXT_CACHE_ENTRIES = 64;
 /**
  * vq/config failai, keičiantys, ką context pack'as turi savyje.
  *
- * ĮVARDYTA 2026-08-23 (operatoriaus radinys): `rag-policy.json` keičia kešo raktą, bet jo NESKAITO
- * nė vienas loader'is ar retrieval kelias. Jis siunčiamas kaip šablonas su
- * `extensionRetrieval.enabled` jungikliu, tad operatorius gali jį įjungti, pamatyti perskaičiavimą
- * ir pagrįstai nuspręsti, kad suveikė — nors nepasikeičia niekas. Iš rakto NEIŠIMTAS sąmoningai:
- * išėmimas paverstų jį visiškai tyliu. Tikras taisymas — prijungti arba nustoti siųsti šabloną —
- * liečia operatoriui matomą konfigą, tad laukia sprendimo.
+ * Kiekvienas šio sąrašo įrašas privalo turėti SKAITYTOJĄ. `rag-policy.json` jo neturėjo:
+ * 2026-08-23 jis buvo tik ĮVARDYTAS (keičia kešo raktą, bet jo neskaito nė vienas loader'is), o
+ * rakte paliktas sąmoningai, nes išėmimas vien iš rakto būtų pavertęs `extensionRetrieval.enabled`
+ * jungiklį visiškai tyliu. 2026-08-24 (RAG auditas 3, operatoriaus sprendimas) pasirinktas tikras
+ * taisymas — nustoti jį siųsti, — tad iš rakto jis išimtas kartu su šablono pašalinimu.
+ *
+ * Taisyklė, kurią tai palieka: konfigo failas, kurio niekas neskaito, į kešo raktą nededamas — jis
+ * pašalinamas. Raktas yra semantikos atspaudas, ne pranešimų kanalas.
  */
 export const CONTEXT_CACHE_POLICY_FILES = [
   "context-budget.json",
@@ -56,7 +58,6 @@ export const CONTEXT_CACHE_POLICY_FILES = [
   "tool-budget.json",
   "agents.json",
   "task-classification-policy.json",
-  "rag-policy.json",
 ] as const;
 
 export function contextCacheDir(runtimeRoot: string): string {

@@ -104,7 +104,11 @@ export async function runUiCommand(deps: CliRegistryDeps, io: UiCommandIo): Prom
   });
 
   const sseHub = createSseHub({
-    ...ssePorts({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
+    ...ssePorts({
+      projectRoot: deps.roots.projectRoot,
+      runtimeRoot: deps.roots.runtimeRoot,
+      logError: (message) => io.error(message),
+    }),
     // Taimeris paduodamas portu: hub'as pats laiko neskaito, tad jį galima sukti testuose.
     setInterval: (handler, ms) => {
       const timer = setInterval(handler, ms);

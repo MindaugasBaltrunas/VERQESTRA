@@ -20,6 +20,23 @@ function slot(overrides: Partial<LoopSlotView> = {}): LoopSlotView {
   };
 }
 
+/**
+ * Abu srautai su darbu.
+ *
+ * Nuo 2026-08-24 tuščio srauto stabdyti ir nutraukti nebegalima (operatoriaus nurodymas), tad
+ * per-srautinio TAIKYMO testai negali remtis numatytuoju fixture'u, kuriame `w2` tuščias — jie
+ * tikrintų išjungtą mygtuką, o ne tai, kad paspaudimas pataiko į teisingą srautą. Numatytasis
+ * fixture lieka nepaliestas: juo remiasi „No task assigned" atvejis.
+ */
+function bothStreamsWorking(): LoopControlView {
+  return loopControl({
+    slots: [
+      slot({ state: "running", taskId: "1233-loop-streams", attempt: 2 }),
+      slot({ workerId: "w2", index: 2, state: "running", taskId: "1233-antra", attempt: 1 }),
+    ],
+  });
+}
+
 function loopControl(overrides: Partial<LoopControlView> = {}): LoopControlView {
   return {
     known: true,
@@ -88,13 +105,44 @@ describe("LoopStreamCards with slot progress", () => {
   });
 
   it("drains exactly the stream whose button was pressed", () => {
-    const control = loopControl();
+    const control = bothStreamsWorking();
     const onStopSlot = vi.fn();
     render(<LoopStreamCards loopControl={control} slotProgress={progressFor(control)} onStopSlot={onStopSlot} />);
 
     fireEvent.click(stream(2).getByRole("button", { name: "Stop stream (drain)" }));
 
     expect(onStopSlot).toHaveBeenCalledWith("w2");
+  });
+
+  // 2026-08-24, operatoriaus nurodymas: „Išjungti srauto stabdymą bei nutraukimą, kai srautas
+  // tuščias." `drain` ir `abort` veikia VYKDOMĄ bandymą — tuščiam srautui jie nekeičia nieko, tad
+  // aktyvus mygtukas žada veiksmą, kurio vienintelė galima pasekmė yra tyla.
+  it("tuščiame sraute stabdymas ir nutraukimas IŠJUNGTI, o tęsimas lieka", () => {
+    const control = loopControl();
+    const onStopSlot = vi.fn();
+    render(
+      <LoopStreamCards
+        loopControl={control}
+        slotProgress={progressFor(control)}
+        onStopSlot={onStopSlot}
+        onAbortSlot={vi.fn()}
+        onResumeSlot={vi.fn()}
+      />,
+    );
+
+    const drain = stream(2).getByRole("button", { name: "Stop stream (drain)" });
+    expect(drain).toBeDisabled();
+    expect(stream(2).getByRole("button", { name: "Abort stream" })).toBeDisabled();
+    // Priežastis pasiekiama, o ne nutylima: išjungtas mygtukas be paaiškinimo yra mįslė.
+    expect(drain).toHaveAttribute("title", "Srautas nevykdo jokios užduoties");
+
+    fireEvent.click(drain);
+    expect(onStopSlot).not.toHaveBeenCalled();
+
+    // Dirbantis srautas lieka valdomas — taisyklė liečia TIK tuščią.
+    const working = bothStreamsWorking();
+    render(<LoopStreamCards loopControl={working} slotProgress={progressFor(working)} onStopSlot={onStopSlot} />);
+    expect(stream(2).getAllByRole("button", { name: "Stop stream (drain)" }).at(-1)).toBeEnabled();
   });
 
   it("resumes exactly the stream whose button was pressed", () => {
@@ -167,7 +215,10 @@ describe("LoopStreamCards with slot progress", () => {
 
   it("disables the action that would repeat the state the stream is already in", () => {
     const control = loopControl({
-      slots: [slot({ desired: "drain", state: "draining", taskId: "1233-a", attempt: 1 }), slot({ workerId: "w2", index: 2 })],
+      slots: [
+        slot({ desired: "drain", state: "draining", taskId: "1233-a", attempt: 1 }),
+        slot({ workerId: "w2", index: 2, state: "running", taskId: "1233-antra", attempt: 1 }),
+      ],
     });
     render(
       <LoopStreamCards
@@ -264,7 +315,7 @@ describe("LoopStreamCards with slot progress", () => {
   });
 
   it("falls back to the plain card for a stream the progress view does not cover", () => {
-    const control = loopControl();
+    const control = bothStreamsWorking();
     // Serveris atsiuntė tik vieno srauto progresą: antras srautas privalo likti valdomas.
     const partial = progressFor(control).filter((view) => view.workerId === "w1");
     const onStopSlot = vi.fn();
@@ -327,7 +378,7 @@ describe("LoopStreamCards fix action", () => {
   });
 
   it("marks the running action and leaves the other stream alone", () => {
-    const control = loopControl();
+    const control = bothStreamsWorking();
     render(
       <LoopStreamCards
         loopControl={control}

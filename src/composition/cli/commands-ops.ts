@@ -58,6 +58,8 @@ import { taskRunPorts } from "../loop/coordinator-execution-adapters.js";
 import { cliChildRunner } from "../loop/coordinator-adapters.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
 import { consumeLoopStopRequest } from "../../interfaces/http/loop-lifecycle.js";
+import { ensureUiRunning } from "../../interfaces/http/ui-lifecycle.js";
+import { uiPortPorts } from "../ui/command.js";
 import { appendLogLine } from "../loop/adapters.js";
 import { processLifecyclePorts } from "../ui/lifecycle-adapters.js";
 import path from "node:path";
@@ -242,6 +244,26 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
       description: "Eilės vykdymo ciklas: bangos, slot'ai ir integracija iki tuščios eilės",
       run: async () => {
         await ensureRuntimeDirs(deps.roots.agRoot, deps.roots.runtimeRoot);
+        // Dashboard'as pakeliamas KARTU su ciklu (etalonas: `claude-loop/index.ts` prieš
+        // `claudeLoop()`). Iki 2026-08-24 audito `ui-lifecycle` buvo pilnai perkeltas ir
+        // ištestuotas, bet neturėjo NĖ VIENO produkcinio kvietėjo — operatorius, paleidęs ciklą,
+        // dashboard'o negaudavo, kol nepaleisdavo `verqestra ui` ranka.
+        //
+        // Rezultatas SĄMONINGAI neima sprendimo: UI yra stebėjimo paviršius, o ne ciklo prielaida.
+        // Nesėkmė pati praneša į `io.error` (`uiStartFailed`), tad ji matoma, bet eilės nestabdo —
+        // priešingu atveju neveikiantis prievadas blokuotų darbą, kurio jis tik nerodo.
+        // Išjungiama per `AG_UI_AUTOSTART=0`; tą pačią vėliavą gauna kiekvienas mūsų spawn'intas
+        // vaikas, tad UI paleistas ciklas naujo UI nebekelia.
+        await ensureUiRunning({
+          ports: processLifecyclePorts({
+            projectRoot: deps.roots.projectRoot,
+            runtimeRoot: deps.roots.runtimeRoot,
+            io: io ?? consoleCliIo,
+          }),
+          portPorts: uiPortPorts,
+          projectRoot: deps.roots.projectRoot,
+          runtimeRoot: deps.roots.runtimeRoot,
+        });
         const emptyQueueDeps = {
           roots: deps.roots,
           out: (message: string) => (io ?? consoleCliIo).out(message),

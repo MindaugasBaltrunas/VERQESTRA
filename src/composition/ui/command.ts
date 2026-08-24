@@ -51,7 +51,12 @@ export function probeUiPort(port: number): Promise<UiPortProbeResult> {
   });
 }
 
-const uiPortPorts: UiPortPorts = {
+/**
+ * Porto sprendimo portai. Eksportuojami, nes juos naudoja DU keliai: pati `ui` komanda ir
+ * `verqestra loop` autostart'as. Antra kopija reikštų du skirtingus atsakymus apie tą patį
+ * prievadą, o būtent porto tapatybė yra tai, kas skiria „mūsų serveris" nuo „svetimas procesas".
+ */
+export const uiPortPorts: UiPortPorts = {
   fs: {
     readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
     writeTextFileAtomic: (absolutePath, content) => nodeFsAdapter.writeTextFileAtomic(absolutePath, content),

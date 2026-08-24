@@ -14,6 +14,8 @@ import type {
   ProcessLifecyclePorts,
   SpawnedProcess,
 } from "../../interfaces/http/process-lifecycle-ports.js";
+import { UI_AUTOSTART_ENV } from "../../interfaces/http/ui-lifecycle.js";
+import type { HookIo } from "../../interfaces/hooks/protocol.js";
 import type { LoopRuntimePorts } from "../../interfaces/hooks/loop-runtime-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { isProcessAlive } from "../../infrastructure/process/process-tree.js";
@@ -85,20 +87,38 @@ export type UiLifecycleAdapterInput = {
   runtimeRoot: string;
   /** Loop įėjimo komanda; nenurodžius — `loop`. */
   loopCommand?: string;
+  /**
+   * Kur keliauja paleidimo pranešimai. Be jo `ensureUiRunning` krenta į `consoleHookIo`, tad
+   * `verqestra loop` eilutė apie UI aplenktų komandos savo kanalą.
+   */
+  io?: HookIo;
 };
 
-/** Loop ir UI procesų portai vienu pjūviu. */
+/**
+ * Loop ir UI procesų portai vienu pjūviu.
+ *
+ * Abu vaikai gauna `AG_UI_AUTOSTART=0` (etalonas: `ui/{loop,ui}-service.ts`). Tai ne atsargumas:
+ * `verqestra loop` nuo 2026-08-24 pats pakelia dashboard'ą, tad be šios vėliavos UI paleistas
+ * loop'as bandytų pakelti DAR VIENĄ UI, o kiekvienas naujas vaikas kartotų tą patį. Vėliava
+ * paveldima toliau, tad ji uždaro visą grandinę, ne vieną pakopą.
+ */
 export function processLifecyclePorts(input: UiLifecycleAdapterInput): ProcessLifecyclePorts {
   return {
     fs: processLifecycleFs,
     runtime: loopRuntimePorts,
-    spawnLoop: () => Promise.resolve(spawnDetachedCli(input.projectRoot, [input.loopCommand ?? "loop"])),
+    spawnLoop: () =>
+      Promise.resolve(
+        spawnDetachedCli(input.projectRoot, [input.loopCommand ?? "loop"], { [UI_AUTOSTART_ENV]: "0" }),
+      ),
     // Prievadas perduodamas ENV, o ne argumentu: taip UI įėjimas lieka toks pat kaip rankinis,
     // ir operatoriaus paleista komanda nesiskiria nuo UI paleistos.
     spawnUi: (port) =>
-      Promise.resolve(spawnDetachedCli(input.projectRoot, ["ui"], { AG_UI_PORT: String(port) })),
+      Promise.resolve(
+        spawnDetachedCli(input.projectRoot, ["ui"], { AG_UI_PORT: String(port), [UI_AUTOSTART_ENV]: "0" }),
+      ),
     processIsAlive: (pid) => isProcessAlive(pid),
     env: (name) => process.env[name],
+    ...(input.io === undefined ? {} : { io: input.io }),
   };
 }
 

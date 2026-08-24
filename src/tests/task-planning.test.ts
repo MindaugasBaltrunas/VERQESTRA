@@ -75,6 +75,43 @@ test("queue-task: klasifikacija parenka grandinę, o routine scope lieka broad",
   assert.deepEqual(broad.paths, ["src/**"]);
 });
 
+// 2026-08-24 (rasta tikrinant operatoriaus grafo auditą): `ENGINE_SOURCE_ROOT` prefiksas buvo
+// taikomas VISIEMS ne-`AG/` klasifikacijos fragmentams, nors tie fragmentai jau yra repo-relative.
+// Rezultatas — keliai, kurių nėra, t. y. „leidimas niekam": penkios iš 13 eilės užduočių (003, 005,
+// 009, 013, 014) turėjo scope, kurio NĖ VIENAS kelias neegzistuoja.
+//
+// Prefiksas buvo įvestas VQ-703 dėl etalono `AG/orchestrator`, bet tas fragmentas prasideda `AG/`
+// ir į prefiksuojamą šaką NIEKADA nepateko — jis nesprendė problemos, kuriai buvo įvestas.
+test("inferAllowedPaths: klasifikacijos fragmentai NEPREFIKSUOJAMI antrą kartą", () => {
+  const release = inferAllowedPaths("Įtraukti release-check į ci workflow kaip atskirą quality gate žingsnį");
+  assert.equal(release.isBroad, false);
+  assert.deepEqual(
+    release.paths,
+    [".github/workflows/**", "docs/release/**", "templates/VERSION/**"],
+    "repo šaknies fragmentai lieka repo šaknyje — `src/.github/workflows/**` neegzistuoja",
+  );
+
+  // Fragmentas, kuris JAU yra `src/...`, nebegauna antro `src/`.
+  const feature = inferAllowedPaths("Perrašyti src/commands įėjimus ir apps modulius");
+  assert.ok(
+    feature.paths.includes("src/commands/**"),
+    `laukta "src/commands/**", gauta ${JSON.stringify(feature.paths)}`,
+  );
+  assert.equal(
+    feature.paths.some((glob) => glob.startsWith("src/src/")),
+    false,
+    "dvigubas prefiksas yra leidimas niekam",
+  );
+
+  // Fragmentas su savo skirtuku (`/db/`) nebegamina `src//db/**`.
+  const data = inferAllowedPaths("Sukurti migrations schema ir /db/ prieigą");
+  assert.equal(
+    data.paths.some((glob) => glob.includes("//")),
+    false,
+    `dvigubas skirtukas: ${JSON.stringify(data.paths)}`,
+  );
+});
+
 test("taskGenerate: DUP-14 numeracija nuo cross-bucket maksimumo, pakartotinis run kolizijos negeneruoja", async () => {
   const files = new Map<string, string>([
     [abs("AG/openspec/changes/my-change/spec.md"), "# Spec"],

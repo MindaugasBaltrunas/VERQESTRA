@@ -37,8 +37,21 @@ export function inferAllowedPaths(title: string): { paths: string[]; isBroad: bo
     const rule = defaultTaskClassificationPolicy.categories[category];
     for (const p of rule.pathIncludes) {
       if (!p.includes("/")) continue;
-      const clean = p.replace(/\/+$/, "");
-      paths.push(clean.startsWith("AG/") ? `${clean}/**` : `${ENGINE_SOURCE_ROOT}/${clean}/**`);
+      // Fragmentai jau YRA repo-relative (`src/commands/`, `.github/workflows/`, `migrations/`),
+      // tad jų prefiksuoti nereikia — ir negalima.
+      //
+      // 2026-08-24 (rasta tikrinant operatoriaus grafo auditą): `ENGINE_SOURCE_ROOT` prefiksas
+      // buvo taikomas VISIEMS ne-`AG/` fragmentams ir gamino kelius, kurių nėra:
+      // `src/src/commands/**`, `src/.github/workflows/**`, `src//db/**`. Penkios iš 13 eilės
+      // užduočių (003, 005, 009, 013, 014) turėjo scope, kurio NĖ VIENAS kelias neegzistuoja —
+      // t. y. „leidimą niekam", nuo kurio saugo šio modulio antraštė.
+      //
+      // Prefiksas buvo įvestas VQ-703 dėl etalono `AG/orchestrator`, bet tas fragmentas
+      // prasideda `AG/` ir į prefiksuojamą šaką NIEKADA nepateko: prefiksas nesprendė problemos,
+      // kuriai buvo įvestas, o tik gadino likusius fragmentus. `ENGINE_SOURCE_ROOT` lieka
+      // naudojamas plačiajam fallback'ui, kuris ir turi būti variklio šaknis.
+      const clean = p.replace(/\/+$/, "").replace(/^\/+/, "");
+      paths.push(`${clean}/**`);
     }
   }
   const unique = [...new Set(paths)];

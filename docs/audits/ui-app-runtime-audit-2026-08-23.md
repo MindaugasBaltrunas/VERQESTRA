@@ -592,6 +592,58 @@ NELIESTA sąmoningai: `#/` „Active execution" panelė ir toliau rodo GLOBALIĄ
 |---|---|
 | `ui-app/src/model/slotProgressViewModel.test.ts` (+4) | kiekvienas srautas gauna SAVO grandinę, ne paskutinio rašytojo; vienodi task vardai nebedaro priskyrimo dviprasmiško; be `slots[]` elgesys nepakitęs (tai ir dokumentuoja SENĄJĮ defektą); `disconnected` panaikina priskyrimą |
 
+## Devintas ratas: „Gyvi duomenys" (2026-08-24) — OPERATORIAUS radinys
+
+Pirmas šio audito radinys, atėjęs iš žmogaus, realiai žiūrinčio į ekraną, o ne iš kodo skaitymo:
+
+> Apžvalga — gera, tačiau „Gyvi duomenys" konfliktuoja su pasenusia užduoties būsena.
+
+### Šaknis nebuvo tekstas
+
+`DashboardPage` rodė **besąlygišką literalą** `<span className="freshness-indicator">Live data</span>`.
+Tai buvo tvirtinimas, kurio niekas netikrino: jis liko toks pat, kai SSE srautas nutrūkdavo, kai
+paskutinis `/api/dashboard` atnaujinimas nepavykdavo ir kai duomenys buvo dešimties minučių senumo.
+
+Tai TA PATI klasė, kurią šis auditas gaudo nuo pirmos dienos — neverifikuotas teiginys,
+atvaizduotas kaip būsena. Ir tai buvo dashboard'o IŠIMTIS: `ReliabilityPage` tą patį
+`freshness-indicator` jau rodė su tikra žyma (`Updated <data>`).
+
+Operatoriaus pastebėtas konfliktas yra pasekmė. „Gyvi duomenys" ir „Pasenusi užduoties būsena" yra
+DU SKIRTINGI faktai (dashboard'o kanalo šviežumas ir tai, ar `vq/state/current-task-id` atitinka
+eilę), ir abu gali būti teisingi vienu metu. Bet ekranas nesakė, apie ką kiekvienas jų kalba, tad
+skaitėsi kaip prieštaravimas.
+
+### Taisymas: ženklelis užsitarnauja savo žodį
+
+Naujas `FreshnessIndicator` su GRYNA `resolveFreshness` taisykle:
+
+| Sąlyga | Verdiktas |
+|---|---|
+| paskutinis atnaujinimas nepavyko | `failed` — stipriausias signalas: ekranas nebeatitinka serverio, ir jokia srauto būsena to nepaneigia |
+| dar nė karto nepavyko | `connecting` — ne melagingas šviežumas |
+| nuo sėkmingo skaitymo praėjo > 75 s | `stale` — du praleisti 30 s ratai plius atsarga (vienas praleistas pollingas yra tinklo mikčiojimas) |
+| SSE srautas nutrūkęs | `stale` — duomenys neteisingais netampa, bet žodis „gyvi" jiems nebepriklauso |
+| kitaip | `live` |
+
+Kartu ženklelis **įvardija savo dalyką**: rodomas duomenų amžius (`atnaujinta prieš 5s`), tad
+matyti, kad kalbama apie kanalą, ne apie užduotį. Tonas seka verdiktą — „gyvi" ir „pasenę" negali
+atrodyti vienodai, kitaip pasikeičia tik tekstas, o ekranas ir toliau atrodo ramus.
+
+Laikas žymimas PRIEŠ „niekas nepasikeitė" grįžimą: ramus, nieko nekeičiantis ciklas yra šviežias
+atsakymas, o ne nutrūkęs ryšys.
+
+### Vartai (devintas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `ui-app/src/view/components/FreshnessIndicator.test.tsx` (naujas, 6) | `live` tik šviežiam pollingui su gyvu srautu; nepavykęs atnaujinimas nugali viską; nutrūkęs srautas atima šviežumą; vienas praleistas ratas dar NE `stale`, du — jau; be nė vieno sėkmingo skaitymo — `connecting`; amžius niekada neneigiamas |
+
+### Patikros po devinto rato
+
+- `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.
+- `pnpm test` — **1590/1590**; `pnpm test:ui` — 52/52 failai, **427/427** (+6).
+- `pnpm build:ui` — praeina.
+
 ### Patikros po aštunto rato
 
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.

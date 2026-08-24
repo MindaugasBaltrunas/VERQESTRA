@@ -12,9 +12,9 @@ readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/**`
-
-> BROAD SCOPE: generated allowed paths include src/**; review before execution.
+- `src/interfaces/hooks/**`
+- `src/composition/hooks/**`
+- `src/tests/interfaces-hooks-*.test.ts`
 
 Draudžiama:
 - `.env`

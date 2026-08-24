@@ -12,13 +12,7 @@ readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/src/commands/**`
-- `src/src/orchestrator/**`
-- `src/apps/**`
-- `src/packages/**`
-- `src/modules/**`
-- `src/workers/**`
-- `AG/config/**`
+- `docs/product-spec.md`
 
 Draudžiama:
 - `.env`

@@ -12,7 +12,10 @@ readme-guard -> architect -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `AG/orchestrator/src/core/**`
+- `src/application/architecture/**`
+- `src/application/code-intelligence/boundary/**`
+- `src/domain/architecture/**`
+- `src/tests/application-architecture*.test.ts`
 
 Draudžiama:
 - `.env`

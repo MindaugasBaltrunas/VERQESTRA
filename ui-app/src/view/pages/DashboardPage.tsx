@@ -68,6 +68,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
           waveSlots: waves?.slots,
           refillDecisions: waves?.refill_decisions,
           activity: agentActivity,
+          slotActivities: agentSlotActivities,
           activityStatus: agentActivityStatus,
         }),
     [loopControl, waves, agentActivity, agentActivityStatus],

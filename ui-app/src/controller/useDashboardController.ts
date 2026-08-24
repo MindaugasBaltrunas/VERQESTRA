@@ -117,7 +117,12 @@ export function useDashboardController() {
   const hasDashboardData = useRef(false);
   const lastSnapshot = useRef<string | null>(null);
   const requestSequence = useRef(0);
-  const { activity: agentActivity, status: agentActivityStatus, lastError: agentActivityError } = useAgentActivity();
+  const {
+    activity: agentActivity,
+    slots: agentSlotActivities,
+    status: agentActivityStatus,
+    lastError: agentActivityError,
+  } = useAgentActivity();
   // Mygtukų etikečių grąžinimo timer'iai. Anksčiau `setTimeout` buvo paleidžiami be nuorodos ir
   // be cleanup: perėjus į kitą route iškart po „Start loop", timer'is vis tiek suveikdavo ir
   // rašydavo į nebeegzistuojantį komponentą, o grįžus etiketė likdavo užšalusi.
@@ -473,6 +478,7 @@ export function useDashboardController() {
     resumeLabel,
     stopLabel,
     agentActivity,
+    agentSlotActivities,
     agentActivityStatus,
     agentActivityError,
     // Vienintelis atsakymas į klausimą „ar ciklas veikia": `loopControl` failas, o jo nesant —

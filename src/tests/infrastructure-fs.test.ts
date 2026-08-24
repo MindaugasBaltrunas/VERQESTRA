@@ -17,6 +17,7 @@ import type {
 } from "../domain/architecture/index.js";
 import { isWin32ContentionError, withWin32RenameRetry } from "../infrastructure/fs/fs-retry.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { withStateFileLock } from "../infrastructure/fs/state-file-lock.js";
 
 const root = await mkdtemp(path.join(tmpdir(), "vq-fs-"));
 after(async () => {
@@ -143,6 +144,42 @@ test("architecture progress: lygiagretūs skirtingų mazgų atnaujinimai neprara
   assert.equal(after.nodes["B"]?.status, "done");
   // Lock'as atlaisvinamas — kitaip kitas rašytojas lauktų iki stale ribos.
   assert.equal(await nodeFsAdapter.exists(`${statePath}.lock`), false, "lock katalogas nepaliktas");
+});
+
+// 2026-08-24: `shared/owned-lock` perėmimo kelias prieš TIKRĄ failų sistemą.
+//
+// Unit testai (`shared-owned-lock`) šią mechaniką įrodo su valdomu laikrodžiu ir fake FS — bet
+// perėmimas yra `rename` į privatų kelią, o `rename` semantika yra būtent ta vieta, kur tikra FS
+// (ypač win32) skiriasi nuo bet kokio fake'o. Todėl čia — tikras `nodeFsAdapter`.
+//
+// Tarpprocesinis lygiagretumas SĄMONINGAI netikrinamas vartuose: jam reikėtų kelių tuzinų
+// `spawn`, o tai naujas šablonas, ~8 s ir flake rizika ant apkrautos mašinos. Jis patikrintas
+// atskirai (12 ir 24 procesai, 0 prarastų atnaujinimų) ir užrašytas `migration-coverage`.
+test("withStateFileLock: kritusio proceso lock'as perimamas, be `.stale-` likučių", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vq-owned-lock-steal-"));
+  const statePath = path.join(dir, "state.json");
+  await writeFile(statePath, "{}", "utf8");
+
+  // Kritusio proceso palikimas: savininkas su 60 s senumo `created_at` (staleMs = 30 s).
+  const lockDir = `${statePath}.lock`;
+  await nodeFsAdapter.createLockDirectory(lockDir);
+  await nodeFsAdapter.writeTextFileAtomic(
+    path.join(lockDir, "owner.json"),
+    JSON.stringify({ lock_id: "kritusio-proceso-lock", created_at: Date.now() - 60_000 }),
+  );
+
+  let entered = 0;
+  await withStateFileLock(statePath, () => {
+    entered += 1;
+    return Promise.resolve();
+  });
+
+  assert.equal(entered, 1, "stale lock'as neturi amžinai stabdyti darbo");
+  // `.stale-<uuid>` yra perėmimo mechanika, ne rezultatas: likęs katalogas kauptųsi tyliai.
+  const leftovers = (await readdir(dir)).filter((name) => name !== "state.json");
+  assert.deepEqual(leftovers, [], `perėmimas paliko šiukšlių: ${leftovers.join(", ")}`);
+
+  await rm(dir, { recursive: true, force: true });
 });
 
 // `done` yra teiginys apie KONKRETŲ darbo vienetą. Anksčiau refresh'as jį išsaugodavo vien pagal

@@ -5,6 +5,7 @@ import type {
   LoopSlotMode,
   LoopSlotState,
   LoopWorkerId,
+  SlotAgentActivity,
   UiWaveRefillDecision,
   UiWaveSlot,
   UiWaveSlotState,
@@ -59,6 +60,12 @@ export type SlotProgressInput = {
   waveSlots: readonly UiWaveSlot[] | undefined;
   refillDecisions?: readonly UiWaveRefillDecision[];
   activity: AgentActivity | null;
+  /**
+   * Per-srautinės grandinės iš `/api/events` (`slots[]`). Kai srautas čia YRA, jo grandinė imama
+   * TIESIOGIAI: įrašas ateina iš to srauto bandymo log'o, tad priskyrimo klausimo nebelieka.
+   * Tuščias sąrašas grąžina seną elgesį — koreliaciją pagal `task_id`.
+   */
+  slotActivities?: readonly SlotAgentActivity[];
   activityStatus: "connecting" | "live" | "disconnected";
   budgets?: Readonly<Partial<Record<LoopWorkerId, SlotBudgetInput>>>;
   etas?: Readonly<Partial<Record<LoopWorkerId, SlotEtaInput>>>;
@@ -224,6 +231,11 @@ export function buildSlotProgressViews(input: SlotProgressInput): SlotProgressVi
   const decisions = input.refillDecisions ?? [];
 
   return input.loopControl.slots.map((slot) => {
+    // TIESIOGINIS įrodymas pirmiau už koreliaciją: šio srauto įrašas ateina iš JO bandymo log'o,
+    // tad jam nereikia nei `task_id` sutapimo, nei vienareikšmiškumo tarp srautų.
+    const own = disconnected
+      ? undefined
+      : input.slotActivities?.find((entry) => entry.worker_id === slot.workerId);
     const waveSlot = input.waveSlots?.find((candidate) => candidate.worker_id === slot.workerId) ?? null;
     // Žinomas „reused-lease" defektas: baigto task'o lease'as apstampuojamas nauju keliu. Tokia
     // pora negali maitinti nei laikmačio, nei darbo kopijos — bet `last_failure` lieka, nes jis
@@ -231,21 +243,26 @@ export function buildSlotProgressViews(input: SlotProgressInput): SlotProgressVi
     const mismatchedTask = waveSlot !== null && slot.taskId !== null && waveSlot.task_id !== slot.taskId;
     const usableLease = waveSlot !== null && !mismatchedTask;
 
-    const attached = !disconnected && attribution === "attached" && attachedTo === slot.workerId;
+    const attached = own !== undefined || (!disconnected && attribution === "attached" && attachedTo === slot.workerId);
     const liveness: SlotLiveness = disconnected
       ? "unknown"
-      : input.loopControl.loopStatus === "stopped" && slot.taskId === null
-        ? "offline"
-        : attribution === "ambiguous"
-          ? "ambiguous"
-          : attached
-            ? "attached"
-            : attribution === "unknown" && hasLiveTask
-              ? "detached"
-              : "unknown";
+      : own !== undefined
+        ? "attached"
+        : input.loopControl.loopStatus === "stopped" && slot.taskId === null
+          ? "offline"
+          : attribution === "ambiguous"
+            ? "ambiguous"
+            : attached
+              ? "attached"
+              : attribution === "unknown" && hasLiveTask
+                ? "detached"
+                : "unknown";
 
-    const chain = attached && input.activity
-      ? { agents: input.activity.chain, statuses: input.activity.statuses, currentAgent: input.activity.currentAgent }
+    // `ambiguous` čia nebegalioja: dviprasmybė kilo iš to, kad globalus srautas neša tik
+    // `task_id`. Turėdami srauto SAVO įrašą, dvi užduotys tuo pačiu vardu jo nebeliečia.
+    const source = own?.activity ?? (attached ? input.activity : null);
+    const chain = source
+      ? { agents: source.chain, statuses: source.statuses, currentAgent: source.currentAgent }
       : null;
 
     const { phase, phaseDetail } = resolvePhase({
@@ -257,7 +274,9 @@ export function buildSlotProgressViews(input: SlotProgressInput): SlotProgressVi
       leaseState: usableLease ? waveSlot.state : null,
       currentAgent: chain?.currentAgent ?? null,
       attached,
-      claudeStatus: input.activity?.claudeStatus ?? null,
+      // Fazė imama iš TO PATIES šaltinio kaip grandinė: globalaus `claudeStatus` prikabinimas prie
+      // savo įrašą turinčio srauto būtų svetimo worker'io būsena.
+      claudeStatus: source?.claudeStatus ?? null,
     });
 
     const progress =

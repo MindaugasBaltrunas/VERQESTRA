@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getUiToken } from "../model/api";
-import type { AgentActivity } from "../model/types";
+import type { AgentActivity, AgentActivityFrame, SlotAgentActivity } from "../model/types";
 
 const RETRY_MS = 2_000;
 const MAX_RETRY_MS = 30_000;
@@ -10,6 +10,16 @@ export type AgentActivityStatus = "connecting" | "live" | "disconnected";
 
 export type AgentActivityState = {
   activity: AgentActivity | null;
+  /**
+   * Per-srautinės grandinės, kai banga turi gyvų slot'ų. Tuščias sąrašas reiškia „gyvų slot'ų
+   * nėra" — tada lieka tik globalus `activity`.
+   *
+   * 2026-08-24 auditas, aštuntas ratas: serveris šį lauką siunčia nuo daugiaslot'inės bangos, o
+   * klientas jo NESKAITĖ. Dėl to dviejų srautų bangoje grandinė buvo priskiriama pagal `task_id`
+   * sutapimą su GLOBALIU log'u, kurį worker'iai perrašo vienas per kitą — t. y. antram srautui
+   * rodoma svetima grandinė arba jokia. Būtent tam `slots[]` ir buvo sukurtas.
+   */
+  slots: readonly SlotAgentActivity[];
   status: AgentActivityStatus;
   /** Paskutinė ryšio klaida (`HTTP 401`, tinklo klaida). Tuščia, kol ryšys sveikas. */
   lastError: string;
@@ -25,9 +35,10 @@ export type AgentActivityState = {
  */
 export function useAgentActivity(): AgentActivityState {
   const [activity, setActivity] = useState<AgentActivity | null>(null);
+  const [slots, setSlots] = useState<readonly SlotAgentActivity[]>([]);
   const [status, setStatus] = useState<AgentActivityStatus>("connecting");
   const [lastError, setLastError] = useState("");
-  const pending = useRef<AgentActivity | null>(null);
+  const pending = useRef<AgentActivityFrame | null>(null);
   const frame = useRef<number | null>(null);
 
   useEffect(() => {
@@ -38,7 +49,12 @@ export function useAgentActivity(): AgentActivityState {
     const flush = () => {
       frame.current = null;
       if (pending.current !== null) {
-        setActivity(pending.current);
+        const { slots: frameSlots, ...globalActivity } = pending.current;
+        setActivity(globalActivity);
+        // Sąrašas paimamas iš TO PAČIO kadro kaip globalus aktyvumas: du atskiri `setState`
+        // šaltiniai leistų ekranui vieną akimirką rodyti naujo kadro grandinę su seno kadro
+        // slot'ais, ir priskyrimas būtų neteisingas būtent perėjimo metu.
+        setSlots(Array.isArray(frameSlots) ? frameSlots : []);
         pending.current = null;
       }
     };
@@ -51,7 +67,7 @@ export function useAgentActivity(): AgentActivityState {
         .join("\n");
       if (!data) return;
       try {
-        pending.current = JSON.parse(data) as AgentActivity;
+        pending.current = JSON.parse(data) as AgentActivityFrame;
         if (frame.current === null) frame.current = requestAnimationFrame(flush);
       } catch {
         // Ignore malformed server-sent event frames.
@@ -104,5 +120,5 @@ export function useAgentActivity(): AgentActivityState {
     };
   }, []);
 
-  return { activity, status, lastError };
+  return { activity, slots, status, lastError };
 }

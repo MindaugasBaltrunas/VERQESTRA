@@ -268,6 +268,29 @@ export type AgentActivity = {
   updatedAt: string;
 };
 
+/**
+ * VIENO gyvo srauto agentų grandinė — `/api/events` krovinio `slots[]` įrašas.
+ *
+ * Kodėl jis egzistuoja (serverio `UiSlotActivity`): globalus `AgentActivity` yra projekcija ant
+ * VIENO `claude-last.log`, kurį lygiagretūs worker'iai perrašo vienas per kitą. Antram srautui tai
+ * reiškia SVETIMĄ grandinę ir svetimą fazę. Kiekvienas šio sąrašo įrašas ateina iš SAVO bandymo
+ * log'o, tad priklauso būtent tam srautui — spėlioti pagal `task_id` nebereikia.
+ */
+export type SlotAgentActivity = {
+  worker_id: string;
+  task_id: string;
+  attempt: number;
+  /** Repo-relatyvus kelias, IŠ KURIO įrašas išparsintas — kilmė rodoma, o ne nutylima. */
+  log_path: string;
+  activity: AgentActivity;
+};
+
+/** `/api/events` kadras: globalus aktyvumas plius per-srautinis, kai banga turi gyvų slot'ų. */
+export type AgentActivityFrame = AgentActivity & {
+  stopStatusSource?: string;
+  slots?: SlotAgentActivity[];
+};
+
 export type TokenUsageRecord = {
   ts: string;
   phase: string;

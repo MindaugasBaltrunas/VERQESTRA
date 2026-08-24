@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import type { WorkflowBucketView, BucketVariant } from "../../model/dashboardViewModel";
+import { taskFileLabel } from "../../model/taskFileLabel";
 import { useQueueUploadController } from "../../controller/useQueueUploadController";
 import { useI18n } from "../../i18n/I18nContext";
 
@@ -112,11 +113,16 @@ function BucketCard({ bucket, onOpenFolder, onUpload, onLoadTasks }: BucketCardP
       </div>
       <ul className="task-list">
         {displayedTasks.length > 0 ? (
-          displayedTasks.map((task) => (
-            <li key={task} title={task}>
-              {task}
-            </li>
-          ))
+          displayedTasks.map((task) => {
+            const label = taskFileLabel(task);
+            return (
+              // PILNAS vardas lieka `title`: sąrašas trumpinamas, informacija — ne.
+              <li key={task} title={task}>
+                {label.id && <b className="task-id">{label.id}</b>}
+                <span className="task-name">{label.name}</span>
+              </li>
+            );
+          })
         ) : (
           <li className="empty-task">{t("No tasks")}</li>
         )}

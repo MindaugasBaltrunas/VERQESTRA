@@ -64,6 +64,15 @@ export type OwnedLockTiming = {
 
 const OWNER_FILE = "owner.json";
 
+/**
+ * Atsarga tarp „dar galiu trinti" patikros ir paties trynimo.
+ *
+ * Sekundė yra kelios eilės daugiau nei du syscall'ai, tad riba tarp jų nebus peržengta — nebent
+ * procesas būtų sustabdytas ilgiau nei sekundei, o tada jis jau ir taip artėja prie stale ribos ir
+ * teisingas atsakymas yra netrinti.
+ */
+const RELEASE_FENCE_MARGIN_MS = 1_000;
+
 function ownerPath(lockDir: string): string {
   return `${lockDir}/${OWNER_FILE}`;
 }
@@ -133,7 +142,7 @@ export async function withOwnedLock<T>(
         try {
           return await work();
         } finally {
-          await releaseOwnedLock(io, lockDir, claim.lock_id);
+          await releaseOwnedLock(io, lockDir, claim, timing.staleMs);
         }
       }
     } else {
@@ -146,7 +155,7 @@ export async function withOwnedLock<T>(
         try {
           return await work();
         } finally {
-          await releaseOwnedLock(io, lockDir, current.lock_id);
+          await releaseOwnedLock(io, lockDir, current, timing.staleMs);
         }
       }
       await stealStaleOwnedLock(io, lockDir, timing.staleMs);
@@ -186,9 +195,37 @@ export async function withOwnedLock<T>(
  * Tikrasis vaistas yra ne rename, o `created_at` atnaujinimas darbo metu (heartbeat), kuris
  * panaikina pačią prielaidą — bet tai laikmatis kritinėje sekcijoje, t. y. atskiras sprendimas.
  */
-export async function releaseOwnedLock(io: OwnedLockIo, lockDir: string, lockId: string): Promise<void> {
+export async function releaseOwnedLock(
+  io: OwnedLockIo,
+  lockDir: string,
+  claim: Pick<LockOwner, "lock_id" | "created_at">,
+  staleMs: number,
+): Promise<void> {
+  // FENCING (2026-08-24, operatoriaus radinys). Trynimas leidžiamas TIK tame lange, kuriame
+  // perėmimas yra DRAUDŽIAMAS — ir tai ta pati riba, kurią naudoja perėmėjas.
+  //
+  // Perimti galima tik tada, kai `now - created_at > staleMs`. Vadinasi, kol mes patys esame
+  // jauni, NIEKAS neturi teisės mūsų perimti, ir katalogas įrodomai tebėra mūsų — trynimas
+  // saugus. Peržengę ribą, trynimo atsisakome: lock'ą išvalys pats perėmimas, kuriam nuo tos
+  // akimirkos ir priklauso teisė. Taip check-then-act langas uždaromas ne nauju primityvu, o
+  // esamu fencing'u.
+  //
+  // `RELEASE_FENCE_MARGIN_MS` yra tam, kad riba nebūtų peržengta TARP patikros ir trynimo: du
+  // syscall'ai trunka mikrosekundes, tad sekundės atsarga jų neaprėps, nebent procesas būtų
+  // nustumtas ilgiau nei sekundei — o tada jis jau ir taip peržengia stale ribą.
+  //
+  // Kodėl ne `rename` į privatų kelią (TOCTOU-saugus perėmimo algoritmas): bandyta ir IŠMATUOTA
+  // kaip blogesnė — tarpprocesiniame streso teste 12 procesų davė 3-4 išlikusius įrašus ir 8-9
+  // nesėkmes „lock is held by another writer", nes atlaisvinimas nebeįvykdavo. Mikrosekundžių
+  // langas būtų iškeistas į realiai stringančius lock'us.
+  // Atsarga proporcinga: realioms riboms (30-60 s) ji yra sekundė, o mažoms — ketvirtadalis, tad
+  // fiksuotas dydis nenustelbia pačios ribos.
+  const marginMs = Math.min(RELEASE_FENCE_MARGIN_MS, staleMs / 4);
+  const ageMs = io.nowMs() - claim.created_at;
+  if (ageMs + marginMs >= staleMs) return;
+
   const current = await readOwner(io, lockDir);
-  if (current?.lock_id !== lockId) return;
+  if (current?.lock_id !== claim.lock_id) return;
   await io.removeDirectory(lockDir).catch(() => undefined);
 }
 

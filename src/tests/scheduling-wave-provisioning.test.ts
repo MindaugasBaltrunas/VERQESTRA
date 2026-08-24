@@ -16,7 +16,10 @@ import { computeTaskWriteSet } from "../application/scheduling/conflict-detector
 import { createWorkerLease, listWorkerLeases, type SchedulingFileSystemPort } from "../application/scheduling/index.js";
 import type { WorkerCandidate } from "../application/scheduling/worker-pool-admission.js";
 import type { WorkerPoolPlan } from "../application/scheduling/worker-pool-plan.js";
-import type { WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
+import { leaseClaimOf, type WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
+import { readScopeLockRegistry } from "../application/scheduling/scope-lock-store.js";
+import { releaseWorkerLease } from "../application/scheduling/worker-lease-store.js";
+import type { TaskGraph } from "../domain/tasks/graph/model.js";
 import { memorySchedulingFs as memorySchedulingFsHelper } from "./helpers/memory-scheduling-fs.js";
 
 const NOW = new Date("2026-08-21T12:00:00.000Z");
@@ -102,6 +105,75 @@ function pool(input: { granted: string[]; missingLease: string[] }): WorkerPoolP
     plan_hash: "ph",
   } as unknown as WorkerPoolPlan;
 }
+
+// P2 (2026-08-24, operatoriaus radinys): scope lock registrą skaitė pre-write hook'as, bet
+// PRODUKCIJOJE jo niekas nepildė — `acquireScopeLocksInStore` turėjo tik testinius kvietėjus, tad
+// antras izoliacijos sluoksnis realiame worker cikle neveikė. Šie trys testai pin'ina, kad
+// registras dabar pildomas prieš dispatch'ą, kad persidengiantis scope BLOKUOJA, ir kad lease'o
+// atlaisvinimas lock'us nuima.
+function graphWithScope(scopes: Record<string, string[]>): () => TaskGraph {
+  const graph = {
+    nodes: Object.entries(scopes).map(([taskId, scope]) => ({ task_id: taskId, scope })),
+  } as unknown as TaskGraph;
+  return () => graph;
+}
+
+test("aprūpinimas UŽPILDO scope lock registrą prieš dispatch'ą", async () => {
+  const w = world();
+  w.deps.graph = graphWithScope({ "0002": ["src/moduleA"] });
+
+  assert.equal(await createWaveProvisioningCoordinator(w.deps).provisionSlotLease({ task_id: "0002", worker_index: 2 }), true);
+
+  const registry = await readScopeLockRegistry(w.fs, ROOT);
+  assert.deepEqual(
+    registry.locks.map((lock) => lock.scope),
+    ["src/moduleA"],
+    "registras nebėra amžinai tuščias — būtent tai ir buvo P2",
+  );
+  assert.equal(registry.locks[0]?.owner.task_id, "0002", "savininkas yra LEASE tapatybė, ne procesas");
+});
+
+test("persidengiantis scope NEGAUNA slot'o, o lease grąžinamas", async () => {
+  const w = world();
+  w.deps.graph = graphWithScope({ "0002": ["src/moduleA"], "0003": ["src/moduleA/deep"] });
+  const coordinator = createWaveProvisioningCoordinator(w.deps);
+
+  assert.equal(await coordinator.provisionSlotLease({ task_id: "0002", worker_index: 2 }), true);
+  assert.equal(
+    await coordinator.provisionSlotLease({ task_id: "0003", worker_index: 1 }),
+    false,
+    "antras workeris NEGALI gauti kelio, kurį jau laiko pirmas",
+  );
+
+  assert.ok(
+    w.logs.some((line) => line.startsWith("SLOT SCOPE LOCK CONFLICT:")),
+    "konfliktas įvardijamas, o ne tyliai praleidžiamas",
+  );
+  // Lease NEGALI likti užimtas dėl scope konflikto — kitaip slot'as kabo iki TTL.
+  const leases = await listWorkerLeases(w.fs, ROOT);
+  assert.equal(leases.find((lease) => lease.worker_id === "w1")?.status, "released");
+});
+
+test("lease'o atlaisvinimas NUIMA jo scope lock'us", async () => {
+  const w = world();
+  w.deps.graph = graphWithScope({ "0002": ["src/moduleA"] });
+  await createWaveProvisioningCoordinator(w.deps).provisionSlotLease({ task_id: "0002", worker_index: 2 });
+
+  const lease = (await listWorkerLeases(w.fs, ROOT)).find((entry) => entry.worker_id === "w2");
+  assert.ok(lease);
+  await releaseWorkerLease({
+    deps: { fs: w.fs, clock: { now: () => NOW, sleep: () => Promise.resolve() } },
+    projectRoot: ROOT,
+    workerId: "w2",
+    claim: leaseClaimOf(lease),
+  });
+
+  assert.deepEqual(
+    (await readScopeLockRegistry(w.fs, ROOT)).locks,
+    [],
+    "netekus lease'o krenta ir visi jo lock'ai (ScopeLockOwner taisyklė)",
+  );
+});
 
 test("išjungta politika lease'o NEIŠDUODA ir kopijos nekuria", async () => {
   const w = world({ policyEnabled: false });

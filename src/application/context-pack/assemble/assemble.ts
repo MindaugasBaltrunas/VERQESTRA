@@ -440,17 +440,26 @@ export async function assembleContextPack(
 /**
  * Identity of the code index a pack's `code_context` was derived from.
  *
- * Formatas: `fresh:<indekso versija>:<source_hash>`.
+ * Formatas: `fresh:<indekso versija>:<source_hash>:<records_hash>`.
  *
- * VERSIJA ĮEINA SĄMONINGAI (2026-08-23, operatoriaus radinys). Iki tol deskriptorius buvo tik
- * `fresh:<source_hash>` — grynai DUOMENŲ tapatybė. Pakėlus `codeIndexVersion` (2.1.0 → 3.x, kai
- * indeksas ėmė duoti importus, simbolius ir briaunas Python/PHP/C#/.NET kalboms) šaltinių hash'as
- * nepasikeičia, tad senas pack'as, sudėtas iš SKURDESNIO indekso, grįždavo kaip pilnavertis hit'as.
+ * Trys dedamosios, ir kiekviena uždaro tai, ko ankstesnė nemato:
  *
- * Tai ta pati klasė, kurią aprašo `CONTEXT_CACHE_VERSION` doc'as: hash'ai mato duomenis, ne kodą.
- * Skirtumas tas, kad čia sprendimas gali būti STRUKTŪRINIS, o ne rankinis: indekso versija jau yra
- * manifeste, tad įtraukus ją į deskriptorių kiekvienas būsimas indekso kėlimas automatiškai
- * anuliuoja iš jo sudėtus pack'us — nebereikia prisiminti kelti ir kešo versijos.
+ *   • `source_hash` — ĮVESTIS (kokius failus indeksas matė). Vienas jis buvo iki 2026-08-23, ir to
+ *     nepakako: pakėlus `codeIndexVersion` tie patys failai duoda tą patį hash'ą, tad senas pack'as,
+ *     sudėtas iš SKURDESNIO indekso, grįždavo kaip pilnavertis hit'as.
+ *   • `<versija>` — DEKLARUOTA semantika. Uždarė aną spragą struktūriškai, bet ji remiasi RANKINIU
+ *     kontraktu: kas keičia ištraukimo logiką, privalo prisiminti pakelti versiją.
+ *   • `records_hash` — faktinė IŠVESTIS (2026-08-24, operatoriaus siūlymas). Jis mato tai, ką
+ *     indeksuotojas realiai pagamino, tad pakeitus logiką be versijos kėlimo pack'ai anuliuojami
+ *     VIS TIEK. Tai ta pati kryptis, kuria ėjo versijos įtraukimas — tik viena pakopa giliau:
+ *     nuo „ką deklaruojame" prie „ką iš tikrųjų turime".
+ *
+ * Ko tai NEKEIČIA: priverstinis perstatymas su nepakitusiais failais toliau duoda HIT'Ą, ir taip
+ * turi būti — build'as deterministinis (`characterization-code-index`: du perstatymai baitas į
+ * baitą), tad `records_hash` sutampa. Kešas, praleidžiantis nepakitusį indeksą, veikia teisingai.
+ *
+ * Kešo versijos kelti nereikia: seni įrašai neša trumpesnį deskriptorių, tad jie nebeatitiks ir
+ * natūraliai taps `code_index_drift` miss'ais — deskriptorius anuliuoja pats save.
  *
  * Neperskaitomas arba pasenęs indeksas duoda `stale` sentinelį, kurio kešas nei saugo, nei atitinka.
  */
@@ -466,13 +475,14 @@ async function currentCodeIndexDescriptor(
     freshness.manifest ??
     (await codeFs
       .readTextFile(codeIndexPath(projectRoot, "manifest.json"))
-      .then((raw) => JSON.parse(raw) as { source_hash?: string; version?: string })
+      .then((raw) => JSON.parse(raw) as { source_hash?: string; version?: string; records_hash?: string })
       .catch(() => undefined));
-  if (!manifest || typeof manifest.source_hash !== "string") return CODE_INDEX_STALE;
-  // Versija imama iš PATIES manifesto, o ne iš `codeIndexVersion` konstantos: deskriptorius turi
-  // aprašyti indeksą, iš kurio pack'as SUDĖTAS, o ne šio proceso build'ą. Manifesto be versijos
-  // (senesnė forma) negalime apibūdinti, tad jis laikomas pasenusiu.
-  return typeof manifest.version === "string" && manifest.version !== ""
-    ? `fresh:${manifest.version}:${manifest.source_hash}`
+  if (!manifest) return CODE_INDEX_STALE;
+  // Visos trys dedamosios imamos iš PATIES manifesto, o ne iš proceso konstantų: deskriptorius turi
+  // aprašyti indeksą, iš kurio pack'as SUDĖTAS, o ne šio proceso build'ą. Manifestas, kuriame bent
+  // vienos nėra (senesnė forma), yra neapibūdinamas, tad laikomas pasenusiu.
+  const parts = [manifest.version, manifest.source_hash, manifest.records_hash];
+  return parts.every((part) => typeof part === "string" && part !== "")
+    ? `fresh:${parts.join(":")}`
     : CODE_INDEX_STALE;
 }

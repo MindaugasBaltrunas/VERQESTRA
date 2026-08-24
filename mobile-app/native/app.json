@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "AG Loop Mobile",
+    "slug": "ag-loop-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "agloop",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "package": "dev.agloop.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "dev.agloop.mobile",
+      "supportsTablet": false
+    }
+  }
+}

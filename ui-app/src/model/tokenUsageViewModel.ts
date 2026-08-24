@@ -154,7 +154,12 @@ export function computeTokenUsageTotals(records: TokenUsageRecord[]): TokenUsage
 
   for (const record of records) {
     totals.records += 1;
-    taskIds.add(record.task_id);
+    // TUŠČIAS `task_id` NĖRA užduotis (2026-08-24, operatoriaus radinys). Telemetrijos įrašas be
+    // užduoties yra fazė, nepriskirta niekam — įskaitytas kaip atskira užduotis jis didino
+    // `uniqueTasks` vienetu ir tuo pačiu MAŽINO `tokensPerTask`, t. y. vidurkis rodė pigesnę
+    // užduotį nei bet kuri reali. `Set` čia klaidą ir slėpė: visi tokie įrašai suplaukdavo į
+    // vieną „" narį, tad iškraipymas atrodė kaip viena nekalta eilutė.
+    if (record.task_id.trim() !== "") taskIds.add(record.task_id);
     totals.inputTokens += coerce(record.input_tokens);
     totals.outputTokens += coerce(record.output_tokens);
     totals.cacheReadTokens += coerce(record.cache_read_input_tokens);
@@ -282,7 +287,9 @@ export type ReworkProxyStats = {
  * tikslusis dengia visą imtį.
  */
 export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProxyStats {
-  const allTasks = new Set(records.map((record) => record.task_id));
+  // Ta pati taisyklė kaip `computeTokenUsageTotals`: įrašas be užduoties nėra užduotis, ir
+  // vardiklyje jis iškreiptų `taskShare` ta pačia kryptimi.
+  const allTasks = new Set(records.map((record) => record.task_id).filter((id) => id.trim() !== ""));
   const diagnosisTasks = new Set<string>();
   let diagnosisTokens = 0;
   let totalTokens = 0;
@@ -314,7 +321,7 @@ export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProx
     }
     if (record.phase === "diagnose") {
       diagnosisTokens += tokens;
-      diagnosisTasks.add(record.task_id);
+      if (record.task_id.trim() !== "") diagnosisTasks.add(record.task_id);
     }
   }
 

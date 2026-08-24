@@ -44,7 +44,10 @@ export type UiPolicyControl = {
   editable: boolean;
   route: string;
   allowed_values?: string[];
+  /** NAUJAUSIAS laukiantis pasiūlymas; kitų šiam nustatymui valdiklis nerodo. */
   pending_proposal?: PolicyProposal;
+  /** Kiek pasiūlymų laukia ŠIAM nustatymui — siunčiama tik kai jų >1 (žr. `loadPendingProposalsBySetting`). */
+  pending_proposal_count?: number;
 };
 
 export type UiPolicyGroup = {
@@ -162,17 +165,37 @@ export function toUiStackDecision(decision: StackDecision): UiStackDecision {
  * Naujausias LAUKIANTIS pasiūlymas kiekvienam (policy_file, setting_id), kad kiekvienas valdiklis
  * galėtų parodyti savo neišspręstą pasiūlymą be naujo persistencijos sluoksnio.
  */
+/** Naujausias laukiantis pasiūlymas nustatymui IR kiek jų iš viso laukia. */
+export type PendingProposalSummary = { proposal: PolicyProposal; count: number };
+
+/**
+ * Vienam nustatymui gali laukti KELI pasiūlymai — UI leidžia „Siūlyti kitą pakeitimą", tad tai
+ * normali būsena, ne anomalija. Valdiklis rodo NAUJAUSIĄ (viena reikšmė vienam laukui), bet
+ * kiekis grąžinamas kartu.
+ *
+ * 2026-08-24, operatoriaus radinys: be kiekio suspaudimas buvo TYLUS — politikų suvestinė
+ * skaičiavo NUSTATYMUS (2), sprendimų eilė — PASIŪLYMUS (3), abi vadino tai tuo pačiu žodžiu, ir
+ * du `open_closed` įrašai eilėje atrodė kaip dublikatas be paaiškinimo. Kiekis paverčia tylų
+ * praradimą įvardytu faktu.
+ */
 export async function loadPendingProposalsBySetting(
   ports: ControlPlanePorts,
   runtimeRoot: string,
-): Promise<Map<string, PolicyProposal>> {
+): Promise<Map<string, PendingProposalSummary>> {
   const resolved = await readResolvedProposals(ports.fs, runtimeRoot);
-  const pending = new Map<string, PolicyProposal>();
+  const pending = new Map<string, PendingProposalSummary>();
   for (const { proposal, status } of resolved) {
     if (status !== "pending") continue;
     const key = `${proposal.policy_file}::${proposal.setting_id}`;
     const existing = pending.get(key);
-    if (!existing || proposal.timestamp > existing.timestamp) pending.set(key, proposal);
+    if (!existing) {
+      pending.set(key, { proposal, count: 1 });
+      continue;
+    }
+    pending.set(key, {
+      proposal: proposal.timestamp > existing.proposal.timestamp ? proposal : existing.proposal,
+      count: existing.count + 1,
+    });
   }
   return pending;
 }
@@ -194,9 +217,16 @@ export async function loadUiPolicyControls(
     loadPendingProposalsBySetting(ports, runtimeRoot),
   ]);
 
-  const withPending = (control: Omit<UiPolicyControl, "pending_proposal">): UiPolicyControl => {
+  const withPending = (
+    control: Omit<UiPolicyControl, "pending_proposal" | "pending_proposal_count">,
+  ): UiPolicyControl => {
     const pending = pendingBySetting.get(`${control.source}::${control.id}`);
-    return pending ? { ...control, pending_proposal: pending } : control;
+    if (!pending) return control;
+    // Kiekis siunčiamas TIK kai jų daugiau nei vienas: `1` nieko neprideda prie jau matomo
+    // pasiūlymo, o neprivalomas laukas su triviallia reikšme kviečia jį rodyti be reikalo.
+    return pending.count > 1
+      ? { ...control, pending_proposal: pending.proposal, pending_proposal_count: pending.count }
+      : { ...control, pending_proposal: pending.proposal };
   };
 
   const level = (id: string, label: string, value: string): UiPolicyControl =>

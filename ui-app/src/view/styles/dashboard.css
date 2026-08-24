@@ -141,11 +141,18 @@
 /* Navigacijos praleidimas (WCAG 2.4.1). Nematomas, kol negauna fokuso — tada tampa pirmu
    matomu elementu puslapyje. `clip`/`width` triukas vietoj `display: none`, nes paslėptas
    elementas fokuso apskritai negautų, ir mygtukas neegzistuotų klaviatūrai. */
+/* WCAG 2.5.8 taikoma ir čia. Praleidimo mygtukas buvo 41 px aukščio — vienintelis taikinys
+   visame puslapyje, likęs po riba (rasta 2026-08-24 IŠMATAVUS tikrą renderį; `.skip-link` nėra
+   `.button`, tad vienuolikto rato taisyklė jo nepasiekė). Tai pirmas fokusuojamas elementas
+   puslapyje, ir jį spaudžia būtent tas, kam pataikyti sunkiausia. */
 .skip-link {
   position: absolute;
   left: -9999px;
   top: 0;
   z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 0.6rem 1rem;
   background: var(--surface);
   color: var(--text);
@@ -3714,6 +3721,7 @@ main {
 }
 .policy-required { font-weight: 400; color: var(--danger, #b91c1c); }
 .policy-form-help { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+.filter-field-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--faint); }
 
 /* Kaina ir kartojimo priežastys: kodai monospace, kad juos būtų galima nukopijuoti į žurnalo
    paiešką — tas pats sprendimas kaip `.budget-reasons`. */
@@ -3762,6 +3770,27 @@ main {
 .policy-search input {
   min-height: 44px;
 }
+/* IŠMATUOTA tikrame renderyje 2026-08-24 (ne suskaičiuota iš CSS — tai ir buvo skirtumas).
+   Likę taikiniai 27–43 px juostoje: politikų grupės atlankas, filtrų laukai ir segmentuoto
+   valdiklio mygtukai, iš kurių siauriausias buvo 27 px pločio. */
+.policy-group > summary,
+.filter-field .range-input,
+.failure-day {
+  min-height: 44px;
+}
+.filter-presets button,
+.segmented-control button,
+.filter-field .range-input {
+  min-width: 44px;
+}
+
+/* SĄMONINGAI PALIEKAMI mažesni: `.bar-label-button`, `.task-drilldown-button` ir
+   `.table-sort-button` yra INLINE afordansai tankiuose duomenyse — diagramos eilutės vardas,
+   lentelės stulpelio antraštė. Jų padidinimas iki 44 px keistų ne mygtuką, o visos lentelės
+   eilučių ritmą ir sumažintų vienu metu matomų duomenų kiekį. WCAG 2.5.8 tokiems taikiniams turi
+   išimtį (inline tekste), ir kiekvienas jų turi alternatyvų kelią: rūšiavimą — per stulpelio
+   antraštę, gilinimąsi — per užduoties eilutę sąraše. Įrašyta, kad kitas auditas neieškotų iš
+   naujo ir nepakeistų šio sprendimo netyčia. */
 /* Ikoninius/tekstinius taikinius reikia ir horizontaliai: 44px aukštis be pločio vis tiek
    palieka siaurą juostelę. */
 .button, .small-button { min-width: 44px; }

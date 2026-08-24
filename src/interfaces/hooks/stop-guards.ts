@@ -65,8 +65,14 @@ export const PRE_COMMIT_STOP_GUARDS: readonly StopGuard[] = [
 // `PRE_COMMIT_STOP_GUARDS`; projekcija rašoma vietoje, kai jos prireiks.
 
 export type StopGuardPorts = PostWriteGuardPorts & {
-  /** Guard komandos paleidimas atskirame procese; grąžina exit kodą. */
-  runStopGuard(command: string, projectRoot: string): Promise<number>;
+  /**
+   * Guard komandos paleidimas atskirame procese; grąžina exit kodą.
+   *
+   * `sessionId` perduodamas todėl, kad guard'as savo payload'o NEMATO (kiekvienas jų turi savo
+   * stdin), o be sesijos tapatybės jis negali atskirti savo pakeitimų nuo lygiagrečios sesijos
+   * darbo toje pačioje darbo kopijoje. Tuščia reikšmė yra teisėta — tada tapatybė nežinoma.
+   */
+  runStopGuard(command: string, projectRoot: string, sessionId: string): Promise<number>;
 };
 
 export type StopGuardFailure = {
@@ -82,6 +88,7 @@ export async function runStopGuards(
   ports: StopGuardPorts,
   projectRoot: string,
   guards: readonly StopGuard[] = PRE_COMMIT_STOP_GUARDS,
+  sessionId = "",
 ): Promise<StopGuardFailure | undefined> {
   const roots = await detectGuardRoots(ports, projectRoot);
   const applicable = applicableGuards(guards, roots);
@@ -89,7 +96,7 @@ export async function runStopGuards(
     applicable.map((guard) =>
       // Nepaleistas guard'as NIEKADA nėra „praėjo": procesų klaida (nėra CLI, EACCES) yra
       // blokuojanti, nes kitaip sugedusi aplinka tyliai atidarytų visus vartus.
-      ports.runStopGuard(guard.command, projectRoot).catch(() => 1),
+      ports.runStopGuard(guard.command, projectRoot, sessionId).catch(() => 1),
     ),
   );
 

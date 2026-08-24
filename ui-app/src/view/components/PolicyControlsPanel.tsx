@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import type { UiPolicyControl, UiPolicyGroup } from "../../model/types";
+import { fill } from "../../model/fillTemplate";
 import { Badge } from "./Badge";
 import { useI18n } from "../../i18n/I18nContext";
 
@@ -148,7 +149,13 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
         </div>
         <div className="policy-workspace-stats" aria-label={t("Policy summary")}>
           <span><strong>{editableCount}</strong>{t("Editable")}</span>
-          <span className={pendingCount ? "has-pending" : ""}><strong>{pendingCount}</strong>{t("Awaiting decision")}</span>
+          {/* „Nustatymų", o ne „Laukia sprendimo": šis skaičius skaičiuoja NUSTATYMUS su bent
+              vienu laukiančiu pasiūlymu, o sprendimų eilė skaičiuoja PASIŪLYMUS. Vienas
+              nustatymas gali turėti kelis, tad du skaičiai teisėtai skiriasi — bet iki
+              2026-08-24 abu vadinosi vienodai, ir ekranas atrodė prieštaringas. */}
+          <span className={pendingCount ? "has-pending" : ""}>
+            <strong>{pendingCount}</strong>{t("settings awaiting a decision")}
+          </span>
         </div>
       </div>
       <div className="policy-toolbar">
@@ -231,6 +238,16 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                   <div className="policy-pending-change">
                     <span>{t("Pending proposal")}</span>
                     <strong>{formatValue(control.value)} <i aria-hidden="true">→</i> {formatPendingProposal(control.pending_proposal)}</strong>
+                    {/* Suspaudimas iki naujausio ĮVARDIJAMAS: be to eilėje matomi keli to paties
+                        nustatymo įrašai atrodo kaip dublikatas, o čia rodoma reikšmė — kaip
+                        vienintelė. */}
+                    {control.pending_proposal_count !== undefined && control.pending_proposal_count > 1 && (
+                      <small>
+                        {fill(t("{count} proposals for this setting; the newest is shown."), {
+                          count: control.pending_proposal_count,
+                        })}
+                      </small>
+                    )}
                   </div>
                 )}
                 <div className="policy-control-footer">

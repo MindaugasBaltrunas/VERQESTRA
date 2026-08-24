@@ -26,6 +26,7 @@ import { toPrettyJson } from "../../shared/json.js";
 import { withOwnedLock, type OwnedLockTiming } from "../../shared/owned-lock.js";
 import type { SchedulingClockPort, SchedulingFileSystemPort } from "./ports.js";
 import { schedulingOwnedLockIo, systemSchedulingClock } from "./ports.js";
+import { releaseScopeLocksInStore } from "./scope-lock-store.js";
 
 export type WorkerLeaseStoreDeps = {
   fs: SchedulingFileSystemPort;
@@ -271,7 +272,20 @@ export async function heartbeatWorkerLease(input: {
   });
 }
 
-/** Atlaisvinimas per store. Tik savininkas gali atlaisvinti — svetimas claim'as gauna `denied`. */
+/**
+ * Atlaisvinimas per store. Tik savininkas gali atlaisvinti — svetimas claim'as gauna `denied`.
+ *
+ * Kartu krenta ir VISI to lease'o scope lock'ai (2026-08-24, operatoriaus radinys P2). Tai ne
+ * papildomas veiksmas, o domeno taisyklė, užrašyta `scope-lock-rules.ScopeLockOwner`: „Lock'o
+ * savininkas yra LEASE, ne procesas: netekus lease'o, krenta ir visi jo lock'ai."
+ *
+ * Kodėl ČIA, o ne kvietėjuose: atlaisvinimo kelių yra keturi (aprūpinimo nesėkmė, bangos slot'o
+ * grąžinimas, reaper'is, loop komanda), ir lock'ų nuėmimas, pakartotas keturis kartus, būtų
+ * pamirštas penktame. Nuosavybė krenta ten, kur krenta lease.
+ *
+ * Valymas yra BEST-EFFORT: jo klaida negali paversti pavykusio atlaisvinimo `denied` verdiktu —
+ * pakibęs lease būtų blogiau nei pakibęs lock'as, kurį dar nuvalo TTL.
+ */
 export async function releaseWorkerLease(input: {
   deps: WorkerLeaseStoreDeps;
   projectRoot: string;
@@ -280,7 +294,7 @@ export async function releaseWorkerLease(input: {
   now?: Date;
 }): Promise<LeaseMutationResult> {
   const now = input.now ?? clockOf(input.deps).now();
-  return await withLeaseStoreLock(input.deps, input.projectRoot, async () => {
+  const result = await withLeaseStoreLock(input.deps, input.projectRoot, async () => {
     const lease = await readWorkerLease(input.deps.fs, input.projectRoot, input.workerId);
     const verdict = authorizeRuntimeMutation({ leases: lease ? [lease] : [], claim: input.claim, now });
     if (!verdict.ok || !lease) return { status: "denied", authority: verdict } as const;
@@ -289,6 +303,14 @@ export async function releaseWorkerLease(input: {
     await writeWorkerLease(input.deps.fs, input.projectRoot, released);
     return { status: "ok", lease: released } as const;
   });
+
+  // UŽ lease užrakto ribų: scope registras turi SAVO užraktą, ir jų lizdavimas duotų dvi
+  // skirtingas įgijimo tvarkas (lease→scope čia, scope→lease aprūpinime) — klasikinį deadlock'ą.
+  if (result.status === "ok") {
+    await releaseScopeLocksInStore({ fs: input.deps.fs, ...(input.deps.clock ? { clock: input.deps.clock } : {}) },
+      input.projectRoot, result.lease.lease_id).catch(() => 0);
+  }
+  return result;
 }
 
 // Trys eksportai ištrinti 2026-08-23 orkestratoriaus audite — nė vienas neturėjo produkcinio

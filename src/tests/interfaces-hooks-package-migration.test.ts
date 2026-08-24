@@ -271,6 +271,59 @@ test("hookPackageGuard: blokada rašo guard žurnalą, pastabą ir grąžina 1",
   assert.match(err.at(-2) ?? "", /reikia aiškios priežasties/);
 });
 
+test("hookPackageGuard: ĮRODYTAI svetimas package.json nebelaiko šios sesijos įkaitu", async () => {
+  // 2026-08-24 radinys. `session-writes.json` yra VIENAS failas visai darbo kopijai, tad
+  // lygiagrečios sesijos rašymai patenka į tą patį sąrašą. Guard'as iš to darė išvadą „rašė ši
+  // sesija" ir reikalaudavo `Package reason` iš to, kas pakeitimo NEDARĖ — būtent tai draudžia
+  // `domain/policies/package-guard` antraštė: „viena sesija galėtų amžinai laikyti kitą įkaitu".
+  const files = {
+    "package.json": '{ "packageManager": "pnpm@9.0.0" }',
+    "vq/state/session-writes.json": JSON.stringify(["package.json", "src/mine.ts"]),
+    "vq/state/session-write-owners.json": JSON.stringify({
+      "package.json": { sessions: ["session:kita"], tasks: [] },
+      "src/mine.ts": { sessions: ["session:mano"], tasks: [] },
+    }),
+  };
+
+  const foreign = fakeFs(files);
+  const foreignExit = await hookPackageGuard({
+    ports: {
+      ...packagePorts(foreign.fs, { changed: [{ status: " M", file: "package.json" }] }),
+      env: (name) => (name === "AG_SESSION_ID" ? "mano" : undefined),
+    },
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME_ROOT,
+    io: captureIo().io,
+  });
+  assert.equal(foreignExit, 0, "svetimas pakeitimas Stop hook'o neblokuoja");
+  assert.match(foreign.store.get("vq/logs/hooks.log") ?? "", /ne šios sesijos/);
+
+  // Ta pati būsena, bet savininkas — MES: vartai privalo likti tokie patys, kokie buvo. Be šio
+  // tvirtinimo pataisymas būtų neatskiriamas nuo varto išjungimo.
+  const owned = fakeFs(files);
+  const ownedExit = await hookPackageGuard({
+    ports: {
+      ...packagePorts(owned.fs, { changed: [{ status: " M", file: "package.json" }] }),
+      env: (name) => (name === "AG_SESSION_ID" ? "kita" : undefined),
+    },
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME_ROOT,
+    io: captureIo().io,
+  });
+  assert.equal(ownedExit, 1, "savo pakeitimui reason vartai tebegalioja");
+
+  // Nežinoma tapatybė (be `AG_SESSION_ID`) NIEKO nemeta: „nežinau, kas aš" negali tapti
+  // „žinau, kad ne aš" — kitaip guard'as tyliai atsidarytų kiekvienam, kas neperduoda tapatybės.
+  const unknown = fakeFs(files);
+  const unknownExit = await hookPackageGuard({
+    ports: { ...packagePorts(unknown.fs, { changed: [{ status: " M", file: "package.json" }] }), env: () => undefined },
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME_ROOT,
+    io: captureIo().io,
+  });
+  assert.equal(unknownExit, 1, "be tapatybės elgesys lieka toks, koks buvo");
+});
+
 test("hookPackageGuard: sugadintas ledger'is nepaverčia pakeitimo šios sesijos darbu", async () => {
   const world = fakeFs({
     "package.json": "{}",

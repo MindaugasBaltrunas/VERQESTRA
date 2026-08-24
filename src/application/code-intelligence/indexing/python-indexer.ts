@@ -34,12 +34,38 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
   for (const match of clean.matchAll(IMPORT_FROM)) {
     const dots = (match[1] ?? "").length;
     const module = (match[2] ?? "").trim();
-    if (dots === 0) {
-      if (module) imports.add(resolveAbsolute(module, knownPaths, roots) ?? module);
+    // IMPORTUOJAMI VARDAI dalyvauja rezoliucijoje (2026-08-24, operatoriaus radinys).
+    //
+    // `from . import helper` yra standartinė forma broliškam submoduliui pasiekti, bet vardų sąrašas
+    // buvo ignoruojamas visiškai: sprendžiamas tik `module`, kuris čia TUŠČIAS. Rezultatas —
+    // importas virsdavo paketo `__init__.py`, o neturint jo tiesiog tekstiniu `"."`, ir tikras
+    // ryšys su `pkg/helper.py` dingdavo kartu su architektūros pažeidimais bei `impacted_tests`.
+    //
+    // Vardas gali būti ir submodulis, ir paprastas simbolis (`from .models import User`). Skirti
+    // jų nereikia: kandidatas pridedamas TIK tada, kai toks failas indekse realiai yra, tad
+    // `models/User.py` nesant nieko neatsiranda.
+    const targets = new Set<string>();
+    const resolveName = (candidate: string): string | undefined =>
+      dots === 0 ? resolveAbsolute(candidate, knownPaths, roots) : resolveRelative(file.path, dots, candidate, knownPaths);
+
+    if (module || dots > 0) {
+      const base = resolveName(module);
+      if (base !== undefined) targets.add(base);
+    }
+    for (const entry of splitList(match[3] ?? "")) {
+      const name = entry.split(/\s+as\s+/)[0]?.trim() ?? "";
+      if (!name || name === "*") continue;
+      const submodule = resolveName(module ? `${module}.${name}` : name);
+      if (submodule !== undefined) targets.add(submodule);
+    }
+
+    if (targets.size > 0) {
+      for (const target of targets) imports.add(target);
       continue;
     }
-    const resolved = resolveRelative(file.path, dots, module, knownPaths);
-    imports.add(resolved ?? `${".".repeat(dots)}${module}`);
+    // Nieko neišsisprendė — lieka tekstinė nuoroda, kaip ir anksčiau.
+    if (dots > 0) imports.add(`${".".repeat(dots)}${module}`);
+    else if (module) imports.add(module);
   }
 
   // `__all__` yra vienintelis eksplicitus Python eksporto sąrašas. Jo esant jis LAIMI prieš

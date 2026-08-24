@@ -29,7 +29,12 @@ import {
 } from "../../../application/architecture/wave-reclaim.js";
 import type { ArchitectureWavePorts } from "../../../application/architecture/ports.js";
 import { parseMermaidFlowchart } from "../../../application/code-intelligence/graph-source/mermaid-parser.js";
-import { scanAstSymbols } from "../../../application/code-intelligence/code-map/ast-symbol-scanner.js";
+import { projectCodeMapFromIndex } from "../../../application/code-intelligence/code-map/index-projection.js";
+import { buildCodeIndex } from "../../../application/code-intelligence/indexing/builder.js";
+import {
+  checkCodeIndexFreshness,
+  readCodeIndex,
+} from "../../../application/code-intelligence/store/code-index-store.js";
 import {
   GENERATED_CODE_MAP_RELATIVE_PATH,
   generateCodeMapMermaid,
@@ -334,7 +339,18 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
         return 2;
       }
 
-      const { symbols, imports, files: scannedFiles } = await scanAstSymbols(deps.codeFs, projectRoot);
+      // Code-map skaito INDEKSĄ, o ne skenuoja pats (2026-08-24, operatoriaus sprendimas): vienas
+      // AST variklis, viena importų rezoliucija. Pasenęs indeksas čia NĖRA gedimas — jis
+      // deterministiškai perstatomas, kaip ir dispatch kelyje (`ensureFreshCodeIndexForExistingCodeTask`),
+      // ir tai pranešama, nes degradacija privalo būti matoma.
+      const freshness = await checkCodeIndexFreshness(deps.codeFs, projectRoot);
+      if (!freshness.ok) {
+        io.out(`code index not fresh (${freshness.reason}); rebuilding before code-map`);
+        await buildCodeIndex(deps.codeFs, projectRoot);
+      }
+      const { symbols, imports, files: scannedFiles } = projectCodeMapFromIndex(
+        await readCodeIndex(deps.codeFs, projectRoot),
+      );
       let mermaidContent: string;
       if (doWrite) {
         await writeGeneratedCodeMap(deps.codeFs, projectRoot, symbols, imports, scannedFiles);

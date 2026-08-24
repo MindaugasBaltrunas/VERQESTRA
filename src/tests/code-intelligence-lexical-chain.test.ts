@@ -306,6 +306,99 @@ test("pridėtas pyproject.toml PASENDINA indeksą, o ne tyliai pakeičia prasmę
   }
 });
 
+// 2026-08-24 (operatoriaus radinys): `from . import helper` yra standartinė forma broliškam
+// submoduliui pasiekti, bet importuojamų VARDŲ sąrašas buvo ignoruojamas visiškai — sprendžiamas
+// tik `module`, kuris tokioje formoje tuščias. Importas virsdavo paketo `__init__.py`, o jo
+// neturint — tekstiniu `"."`, ir tikras ryšys dingdavo kartu su pažeidimais bei `impacted_tests`.
+test("`from . import helper` išsisprendžia į brolišką submodulį", async () => {
+  const root = await world({
+    "pkg/__init__.py": "",
+    "pkg/helper.py": "def help_me():\n    return 1\n",
+    "pkg/main.py": "from . import helper\n\ndef run():\n    return helper.help_me()\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    assert.deepEqual(
+      index.files.find((file) => file.path === "pkg/main.py")?.imports.sort(),
+      ["pkg/__init__.py", "pkg/helper.py"],
+      "abu ryšiai tikri: paketo `__init__` įvykdomas, o `helper` yra prašytas submodulis",
+    );
+    assert.deepEqual(
+      (await queryCodeGraph(nodeFsTestPort, root, "pkg/main.py")).imports,
+      ["pkg/__init__.py", "pkg/helper.py"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("`from .models import User` NEIŠGALVOJA submodulio iš simbolio vardo", async () => {
+  const root = await world({
+    "pkg/__init__.py": "",
+    "pkg/models.py": "class User:\n    pass\n",
+    "pkg/service.py": "from .models import User\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    assert.deepEqual(
+      index.files.find((file) => file.path === "pkg/service.py")?.imports.sort(),
+      ["pkg/models.py"],
+      "`User` yra klasė, ne modulis — kandidatas dedamas tik kai toks failas indekse REALIAI yra",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 2026-08-24 (operatoriaus radinys): `testedBy` vardų atitikimas buvo SUBSTRING'as, tad `src/id.ts`
+// prisikabindavo prie `src/grid.test.ts` — „id" yra „grid" viduje. Trumpi vardai (`id`, `db`, `fs`)
+// taip susirinkdavo dešimtis nesusijusių testų, o RAG juos siūlydavo kaip paliestus.
+test("testedBy vardų atitikimas NEBĖRA substring'as", async () => {
+  const root = await world({
+    "src/id.ts": "export const id = 1;\n",
+    "src/grid.ts": "export const grid = 2;\n",
+    "src/grid.test.ts": "export const checked = true;\n",
+    "src/id.test.ts": "export const checkedId = true;\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    const testsOf = (source: string): string[] =>
+      index.edges.filter((edge) => edge.type === "testedBy" && edge.from === source).map((edge) => edge.to).sort();
+
+    assert.deepEqual(testsOf("src/id.ts"), ["src/id.test.ts"], "`grid.test.ts` NĖRA `id.ts` testas");
+    assert.deepEqual(testsOf("src/grid.ts"), ["src/grid.test.ts"]);
+    assert.deepEqual(
+      (await queryCodeGraph(nodeFsTestPort, root, "src/id.ts")).impacted_tests,
+      ["src/id.test.ts"],
+      "netikra briauna būtų plitusi dar ir per importuotojų uždarinį",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("testedBy atpažįsta kiekvienos kalbos ĮRANKIO konvenciją be substring'o", async () => {
+  const root = await world({
+    "src/main.py": "def run():\n    return 1\n",
+    "src/test_main.py": "def test_run():\n    assert True\n",
+    "src/Repo.php": "<?php\nclass Repo {}\n",
+    "src/RepoTest.php": "<?php\nclass RepoTest {}\n",
+    "src/Users.cs": "public class Users { }\n",
+    "src/UsersTests.cs": "public class UsersTests { }\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    const testsOf = (source: string): string[] =>
+      index.edges.filter((edge) => edge.type === "testedBy" && edge.from === source).map((edge) => edge.to).sort();
+
+    assert.deepEqual(testsOf("src/main.py"), ["src/test_main.py"], "pytest `test_<vardas>`");
+    assert.deepEqual(testsOf("src/Repo.php"), ["src/RepoTest.php"], "PHPUnit `<Vardas>Test`");
+    assert.deepEqual(testsOf("src/Users.cs"), ["src/UsersTests.cs"], "xUnit `<Vardas>Tests`");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("architektūros vartas mato leksinės kalbos pažeidimą per realų build'ą", async () => {
   const root = await world({
     "src/application/service.py": "def run():\n    return 1\n",

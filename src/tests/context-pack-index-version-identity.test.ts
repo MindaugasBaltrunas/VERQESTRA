@@ -90,8 +90,74 @@ test("gamintojo deskriptorius neša INDEKSO VERSIJĄ, ne tik šaltinių hash'ą"
     assert.ok(descriptor, "įrašas privalo būti išsaugotas");
     assert.match(
       descriptor,
-      new RegExp(`^fresh:${codeIndexVersion.replace(/\./g, "\\.")}:[0-9a-f]{64}$`),
-      `deskriptorius privalo būti fresh:<versija>:<hash>, gauta: ${descriptor}`,
+      new RegExp(`^fresh:${codeIndexVersion.replace(/\./g, "\\.")}:[0-9a-f]{64}:[0-9a-f]{64}$`),
+      `deskriptorius privalo būti fresh:<versija>:<source_hash>:<records_hash>, gauta: ${descriptor}`,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// `records_hash` deskriptoriuje uždaro tai, ko VERSIJA nemato: pakeistą ištraukimo logiką be
+// versijos kėlimo. Versija yra DEKLARACIJA ir remiasi rankiniu kontraktu; `records_hash` yra
+// faktinė indekso IŠVESTIS, tad tokiu atveju pack'ai anuliuojami vis tiek.
+test("kitoks indekso TURINYS anuliuoja pack'ą net su ta pačia versija", async () => {
+  const root = await world();
+  try {
+    const deps = {
+      fs: nodeFsAdapter,
+      codeFs: createCodeIntelligenceFsAdapter(root),
+      cache: createContextCacheAdapter(root, path.join(root, "vq")),
+    };
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+    assert.equal(await lastCacheStatus(root), "hit", "kontrolė: nepakitęs indeksas duoda hit'ą");
+
+    // Simuliuojame indeksuotoją, kuris tiems patiems failams pagamino KITOKIUS įrašus, bet versijos
+    // nepakėlė: keičiamas tik `records_hash` (t. y. tai, ką indeksas turi), o `version` ir
+    // `source_hash` lieka. Su vien versija deskriptoriuje toks pack'as grįžtų kaip pilnavertis.
+    const runtimeRoot = path.join(root, "vq");
+    const [stored] = await readContextCacheEntries(runtimeRoot);
+    assert.ok(stored);
+    const parts = stored.entry.code_index.split(":");
+    assert.equal(parts.length, 4, `laukta fresh:<versija>:<source>:<records>, gauta ${stored.entry.code_index}`);
+    const otherContent = [...parts.slice(0, 3), "0".repeat(64)].join(":");
+    await nodeFsAdapter.writeTextFile(
+      stored.file,
+      `${JSON.stringify({ ...stored.entry, code_index: otherContent }, null, 2)}\n`,
+    );
+
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+    assert.equal(
+      await lastCacheStatus(root),
+      "miss",
+      "pack'as, sudėtas iš kitokio indekso TURINIO, negali grįžti kaip pilnavertis hit'as",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Kita medalio pusė, ir ji tokia pat svarbi: deskriptorius neturi teisės daryti kešo nenaudingo.
+// Build'as deterministinis, tad priverstinis perstatymas su nepakitusiais failais duoda TUOS PAČIUS
+// įrašus — ir hit'as tokiu atveju yra teisingas atsakymas, ne spraga.
+test("priverstinis perstatymas su nepakitusiais failais TOLIAU duoda hit'ą", async () => {
+  const root = await world();
+  try {
+    const deps = {
+      fs: nodeFsAdapter,
+      codeFs: createCodeIntelligenceFsAdapter(root),
+      cache: createContextCacheAdapter(root, path.join(root, "vq")),
+    };
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+
+    await buildCodeIndex(createCodeIntelligenceFsAdapter(root), root);
+
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+    assert.equal(
+      await lastCacheStatus(root),
+      "hit",
+      "deterministinis perstatymas duoda tą patį `records_hash` — kešas privalo likti naudingas",
     );
   } finally {
     await rm(root, { recursive: true, force: true });

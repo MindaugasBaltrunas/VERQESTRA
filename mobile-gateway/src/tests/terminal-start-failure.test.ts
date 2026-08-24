@@ -243,6 +243,62 @@ test("nepavykęs uždarymas palieka `orphaned` ir BLOKUOJA naują seansą", asyn
   }
 });
 
+// 2026-08-24 (operatoriaus radinys, P1): ORPHANED REZERVACIJA. Nepavykęs uždarymas palieka
+// seansą `orphaned` ir sąmoningai NENUVALO `activeSessionId`. Rezervaciją atlaisvina `handleExit`,
+// bet jis suveikia tik procesui realiai išėjus — o čia neišėjo būtent tai, kas nepavyko.
+// `forceCloseLocally` (vienintelis operatoriaus atkūrimo kelias) orphaned seansą ATMESDAVO, tad
+// hostas likdavo užrakintas iki gateway restarto.
+test("orphaned seansą galima priverstinai uždaryti — hostas atsilaisvina", async () => {
+  const { supervisor, cleanup } = await world({ identifySucceeds: true, closeFails: true });
+  try {
+    const created = (await supervisor.createSession({
+      projectId: PROJECT_ID,
+      ownerDeviceId: OWNER_DEVICE_ID,
+      requestId: "req-1",
+      provider: "codex",
+      workspaceMode: "isolated-worktree",
+      cols: 80,
+      rows: 24,
+    })) as { sessionId: string; lease: { leaseId: string; generation: number } };
+
+    await assert.rejects(() =>
+      supervisor.close({
+        projectId: PROJECT_ID,
+        sessionId: created.sessionId,
+        ownerDeviceId: OWNER_DEVICE_ID,
+        leaseId: created.lease.leaseId,
+        leaseGeneration: created.lease.generation,
+      }),
+    );
+
+    const view = await supervisor.localSessionView(created.sessionId);
+    assert.equal(view?.state, "orphaned", "prielaida: seansas tikrai orphaned");
+
+    await supervisor.forceCloseLocally({
+      sessionId: created.sessionId,
+      requestId: "force-1",
+      reason: "operatorius atlaisvina užstrigusį seansą",
+      expectedSessionRevision: view.revision,
+    });
+
+    // Rezervacija atlaisvinta: naujas seansas realiai SUKURIAMAS. Iki taisymo čia buvo `host_busy`
+    // amžinai — vienintelė išeitis buvo gateway restartas.
+    const next = (await supervisor.createSession({
+      projectId: PROJECT_ID,
+      ownerDeviceId: OWNER_DEVICE_ID,
+      requestId: "req-2",
+      provider: "codex",
+      workspaceMode: "isolated-worktree",
+      cols: 80,
+      rows: 24,
+    })) as { sessionId: string };
+
+    assert.notEqual(next.sessionId, created.sessionId, "tai naujas seansas, ne senojo vaizdas");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("klaida PO `terminals.start` uždaro handle — nelieka nevaldomo PTY", async () => {
   const { supervisor, counters, cleanup } = await world();
   try {

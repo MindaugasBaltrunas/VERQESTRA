@@ -147,13 +147,21 @@ function BucketCard({ bucket, onOpenFolder, onUpload, onLoadTasks }: BucketCardP
             if (event.dataTransfer?.files) upload.dropFiles(event.dataTransfer.files);
           }}
         >
+          {/* NE FOKUSUOJAMAS (2026-08-24, operatoriaus radinys). Šis laukas yra 1×1 px, permatomas
+              ir be `pointer-events` — jį atidaro TIK mygtukas „Pasirinkti" žemiau. Bet jis liko
+              tab tvarkoje, tad klaviatūros naudotojas užlipdavo ant nematomo valdiklio: fokusas
+              dingdavo iš ekrano be jokio matomo žymens, o `Enter` ties juo nedarydavo nieko.
+              `tabIndex={-1}` palieka jį programiniam atidarymui ir išima iš grandinės; kartu
+              `aria-hidden`, nes tikrasis prieinamas valdiklis yra mygtukas, o du to paties
+              veiksmo įėjimai skaitytuve skambėtų kaip du skirtingi. */}
           <input
             ref={upload.fileInputRef}
             className="queue-file-input"
             type="file"
             accept=".md,text/markdown"
             multiple
-            aria-label={t("Choose task files")}
+            tabIndex={-1}
+            aria-hidden="true"
             onChange={upload.selectFiles}
           />
           <div>

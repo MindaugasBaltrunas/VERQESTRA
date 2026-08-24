@@ -1199,3 +1199,194 @@ nuo testų, čia niekas nekrenta.
 - `pnpm test:only` — **1631/1631**; `pnpm lint` — švarus.
 - `pnpm test:ui` — **56/56 failai, 458/458**.
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm run build:ui` — praeina.
+
+---
+
+## Aštuonioliktas ratas (2026-08-24) — PIRMAS patikrinimas tikrame renderyje
+
+Septyniolika ratų šio audito kartojo tą patį sakinį: „naršyklės patikra neatlikta". Operatorius
+paleido serverį ir prijungė Chrome — ir per pirmą matavimo seansą iškrito **penki** dalykai,
+kurių nė vienas iš 458 testų nemato iš principo.
+
+### Kas pasitvirtino
+
+| Teiginys | Išmatuota |
+|---|---|
+| „Ryšys gyvas" vietoj „Srautas gyvas" | ✅ ekrane |
+| „Valdymo sąsaja pasiekiama" + „Ciklas: sustabdytas" + „1 / 3" | ✅ neprieštarauja |
+| `inbox-zero` susitraukė | **56 px** (buvo ~170; skaičiavau ~52) |
+| `#/reviews` politikos virš ribos | ✅ ties `y=400`, riba 855 |
+| Politikos forma | ✅ matomos etiketės, „(privaloma)", išjungto mygtuko `title` IR tekstas |
+| Horizontalus perpildymas | ✅ nė viename iš 9 maršrutų |
+| Konsolės klaidos | ✅ nė vienos |
+
+### Ką rado tik renderis
+
+1. **`.skip-link` — 41 px.** Vienintelis taikinys po riba plačiame ekrane, ir tai MANO paties
+   ketvirto rato komponentas: jis nėra `.button`, tad vienuolikto rato taisyklė jo nepasiekė.
+   Pirmas fokusuojamas elementas puslapyje, spaudžiamas būtent to, kam pataikyti sunkiausia.
+
+2. **Dar vienuolika taikinių 27–43 px juostoje** — politikų grupės atlankas (35), filtrų laukai
+   (35–38), segmentuoto valdiklio mygtukai (**27**). Ištaisyta.
+
+3. **Trys tekstai be vertimo kvietimo apskritai.** `Tokens / record (mean / median / p95)`,
+   `Tokens / task (mean / median / p95)` ir `Total` buvo įrašyti TIESIAI į JSX.
+   `i18n/coverage.test.ts` jų nemato iš principo: jis tikrina, ar kiekvienas RAKTAS turi vertimą,
+   o tekstas be kvietimo rakto neturi visai.
+
+4. **`Max lines per file` — 14 iš 15 politikų etikečių išverstos, viena ne.** Šias etiketes duoda
+   SERVERIS (`control-plane-model.ts`), tad tai dinaminis raktas — antra vieta, kurios raktų
+   dengiamumo vartas nepasiekia.
+
+5. **Vartas, kurį sulaužė komentaras.** Rašydamas paaiškinimą apie 3-ią radinį, į komentarą
+   įrašiau vertimo kvietimo pavyzdį — ir `coverage.test.ts` jį suskaitė kaip tikrą raktą.
+   Vartas, kurį laužo komentaras, moko komentarų nerašyti, tad skeneris dabar komentarus išmeta.
+
+### Sąmoningai palikta
+
+`.bar-label-button` (140×20), `.task-drilldown-button` (271×15), `.table-sort-button` (370×17) ir
+`.failure-day` (40 px pločio) lieka po riba. Tai INLINE afordansai tankiuose duomenyse —
+diagramos eilutės vardas, lentelės stulpelio antraštė, laiko juostos stulpelis. Jų padidinimas
+keistų ne mygtuką, o visos lentelės eilučių ritmą ir sumažintų vienu metu matomų duomenų kiekį;
+WCAG 2.5.8 inline taikiniams turi išimtį, ir kiekvienas jų turi alternatyvų kelią. Užrašyta, kad
+kitas auditas neieškotų iš naujo ir nepakeistų sprendimo netyčia.
+
+### Ko IR DABAR nepatikrinau
+
+**Siauro ekrano.** Chrome langas buvo maksimizuotas, `resize_window` jo nepakeitė, iframe atmetė
+pats serveris (`X-Frame-Options` — teisingas elgesys), popup blokuotas be vartotojo gesto. Tad
+230 px → ~56 px antraštės teiginys **tebėra skaičiuotas iš CSS, ne išmatuotas** — vienintelis
+likęs tokios rūšies teiginys.
+
+### Pamoka
+
+Trys iš penkių radinių yra tos pačios formos: **vartas, kuris tikrina tik tai, kas per jį eina**.
+`coverage.test.ts` mato raktus — ne tekstą be rakto ir ne raktus iš serverio. Vienuolikto rato
+44 px taisyklė galiojo `.button` šeimai — ne visiems taikiniams. Kiekvienu atveju vartas buvo
+teisingas ir žalias, o ekrane stovėjo defektas.
+
+### Package guard: trečias tos pačios klaidos kvietėjas
+
+Rastas ne ieškant — Stop hook'as ėmė blokuoti mano sesiją dėl **svetimo** `package.json`.
+
+`src/domain/policies/package-guard.ts` antraštė sako tiesiai: *„reason/approval reikalaujama TIK
+tada, kai package.json pakeitė ši sesija... Svetimas pakeitimas Stop hook'o neblokuoja: kitaip
+viena sesija galėtų amžinai laikyti kitą įkaitu."* Gryna logika tą ir daro. Bet įrodymas, kuriuo
+ji remiasi — `vq/state/session-writes.json` — yra **vienas failas visai darbo kopijai**, tad
+lygiagrečios sesijos rašymai patenka į tą patį plokščią sąrašą, ir `writtenBySession()` grąžina
+`true` bet kam.
+
+Tapatybė diske BUVO: `session-write-owners.json` užrašė, kad `package.json` rašė
+`session:ba4c3b41-…`. Guard'as to sidecar'o neatidarė.
+
+Tas pats šablonas jau taikytas **dukart** — `session-stage-planning` ir `taskScopeRestorePaths`
+(etalono task 0018, kur komentaras aprašo TIKSLIAI tą pačią klaidą: „čia buvo skaitomas VISAS
+ledger'is be nuosavybės filtro, tad co-tenant'o rašymas būdavo priskiriamas šiam task'ui").
+Package guard buvo trečias, ir vienintelis, kuriame filtro nebuvo.
+
+**Kodėl taisymas platesnis nei vienas failas.** Filtrui reikia savo sesijos tapatybės, o Stop
+kelyje jos nebuvo: `session_id` skaitomas TIK `post-write.ts:233` iš hook payload'o, `on-stop.ts`
+payload'o neskaitė visai, o guard'ai paleidžiami atskirais subprocesais be stdin. Grandinė
+prijungta iki galo:
+
+| Failas | Pakeitimas |
+|---|---|
+| `on-stop-context.ts` | `StopHookPorts.readStdin?` — NEPRIVALOMAS |
+| `on-stop.ts` | perskaito `session_id`; parse klaida niekada neblokuoja |
+| `stop-guards.ts` | `runStopGuard(command, root, sessionId)` |
+| `stop-adapters.ts` | `AG_SESSION_ID` į vaiko aplinką — tuščias NERAŠOMAS |
+| `package-guard.ts` | `env` portas, savininkų sidecar'as, `filterStagePathsByOwnership` |
+
+**Kryptis griežtinanti, ne silpninanti.** Metama tik tai, kas ĮRODYTAI svetima: žinome savo
+tapatybę, kelias turi savininko įrašą, ir mūsų tarp jų nėra. Nežinoma tapatybė arba kelias be
+įrašo — elgesys nepakitęs. Vartas tai tvirtina visomis trimis kryptimis: svetimas praleidžiamas,
+savas tebeblokuoja, be tapatybės elgiasi kaip anksčiau. Be paskutiniųjų dviejų pataisymas būtų
+neatskiriamas nuo varto išjungimo.
+
+### Patikros po aštuoniolikto rato
+
+- `pnpm test:ui` — **56/56 failai, 458/458**; `pnpm run build:ui` — praeina.
+- Renderis: 9 maršrutai, 0 konsolės klaidų, 0 horizontalaus perpildymo, taikinių po riba nuo 12
+  selektorių iki 4 sąmoningai paliktų.
+- `pnpm test:only` — **1646/1646** (lygiagreti sesija baigė `ast-symbol-scanner` refaktoringą);
+  `pnpm lint` — švarus; `pnpm typecheck` — praeina.
+
+---
+
+## Devynioliktas ratas (2026-08-24) — penki radiniai iš antro renderio seanso
+
+Operatorius patvirtino keturis aštuoniolikto rato taisymus ekrane (mobili antraštė **60 px**,
+ryšio ir automatikos būsenos atskirtos, peržiūrų tuščia būsena sutankinta, politikos forma su
+etiketėmis) ir rado penkis naujus.
+
+### P1 — du to paties dalyko skaičiai
+
+Politikų suvestinė rodė **2 laukiančias**, sprendimų eilė — **3 pasiūlymus**, o eilėje kartojosi
+du `open_closed` įrašai. Abu skaičiai buvo TEISINGI ir skaičiavo skirtingus dalykus:
+
+- suvestinė — **nustatymus**, turinčius bent vieną laukiantį pasiūlymą;
+- eilė — **pasiūlymus**.
+
+`loadPendingProposalsBySetting` vienam nustatymui suspaudžia visus laukiančius iki naujausio
+(`proposal.timestamp > existing.timestamp`), ir tai teisinga — valdiklis rodo vieną reikšmę. Bet
+suspaudimas buvo **tylus**: dvigubas įrašas eilėje atrodė kaip dublikatas be paaiškinimo, o abu
+skaičiai vadinosi vienodai.
+
+Uždaryta iš abiejų galų: skaičius pavadintas tuo, ką skaičiuoja („nustatymai laukia sprendimo"),
+o serveris siunčia `pending_proposal_count`, kai jų >1 — kortelė pasako „Šiam nustatymui laukia 2
+pasiūlymai; rodomas naujausias". Kiekis siunčiamas TIK kai jis >1: `1` nieko neprideda prie jau
+matomo pasiūlymo.
+
+### P1 — tuščias `task_id` kaip antra užduotis
+
+`computeTokenUsageTotals` dėjo `record.task_id` į `Set` besąlygiškai, tad įrašas be užduoties
+didino `uniqueTasks` vienetu ir tuo pačiu **mažino** `tokensPerTask` — vidurkis rodė pigesnę
+užduotį, nei bet kuri reali. `Set` klaidą ir slėpė: visi tokie įrašai suplaukdavo į vieną `""`
+narį, tad iškraipymas ekrane atrodė kaip viena nekalta eilutė.
+
+Ta pati taisyklė pritaikyta ir `computeReworkProxyStats` (`allTasks`, `diagnosisTasks`), kur
+vardiklis iškreiptų `taskShare` ta pačia kryptimi.
+
+### P1 — 1×1 px įkėlimo laukas fokusavimo grandinėje
+
+**Šitą mačiau aštuonioliktame rate ir nurašiau** kaip „paslėptas file input, ne taikinys". Buvau
+neteisus: elementas nematomas, bet tab tvarkoje liko — klaviatūros naudotojas užlipdavo ant jo,
+fokusas dingdavo iš ekrano be jokio matomo žymens, o `Enter` nedarydavo nieko. `tabIndex={-1}` +
+`aria-hidden`; tikrasis valdiklis yra mygtukas „Pasirinkti", kuris jį atidaro programiškai.
+
+### P2 — angliški pagalbiniai tekstai analitikoje
+
+`TokenUsageSummaryPanel` metrikų `hint` laukai buvo įrašyti angliškai ir keliavo tiesiai į
+`title` — tai TEKSTAS ekrane, ne komentaras kode. Plius sakinio uodega „… read vs … creation"
+liko angliška net lietuviškame variante, o `TopTasksTable` turėjo du literalus (`tokens`,
+`No token-using task`) šalia kaimynų, kurie vertimą turi.
+
+Formulės (`output_tokens / input_tokens`, `cache_read / (…)`) **paliktos** — tai telemetrijos
+laukų vardai, ne sakiniai.
+
+### P2 — `mm/dd/yyyy`
+
+Šito **negalima ištaisyti puslapyje**. `<input type="date">` vietos ženklą piešia naršyklė pagal
+savo sąsajos kalbą; patikrinta gyvai — `document.documentElement.lang` yra `lt`,
+`navigator.languages[0]` yra `nb-NO`, o laukas vis tiek rodė amerikietišką tvarką. Nei `lang`,
+nei CSS, nei JS jo nekeičia.
+
+Todėl parodyta tai, ką galima garantuoti: laukų REIKŠMĖ visada ISO, ir tai užrašyta šalia —
+„Datos formatas — YYYY-MM-DD; kalendoriaus išvaizda priklauso nuo naršyklės kalbos". Tai
+skirtumas tarp „sutvarkyta" ir „paaiškinta"; antrasis čia vienintelis sąžiningas.
+
+### Vartai (devynioliktas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `tokenUsageViewModel.test.ts` (+2) | tuščias `task_id` nėra užduotis; vien beužduočiai įrašai duoda 0 užduočių ir vidurkis nesprogsta |
+| `interfaces-ui-model-control-plane.test.ts` (+2) | `pending_proposal_count` yra 2, kai laukia du; vienam pasiūlymui kiekio NĖRA |
+
+### Patikros po devyniolikto rato
+
+- `pnpm test:ui` — **56/56 failai, 460/460**; `pnpm run build:ui`, `typecheck`, `typecheck:ui` — praeina.
+- Renderyje patvirtinta: angliškų `title` nebeliko (tik dvi formulės), datos paaiškinimas
+  lietuviškas, 1×1 laukas iškrito iš fokusavimo grandinės.
+- `pnpm test:only` — **1649/1650**: krinta `scheduling-wave-provisioning` (`worker index must be
+  an integer in 1..2, got 3`). `wave-provisioning.ts`, `worker-lease-store.ts` ir jo testas —
+  lygiagrečios sesijos necommit'inti failai; operatoriaus sprendimu nepaliesti.

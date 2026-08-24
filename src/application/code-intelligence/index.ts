@@ -18,6 +18,6 @@ export * from "./retrieval/spec-fragments.js";
 export * from "./retrieval/ranking.js";
 export * from "./graph-source/mermaid-parser.js";
 export * from "./graph-source/stack-signal-extraction.js";
-export * from "./code-map/ast-symbol-scanner.js";
+export * from "./code-map/index-projection.js";
 export * from "./code-map/generator.js";
 export * from "./code-map/coverage.js";

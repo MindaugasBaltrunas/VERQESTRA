@@ -42,7 +42,11 @@
     "typecheck:ui": "pnpm --dir ui-app typecheck",
     "test:ui": "pnpm --dir ui-app test",
     "typecheck:mobile": "pnpm --dir mobile-gateway typecheck",
-    "test:mobile": "pnpm --dir mobile-gateway test"
+    "test:mobile": "pnpm --dir mobile-gateway test",
+    "typecheck:mobile-app": "pnpm --dir mobile-app typecheck",
+    "test:mobile-app": "pnpm --dir mobile-app test",
+    "typecheck:mobile-native": "pnpm --dir mobile-app/native typecheck",
+    "test:mobile-native": "pnpm --dir mobile-app/native test"
   },
   "dependencies": {
     "zod": "^4.4.3"

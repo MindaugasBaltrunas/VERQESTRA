@@ -72,12 +72,46 @@ test("atlaisvinimas NETRINA lock'o, kurį jau perėmė kitas savininkas", async 
   assert.equal(await io.createLockDirectory(LOCK), "created", "perėmus lock'as atlaisvintas");
   await io.writeTextFileAtomic(`${LOCK}/owner.json`, JSON.stringify({ lock_id: "B", created_at: 6_000 }));
 
-  // A pagaliau baigia darbą ir bando atlaisvinti SAVO lock'ą.
-  await releaseOwnedLock(io, LOCK, "A");
+  // A bando atlaisvinti SAVO lock'ą. `created_at` paduodamas ŠVIEŽIAS sąmoningai: taip fencing'as
+  // trynimo neblokuoja, ir tikrinamas būtent NUOSAVYBĖS patikros vaidmuo, o ne amžiaus riba.
+  // Kitaip testas praeitų dėl kitos priežasties nei ta, kurią jis vardija.
+  await releaseOwnedLock(io, LOCK, { lock_id: "A", created_at: io.nowMs() }, TIMING.staleMs);
 
   // Būtent čia senoji versija ištrindavo B katalogą ir įleisdavo trečią rašytoją.
   assert.equal(await ownerIdOf(io), "B", "B lieka savininku");
   assert.equal(await io.createLockDirectory(LOCK), "exists", "trečias rašytojas NEGAUNA įėjimo");
+});
+
+// SCENARIJUS 4 (operatoriaus radinys 2026-08-24): TOCTOU tarp nuosavybės patikros ir trynimo.
+//
+// Uždaryta FENCING'u, o ne nauju primityvu: trynimas leidžiamas tik tame lange, kuriame perėmimas
+// DRAUDŽIAMAS — t. y. kol `now - created_at + margin < staleMs`. Kol esame jauni, niekas neturi
+// teisės mūsų perimti, tad katalogas įrodomai tebėra mūsų.
+test("peržengus stale ribą atlaisvinimas NEBETRINA — teisė jau perėmėjo", async () => {
+  const { io, advance } = lockIo(1_000);
+  await io.createLockDirectory(LOCK);
+  const claim = { lock_id: "A", created_at: 1_000 };
+  await io.writeTextFileAtomic(`${LOCK}/owner.json`, JSON.stringify(claim));
+
+  // Kritinė sekcija užtruko ilgiau nei stale riba: nuo šios akimirkos lock'as gali būti perimtas
+  // BET KADA, tad mūsų trynimas nebeturi įrodymo, kad katalogas vis dar mūsų.
+  advance(TIMING.staleMs + 1);
+  await releaseOwnedLock(io, LOCK, claim, TIMING.staleMs);
+
+  assert.equal(await io.createLockDirectory(LOCK), "exists", "peržengus ribą trynimas neleidžiamas");
+  assert.equal(await ownerIdOf(io), "A", "savininko įrašas nepaliestas");
+});
+
+test("ties pačia riba atlaisvinimas irgi susilaiko — atsarga dviem syscall'ams", async () => {
+  const { io, advance } = lockIo(1_000);
+  await io.createLockDirectory(LOCK);
+  const claim = { lock_id: "A", created_at: 1_000 };
+  await io.writeTextFileAtomic(`${LOCK}/owner.json`, JSON.stringify(claim));
+
+  // Likus mažiau nei atsargai iki ribos: tarp patikros ir trynimo riba galėtų būti peržengta.
+  advance(TIMING.staleMs - 1);
+  await releaseOwnedLock(io, LOCK, claim, TIMING.staleMs);
+  assert.equal(await io.createLockDirectory(LOCK), "exists", "prie pat ribos trynimas neleidžiamas");
 });
 
 test("atlaisvinimas trina TIK savo lock'ą", async () => {
@@ -85,7 +119,7 @@ test("atlaisvinimas trina TIK savo lock'ą", async () => {
   await io.createLockDirectory(LOCK);
   await io.writeTextFileAtomic(`${LOCK}/owner.json`, JSON.stringify({ lock_id: "A", created_at: 1_000 }));
 
-  await releaseOwnedLock(io, LOCK, "A");
+  await releaseOwnedLock(io, LOCK, { lock_id: "A", created_at: 1_000 }, TIMING.staleMs);
   assert.equal(await io.createLockDirectory(LOCK), "created", "savas lock'as atlaisvinamas");
 });
 
@@ -95,7 +129,7 @@ test("neįskaitomas savininkas NĖRA leidimas trinti", async () => {
   await io.writeTextFileAtomic(`${LOCK}/owner.json`, "{ sugadintas json");
 
   // Nežinia negali reikšti nuosavybės: tokį lock'ą išvalo stale perėmimas, o ne spėjimas.
-  await releaseOwnedLock(io, LOCK, "A");
+  await releaseOwnedLock(io, LOCK, { lock_id: "A", created_at: 1_000 }, TIMING.staleMs);
   assert.equal(await io.createLockDirectory(LOCK), "exists");
 });
 

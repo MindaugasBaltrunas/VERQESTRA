@@ -31,7 +31,9 @@ export function tailChars(text: string, maxChars: number = MAX_TASK_EVENT_DETAIL
   return trimmed.length <= maxChars ? trimmed : `...\n${trimmed.slice(trimmed.length - maxChars)}`;
 }
 
-/** Fazės kritimo `reason` forma — ta pati eilutė, kurią rašo `recordPhaseFailure` adapteris. */
-export function phaseFailureReason(phase: string, exitCode: number): string {
-  return `${phase}_failed=${exitCode}`;
-}
+// `phaseFailureReason(phase, exitCode)` → `"<phase>_failed=<code>"` PAŠALINTA 2026-08-24
+// (operatoriaus radinys P3). Jos aprašas teigė, kad tai „ta pati eilutė, kurią rašo
+// `recordPhaseFailure` adapteris" — NETIESA: produkcinis adapteris
+// (`composition/loop/coordinator-adapters`) formuoja visai kitą eilutę
+// (`PHASE FAILED: task=… phase=… exit=… <output>`) ir šios funkcijos niekada nekvietė. Vienintelis
+// kvietėjas buvo jos pačios unit testas, tad testas saugojo formą, kurios niekas nenaudoja.

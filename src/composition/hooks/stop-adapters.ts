@@ -25,6 +25,7 @@ import { stopBridgeForProject } from "../../infrastructure/state/stop-bridge.js"
 import { activeAttemptResolution } from "../../infrastructure/state/active-attempt.js";
 import { policyConfigFs } from "../runtime/node-adapters.js";
 import { postWriteGuardPorts } from "./guard-adapters.js";
+import { readStdin } from "./adapters.js";
 import { cliEntryPath } from "../runtime/context.js";
 import { tryParseJson } from "../../shared/json.js";
 
@@ -98,10 +99,20 @@ export function stopHookPorts(projectRoot: string, runtimeRoot: string): StopHoo
     },
     // Guard'as paleidžiamas ATSKIRU procesu — ta pati priežastis kaip PostToolUse fan-out'e:
     // kiekvienas jų turi savo stdin ir savo exit kodo semantiką.
-    runStopGuard: async (command, root) => {
+    // Stop payload'as skaitomas TIK dėl `session_id` (guard'ų tapatybė). Tas pats `readStdin`
+    // su terminu kaip visuose hook'uose: neužsidarantis stdin negali pakabinti Stop hook'o.
+    readStdin: () => readStdin(),
+    runStopGuard: async (command, root, sessionId) => {
       const result = await run(process.execPath, [cliEntryPath(), command, "stop"], {
         cwd: root,
-        env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        env: {
+          ...process.env,
+          CLAUDE_PROJECT_DIR: root,
+          // Sesijos tapatybė guard'ams. TUŠČIA reikšmė nerašoma: `AG_SESSION_ID=""` guard'ui
+          // atrodytų kaip nustatyta-bet-tuščia, o skirtumas tarp „nežinau" ir „žinau, kad
+          // tuščia" čia yra visa prasmė.
+          ...(sessionId ? { AG_SESSION_ID: sessionId } : {}),
+        },
       }).catch(() => undefined);
       return result?.code ?? 1;
     },

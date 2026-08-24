@@ -40,8 +40,22 @@ jobs:
       # typecheck buvo žalias vien dėl to, kad failai gulėjo diske. Būtent tai ir aprašo dvi
       # eilutės aukščiau: paketas, kurio niekas nepaleidžia, nustoja būti įrodymu.
       #
-      # `mobile-app` ir `mobile-app/native` čia SĄMONINGAI neįtraukti: `mobile-app/src` kol kas
-      # tuščias (`tsc` grąžina TS18003 „No inputs were found"), tad jų žingsnis kristų dėl
-      # nepastatyto paketo, ne dėl regresijos. Įtraukti juos verta tada, kai turės ką tikrinti.
+      # `mobile-app` ĮTRAUKTAS 2026-08-24: kai jį pridėjau, `mobile-app/src` buvo tuščias (`tsc`
+      # grąžindavo TS18003), tad jo žingsnis būtų kritęs dėl nepastatyto paketo. Nuo tada paketas
+      # gavo šaltinius, ir tą pastebėjo ne aš, o `mobile-app` vartas („the moment mobile-app has
+      # sources, CI must run its suite too") — būtent tam jis ir buvo parašytas. Sąmoningas
+      # praleidimas su sąlyga turi turėti sargą, kuris pastebi, kai sąlyga nustoja galioti.
+      #
+      # `mobile-app/native` ĮTRAUKTAS 2026-08-24 kartu su pačiu kiautu. Tai NUKRYPIMAS nuo
+      # etalono, ir griežtinantis: ten `ci.yml` leido tik gateway ir MVA branduolį, o kiautas su
+      # 30 testų nebuvo NĖ VIENAME varte — tai etalonas savo `verification-matrix.md` vardija
+      # kaip žinomą spragą. Ji čia uždaroma, o ne paveldima: kiauto testai yra grynas Node
+      # (jie skaito .tsx kaip TEKSTĄ ir nekrauna nei React, nei RN), tad CI jiems nereikia nei
+      # įrenginio, nei emuliatoriaus. `typecheck:mobile-native` yra antra pusė: jis vienintelis
+      # kompiliuoja pačius .tsx ekranus.
       - run: pnpm typecheck:mobile
       - run: pnpm test:mobile
+      - run: pnpm typecheck:mobile-app
+      - run: pnpm test:mobile-app
+      - run: pnpm typecheck:mobile-native
+      - run: pnpm test:mobile-native

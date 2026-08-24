@@ -86,7 +86,15 @@ export type UiPolicyControl = {
   editable: boolean;
   route?: string;
   allowed_values?: string[];
+  /** NAUJAUSIAS laukiantis pasiūlymas — vienam laukui viena reikšmė. */
   pending_proposal?: PolicyProposal | string;
+  /**
+   * Kiek pasiūlymų laukia ŠIAM nustatymui. Serveris siunčia tik kai jų >1.
+   *
+   * Be jo suspaudimas iki naujausio buvo tylus: suvestinė skaičiavo NUSTATYMUS, sprendimų eilė —
+   * PASIŪLYMUS, ir skirtumas ekrane atrodė kaip dublikatas be paaiškinimo.
+   */
+  pending_proposal_count?: number;
 };
 
 export type UiPolicyGroup = {

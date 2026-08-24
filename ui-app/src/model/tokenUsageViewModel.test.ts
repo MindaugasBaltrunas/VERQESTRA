@@ -198,6 +198,27 @@ describe("computeTokenUsageTotals", () => {
     expect(totals.records).toBe(3);
   });
 
+  it("TUŠČIAS task_id nėra užduotis ir neiškreipia vidurkio", () => {
+    // Operatoriaus radinys 2026-08-24: įrašas be užduoties didino `uniqueTasks` vienetu ir tuo
+    // MAŽINO `tokensPerTask` — vidurkis rodė pigesnę užduotį nei bet kuri reali.
+    const totals = computeTokenUsageTotals([
+      record({ task_id: "0001", input_tokens: 100, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }),
+      record({ task_id: "", input_tokens: 100, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }),
+    ]);
+
+    expect(totals.uniqueTasks).toBe(1);
+    // 200 / 1, o ne 200 / 2: tokenai lieka imtyje, tik vardiklis nebemeluoja.
+    expect(totals.totalTokens).toBe(200);
+    expect(totals.tokensPerTask).toBe(200);
+  });
+
+  it("vien tik beužduočiai įrašai duoda NULĮ užduočių, o vidurkis nesprogsta", () => {
+    const totals = computeTokenUsageTotals([record({ task_id: "   ", input_tokens: 50 })]);
+    expect(totals.uniqueTasks).toBe(0);
+    expect(totals.tokensPerTask).toBe(0);
+    expect(Number.isNaN(totals.tokensPerTask)).toBe(false);
+  });
+
   it("nekainuota imtis duoda NULĮ įrašų su kaina, o ne nulinę kainą", () => {
     const totals = computeTokenUsageTotals([record({ total_cost_usd: undefined })]);
     // `costRecords === 0` yra vienintelis skirtumas tarp „nemokama" ir „nematuota"; panelė

@@ -134,6 +134,14 @@ test("loadUiPolicyControls: laukiantis pasiūlymas kabinamas prie SAVO valdiklio
   assert.equal(dry?.pending_proposal?.setting_id, "dry");
   const yagni = groups[1]?.controls.find((control) => control.id === "yagni");
   assert.equal(yagni?.pending_proposal, undefined);
+
+  // SUSPAUDIMAS ĮVARDIJAMAS (2026-08-24, operatoriaus radinys). `style` turi DU laukiančius
+  // pasiūlymus, valdiklis rodo naujausią — be kiekio politikų suvestinė skaičiuodavo NUSTATYMUS,
+  // sprendimų eilė PASIŪLYMUS, abi vadindavo tai tuo pačiu žodžiu, ir skirtumas ekrane atrodė
+  // kaip nepaaiškintas dublikatas.
+  assert.equal(style?.pending_proposal_count, 2);
+  // Vienas pasiūlymas kiekio NEGAUNA: `1` nieko neprideda prie jau matomo pasiūlymo.
+  assert.equal(dry?.pending_proposal_count, undefined);
 });
 
 // ---------------------------------------------------------------------------

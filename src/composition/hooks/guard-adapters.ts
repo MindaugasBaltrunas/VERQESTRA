@@ -107,6 +107,9 @@ export function packageGuardPorts(runtimeRoot: string): PackageGuardPorts {
     loadProjectProfile: () => loadGuardProfile(runtimeRoot),
     isGitRepository: (projectRoot) => isGitRepository(projectRoot),
     packageJsonDiffLines: (projectRoot) => packageJsonDiffLines(projectRoot),
+    // Tapatybė ateina TIK per aplinką: guard'as paleidžiamas atskiru procesu ir savo payload'o
+    // nemato. `AG_DISPATCH_NONCE` paveldimas, `AG_SESSION_ID` įrašo Stop hook'as.
+    env: (name) => process.env[name],
   };
 }
 

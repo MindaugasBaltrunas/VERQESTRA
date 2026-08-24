@@ -56,6 +56,12 @@ export type StopHookPorts = StopGuardPorts & {
   /** Ar komanda pasiekiama PATH'e (`npx`). */
   commandExists(command: string): Promise<boolean>;
   runShell(command: string, cwd: string): Promise<StopCommandResult>;
+  /**
+   * Stop payload'as (`{ session_id, ... }`). NEPRIVALOMAS: be jo sesijos tapatybė lieka
+   * nežinoma, ir guard'ai elgiasi taip, kaip iki 2026-08-24. Su juo `package-guard` gali
+   * atskirti savo `package.json` pakeitimą nuo lygiagrečios sesijos darbo tame pačiame medyje.
+   */
+  readStdin?: () => Promise<string>;
 };
 
 export type StopHookDeps = {

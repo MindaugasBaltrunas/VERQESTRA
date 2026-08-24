@@ -6,14 +6,14 @@ import path from "node:path";
 import { toPosixPath } from "../../../shared/paths.js";
 import { sha256Hex } from "../../../shared/hash.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
-import { CODE_MAP_SOURCE_EXTENSIONS, type ImportEdge, type ScannedFile, type SymbolRecord } from "./ast-symbol-scanner.js";
+import type { ImportEdge, ScannedFile, SymbolRecord } from "./index-projection.js";
 
 export const GENERATED_CODE_MAP_RELATIVE_PATH = "vq/architecture/generated/code-map.generated.mmd";
 
 const GENERATED_HEADER = [
   "%% code-map.generated.mmd",
   "%% AST-backed full code-map, generated from SymbolRecord[]/ImportEdge[]",
-  "%% (application/code-intelligence/code-map/ast-symbol-scanner.ts). Do not hand-edit;",
+  "%% (application/code-intelligence/code-map/index-projection.ts). Do not hand-edit;",
   "%% regenerate via the code-map generator (application/code-intelligence/code-map/generator.ts).",
 ].join("\n");
 
@@ -111,40 +111,19 @@ function renderFileBlock(file: FileBlock): string[] {
 }
 
 /**
- * Resolves a relative import specifier against the file it was written in to a
- * known source file path. Returns `null` for non-relative specifiers (bare
- * package names, path-mapped aliases) and for relative specifiers that don't
- * match any file in `knownFiles` — both cases fall outside what can be safely
- * resolved without a full module resolver / tsconfig paths.
+ * Briaunos tarp diagramos mazgų.
+ *
+ * Rezoliucijos čia NEBĖRA (2026-08-24): `ImportEdge.toTarget` jau yra indekso išspręstas kelias,
+ * tad lieka tik atrinkti tuos, kurie rodo į diagramoje esantį failą. Ankstesnis vietinis rezolverius
+ * mokėjo tik reliatyvius kelius, tad kiekvienas alias ar path-mapped importas iš diagramos dingdavo
+ * — nors indeksas jį jau turėjo išsprendęs per tikrą tsconfig rezoliuciją.
  */
-export function resolveImportTarget(
-  fromFile: string,
-  toModule: string,
-  knownFiles: ReadonlySet<string>,
-): string | null {
-  if (!toModule.startsWith(".")) return null;
-  const fromDir = path.posix.dirname(toPosixPath(fromFile));
-  const resolvedBase = toPosixPath(path.posix.normalize(path.posix.join(fromDir, toModule))).replace(
-    /\.(tsx?|jsx?|[mc][tj]s)$/,
-    "",
-  );
-  // Tiesioginis failas visada tikrinamas PIRMIAU už `index` — kaip ir Node rezoliucijoje.
-  const candidates = [
-    ...CODE_MAP_SOURCE_EXTENSIONS.map((extension) => `${resolvedBase}${extension}`),
-    ...CODE_MAP_SOURCE_EXTENSIONS.map((extension) => `${resolvedBase}/index${extension}`),
-  ];
-  for (const candidate of candidates) {
-    if (knownFiles.has(candidate)) return candidate;
-  }
-  return null;
-}
-
 function renderImportEdges(imports: ImportEdge[], knownFiles: ReadonlySet<string>): string[] {
   const edgeKeys = new Set<string>();
   const edges: string[] = [];
   for (const edge of imports) {
-    const target = resolveImportTarget(edge.fromFile, edge.toModule, knownFiles);
-    if (!target || target === edge.fromFile) continue;
+    const target = edge.toTarget;
+    if (!knownFiles.has(target) || target === edge.fromFile) continue;
     const fromId = classIdForFile(edge.fromFile);
     const toId = classIdForFile(target);
     const key = `${fromId}-->${toId}`;

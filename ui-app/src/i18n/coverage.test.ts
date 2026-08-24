@@ -23,6 +23,20 @@ const dictionaryFile = path.join(sourceRoot, "i18n", "I18nContext.tsx");
 /** `t("...")` su TIESIOGINIU literalu; kintamieji praleidžiami — jų reikšmės čia nežinomos. */
 const LITERAL_KEY = /\bt\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
 
+/**
+ * Komentarai išmetami PRIEŠ skenavimą.
+ *
+ * Be to vartas gaudo pats save: dokumentacinis sakinys, paaiškinantis, ką jis tikrina, savaime
+ * tampa „neišverstu raktu" (taip ir nutiko 2026-08-24 — komentare buvo `t` su daugtaškiu).
+ * Vartas, kurį laužo komentaras, moko komentarų nerašyti.
+ *
+ * Eilutės literalas su `//` (pvz. URL) čia gali būti apkirptas — tai reikštų PRALEISTĄ raktą, ne
+ * melagingą kritimą, o vertimo raktų su URL nėra.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
     const full = path.join(directory, entry);
@@ -35,7 +49,7 @@ function sourceFiles(directory: string): string[] {
 function usedKeys(): Map<string, string> {
   const keys = new Map<string, string>();
   for (const file of sourceFiles(sourceRoot)) {
-    const source = readFileSync(file, "utf8");
+    const source = withoutComments(readFileSync(file, "utf8"));
     for (const match of source.matchAll(LITERAL_KEY)) {
       const key = match[1];
       if (key !== undefined && key !== "" && !keys.has(key)) {

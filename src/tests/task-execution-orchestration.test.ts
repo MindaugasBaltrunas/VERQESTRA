@@ -25,7 +25,7 @@ import {
   normalizeTaskLedgerState,
   taskLedgerEntrySeenBefore,
 } from "../application/task-execution/task-ledger-rules.js";
-import { phaseFailureReason, tailChars } from "../application/task-execution/task-events-model.js";
+import { tailChars } from "../application/task-execution/task-events-model.js";
 import { parseSpecTaskLines } from "../application/task-planning/spec-task-lines.js";
 import type { TaskBucket } from "../domain/tasks/index.js";
 
@@ -271,13 +271,14 @@ test("taskLedgerEntrySeenBefore: būsenų aibė, fingerprint išimtis, failed no
   assert.equal(taskLedgerEntrySeenBefore({ state: "done" }, "naujas"), true, "be įrašo fingerprint'o — name-only");
 });
 
-test("task-events kontraktas: tailChars kerpa iš galo, phaseFailureReason forma stabili", () => {
+// `phaseFailureReason` tvirtinimas pašalintas 2026-08-24 kartu su pačia funkcija (P3): jis pin'ino
+// formą, kurios produkcija niekada nenaudojo, tad krito ne kontraktas, o jo imitacija.
+test("task-events kontraktas: tailChars kerpa iš GALO, ne iš pradžios", () => {
   assert.equal(tailChars("trumpas\n"), "trumpas");
   const long = "x".repeat(3000);
   const tail = tailChars(long, 100);
   assert.ok(tail.startsWith("...\n"));
   assert.equal(tail.length, 104);
-  assert.equal(phaseFailureReason("preflight", 2), "preflight_failed=2");
 });
 
 test("parseSpecTaskLines: checkbox unija, evidence anotacijos ir kabučių valymas", () => {

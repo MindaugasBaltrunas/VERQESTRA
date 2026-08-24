@@ -13,9 +13,9 @@ it was renamed, moved or deleted:
 - `mobile-app/src/tests/verification-matrix-mvc.test.ts` — owns `ARCH-02`,
   `ARCH-03`, `ARCH-04` and `AUTH-03` plus the React Native / MVC bullet list, in
   which every bullet must be either evidenced or declared open with a reason.
-  **Not migrated yet** (see "Known verification gaps"); the gateway suite fails
-  the moment `mobile-app/src/tests` exists without it, so the delegation cannot
-  quietly stay a promise.
+  The gateway suite fails the moment `mobile-app/src` has sources and this file
+  does not exist or does not name those four IDs, so the delegation cannot
+  quietly become a promise again.
 
 Status vocabulary, used in every table and list below:
 
@@ -48,8 +48,13 @@ always tightening.
    several reference suites were split. Where a title moved, the row below names
    the file that holds it *today*, and the conformance suite is what proves the
    name is still true.
-4. **MVA → MVC.** `mobile-app` is being rebuilt as Model–View–Controller; the
-   gateway keeps `domain/application/infrastructure/interfaces`.
+4. **MVA → MVC.** `mobile-app` is Model–View–Controller; the gateway keeps
+   `domain/application/infrastructure/interfaces`. The reference's `composition/`
+   and `adapters/presentation/` became one `controller/` ring, and the
+   `*ViewState` types the presenters return were lifted out of them into
+   `view/*-view-state.ts`. That inverts one arrow on purpose: a screen used to
+   have to import a presenter to name the shape it renders, and
+   `mvc-boundaries.test.ts` now forbids the reverse direction outright.
 5. **The delegation is checked.** The reference listed the four delegated IDs as
    strings nothing verified. Here the conformance suite asserts the mirror file
    exists as soon as `mobile-app` has sources.
@@ -59,9 +64,9 @@ always tightening.
 | ID | Gate | Required evidence | Status | Evidence file |
 |---|---|---|---|---|
 | ARCH-01 | `mobile-gateway/**` never imports orchestrator internals | static import-boundary test | `automated` | `mobile-gateway/src/tests/architecture-boundaries.test.ts` |
-| ARCH-02 | Mobile Model imports no React, React Native, HTTP, WebSocket or native module | dependency test | `OPEN` | `mobile-app/src/tests/mvc-boundaries.test.ts` — not migrated |
-| ARCH-03 | View imports only view types and presentation adapter surface | dependency test | `OPEN` | `mobile-app/src/tests/mvc-boundaries.test.ts` — not migrated |
-| ARCH-04 | Native/network adapters implement Model ports; Model never imports adapters | dependency test | `OPEN` | `mobile-app/src/tests/mvc-boundaries.test.ts` — not migrated |
+| ARCH-02 | Mobile Model imports no React, React Native, HTTP, WebSocket or native module | dependency test | `automated` | `mobile-app/src/tests/mvc-boundaries.test.ts` |
+| ARCH-03 | View imports only view types; never a controller or an adapter | dependency test | `automated` | `mobile-app/src/tests/mvc-boundaries.test.ts` |
+| ARCH-04 | Native/network adapters implement Model ports; Model never imports adapters | dependency test | `automated` | `mobile-app/src/tests/mvc-boundaries.test.ts` |
 | ARCH-05 | AG UI adapter exposes read methods only | TypeScript contract and AST test | `automated` | `mobile-gateway/src/tests/architecture-boundaries.test.ts`, `ag-loop-read-routes.test.ts` |
 | ARCH-06 | Remote router has no AG Loop mutation or branch-integration route | OpenAPI/router snapshot test | `automated` | `mobile-gateway/src/tests/api-contract-conformance.test.ts`, `remote-integration-surface.test.ts` |
 | ARCH-07 | Every writing terminal uses a gateway session worktree as cwd | process adapter contract test | `automated` | `mobile-gateway/src/tests/architecture-boundaries.test.ts`, `terminal-supervisor.test.ts` |
@@ -138,7 +143,7 @@ permits.
 |---|---|---|---|---|
 | AUTH-01 | Redeem valid QR once | device tokens issued | `automated` | `device-auth.test.ts`, `remote-gateway-router.test.ts` |
 | AUTH-02 | Replay QR | rejected atomically | `automated` | `device-auth.test.ts` |
-| AUTH-03 | Wrong host fingerprint | mobile refuses pairing | `OPEN` | `mobile-app/src/tests/pairing-controller.test.ts` — not migrated |
+| AUTH-03 | Wrong host fingerprint | mobile refuses pairing | `automated` | `mobile-app/src/tests/pairing-controller.test.ts` |
 | AUTH-04 | Wrong device-key proof | gateway rejects | `automated` | `device-auth.test.ts` |
 | AUTH-05 | Rotate refresh token | old token invalidated | `automated` | `device-auth.test.ts` |
 | AUTH-06 | Reuse rotated refresh token | entire device token family revoked | `automated` | `device-auth.test.ts` |
@@ -176,41 +181,35 @@ Bound bullet by bullet in `mobile-app/src/tests/verification-matrix-mvc.test.ts`
 each bullet below must be either evidenced or listed as open with a reason, and
 the binding fails if a bullet is reworded without revisiting its evidence.
 
-**Every bullet is `OPEN` in VERQESTRA today**, for one reason: `mobile-app` has
-no sources yet. The list is kept verbatim so the migration has a target to
-discharge rather than a blank page to improvise against; the reference's own
-verdict is recorded next to each bullet as the state to reach.
-
 - Dashboard renders `online`, `offline`, loading, empty and redacted error states.
-  — reference: `ag-loop-presentation.test.ts`, `screen-degraded-states.test.ts`.
+  — `automated`: `ag-loop-presentation.test.ts`, `screen-degraded-ag-loop.test.ts`.
 - Tasks are visibly read-only and expose no swipe/action mutation affordances.
-  — reference: `ag-loop-presentation.test.ts`, `screen-degraded-states.test.ts`,
+  — `automated`: `ag-loop-presentation.test.ts`, `screen-degraded-ag-loop.test.ts`,
   `native/src/tests/read-only-screens.test.ts` (shell suite).
 - Terminal requires a provider selection before session creation.
-  — reference: `model-and-presentation.test.ts`, `terminal-presentation.test.ts`.
+  — `automated`: `model-and-presentation.test.ts`, `terminal-presentation.test.ts`.
 - Voice transcript is editable and requires explicit confirmation.
-  — reference: `model-and-presentation.test.ts`, `voice-presentation.test.ts`.
+  — `automated`: `model-and-presentation.test.ts`, `voice-presentation.test.ts`.
 - App backgrounding disconnects transport but does not send terminal close.
-  — `OPEN` in the reference too: the detach semantics are proven
-  (`terminal-controller.test.ts`, `terminal-stream-client.test.ts`), but no OS
-  lifecycle event is bound to them yet, because the React Native lifecycle
-  adapter is not implemented. Covered meanwhile by E2E step 8.
+  — `OPEN`: the detach semantics are proven (`terminal-controller.test.ts`,
+  `terminal-stream-client.test.ts`), but no OS lifecycle event is bound to them
+  yet, because the React Native lifecycle adapter is not implemented. Covered
+  meanwhile by E2E step 8.
 - Reconnect applies snapshot/replay once and never duplicates terminal input.
-  — reference: `terminal-stream-client.test.ts`, `voice-capture-controller.test.ts`.
+  — `automated`: `terminal-stream-client.test.ts`, `voice-capture-controller.test.ts`.
 - Stale lease changes composer to read-only before accepting more input.
-  — reference: `terminal-controller.test.ts`, `terminal-presentation.test.ts`.
+  — `automated`: `terminal-controller.test.ts`, `terminal-presentation.test.ts`.
 - Secure storage adapter never falls back to AsyncStorage for refresh secrets.
-  — reference: `verification-matrix-mvc.test.ts` scans every MVC core and native
-  shell production source for `AsyncStorage`, `localStorage` and
+  — `automated`: `verification-matrix-mvc.test.ts` scans every MVC core and
+  native shell production source for `AsyncStorage`, `localStorage` and
   `sessionStorage`; `secure-credential-store.test.ts`.
 - External links require an explicit OS confirmation dialog.
-  — `OPEN` in the reference too (vacuous there): there is no external-link
-  surface to confirm — `native/src/tests/read-only-screens.test.ts` forbids
-  `Linking` and `openURL` outright. Becomes live the first time a screen needs
-  to leave the app.
+  — `OPEN` (vacuous today): there is no external-link surface to confirm —
+  `native/src/tests/read-only-screens.test.ts` forbids `Linking` and `openURL`
+  outright. Becomes live the first time a screen needs to leave the app.
 - Accessibility labels exist for connect, microphone, confirm, interrupt and
   close actions.
-  — reference: action labels in `terminal-presentation.test.ts` and
+  — `automated`: action labels in `terminal-presentation.test.ts` and
   `voice-presentation.test.ts`; shell annotations in
   `verification-matrix-mvc.test.ts`, which requires one `accessibilityRole` per
   `<Pressable` and an `accessibilityLabel` on every `<TextInput`.
@@ -226,11 +225,12 @@ human observation, and no automated suite may report it as passed. The two
 conformance suites enforce that: `verification-matrix-conformance.test.ts` fails
 if an automated ID row ever appears inside this section.
 
-Blocked on, in addition to the hardware: `mobile-app` is not migrated, the
-native React Native/Android shell does not exist here yet, and the gateway has
-no remote listener until certificate binding and private-network policy land.
-Steps 1–3 are not runnable until then; the runbook is recorded now so the
-evidence format is fixed before the first run rather than improvised during it.
+Blocked on, in addition to the hardware: the native React Native/Android shell
+exists as a scaffold with no secure-storage, speech, biometric or lifecycle
+adapter implementation, and the gateway has no remote listener until certificate
+binding and private-network policy land. Steps 1–3 are not runnable until then;
+the runbook is recorded now so the evidence format is fixed before the first run
+rather than improvised during it.
 
 Required MVP evidence on at least one supported Android API level. Record
 `pass` / `fail` / `blocked` and a note for every step — a step with no verdict
@@ -285,7 +285,7 @@ Capture:
 | AG dashboard projection p95 | ≤ 2 s | `HUMAN-REQUIRED` | Android E2E step 4 |
 | Terminal frame maximum | 64 KiB | `automated` | `terminal-output.test.ts` |
 | Retained replay per session | ≤ 8 MiB and ≤ 30 min | `automated` | `terminal-output.test.ts` |
-| Input text maximum | 16 KiB | `OPEN` | `terminal-presentation.test.ts`, `terminal-controller.test.ts` — mobile-app not migrated |
+| Input text maximum | 16 KiB | `automated` | `terminal-presentation.test.ts`, `terminal-controller.test.ts` |
 | Active writing sessions | 1 | `automated` | `terminal-supervisor.test.ts`, `fake-provider-contract.test.ts` |
 | Pairing attempts | 5 per 10 min per source | `automated` | `gateway-hardening.test.ts` |
 | Refresh attempts | 30 per 10 min per source | `automated` | `gateway-hardening.test.ts` |
@@ -307,9 +307,8 @@ in-process, where a wall-clock assertion would be flaky rather than meaningful.
 The feature is complete only when:
 
 - all architecture, security and fake-provider contract tests pass in CI
-  — **met for the gateway**: `pnpm --dir mobile-gateway test` is green and runs
-  in `.github/workflows/ci.yml` as `pnpm test:mobile`; **NOT met for the app**,
-  which has no suite to run;
+  — **met**: `pnpm test:mobile`, `pnpm test:mobile-app` and `pnpm test:mobile-native`
+  all run in `.github/workflows/ci.yml`, each with its own typecheck step;
 - available real-provider smoke tests pass
   — **not re-run here**; CI installs no provider, which is the skip the matrix
   permits;
@@ -329,16 +328,18 @@ The feature is complete only when:
 
 ### Known verification gaps
 
-1. **`mobile-app` is not migrated.** Four IDs (`ARCH-02`, `ARCH-03`, `ARCH-04`,
-   `AUTH-03`), the whole React Native / MVC bullet list and the input-text budget
-   have no suite behind them here. `.github/workflows/ci.yml` deliberately runs
-   no `mobile-app` step, because there is nothing to run; a gateway test fails
-   the moment `mobile-app/src` gains a file and CI still has no step for it, and
-   a second one fails if the delegated mirror suite is missing.
-2. **Android physical-device E2E has not been run** — the whole section above,
+1. **Android physical-device E2E has not been run** — the whole section above,
    plus the three latency budgets, step 8 (app backgrounding) and the human half
-   of GIT-02.
-3. **The native shell suite will run in no gate.** In the reference,
-   `mobile-app/native` had 30 passing tests that CI never ran. That gap is
-   inherited rather than fixed: when the shell lands here it needs a CI step of
-   its own, or rows depending on it are structurally unverified.
+   of GIT-02. This is the only thing keeping the change incomplete.
+2. **The native shell is a scaffold.** Its screens and its seam are verified, but
+   no secure-storage, speech, biometric or lifecycle adapter exists behind them,
+   so the ports the composition root takes have no platform implementation yet.
+   Nothing claims otherwise: the shell offers a space only when its ports are
+   injected, and the two open React Native bullets say exactly which abilities
+   are missing.
+
+**Closed since the reference**: the native shell suite ran in no gate there
+(`ci.yml` allowed only the gateway and the MVA core, which the reference's own
+matrix listed as a known gap). Here `pnpm typecheck:mobile-native` and
+`pnpm test:mobile-native` both run in CI, so a regression in the React Native
+screens fails a build rather than waiting for a device.

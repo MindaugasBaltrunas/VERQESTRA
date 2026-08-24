@@ -146,6 +146,20 @@ export function indexedCodeExtensions(): Set<string> {
  * apskritai neapžiūrėta. Vienas sąrašas dviejose vietose anksčiau ar vėliau išsiskiria; čia jis
  * išsiskyrė tyliai.
  */
+/**
+ * Kalbos, kurių DEKLARACIJAS indeksas moka aprašyti.
+ *
+ * Tai ne „kalbos, kurias indeksuojame" — `json`, `config`, `markdown` ir `text` į indeksą patenka
+ * kaip failai, bet simbolių neturi, tad diagramoje jie būtų mazgai be narių ir tik trauktų aprėptį
+ * žemyn nieko nepasakydami. Predikatas paimtas iš registro (`extracts_symbols`), o ne surašytas
+ * atskirai: ketvirtas sąrašas tam pačiam klausimui yra tas pats drift'as, kurį ką tik uždarėme.
+ */
+export function symbolBearingLanguages(): Set<CodeIndexLanguage> {
+  return new Set(
+    codeIndexLanguageCapabilities.filter((capability) => capability.extracts_symbols).map((capability) => capability.language),
+  );
+}
+
 export function ecmascriptExtensions(): string[] {
   return codeIndexLanguageCapabilities
     .filter((capability) => capability.language === "typescript" || capability.language === "javascript")

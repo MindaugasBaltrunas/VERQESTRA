@@ -40,13 +40,14 @@ export type ScopeLockRegistry = {
 };
 
 /**
- * BE KVIETĖJO — kaip ir `pruneScopeLocks` (įvardyta 2026-08-24, operatoriaus inventorius).
+ * Tuščio registro reikšmė. BE KVIETĖJO, bet tai tik patogumo konstanta — ne mechanikos dalis.
  *
- * Abu yra scope-lock mechanikos dalys, ir jos mirusios ne savaime, o dėl to, kad registro NIEKAS
- * NEUŽPILDO: `acquireScopeLocksInStore` ir `releaseScopeLocksInStore` produkcinių kvietėjų neturi,
- * tad `authorizeScopedWrite` skaito amžinai tuščią registrą ir visada leidžia. Kol tas sprendimas
- * atviras (prijungti ar išimti visą sluoksnį), šių dviejų trynimas pašalintų būtent tas dalis,
- * kurių prijungimui reikėtų — todėl jos paliktos ĮVARDYTOS, o ne tyliai.
+ * SLUOKSNIS JAU PRIJUNGTAS (2026-08-24, operatoriaus radinys P2): iki tol čia buvo parašyta, kad
+ * registro „NIEKAS NEUŽPILDO", tad `authorizeScopedWrite` skaito amžinai tuščią registrą ir visada
+ * leidžia. Nebe: `acquireScopeLocksInStore` kviečiamas `wave-provisioning` PRIEŠ dispatch'ą, o
+ * `releaseScopeLocksInStore` — `worker-lease-store.releaseWorkerLease`, tad lock'ai krenta kartu su
+ * lease'u (`ScopeLockOwner` taisyklė). Aprašas apie inertiškumą liko po prijungimo ir kurį laiką
+ * skelbė spragą, kurios nebėra.
  */
 export const EMPTY_SCOPE_LOCK_REGISTRY: ScopeLockRegistry = { schema_version: SCOPE_LOCK_SCHEMA_VERSION, locks: [] };
 
@@ -72,7 +73,12 @@ export function normalizeScopeValue(scope: string): string {
   return trimmed;
 }
 
-const SCOPE_LOCK_KINDS: readonly ScopeLockKind[] = ["file", "directory", "glob", "contract", "migration-chain", "generated"];
+/**
+ * Rūšys, kurias scope lock'ai apskritai pripažįsta. Eksportuota, kad kvietėjai, verčiantys savo
+ * aprėptį į prašymus (pvz. `wave-provisioning` iš write set'o), filtruotų pagal TĄ PATĮ sąrašą,
+ * kurį tikrina `normalizeScopeLockRequest` — antras sąrašas išsiskirtų tyliai.
+ */
+export const SCOPE_LOCK_KINDS: readonly ScopeLockKind[] = ["file", "directory", "glob", "contract", "migration-chain", "generated"];
 
 export function normalizeScopeLockRequest(request: ScopeLockRequest): ScopeLockRequest {
   if (!SCOPE_LOCK_KINDS.includes(request.kind)) {
@@ -204,10 +210,18 @@ export function releaseScopeLocks(registry: ScopeLockRegistry, leaseId: string):
 /**
  * Išvalo pasibaigusius lock'us — vienintelis kelias, kuriuo krachas neužrakina scope amžiams.
  *
- * BE KVIETĖJO (įvardyta 2026-08-24) — dėl tos pačios priežasties kaip `EMPTY_SCOPE_LOCK_REGISTRY`:
- * registro niekas neužpildo, tad nėra ko šveisti. Prijungiant scope lock'us ŠI funkcija privalo
- * būti prijungta KARTU: be jos pirmas krachas užrakintų scope amžiams, ir gilumo apsauga taptų
- * gilumo blokada.
+ * BE KVIETĖJO — ir po sluoksnio prijungimo (2026-08-24) tai jau NE spraga, o perteklius.
+ *
+ * Ankstesnis aprašas įspėjo: „prijungiant scope lock'us ŠI funkcija privalo būti prijungta KARTU,
+ * be jos pirmas krachas užrakintų scope amžiams". Įspėjimas PATIKRINTAS ir nepasitvirtino —
+ * galiojimas jau filtruojamas ABIEJOSE pusėse per `activeScopeLocks`:
+ *
+ *   - rašymo pusė: `acquireScopeLocks` registrą persist'ina iš `retained`, tad pasibaigę lock'ai
+ *     nukrenta per KIEKVIENĄ įgijimą (ir konflikto, ir sėkmės kelyje);
+ *   - skaitymo pusė: `authorizeScopedPath` dengiančius lock'us renka irgi iš `activeScopeLocks`.
+ *
+ * Todėl kritusio workerio lock'as nustoja veikti pasibaigus TTL be jokio atskiro šveitėjo. Ši
+ * funkcija paliekama kaip aiškus vienkartinio išvalymo įrankis, o ne kaip trūkstama grandis.
  */
 export function pruneScopeLocks(registry: ScopeLockRegistry, now: Date): ScopeLockRegistry {
   return { schema_version: SCOPE_LOCK_SCHEMA_VERSION, locks: activeScopeLocks(registry, now) };

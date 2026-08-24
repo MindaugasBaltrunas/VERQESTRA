@@ -4,7 +4,7 @@
 import path from "node:path";
 import { toPrettyJson } from "../../../shared/json.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
-import type { SymbolRecord } from "./ast-symbol-scanner.js";
+import type { SymbolRecord } from "./index-projection.js";
 import { classIdForFile, memberLineForSymbol } from "./generator.js";
 
 export const GENERATED_COVERAGE_RELATIVE_PATH = "vq/architecture/generated/code-map.coverage.json";

@@ -92,6 +92,33 @@ async function indexLexical(
   return indexLexicalSource(file, text, context);
 }
 
+/**
+ * KĄ testas tikrina — pagal jo vardą, nuėmus kiekvienos kalbos testo žymę.
+ *
+ * Žymės tos pačios, kurias atpažįsta `scanner.isTestPath`, tik čia jos nuimamos: `id.test.ts` → `id`,
+ * `test_main.py` → `main`, `main_test.py` → `main`, `UserTest.php` → `user`, `UsersTests.cs` → `users`.
+ * Failui po `tests/` be jokios žymės subjektu lieka visas vardas (`tests/scheduler.ts` → `scheduler`).
+ *
+ * Grąžinamas RINKINYS, nes viena forma gali duoti kelis kandidatus, o klaidos kaina asimetriška:
+ * praleistas kandidatas reiškia trūkstamą briauną, o per platus — netikrą.
+ */
+function testSubjectNames(testPath: string): Set<string> {
+  const base = testPath.split("/").pop() ?? "";
+  const names = new Set<string>();
+  const add = (value: string | undefined): void => {
+    const normalized = (value ?? "").trim().toLowerCase();
+    if (normalized) names.add(normalized);
+  };
+
+  add(/^(.+?)\.(?:test|spec)\.[^.]+$/i.exec(base)?.[1]);
+  const stem = base.replace(/\.[^.]+$/, "");
+  add(/^test_(.+)$/i.exec(stem)?.[1]);
+  add(/^(.+)_test$/i.exec(stem)?.[1]);
+  add(/^(.+?)Tests?$/.exec(stem)?.[1]);
+  add(stem);
+  return names;
+}
+
 function deriveTestEdges(files: CodeIndexFile[]): CodeIndexEdge[] {
   // Testų briaunos anksčiau buvo tik TypeScript'ui (2026-08-23): dabar jas gauna kiekviena kalba,
   // kuri turi importus — kitaip `pytest` ar `xUnit` failas indekse liktų nesusietas su tuo, ką tikrina.
@@ -105,10 +132,18 @@ function deriveTestEdges(files: CodeIndexFile[]): CodeIndexEdge[] {
       }
     }
 
-    const normalizedTest = testFile.path.toLowerCase();
+    // Vardų atitikimas — TIKSLUS, ne substring'as (2026-08-24, operatoriaus radinys).
+    //
+    // Anksčiau užteko, kad testo kelias TURĖTŲ šaltinio vardą kaip poeilutę, tad `src/id.ts` buvo
+    // susietas su `src/grid.test.ts` — „id" yra „grid" viduje. Trumpi vardai (`id`, `db`, `fs`)
+    // taip prisikabindavo prie dešimčių nesusijusių testų, o po importuotojų uždarinio įvedimo tos
+    // netikros briaunos dar ir plisdavo toliau. RAG kontekste netikras testas kainuoja brangiau nei
+    // praleistas: jis užima biudžetą ir nukreipia dėmesį, o tikruosius ryšius vis tiek duoda
+    // IMPORTO briaunos, kurios yra tikslios.
+    const subjects = testSubjectNames(testFile.path);
     for (const sourceFile of sourceFiles) {
       const sourceBase = sourceFile.path.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() ?? "";
-      if (sourceBase && normalizedTest.includes(sourceBase)) {
+      if (sourceBase && subjects.has(sourceBase)) {
         edges.push({ from: sourceFile.path, to: testFile.path, type: "testedBy", detail: "name-match" });
       }
     }

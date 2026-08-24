@@ -8,6 +8,7 @@ import type { CodeIndexEdge, CodeIndexFile, CodeIndexSymbol, CodeIndexSymbolKind
 import { declarationSignature } from "./ts-signatures.js";
 import { resolveSpecifier } from "./ts-resolve.js";
 import { collectCommonJs } from "./ts-commonjs.js";
+import { extendScope, scopeBindings } from "./ts-scope.js";
 
 export type TypeScriptIndexResult = {
   file: CodeIndexFile;
@@ -192,7 +193,20 @@ export function indexSourceText(
   }
 
   const references = new Set<string>();
-  const walk = (node: TypeScriptApi.Node): void => {
+  /**
+   * SCOPE paisomas (2026-08-24, operatoriaus radinys).
+   *
+   * Iki tol bet kuris identifikatorius, sutapęs su importo vardu, duodavo `references` briauną —
+   * net kai vardas toje vietoje reiškė ką kita: `function f(foo) { foo(); }` su importuotu `foo`
+   * gamindavo nuorodą į importo simbolį. Tos briaunos maitina `semantic-context` įrodymų rinkimą
+   * (`usedBy`/`testedBy`) ir kontraktų atranką, tad netikra nuoroda kelia nesusijusį simbolį į
+   * pack'ą ir stumia lauk tikrą.
+   *
+   * 2026-08-23 audite scope buvo pridėtas TIK CommonJS pusei; modelis dabar vienas
+   * (`ts-scope`), ir jį naudoja abu praėjimai.
+   */
+  const walk = (node: TypeScriptApi.Node, outerShadowed: ReadonlySet<string>): void => {
+    const shadowed = extendScope(outerShadowed, scopeBindings(ts, node));
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isImportEqualsDeclaration(node)) {
       return; // an import clause is not a reference to itself
     }
@@ -210,7 +224,7 @@ export function indexSourceText(
     }
     if (ts.isPropertyAccessExpression(node)) {
       if (ts.isIdentifier(node.expression)) {
-        const namespace = namespaceBindings.get(node.expression.text);
+        const namespace = shadowed.has(node.expression.text) ? undefined : namespaceBindings.get(node.expression.text);
         if (namespace) {
           if (namespace.inRepo) {
             references.add(`${namespace.target}#${node.name.text}`);
@@ -218,33 +232,39 @@ export function indexSourceText(
           return;
         }
       }
-      walk(node.expression); // never treat `.name` as an identifier reference
+      walk(node.expression, shadowed); // never treat `.name` as an identifier reference
       return;
     }
     if (ts.isPropertyAssignment(node)) {
       if (ts.isComputedPropertyName(node.name)) {
-        walk(node.name);
+        walk(node.name, shadowed);
       }
-      walk(node.initializer); // a non-computed property NAME is not a reference
+      walk(node.initializer, shadowed); // a non-computed property NAME is not a reference
       return;
     }
     if (ts.isShorthandPropertyAssignment(node)) {
-      const binding = valueBindings.get(node.name.text);
+      const binding = shadowed.has(node.name.text) ? undefined : valueBindings.get(node.name.text);
       if (binding?.inRepo) {
         references.add(`${binding.target}#${binding.original}`); // `{ a }` reads `a`
       }
       return;
     }
     if (ts.isIdentifier(node)) {
-      const binding = valueBindings.get(node.text);
+      const binding = shadowed.has(node.text) ? undefined : valueBindings.get(node.text);
       if (binding?.inRepo) {
         references.add(`${binding.target}#${binding.original}`);
       }
       return;
     }
-    ts.forEachChild(node, walk);
+    ts.forEachChild(node, (child) => {
+      walk(child, shadowed);
+    });
   };
-  ts.forEachChild(sourceFile, walk);
+  // Failo lygyje importo vardų užgožti neįmanoma (tai būtų dviguba deklaracija), tad pradinis
+  // rinkinys tuščias — užgožimas ateina tik iš įdėtų scope'ų.
+  ts.forEachChild(sourceFile, (child) => {
+    walk(child, new Set<string>());
+  });
 
   for (const target of Array.from(references).sort()) {
     extraEdges.push({ from: file.path, to: target, type: "references" });

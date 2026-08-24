@@ -173,6 +173,26 @@ async function logStagingEvidence(context: StopHookContext, plan: StagePlanResul
   }
 }
 
+/**
+ * `session_id` iš Stop payload'o, arba `""`, kai porto nėra / stdin tuščias / JSON sugadintas.
+ *
+ * Klaida čia NIEKADA neblokuoja: tapatybė yra guard'ų TIKSLINIMO priemonė, ne prielaida. Stop
+ * hook'as, kritęs dėl savo paties įvesties parse'inimo, būtų blogesnis už guard'ą be tapatybės.
+ */
+async function readStopSessionId(ports: StopHookDeps["ports"]): Promise<string> {
+  if (!ports.readStdin) return "";
+  try {
+    const raw = await ports.readStdin();
+    if (!raw.trim()) return "";
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== "object") return "";
+    const value = (parsed as Record<string, unknown>)["session_id"];
+    return typeof value === "string" ? value.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function hookOnStop(deps: StopHookDeps): Promise<number> {
   const context = stopHookContext(deps);
   const ports = deps.ports;
@@ -207,7 +227,13 @@ export async function hookOnStop(deps: StopHookDeps): Promise<number> {
   // santrauka commit'inusiai sesijai vis tiek rodytų tikrą skaičių.
   await recordSessionChanges(ports.fs, context.runtimeRoot, changedFiles);
 
-  const guardFailure = await runStopGuards(ports, context.root);
+  // Sesijos tapatybė guard'ams. Iki 2026-08-24 Stop hook'as payload'o neskaitė VISAI, tad
+  // `session_id` — vienintelis dalykas, leidžiantis atskirti savo darbą nuo lygiagrečios sesijos
+  // toje pačioje darbo kopijoje — guard'ų nepasiekdavo, ir `package-guard` reikalaudavo
+  // pagrindimo už svetimą `package.json`. Skaitymas NEPRIVALOMAS: be porto tapatybė lieka tuščia,
+  // o tai teisėta „nežinau" būsena, kurioje guard'ai elgiasi kaip anksčiau.
+  const sessionId = await readStopSessionId(ports);
+  const guardFailure = await runStopGuards(ports, context.root, undefined, sessionId);
   if (guardFailure) {
     return await finish(context, {
       status: "error",

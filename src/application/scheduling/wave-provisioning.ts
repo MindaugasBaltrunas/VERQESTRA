@@ -30,7 +30,14 @@ import { planSlotProvisioning, type SlotProvisionTarget, type WorkerPoolPlan } f
 import { findWriteSetConflict, orderWorkerCandidates, type WorkerCandidate } from "./worker-pool-admission.js";
 import { WAVE_SLOT_LEASE_TTL_MS } from "./loop-runtime-config.js";
 import type { WaveReadyTask } from "./schedule-next-wave.js";
+import { acquireScopeLocksInStore } from "./scope-lock-store.js";
 import { isLeaseExpired, leaseClaimOf, type WorkerLease } from "../../domain/scheduling/worker-lease-rules.js";
+import {
+  SCOPE_LOCK_KINDS,
+  type ScopeLockKind,
+  type ScopeLockOwner,
+  type ScopeLockRequest,
+} from "../../domain/scheduling/scope-lock-rules.js";
 import { normalizeTaskReference } from "../../domain/tasks/dependencies.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 
@@ -97,6 +104,35 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
   // Iki 2026-08-23 čia gyveno jos pažodinė kopija (plius negyvas interface narys, kurio niekas
   // nekvietė) — dvi kopijos išsiskirtų tyliai, kai grafo laukai keisis.
   const writeSetOf = (taskId: string): TaskWriteSet => candidateWriteSet(taskId, deps.graph());
+
+  /**
+   * Write set → scope lock prašymai.
+   *
+   * `symbol` ir `architecture-node` PRALEIDŽIAMI: scope lock'ai gina KELIUS, o šios dvi rūšys yra
+   * tapatybės, kurias planavimo metu sprendžia `conflict-detector`. `normalizeScopeLockRequest` jas
+   * atmestų su klaida, tad filtras čia yra kontraktas, ne patogumas.
+   *
+   * ŽINOMA RIBA: neapibrėžtas write set (`determinate: false` — nedeklaruotas scope, `**`) duoda
+   * MAŽIAU prašymų, o tuščias — nė vieno, tad toks task'as antro sluoksnio negauna. Tai sąmoningai
+   * NEpaverčiama blokavimu: fail-closed čia sustabdytų kiekvieną task'ą be deklaruoto scope, t. y.
+   * visą eilę. `determinate` yra vieta, kur toks sugriežtinimas priklausytų, kai scope deklaracijos
+   * taps privalomos.
+   */
+  const scopeLockRequestsOf = (writeSet: TaskWriteSet): ScopeLockRequest[] =>
+    writeSet.entries
+      .filter((entry): entry is typeof entry & { kind: ScopeLockKind } => SCOPE_LOCK_KINDS.includes(entry.kind as ScopeLockKind))
+      .map((entry) => ({ kind: entry.kind, scope: entry.scope }));
+
+  /** Lock'o savininkas yra LEASE (žr. `ScopeLockOwner`), tad tapatybė imama iš jo, ne iš proceso. */
+  const scopeLockOwnerOf = (lease: WorkerLease): ScopeLockOwner => ({
+    lease_id: lease.lease_id,
+    owner_id: lease.owner_id,
+    run_id: lease.run_id,
+    worker_id: lease.worker_id,
+    task_id: lease.task_id,
+    attempt: lease.attempt,
+    fencing_token: lease.fencing_token,
+  });
 
   const leases = async (): Promise<WorkerLease[]> => await listWorkerLeases(deps.leaseStore.fs, deps.workspaceRoot);
 
@@ -183,6 +219,33 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       // Nuo čia lease yra MŪSŲ (`acquired` arba to paties owner'io `reused`), tad kiekvienas
       // nesėkmės kelias privalo jį grąžinti.
       held = acquired.lease;
+
+      // SCOPE LOCK'AI — antras izoliacijos sluoksnis, imamas PRIEŠ dispatch'ą (2026-08-24,
+      // operatoriaus radinys P2: registrą skaitė pre-write hook'as, bet produkcijoje jo niekas
+      // nepildė, tad kelių izoliacija realiame cikle neveikė).
+      //
+      // Kodėl to nepakanka vien lease'ui: lease atsako „ar kelias yra MANO deklaruotoje
+      // aprėptyje", o registras — „ar kelias jau priklauso KAM NORS KITAM". Du workeriai su
+      // persidengiančiais `allowed_paths` pirmą patikrą praeina abu.
+      const scopeRequests = scopeLockRequestsOf(writeSetOf(target.task_id));
+      if (scopeRequests.length > 0) {
+        const locks = await acquireScopeLocksInStore({
+          fs: deps.leaseStore.fs,
+          projectRoot: deps.workspaceRoot,
+          requests: scopeRequests,
+          owner: scopeLockOwnerOf(acquired.lease),
+          ttlMs: WAVE_SLOT_LEASE_TTL_MS,
+        });
+        if (locks.status === "conflict") {
+          await deps.log(
+            `SLOT SCOPE LOCK CONFLICT: ${where} — ${locks.conflicts
+              .map((conflict) => `${conflict.request.scope} laiko task=${conflict.holder.owner.task_id}`)
+              .join(", ")}`,
+          );
+          await releaseHeldLease("scope lock konfliktas");
+          return false;
+        }
+      }
 
       const created = await deps.worktree.create({ identity, lease: acquired.lease });
       if (created.status === "quarantined") {

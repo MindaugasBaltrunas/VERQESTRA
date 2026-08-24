@@ -61,7 +61,16 @@
 // INDEKSUOJAMI (`config` kalba). Jie nieko neištraukia, bet KEIČIA ištraukimą — nuo jų priklauso,
 // ar Python absoliutus importas virsta keliu. Zonduojant juos per FS portą rezoliucija keisdavosi,
 // o `source_hash` ne, tad indeksas likdavo klaidingai šviežias. Keičiasi failų sąrašas IR atspaudas.
-export const codeIndexVersion = "4.2.0";
+// 4.3.0 (2026-08-24, operatoriaus radiniai): du grafo tikslumo pataisymai. (1) `from . import X`
+// importuojamų VARDŲ sąrašas dalyvauja rezoliucijoje — anksčiau jis buvo ignoruojamas, tad broliškas
+// submodulis virsdavo paketo `__init__.py` arba tekstiniu `"."`. (2) `testedBy` vardų atitikimas
+// tapo TIKSLUS: substring'as siedavo `src/id.ts` su `src/grid.test.ts`. Keičiasi `imports` ir
+// `testedBy` briaunos tiems patiems failams.
+// 4.4.0 (2026-08-24, operatoriaus radiniai): scope modelis tapo VIENAS (`ts-scope`) ir pilnas.
+// `references` briaunos scope nepaisė visai — užgožtas importo vardas duodavo nuorodą į importo
+// simbolį; CommonJS pusė nematė hoistintų `var` iš įdėtų blokų nei importuoto binding'o vardu
+// `require`. Keičiasi `references` ir `imports` briaunos tiems patiems failams.
+export const codeIndexVersion = "4.4.0";
 
 export type CodeIndexLanguage =
   | "typescript"

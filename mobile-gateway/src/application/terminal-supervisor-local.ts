@@ -105,9 +105,20 @@ export async function forceCloseLocally(
         "Terminal session moved since the operator observed it",
       );
     }
+    // `orphaned` PRIIMAMAS (2026-08-24, operatoriaus radinys: „terminalo orphaned rezervacija").
+    //
+    // Būtent orphaned seansui šis kelias ir reikalingas. Nepavykęs `close`/`terminate`/`interrupt`
+    // palieka seansą `orphaned` ir SĄMONINGAI nenuvalo `activeSessionId` — kol PTY galbūt dar
+    // sukasi, naujas seansas blokuojamas. Rezervaciją atlaisvina `handleExit`, bet jis suveikia
+    // tik procesui realiai išėjus — o čia neišėjo būtent tai, kas nepavyko. Atmesdamas orphaned,
+    // vienintelis operatoriaus atkūrimo kelias palikdavo hostą užrakintą IKI GATEWAY RESTARTO.
+    //
+    // Sauga nesumažėja: žemiau esantis tapatybės vartas nepakito — perdirbtas pid baigiasi
+    // `orphaned` NIEKO nenutraukiant, o be `processes` lentelės force-close išvis neleidžiamas.
+    const forceClosableStates = ["live", "interrupting", "orphaned"] as const;
     if (
       !runtime.handle ||
-      (runtime.session.state !== "live" && runtime.session.state !== "interrupting")
+      !forceClosableStates.some((state) => state === runtime.session.state)
     ) {
       throw new TerminalSupervisorError("session_not_live", "Terminal session is not live");
     }
@@ -149,13 +160,24 @@ export async function forceCloseLocally(
     }
     runtime.lease = revokeTerminalLease(runtime.lease, core.clock());
     core.emitLease(runtime);
-    runtime.session = transitionTerminalSession(runtime.session, "closing");
-    core.emitSessionState(runtime, input.reason);
+    // JAU orphaned seansas per `closing` NEEINA: domeno lentelė sako `orphaned: [live, ended]`, ir
+    // tai sąmoninga — orphaned nėra uždarymo srautas, jis baigiasi tiesiai, kai baigtis
+    // patvirtinama (taip pat elgiasi ir `handleExit`). Ta pati eilutė ir yra priežastis, kodėl
+    // priverstinis uždarymas orphaned seansui anksčiau lūždavo `orphaned -> closing`.
+    const wasOrphaned = runtime.session.state === "orphaned";
+    if (!wasOrphaned) {
+      runtime.session = transitionTerminalSession(runtime.session, "closing");
+      core.emitSessionState(runtime, input.reason);
+    }
     try {
       await handle.terminate();
     } catch {
       core.publishEvents(runtime, runtime.output.flush(core.clock()));
-      runtime.session = transitionTerminalSession(runtime.session, "orphaned");
+      // Jau orphaned seansas orphaned ir lieka: `orphaned -> orphaned` lentelėje nėra, o būsena
+      // nuo nepavykusio bandymo nepasikeitė.
+      if (!wasOrphaned) {
+        runtime.session = transitionTerminalSession(runtime.session, "orphaned");
+      }
       core.emitSessionState(runtime, "force close outcome is unknown");
       await core.syncRegistry(runtime);
       throw new TerminalSupervisorError("session_not_live", "Terminal force close outcome is unknown");

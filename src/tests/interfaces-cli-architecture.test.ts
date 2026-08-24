@@ -342,7 +342,11 @@ test("architecture code-map: usage, tuščias projektas 100%, --check be failo",
 
   const { io: io2, out } = captureIo();
   assert.equal(await architectureCommand(makeDeps(files, io2), ["code-map", "--write"]), 0);
-  assert.equal(out[0], "code-map: write");
+  // Nuo 2026-08-24 code-map skaito INDEKSĄ, o ne skenuoja pats. Nesamas indeksas nėra gedimas —
+  // jis deterministiškai perstatomas, bet PRANEŠAMA: degradacija privalo būti matoma, kaip ir
+  // dispatch kelyje (`code index was stale and was deterministically rebuilt`).
+  assert.match(out[0] ?? "", /code index not fresh .*rebuilding before code-map/);
+  assert.ok(out.includes("code-map: write"));
   assert.ok(out.includes("symbols_total: 0"));
   assert.ok(out.includes("coverage_percent: 100"));
   assert.ok(files.has(abs("vq/architecture/generated/code-map.generated.mmd")));

@@ -28,11 +28,14 @@ export const TokenUsageSummaryPanel = memo(function TokenUsageSummaryPanel({
   perTaskTokenStats,
 }: Props) {
   const { t, locale, language } = useI18n();
+  // `hint` eina į `title` — tai TEKSTAS ekrane, ne komentaras kode, todėl verčiamas kaip ir visa
+  // kita (2026-08-24, operatoriaus radinys: „analitikoje lieka angliški pagalbiniai tekstai").
+  // Formulės (`output_tokens / input_tokens`) NEVERČIAMOS: tai laukų vardai telemetrijoje.
   const metrics = [
-    { label: t("Total tokens"), value: formatNumber(totals.totalTokens, locale), hint: "Input, output, cache read, and cache creation tokens." },
-    { label: t("Unique tasks"), value: formatNumber(totals.uniqueTasks, locale), hint: "Number of distinct task IDs." },
-    { label: t("Tokens / task"), value: formatNumber(totals.tokensPerTask, locale), hint: "Total tokens divided by unique tasks." },
-    { label: t("Tokens / record"), value: formatNumber(totals.tokensPerRecord, locale), hint: "Total tokens divided by telemetry records." },
+    { label: t("Total tokens"), value: formatNumber(totals.totalTokens, locale), hint: t("Input, output, cache read, and cache creation tokens.") },
+    { label: t("Unique tasks"), value: formatNumber(totals.uniqueTasks, locale), hint: t("Number of distinct task IDs.") },
+    { label: t("Tokens / task"), value: formatNumber(totals.tokensPerTask, locale), hint: t("Total tokens divided by unique tasks.") },
+    { label: t("Tokens / record"), value: formatNumber(totals.tokensPerRecord, locale), hint: t("Total tokens divided by telemetry records.") },
     { label: t("Output / uncached input"), value: formatRatio(totals.outputInputRatio, locale), hint: "output_tokens / input_tokens" },
     { label: t("Cache hit rate"), value: formatPercent(totals.cacheHitRate, locale), hint: "cache_read / (input + cache_read + cache_creation)" },
   ];
@@ -98,8 +101,9 @@ export const TokenUsageSummaryPanel = memo(function TokenUsageSummaryPanel({
           ? "prompto tokenų dalis, perskaityta iš cache vietoj pakartotinio apdorojimo. Cache atsiperka, kai skaitymų daugiau nei rašymų:"
           : "the share of prompt tokens read from cache instead of processed again. Cache pays off when reads exceed writes:"}{" "}
         <strong>{formatRatio(totals.cacheReadToCreationRatio, locale)}</strong>{" "}
-        ({formatNumber(totals.cacheReadTokens, locale)} read vs{" "}
-        {formatNumber(totals.cacheCreationTokens, locale)} creation).
+        {/* Sakinio uodega buvo angliška net lietuviškame variante — „read vs … creation". */}
+        ({formatNumber(totals.cacheReadTokens, locale)} {t("read")} vs{" "}
+        {formatNumber(totals.cacheCreationTokens, locale)} {t("creation")}).
       </p>
 
       <div className="usage-insights">
@@ -117,15 +121,18 @@ export const TokenUsageSummaryPanel = memo(function TokenUsageSummaryPanel({
             {formatNumber(fastPathStats.diagnoseFastPath, locale)} / {formatNumber(fastPathStats.diagnoseTotal, locale)} {t("without full LLM")}
           </b>
         </div>
+        {/* Šie du sakiniai buvo įrašyti TIESIAI į JSX, be vertimo kvietimo (rasta 2026-08-24
+            tikrame renderyje). `i18n/coverage.test.ts` jų nemato iš principo: jis tikrina, ar
+            kiekvienas RAKTAS turi vertimą, o tekstas be kvietimo rakto neturi visai. */}
         <div>
-          <span>Tokens / record (mean / median / p95)</span>
+          <span>{t("Tokens / record (mean / median / p95)")}</span>
           <strong>{formatNumber(perRecordTokenStats.mean, locale)}</strong>
           <b>
             med {formatNumber(perRecordTokenStats.median, locale)} · p95 {formatNumber(perRecordTokenStats.p95, locale)}
           </b>
         </div>
         <div>
-          <span>Tokens / task (mean / median / p95)</span>
+          <span>{t("Tokens / task (mean / median / p95)")}</span>
           <strong>{formatNumber(perTaskTokenStats.mean, locale)}</strong>
           <b>
             med {formatNumber(perTaskTokenStats.median, locale)} · p95 {formatNumber(perTaskTokenStats.p95, locale)}

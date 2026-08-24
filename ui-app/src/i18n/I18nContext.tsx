@@ -319,6 +319,24 @@ const lt: Record<string, string> = {
   "Unique tasks": "Unikalios užduotys",
   "Tokens / task": "Tokenai / užduočiai",
   "Tokens / record": "Tokenai / įrašui",
+  // Rasta 2026-08-24 TIKRAME renderyje: šie trys stovėjo JSX'e be `t()`, o `control.label`
+  // reikšmę duoda serveris (`control-plane-model.ts`), tad nė vieno jų nemato raktų dengiamumo
+  // vartas. Vienintelis būdas juos pamatyti buvo atidaryti puslapį.
+  "Tokens / record (mean / median / p95)": "Tokenai / įrašui (vid. / mediana / p95)",
+  "Tokens / task (mean / median / p95)": "Tokenai / užduočiai (vid. / mediana / p95)",
+  "Total": "Iš viso",
+  // `title` pagalbiniai tekstai — jie rodomi ekrane, tad verčiami. Formulės lieka kaip yra.
+  "Input, output, cache read, and cache creation tokens.":
+    "Įvesties, išvesties, cache skaitymo ir cache kūrimo tokenai.",
+  "Number of distinct task IDs.": "Skirtingų užduočių ID skaičius.",
+  "Total tokens divided by unique tasks.": "Visi tokenai, padalyti iš unikalių užduočių.",
+  "Total tokens divided by telemetry records.": "Visi tokenai, padalyti iš telemetrijos įrašų.",
+  "read": "skaityta",
+  "creation": "sukurta",
+  "No token-using task": "Nė viena užduotis tokenų nenaudojo",
+  "Dates are YYYY-MM-DD; the picker follows your browser's language.":
+    "Datos formatas — YYYY-MM-DD; kalendoriaus išvaizda priklauso nuo naršyklės kalbos.",
+  "Max lines per file": "Daugiausia eilučių faile",
   "Cache hit rate": "Cache pataikymo rodiklis",
   "Token usage over time": "Tokenų naudojimas laikui bėgant",
   "Daily tokens: input · output · cache": "Dienos tokenai: įvestis · išvestis · cache",
@@ -374,6 +392,10 @@ const lt: Record<string, string> = {
   "Tasks that automation cannot resolve without a human decision":
     "Užduotys, kurių automatika neišsprendžia be žmogaus sprendimo",
   "(required)": "(privaloma)",
+  // Du SKIRTINGI dydžiai — nustatymai ir pasiūlymai — nebeturi to paties vardo.
+  "settings awaiting a decision": "nustatymai laukia sprendimo",
+  "{count} proposals for this setting; the newest is shown.":
+    "Šiam nustatymui laukia {count} pasiūlymai; rodomas naujausias.",
   "Enter a reason for the change": "Įrašykite pakeitimo priežastį — be jos pasiūlymas nesiunčiamas",
   "Cancel": "Atšaukti",
   "Read-only": "Tik skaitymui",

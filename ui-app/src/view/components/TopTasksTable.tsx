@@ -103,7 +103,12 @@ export function TopTasksTable({ rows, onSelectTask }: Props) {
             <div>
               <span>{t("Largest task")}</span>
               <strong title={overview.leader?.key}>{overview.leader?.key ?? t("No tokens used")}</strong>
-              <small>{overview.leader ? `${formatCompactTokens(overview.leader.totalTokens)} tokens` : "No token-using task"}</small>
+              {/* Du angliški literalai, likę be vertimo šalia kaimynų, kurie jį turi. */}
+              <small>
+                {overview.leader
+                  ? `${formatCompactTokens(overview.leader.totalTokens)} ${t("tokens")}`
+                  : t("No token-using task")}
+              </small>
             </div>
             <div>
               <span>{t("Top 5 share")}</span>
@@ -116,7 +121,8 @@ export function TopTasksTable({ rows, onSelectTask }: Props) {
               <small>{language === "lt" ? "tokenų vienai užduočiai" : "tokens per task"}</small>
             </div>
             <div>
-              <span>Total</span>
+              {/* Be `t()` — vienintelis šios eilutės kaimynas jį turi (žr. eilutę aukščiau). */}
+              <span>{t("Total")}</span>
               <strong>{formatCompactTokens(totalTokens)}</strong>
               <small>{formatTokens(totalTokens)} {language === "lt" ? "tokenų" : "tokens"}</small>
             </div>

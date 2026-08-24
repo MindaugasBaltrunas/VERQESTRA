@@ -14,6 +14,7 @@
 // taisyklės neturi susimaišyti su ESM deklaracijų apdorojimu.
 
 import type * as TypeScriptApi from "typescript";
+import { extendScope, fileScopeBindings, importBindingNames, scopeBindings } from "./ts-scope.js";
 import type { CodeIndexSymbolKind } from "./types.js";
 
 export type CommonJsSymbol = { name: string; kind: CodeIndexSymbolKind; line: number; endLine: number };
@@ -72,65 +73,6 @@ function symbolKindOf(ts: typeof TypeScriptApi, expression: TypeScriptApi.Expres
   return "const";
 }
 
-/** Vienas surištas vardas iš `BindingName` (įskaitant destrukūrizavimą). */
-function collectBindingNames(ts: typeof TypeScriptApi, name: TypeScriptApi.BindingName, into: Set<string>): void {
-  if (ts.isIdentifier(name)) {
-    into.add(name.text);
-    return;
-  }
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) collectBindingNames(ts, element.name, into);
-  }
-}
-
-/** Vardai, kuriuos į savo scope įveda šie sakiniai: `var/let/const`, `function`, `class`. */
-function statementBindings(ts: typeof TypeScriptApi, statements: readonly TypeScriptApi.Statement[]): Set<string> {
-  const names = new Set<string>();
-  for (const statement of statements) {
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) collectBindingNames(ts, declaration.name, names);
-      continue;
-    }
-    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
-      names.add(statement.name.text);
-    }
-  }
-  return names;
-}
-
-/** Funkcijos formos mazgas su kūnu; `ts.isFunctionLike` netinka — jo tipas kūno neturi. */
-function functionLikeOf(ts: typeof TypeScriptApi, node: TypeScriptApi.Node): TypeScriptApi.FunctionLikeDeclaration | undefined {
-  return ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isArrowFunction(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isConstructorDeclaration(node) ||
-    ts.isGetAccessorDeclaration(node) ||
-    ts.isSetAccessorDeclaration(node)
-    ? node
-    : undefined;
-}
-
-/** Funkcijos parametrai — antras būdas užgožti `require`/`module`/`exports`. */
-function parameterBindings(ts: typeof TypeScriptApi, node: TypeScriptApi.Node): Set<string> {
-  const names = new Set<string>();
-  for (const parameter of functionLikeOf(ts, node)?.parameters ?? []) collectBindingNames(ts, parameter.name, names);
-  return names;
-}
-
-/**
- * Ar mazgas atidaro naują scope, kurio deklaracijos gali užgožti CommonJS vardus.
- *
- * `Block` ir funkcijos kūnas imami kartu: `let` ir `const` yra bloko lygio, tad
- * `{ const require = x; require("./y"); }` užgožia importą, nors deklaracija yra kvietimo KAIMYNAS,
- * o ne protėvis. Būtent todėl scope skaičiuojamas įeinant, o ne kaupiamas einant per medį.
- */
-function scopeStatements(ts: typeof TypeScriptApi, node: TypeScriptApi.Node): readonly TypeScriptApi.Statement[] {
-  if (ts.isBlock(node) || ts.isModuleBlock(node)) return node.statements;
-  const body = functionLikeOf(ts, node)?.body;
-  return body !== undefined && ts.isBlock(body) ? body.statements : [];
-}
-
 /**
  * Surenka CommonJS importus ir eksportus iš viso medžio.
  *
@@ -163,9 +105,7 @@ export function collectCommonJs(
   };
 
   const walk = (node: TypeScriptApi.Node, outerShadowed: ReadonlySet<string>): void => {
-    const introduced = new Set([...parameterBindings(ts, node), ...statementBindings(ts, scopeStatements(ts, node))]);
-    const shadowed: ReadonlySet<string> =
-      introduced.size === 0 ? outerShadowed : new Set([...outerShadowed, ...introduced]);
+    const shadowed = extendScope(outerShadowed, scopeBindings(ts, node));
 
     const required = shadowed.has("require") ? undefined : requireTarget(ts, node);
     if (required !== undefined) imports.add(resolve(required).value);
@@ -217,7 +157,10 @@ export function collectCommonJs(
     }
   };
 
-  const fileShadowed = statementBindings(ts, sourceFile.statements);
+  // IMPORTUOTAS binding'as vardu `require` irgi užgožia (2026-08-24, operatoriaus radinys):
+  // `import { require } from "./shim.js"` reiškia, kad kvietimas nurodo TĄ vardą, o ne modulių
+  // sistemą. Failo lygyje kartu imami hoistinti `var`, kurių bloko sakinių skaitymas nemato.
+  const fileShadowed = new Set([...fileScopeBindings(ts, sourceFile), ...importBindingNames(ts, sourceFile)]);
   ts.forEachChild(sourceFile, (child) => {
     walk(child, fileShadowed);
   });

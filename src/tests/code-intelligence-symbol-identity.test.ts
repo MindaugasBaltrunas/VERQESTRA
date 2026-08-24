@@ -18,7 +18,16 @@ function fileOf(filePath: string, language: CodeIndexLanguage): CodeIndexFile {
 
 async function indexSources(
   sources: Record<string, string>,
-): Promise<Map<string, { file: CodeIndexFile; symbols: { id: string; name: string; line?: number; endLine?: number }[] }>> {
+): Promise<
+  Map<
+    string,
+    {
+      file: CodeIndexFile;
+      symbols: { id: string; name: string; line?: number; endLine?: number }[];
+      edges: { type: string; to: string }[];
+    }
+  >
+> {
   const scanned = Object.keys(sources).map((filePath) =>
     fileOf(filePath, filePath.endsWith(".ts") ? "typescript" : "javascript"),
   );
@@ -120,6 +129,90 @@ test("užgožtas `require` nėra modulio importas", async () => {
   assert.deepEqual(indexed.get("src/shadow.js")?.file.imports, [], "parametru užgožtas `require` yra eilinis kvietimas");
   assert.deepEqual(indexed.get("src/local.js")?.file.imports, [], "vietine deklaracija užgožtas — taip pat");
   assert.deepEqual(indexed.get("src/real.js")?.file.imports, ["src/target.cjs"], "kontrolė: tikras `require` lieka importu");
+});
+
+// 2026-08-24 (operatoriaus radinys): dvi scope formos, kurių 2026-08-23 modelis nematė.
+test("HOISTINTAS `var require` užgožia visą funkciją, ne tik savo bloką", async () => {
+  const indexed = await indexSources({
+    "src/target.cjs": "module.exports = { ok: 1 };\n",
+    "src/hoisted.js": [
+      "function load(flag) {",
+      "  const first = require('./target.cjs');",
+      "  if (flag) {",
+      "    var require = () => 0;",
+      "  }",
+      "  return first;",
+      "}",
+      "module.exports = { load };",
+      "",
+    ].join("\n"),
+  });
+
+  assert.deepEqual(
+    indexed.get("src/hoisted.js")?.file.imports,
+    [],
+    "`var` hoistinamas į funkcijos viršų, tad kvietimas PRIEŠ deklaraciją jau nurodo vietinį vardą",
+  );
+});
+
+test("importuotas binding'as vardu `require` NĖRA modulių sistema", async () => {
+  const indexed = await indexSources({
+    "src/target.cjs": "module.exports = { ok: 1 };\n",
+    "src/shim.ts": "export function require(specifier: string): unknown {\n  return specifier;\n}\n",
+    "src/imported.ts": 'import { require } from "./shim.js";\n\nexport const value = require("./target.cjs");\n',
+  });
+
+  assert.deepEqual(
+    indexed.get("src/imported.ts")?.file.imports,
+    ["src/shim.ts"],
+    "importuotas `require` nurodo TĄ vardą — vienintelis tikras importas čia yra pats shim'as",
+  );
+});
+
+// 2026-08-24 (operatoriaus radinys): `references` briaunos scope nepaisė visai. Bet kuris
+// identifikatorius, sutapęs su importo vardu, duodavo nuorodą — net kai vardas toje vietoje reiškė
+// ką kita. Tos briaunos maitina `semantic-context` įrodymus (`usedBy`/`testedBy`) ir kontraktų
+// atranką, tad netikra nuoroda kelia nesusijusį simbolį į pack'ą ir stumia lauk tikrą.
+test("užgožtas importas NEDUODA references briaunos", async () => {
+  const indexed = await indexSources({
+    "src/lib.ts": "export function foo(): number {\n  return 1;\n}\n",
+    "src/shadowed.ts": [
+      'import { foo } from "./lib.js";',
+      "",
+      "export function callsParameter(foo: () => number): number {",
+      "  return foo();",
+      "}",
+      "",
+    ].join("\n"),
+    "src/real.ts": 'import { foo } from "./lib.js";\n\nexport const used = foo();\n',
+  });
+
+  const referencesOf = (file: string): string[] =>
+    (indexed.get(file)?.edges ?? []).filter((edge) => edge.type === "references").map((edge) => edge.to);
+
+  assert.deepEqual(referencesOf("src/shadowed.ts"), [], "parametras `foo` nėra importuotas `foo`");
+  assert.deepEqual(referencesOf("src/real.ts"), ["src/lib.ts#foo"], "kontrolė: tikra nuoroda išlieka");
+});
+
+test("bloko lygio užgožimas irgi galioja", async () => {
+  const indexed = await indexSources({
+    "src/lib.ts": "export function foo(): number {\n  return 1;\n}\n",
+    "src/block.ts": [
+      'import { foo } from "./lib.js";',
+      "",
+      "export function run(): number {",
+      "  const foo = () => 2;",
+      "  return foo();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  assert.deepEqual(
+    (indexed.get("src/block.ts")?.edges ?? []).filter((edge) => edge.type === "references").map((edge) => edge.to),
+    [],
+    "vietinis `const foo` užgožia importą visame bloke",
+  );
 });
 
 test("PHP grupiniai ir kelių vardų `use` sakiniai nebenukerpami", () => {

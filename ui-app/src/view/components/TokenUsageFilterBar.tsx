@@ -87,12 +87,22 @@ export function TokenUsageFilterBar({
           onChange={(e) => onTaskIdQueryChange(e.target.value)}
         />
       </div>
+      {/* DATOS FORMATAS NEPRIKLAUSO NUO PUSLAPIO (2026-08-24, operatoriaus radinys „lieka
+          mm/dd/yyyy"). `<input type="date">` vietos ženklą piešia naršyklė pagal SAVO sąsajos
+          kalbą; nei `document.lang`, nei `navigator.languages`, nei CSS jo nekeičia. Patikrinta
+          gyvai: puslapio `lang` yra `lt`, o laukas vis tiek rodė amerikietišką tvarką.
+
+          Todėl rodoma tai, ką galime garantuoti: laukų REIKŠMĖ visada ISO (`YYYY-MM-DD`), ir tai
+          užrašyta šalia. Tai skirtumas tarp „sutvarkyta" ir „paaiškinta" — antrasis čia yra
+          vienintelis sąžiningas variantas, o operatorius bent nustoja spėlioti, kuris skaičius
+          yra mėnuo. */}
       <div className="filter-field">
         <label htmlFor="token-usage-filter-from">{t("From")}</label>
         <input
           id="token-usage-filter-from"
           className="range-input"
           type="date"
+          aria-describedby="token-usage-date-format"
           value={from}
           onChange={(e) => onFromChange(e.target.value)}
         />
@@ -103,9 +113,13 @@ export function TokenUsageFilterBar({
           id="token-usage-filter-to"
           className="range-input"
           type="date"
+          aria-describedby="token-usage-date-format"
           value={to}
           onChange={(e) => onToChange(e.target.value)}
         />
+        <small id="token-usage-date-format" className="filter-field-hint">
+          {t("Dates are YYYY-MM-DD; the picker follows your browser's language.")}
+        </small>
       </div>
       <button className="button ghost small-button filter-reset" type="button" onClick={onReset}>
         {t("Reset filters")}

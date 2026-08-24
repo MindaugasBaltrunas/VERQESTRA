@@ -9,3 +9,13 @@ coverage/
 # (`chore(AG/tasks): …`), o ne runtime šiukšlės. Etalonas daro tą patį skirstymą:
 # ignoruoja `AG/state/` ir `AG/logs/`, bet ne `AG/tasks`.
 vq/
+# IŠIMTIS: `templates/vq/` yra ne runtime būsena, o produkto TURINYS — 23 konfigų šablonai,
+# kuriuos į svetimą projektą įdiegia `verqestra install` (jis eina per `templates/` diske ir
+# kopijuoja, ką randa). Be šios eilutės `vq/` sugaudavo ir juos: šviežiame klone jų NEBŪDAVO,
+# ir `install` tyliai įdiegdavo nepilną produktą.
+#
+# Kodėl išimtis, o ne `/vq/`: pririšus prie šaknies, nustotų būti ignoruojami runtime `vq/`
+# katalogai GILUMOJE — worktree'ai (`.ag/worktrees/<...>/vq/`) ir benchmark celės susikuria savo.
+# Neigimas galioja būtent katalogui, kurį uždengia `vq/`; jo turinys po to nebeatitinka nė vieno
+# ignoravimo šablono, nes `templates/vq/config` nesivadina `vq`.
+!templates/vq/

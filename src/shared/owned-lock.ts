@@ -170,6 +170,21 @@ export async function withOwnedLock<T>(
  * Būtent besąlyginis trynimas čia ir įleisdavo trečią rašytoją. Nesutapęs arba neperskaitytas
  * savininkas reiškia „nebe mūsų" — toks lock'as paliekamas, o jį išvalys stale perėmimas.
  * Klaidos nurauamos: metimas čia užgožtų tikrąjį `work()` rezultatą arba jo klaidą.
+ *
+ * ŽINOMAS LIKUTIS (operatoriaus radinys 2026-08-24, ATVIRAS ir SĄMONINGAI paliktas): tai
+ * check-then-act. Tarp `readOwner` ir `removeDirectory` kitas procesas teoriškai gali perimti
+ * lock'ą kaip stale ir sukurti naują tuo pačiu keliu — tada ištrintume jau JO katalogą.
+ *
+ * Kodėl neuždaryta rename'u: bandyta (`stealStaleLock` atlaisvinimo pusėje, tas pats TOCTOU-saugus
+ * algoritmas) ir IŠMATUOTA kaip blogesnė. Tarpprocesiniame streso teste 12 procesų su rename
+ * atlaisvinimu davė 3–4 išlikusius įrašus ir 8–9 nesėkmes („lock is held by another writer"), o su
+ * check-then-act — 12/12 ir 24/24, nulis nesėkmių, du bėgimai iš eilės. Mikrosekundžių langas buvo
+ * iškeistas į realiai stringančius lock'us.
+ *
+ * Lango prielaida: kad kas nors perimtų, MŪSŲ kritinė sekcija jau turi būti viršijusi `staleMs`
+ * (30–60 s vienam JSON read-modify-write), ir tik TADA mikrosekundžių lenktynė turi pataikyti.
+ * Tikrasis vaistas yra ne rename, o `created_at` atnaujinimas darbo metu (heartbeat), kuris
+ * panaikina pačią prielaidą — bet tai laikmatis kritinėje sekcijoje, t. y. atskiras sprendimas.
  */
 export async function releaseOwnedLock(io: OwnedLockIo, lockDir: string, lockId: string): Promise<void> {
   const current = await readOwner(io, lockDir);

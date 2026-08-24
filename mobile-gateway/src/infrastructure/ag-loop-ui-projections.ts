@@ -111,10 +111,14 @@ export function clamp(value: number, minimum: number, maximum: number): number {
  * `queueCounts` NĖRA paliktas kaip atsarginis kelias sąmoningai: būtent dviguba forma ir
  * leido lūžiui pragyventi — mobile fikstūra tiekė lauką, kurio serveris nebesiuntė, tad abu
  * paketai atskirai buvo žali. Vienas šaltinis reiškia, kad kitas jo dingimas krenta iš karto.
+ *
+ * Kintamasis vadinasi `dashboard`, o ne `source`, SĄMONINGAI: `src/tests/contract-mobile-dashboard.test.ts`
+ * randa dashboard payload'o laukus būtent per šį vardą. Kiti šio failo projekcijos skaito KITUS
+ * atsakymus (task bucket'ą, logus), tad bendras `source` tą kryžminį vartą paverstų triukšmu.
  */
-function bucketCounts(source: Record<string, unknown>): Record<string, number> {
+function bucketCounts(dashboard: Record<string, unknown>): Record<string, number> {
   const byName = new Map<string, number>();
-  for (const entry of list(source["workflowBuckets"])) {
+  for (const entry of list(dashboard["workflowBuckets"])) {
     const bucket = record(entry);
     const name = bucket["name"];
     const total = bucket["totalCount"];
@@ -130,20 +134,20 @@ function bucketCounts(source: Record<string, unknown>): Record<string, number> {
 }
 
 export function projectDashboardPayload(payload: unknown, now = new Date()): AgLoopDashboard {
-  const source = record(payload);
-  const queueCounts = bucketCounts(source);
-  const runtime = Array.isArray(source["runtime"])
-    ? source["runtime"]
+  const dashboard = record(payload);
+  const queueCounts = bucketCounts(dashboard);
+  const runtime = Array.isArray(dashboard["runtime"])
+    ? dashboard["runtime"]
       .map(record)
       .filter((item) => runtimeNames.has(String(item["name"])))
       .map((item) => ({ name: String(item["name"]), status: status(item["status"]) }))
     : [];
-  const controlPlane = record(source["controlPlane"]);
+  const controlPlane = record(dashboard["controlPlane"]);
   const reviews = Array.isArray(controlPlane["human_review_tasks"])
     ? controlPlane["human_review_tasks"].length
     : 0;
-  const currentTaskId = boundedId(source["currentTaskId"]);
-  const rawState = source["currentTaskState"];
+  const currentTaskId = boundedId(dashboard["currentTaskId"]);
+  const rawState = dashboard["currentTaskState"];
   const currentState = rawState === "active" || rawState === "stale" ? rawState : "none";
   return Object.freeze({
     availability: "online",

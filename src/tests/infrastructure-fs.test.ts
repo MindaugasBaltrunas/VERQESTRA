@@ -15,7 +15,7 @@ import type {
   ArchitectureNodeProgress,
   ArchitectureProgress,
 } from "../domain/architecture/index.js";
-import { isWin32ContentionError, withWin32RenameRetry } from "../infrastructure/fs/fs-retry.js";
+import { isLockDirectoryTaken, isWin32ContentionError, withWin32RenameRetry } from "../infrastructure/fs/fs-retry.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { withStateFileLock } from "../infrastructure/fs/state-file-lock.js";
 
@@ -325,6 +325,34 @@ test("createLockDirectory: mkdir be recursive — created, tada exists; removeDi
   assert.equal(typeof (await nodeFsAdapter.directoryModifiedAtMs(p("locks", "l1"))), "number");
   await nodeFsAdapter.removeDirectory(p("locks", "l1"));
   assert.equal(await nodeFsAdapter.exists(p("locks", "l1")), false);
+});
+
+test("isLockDirectoryTaken: win32 delete-pending EPERM yra UŽIMTUMAS, ne gedimas", () => {
+  // 2026-08-24 regresija: `createLockDirectory` EEXIST vertė „exists", o EPERM MESDAVO. Windows
+  // po `rm` palieka lock katalogo vardą delete-pending, tad lygiagretus rašytojas gaudavo būtent
+  // EPERM — jis prasprūsdavo pro `withOwnedLock` retry ciklą ir nutraukdavo VISĄ read-modify-write.
+  // Išmatuota: 8 rašytojai, 60 raundų → 2 nutraukti `update` ir 2 PRARASTI retry inkrementai,
+  // t. y. tiksliai tas prarastas atnaujinimas, kurio lock'as ir neleidžia.
+  const eexist = Object.assign(new Error("EEXIST"), { code: "EEXIST" });
+  const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
+  const enoent = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+
+  // EEXIST yra užimtumas visur — tai pats primityvo kontraktas.
+  assert.equal(isLockDirectoryTaken(eexist, "win32"), true);
+  assert.equal(isLockDirectoryTaken(eexist, "linux"), true);
+
+  // EPERM: užimtumas TIK win32. POSIX ten turi tikrą teisių klaidą, ir ją palaikius užimtumu
+  // rašytojas suktųsi iki timeout'o su klaidinga diagnoze „lock is held by another writer".
+  assert.equal(isLockDirectoryTaken(eperm, "win32"), true);
+  assert.equal(isLockDirectoryTaken(eperm, "linux"), false);
+
+  // Neišplėsta per plačiai: nesamas tėvas lieka gedimu abiejose platformose.
+  assert.equal(isLockDirectoryTaken(enoent, "win32"), false);
+  assert.equal(isLockDirectoryTaken(enoent, "linux"), false);
+});
+
+test("createLockDirectory: nesamas tėvas lieka klaida (užimtumo mapping'as neprarijo ENOENT)", async () => {
+  await assert.rejects(() => nodeFsAdapter.createLockDirectory(p("nera-tokio-tevo", "l1")), /ENOENT/);
 });
 
 test("withWin32RenameRetry: win32 contention kartojama, POSIX EPERM — ne", async () => {

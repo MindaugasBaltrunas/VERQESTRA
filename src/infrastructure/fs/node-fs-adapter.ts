@@ -33,7 +33,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { isErrnoCode } from "../../shared/errors.js";
-import { withWin32RenameRetry } from "./fs-retry.js";
+import { isLockDirectoryTaken, withWin32RenameRetry } from "./fs-retry.js";
 
 export type NodeStatPathResult = { kind: "file" | "directory" | "other" | "absent"; size: number };
 
@@ -299,13 +299,30 @@ export const nodeFsAdapter = {
     await nodeFsAdapter.writeTextFile(absolutePath, content);
   },
 
-  /** Atominis „sukurk arba pasakyk, kad yra" mutex primityvas (`mkdir` be `recursive`). */
+  /**
+   * Atominis „sukurk arba pasakyk, kad yra" mutex primityvas (`mkdir` be `recursive`).
+   *
+   * 2026-08-24: win32 contention (EPERM/EACCES/EBUSY) yra „exists", o ne klaida. Windows
+   * katalogo trynimas NĖRA momentinis — po `rm` vardas lieka delete-pending, kol užsidaro
+   * paskutinis handle, ir `mkdir` tuo langu grąžina EPERM, o ne EEXIST. Mesta EPERM prasprūsdavo
+   * pro `withOwnedLock` retry ciklą ir nutraukdavo VISĄ read-modify-write: lygiagretus retry
+   * skaitiklio inkrementas dingdavo (~3% iš 8 rašytojų, 60 raundų matavimas) — būtent tas
+   * prarastas atnaujinimas, kurį lock'as ir egzistuoja tam, kad neįvyktų.
+   *
+   * „exists" čia yra TIKSLI semantika, o ne švelninimas: vardas realiai užimtas, tik dar
+   * mirštančio lock'o. Laukimo politika lieka protokolo pusėje (`withOwnedLock`: savininko
+   * patikra, stale perėmimas, deadline) — adapteris nesprendžia, kiek laukti.
+   *
+   * POSIX elgesys NEKINTA: ten EPERM iš `mkdir` reiškia tikrą teisių klaidą ir metamas toliau.
+   * Klasifikacija — `isLockDirectoryTaken` (ten ir etalono nuoroda: tai buvo MIGRACIJOS praradimas,
+   * ne etalono spraga).
+   */
   async createLockDirectory(absoluteDir: string): Promise<"created" | "exists"> {
     try {
       await mkdir(absoluteDir);
       return "created";
     } catch (error: unknown) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") {
+      if (isLockDirectoryTaken(error)) {
         return "exists";
       }
       throw error;

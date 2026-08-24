@@ -7,6 +7,7 @@ import { createManifest, writeCodeIndex } from "../store/code-index-store.js";
 import { computeSourceHash, scanProjectFiles } from "./scanner.js";
 import { indexTypeScriptFiles } from "./ts-indexer.js";
 import { hasLexicalIndexer, indexLexicalSource, parseComposerPsr4, type LexicalIndexContext } from "./language-indexer.js";
+import { PYTHON_ROOT_MARKERS } from "./python-indexer.js";
 import type { LanguageIndexResult } from "./language-indexer-model.js";
 import type { CodeIndexData, CodeIndexEdge, CodeIndexFile, CodeIndexLanguage, CodeIndexSymbol } from "./types.js";
 
@@ -77,6 +78,48 @@ async function readOptionalConfig(fs: CodeIntelligenceFileSystemPort, absolute: 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Katalogai su Python projekto manifestu — `sys.path` įrašai, kurių indeksas pats nemato.
+ *
+ * `pyproject.toml`, `setup.cfg` ir `tox.ini` nėra indeksuojami plėtiniai, tad į `knownPaths` jie
+ * nepatenka IŠ PRINCIPO; iki 2026-08-24 iš keturių deklaruotų markerių realiai veikė tik
+ * `setup.py`, ir sąrašas apsimetinėjo platesniu, nei buvo. Todėl jie ieškomi per tą patį FS portą,
+ * kuriuo skaitomas `composer.json`.
+ *
+ * Zonduojama TIK ten, kur tai gali turėti reikšmės: katalogai, kuriuose guli `.py` failai, ir jų
+ * protėviai iki šaknies. Python repozitorijoje tai vienetai katalogų, o ne visas medis — pilnas
+ * skenavimas dėl keturių vardų būtų kaina be atitikmens.
+ */
+async function discoverPythonRoots(
+  fs: CodeIntelligenceFileSystemPort,
+  projectRoot: string,
+  scanned: readonly CodeIndexFile[],
+): Promise<Set<string>> {
+  const directories = new Set<string>();
+  for (const file of scanned) {
+    if (file.language !== "python") continue;
+    const segments = file.path.split("/");
+    segments.pop();
+    while (segments.length > 0) {
+      directories.add(segments.join("/"));
+      segments.pop();
+    }
+    directories.add("");
+  }
+
+  const roots = new Set<string>();
+  for (const directory of directories) {
+    for (const marker of PYTHON_ROOT_MARKERS) {
+      const absolute = path.join(projectRoot, ...(directory ? directory.split("/") : []), marker);
+      if ((await fs.statKind(absolute)) === "file") {
+        roots.add(directory);
+        break;
+      }
+    }
+  }
+  return roots;
 }
 
 async function indexLexical(

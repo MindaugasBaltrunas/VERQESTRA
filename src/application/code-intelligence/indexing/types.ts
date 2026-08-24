@@ -51,7 +51,13 @@
 //     su `src/infrastructure/json.py`), o deklaracijos pjūvis apima dekoratorius ir baigiasi ties
 //     bloko įtrauka;
 //   • PHP grupiniai ir kelių vardų `use` sakiniai nustojo būti nukerpami.
-export const codeIndexVersion = "4.0.0";
+// 4.1.0 (2026-08-24, operatoriaus radinys): Python paketo šaknų atpažinimas. `src` išdėstymas
+// atpažįstamas BET KURIAME gylyje (monorepo `packages/api/src` šaknimi netapdavo niekada), o
+// `pyproject.toml`/`setup.cfg`/`tox.ini` randami per FS portą — jie nėra indeksuojami plėtiniai, tad
+// iš keturių deklaruotų markerių realiai veikė tik `setup.py`. Keičiasi `imports` ir jų briaunos
+// tiems patiems failams, tad tas pats `source_hash` dabar reiškia kitą grafą — MINOR pakanka, nes
+// manifesto forma nesikeičia, o deskriptorius neša versiją ir anuliuoja pack'us pats.
+export const codeIndexVersion = "4.1.0";
 
 export type CodeIndexLanguage =
   | "typescript"

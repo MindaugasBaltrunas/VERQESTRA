@@ -21,6 +21,27 @@ export function isWin32ContentionError(error: unknown, platform: NodeJS.Platform
 }
 
 /**
+ * Ar `mkdir` klaida lock katalogui reiškia „vardas UŽIMTAS" (o ne tikrą gedimą).
+ *
+ * Windows katalogo trynimas nėra momentinis: po `rm` vardas lieka delete-pending, kol užsidaro
+ * paskutinis handle, ir `mkdir` tuo langu grąžina EPERM, o ne EEXIST. Abiem atvejais atsakymas
+ * lock protokolui tas pats — vardo dabar gauti negalima, reikia laukti; skiriasi tik errno.
+ *
+ * Atskirta nuo `createLockDirectory` tam, kad sprendimą būtų galima įrodyti ABIEM platformoms
+ * bet kurioje mašinoje (tas pats motyvas, kaip `platform` parametras `withWin32RenameRetry`).
+ * POSIX EPERM lieka gedimu: ten jis reiškia tikrą teisių klaidą, ir palaikyti ją „užimtumu"
+ * reikštų suktis retry cikle iki timeout'o su klaidinga diagnoze.
+ *
+ * Etalonas TAI JAU TURĖJO (`orchestrator/loop/task-state.ts` → `isLockContentionError`, radinys
+ * 2026-08-08: „EPERM on `mkdir task-move.lock` while the competing holder was releasing"). Čia tai
+ * PRARASTA MIGRACIJOJE, ne etalono spraga: perkeliant `mkdir` primityvą į `createLockDirectory`
+ * liko tik EEXIST šaka. Logika atkurta 1:1, tik su injektuojama platforma.
+ */
+export function isLockDirectoryTaken(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  return isErrnoCode(error, "EEXIST") || isWin32ContentionError(error, platform);
+}
+
+/**
  * `platform` yra parametras TIK tam, kad testas galėtų įrodyti abiejų platformų elgesį
  * bet kurioje mašinoje; produkcinis kelias visada naudoja numatytąjį `process.platform`.
  */

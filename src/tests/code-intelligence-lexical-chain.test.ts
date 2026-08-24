@@ -219,6 +219,54 @@ test("neperskaitomas composer.json NĖRA klaida — tolerancija galioja TIK konf
   }
 });
 
+// 2026-08-24 (operatoriaus radinys): `src` išdėstymas buvo atpažįstamas TIK repo šaknyje
+// (`candidate.startsWith("src/")`), tad monorepo `packages/api/src` šaknimi netapdavo niekada. Su
+// neišspręstu importu dingsta VISKAS, kas iš jo auga: briauna, architektūros pažeidimas, testai.
+test("monorepo `src` išdėstymas BET KURIAME gylyje yra paketo šaknis", async () => {
+  const root = await world({
+    "packages/api/src/app/service.py": "def run():\n    return 1\n",
+    "packages/api/src/app/main.py": "from app.service import run\n\ndef main():\n    return run()\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    assert.deepEqual(
+      index.files.find((file) => file.path === "packages/api/src/app/main.py")?.imports,
+      ["packages/api/src/app/service.py"],
+      "`packages/api/src` yra sys.path įrašas — `src` layout yra dominuojanti Python forma",
+    );
+    assert.deepEqual(
+      (await queryCodeGraph(nodeFsTestPort, root, "packages/api/src/app/main.py")).imports,
+      ["packages/api/src/app/service.py"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Antra to paties radinio pusė: iš keturių deklaruotų markerių realiai veikė TIK `setup.py`, nes jis
+// vienintelis yra indeksuojamas plėtinys. `pyproject.toml`, `setup.cfg` ir `tox.ini` į `knownPaths`
+// nepatenka iš principo, tad sąrašas apsimetinėjo platesniu, nei buvo.
+test("pyproject.toml daro katalogą paketo šaknimi, nors indeksas jo nemato", async () => {
+  const root = await world({
+    "packages/api/pyproject.toml": "[project]\nname = \"api\"\n",
+    "packages/api/app/service.py": "def run():\n    return 1\n",
+    "packages/api/app/main.py": "from app.service import run\n",
+  });
+  try {
+    const index = await readCodeIndex(nodeFsTestPort, root);
+    assert.ok(
+      !index.files.some((file) => file.path.endsWith("pyproject.toml")),
+      "kontrolė: markeris tikrai NĖRA indekse — todėl jį ir turi surasti builder'is",
+    );
+    assert.deepEqual(
+      index.files.find((file) => file.path === "packages/api/app/main.py")?.imports,
+      ["packages/api/app/service.py"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("architektūros vartas mato leksinės kalbos pažeidimą per realų build'ą", async () => {
   const root = await world({
     "src/application/service.py": "def run():\n    return 1\n",

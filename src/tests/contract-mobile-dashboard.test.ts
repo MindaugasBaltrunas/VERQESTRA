@@ -29,12 +29,12 @@ const mobileProjectionFile = path.join(
   "mobile-gateway/src/infrastructure/ag-loop-ui-projections.ts",
 );
 
-/** `UiDashboardView` laukų vardai: dviejų tarpų įtrauka type deklaracijoje. */
+/** `UiDashboardData` laukų vardai: dviejų tarpų įtrauka type deklaracijoje. */
 function declaredPayloadFields(source: string): ReadonlySet<string> {
-  const start = source.indexOf("export type UiDashboardView");
-  assert.notEqual(start, -1, "ui-dashboard-view.ts must declare UiDashboardView");
+  const start = source.indexOf("export type UiDashboardData");
+  assert.notEqual(start, -1, "ui-dashboard-view.ts must declare UiDashboardData");
   const end = source.indexOf("\n};", start);
-  assert.notEqual(end, -1, "UiDashboardView must be a closed object type");
+  assert.notEqual(end, -1, "UiDashboardData must be a closed object type");
   const block = source.slice(start, end);
   return new Set([...block.matchAll(/^ {2}(\w+)\??:/gm)].flatMap((match) => match[1] ?? []));
 }
@@ -42,16 +42,15 @@ function declaredPayloadFields(source: string): ReadonlySet<string> {
 /**
  * Laukai, kuriuos mobile projekcija ima iš dashboard payload'o.
  *
- * Imama TIK `source["…"]`: `bucket["name"]` ir panašūs skaito jau ištrauktą elementą, ne patį
- * atsakymą, tad jų čia neturi būti.
+ * Atpažįstama pagal KINTAMOJO VARDĄ `dashboard`, ne pagal poziciją faile. Pozicinis pjūvis
+ * (nuo helperio X iki funkcijos Y) lūžtų pertvarkius failą, ir tada šis vartas kristų su
+ * parsinimo klaida vietoj tikrosios priežasties — o vartas, kuris meluoja apie priežastį, yra
+ * blogesnis nei jokio. `bucket["name"]` ir panašūs skaito jau ištrauktą elementą, ne patį
+ * atsakymą, tad į aibę nepatenka; kitos šio failo projekcijos naudoja `source`, nes skaito
+ * KITUS atsakymus.
  */
 function consumedPayloadFields(source: string): ReadonlySet<string> {
-  const start = source.indexOf("function bucketCounts");
-  assert.notEqual(start, -1, "the mobile projection must still derive bucket counts");
-  const end = source.indexOf("\nexport function projectTaskBucketPayload", start);
-  assert.notEqual(end, -1, "the dashboard projection must be followed by the task bucket one");
-  const block = source.slice(start, end);
-  return new Set([...block.matchAll(/\bsource\["(\w+)"\]/g)].flatMap((match) => match[1] ?? []));
+  return new Set([...source.matchAll(/\bdashboard\["(\w+)"\]/g)].flatMap((match) => match[1] ?? []));
 }
 
 test("every dashboard field the mobile projection reads is a field the server sends", async () => {

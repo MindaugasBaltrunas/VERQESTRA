@@ -1022,3 +1022,79 @@ Paketui pridėjus stulpelį, vartas krenta su „atkeliauja, bet ekrane nematomi
 
 - `pnpm test` — **1619/1619** (+2); `pnpm test:ui` — **55/55 failai, 450/450** (+6).
 - `pnpm typecheck:ui`, `pnpm run build:ui` — praeina.
+
+---
+
+## Šešioliktas ratas (2026-08-24) — pakartotinis „ar visi duomenys matomi ir API veikia?"
+
+Tas pats klausimas, užduotas po penkiolikos ratų. Atsakymas nebuvo „taip": inventorius perbėgtas
+iš naujo — kiekvieno maršruto kvietėjas ir kiekvieno lauko vartotojas — ir rasti keturi dalykai,
+kurių ankstesni ratai nepasiekė, nes jie gyvena NE dashboard'o krovinyje.
+
+### API: 21 maršrutas, visi turi kvietėją
+
+| Maršrutas | Kvietėjas |
+|---|---|
+| GET `/api/{dashboard,events,tasks,waves,policies/proposals,token-usage,token-analytics,reliability-analytics,benchmark/report}` | `ui-app` kontroleriai ir `api.ts` |
+| GET `/api/identity` | prievado zondas (`composition/ui`) — skiria „mūsų serveris" nuo svetimo proceso |
+| GET `/api/logs` | `mobile-gateway` — `ui-app` jo nekviečia SĄMONINGAI |
+| POST `/tasks/{queue/upload,resume,stop}`, `/api/runtime/{workers,loop/start,loop/slots/<id>}`, `/api/tasks/<action>/<ref>`, `/api/policies/proposals/{approve,reject,apply}` | `api.ts` |
+| POST `/api/policies/<grupė>/set` | `PolicyControlsPanel` per `control.route` — kelią duoda pats serveris |
+
+Formas laiko `interfaces-http-router-contracts` ir `composition-ui-dashboard-contract`.
+
+### Duomenys: keturi radiniai
+
+**1. Tęsimo taškas nesako, KIENO jis.** `run-coordinator.ts:233` prieš praleisdamas preflight'ą
+tikrina `supervisorResume.task_id === state.taskId`, o nesutapimą traktuoja kaip ŠVARŲ STARTĄ.
+Ekranas rodė tik `status`, tad operatorius matydavo „finished" ir darydavo išvadą apie dabartinę
+užduotį iš KITO task'o įrašo. Tai lygiai ta pati klaida, kurią trylikas ratas uždarė žurnalo
+antspaudui (`claudeLogSource: legacy`) — tik čia ji liko atvira. Nematomos buvo ir `phase`
+(kurią variklis skaito tiesiogiai) bei abu `updated_at`.
+
+Priskyrimas rodomas TIK kai jis prieštarauja: įspėjimas apie sutampantį task'ą mokytų ignoruoti
+įspėjimus. Checkpoint'as be `task_id` NĖRA nesutapimas — visi laukai optional, failas rašomas
+palaipsniui, ir teigti apie jį „priklauso kitam task'ui" reikštų tvirtinti tai, ko nežinome.
+
+**2. `total_cost_usd` — tikroji kaina — niekada nerodyta.** Visas `#/analytics` ekranas yra apie
+kainą, o vienintelis doleriais išreikštas laukas telemetrijoje keliavo neperskaitytas. Sumuojama
+TIK iš įrašų, kurie ją turi, ir `costRecords` stovi šalia: dalinai kainuota imtis kitaip skaitoma
+kaip visa sąskaita. Eilutė nerodoma, kai kainos neturi nė vienas įrašas — `$0.00` iš nekainuotos
+imties yra išmatuotas teiginys apie nemokamą darbą.
+
+**3. `retry_reason` — kodėl kartota — niekada nerodytas.** Ekranas sakė KIEK kartų kartota. 40
+pakartojimų dėl `rate-limit` ir 40 dėl `gate-failed` reikalauja priešingų veiksmų, tad „kiek" be
+„kodėl" nurodo, kad problema yra, bet ne kur ji yra. Priežastis renkama iš BET KURIOS fazės ir
+nepriklausomai nuo `attempt`: susiaurinus dingtų būtent tie atvejai, kur `attempt` neužpildytas —
+t. y. ta pati dengiamumo spraga, kurią rodiklis ir matuoja. Kodai neverčiami.
+
+**4. Pasenusi antraštė, prieštaraujanti savo kūnui.** `computeReworkProxyStats` JSDoc teigė, kad
+„telemetrija neturi retry/failed-outcome lauko", o funkcija abu skaito septyniomis eilutėmis
+žemiau ir grąžina `exactRetryTokens`/`failedRetryAttempts`/`isExact`. Antraštė siuntė skaitytoją
+perstatinėti proxy tam, ką galima suskaičiuoti tiksliai. Perrašyta: tikroji riba yra
+DENGIAMUMAS, ne buvimas.
+
+### Pašalinta: `envOverride`
+
+`WorkerRequestState.envOverride` visada lygus `source === "env"`, keliavo kas 30 s, ir jo neskaitė
+NIEKAS — nei `src/`, nei `ui-app` (klientas `canEdit` išveda iš `source`). Laukas, kuris tik
+rašomas ir niekada neskaitomas, yra `queueCounts` klasė: du to paties fakto pavidalai viename
+įraše anksčiau ar vėliau prasilenkia, o prasilenkę nepasako, kuris teisus. Pašalinta iš visų trijų
+sluoksnių (`application/scheduling`, `interfaces/http`, `ui-app` tipų).
+
+### Vartai (šešioliktas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `DiagnosticsPanel.test.tsx` (+2) | svetimas tęsimo taškas pavadinamas; sutampantis NETRIUKŠMAUJA; checkpoint'as be `task_id` nėra nesutapimas |
+| `tokenUsageViewModel.test.ts` (+4) | kaina sumuojama tik iš kainuotų įrašų su vardikliu; nekainuota imtis duoda `costRecords === 0`, ne nulinę kainą; priežastys rūšiuojamos pagal dažnį ir renkamos be `attempt` |
+| `application-loop-control-store.test.ts` (griežtinta) | `deepEqual` be `envOverride` — antras pavidalas negrįžta |
+| `composition-ui-dashboard-contract.test.ts` (+2) | `envOverride` neišeina į naršyklę, `source` lieka |
+
+### Patikros po šešiolikto rato
+
+- `pnpm test:only` — **1629/1629**; `pnpm lint` — švarus; `pnpm test:ui` — **55/55 failai, 456/456** (+6).
+- `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm run build:ui` — praeina.
+- Tarpiniuose bėgimuose matyti svetimi kritimai (`shared-owned-lock`, `contract-mobile-dashboard`,
+  `characterization-code-index`), atsirandantys ir dingstantys tarp bėgimų — lygiagreti sesija
+  commit'ina to paties bėgimo metu. Nė vienas jų nėra šio rato failuose.

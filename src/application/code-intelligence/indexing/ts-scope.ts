@@ -47,6 +47,30 @@ export function functionLikeOf(
     : undefined;
 }
 
+/**
+ * `VariableDeclarationList` bet kurioje pozicijoje — sakinyje ARBA `for` inicializatoriuje.
+ *
+ * 2026-08-24 (auditas 9): abu vardų rinkėjai rėmėsi `ts.isVariableStatement`, o `for (const x of …)`
+ * inicializatorius yra PLIKAS `VariableDeclarationList` — jokio sakinio aplink jo nėra. Tad ciklo
+ * kintamasis į scope nepatekdavo NIEKADA, ir abu skaitytojai klysdavo: `for (const foo of items)`
+ * duodavo `references` briauną į importuotą `foo`, o `for (const require of list)` — netikrą
+ * CommonJS importą. Vienas atpažinimas abiem vietoms, kad kopijos vėl neišsiskirtų.
+ */
+function declarationListOf(
+  ts: typeof TypeScriptApi,
+  node: TypeScriptApi.Node,
+): TypeScriptApi.VariableDeclarationList | undefined {
+  if (ts.isVariableStatement(node)) return node.declarationList;
+  if (
+    (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node)) &&
+    node.initializer !== undefined &&
+    ts.isVariableDeclarationList(node.initializer)
+  ) {
+    return node.initializer;
+  }
+  return undefined;
+}
+
 /** Bloko apimties vardai: `let`/`const`/`var` deklaracijos, `function`, `class` — tiesioginiai sakiniai. */
 function statementBindings(ts: typeof TypeScriptApi, statements: readonly TypeScriptApi.Statement[]): Set<string> {
   const names = new Set<string>();
@@ -67,14 +91,16 @@ function statementBindings(ts: typeof TypeScriptApi, statements: readonly TypeSc
  *
  * Į įdėtas funkcijas neinama: ten `var` priklauso JŲ apimčiai, ne šiai. Būtent šito trūko iki
  * 2026-08-24 — `function f() { if (x) { var require = …; } require("./y"); }` buvo laikomas tikru
- * CommonJS importu, nors `var` hoistinamas į viso `f` viršų.
+ * CommonJS importu, nors `var` hoistinamas į viso `f` viršų. `for (var require of …)` yra ta pati
+ * forma: `var` funkcijos apimties nepraranda nuo to, kad stovi ciklo inicializatoriuje.
  */
 function hoistedVarNames(ts: typeof TypeScriptApi, body: TypeScriptApi.Node): Set<string> {
   const names = new Set<string>();
   const visit = (node: TypeScriptApi.Node): void => {
     if (functionLikeOf(ts, node) !== undefined) return;
-    if (ts.isVariableStatement(node) && (node.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0) {
-      for (const declaration of node.declarationList.declarations) collectBindingNames(ts, declaration.name, names);
+    const declarations = declarationListOf(ts, node);
+    if (declarations !== undefined && (declarations.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0) {
+      for (const declaration of declarations.declarations) collectBindingNames(ts, declaration.name, names);
     }
     ts.forEachChild(node, visit);
   };
@@ -125,6 +151,13 @@ export function scopeBindings(ts: typeof TypeScriptApi, node: TypeScriptApi.Node
   }
   if (ts.isCatchClause(node) && node.variableDeclaration) {
     collectBindingNames(ts, node.variableDeclaration.name, names);
+  }
+  // Ciklo inicializatorius rišamas ĮEINANT į patį ciklą, o ne per `statementBindings`: `for` yra
+  // sakinys, tad iš aplinkinio bloko jo vardas atrodytų kaip to bloko vardas ir užgožtų dar ir
+  // sakinius PO ciklo — vardas gyvena tik cikle.
+  const loopDeclarations = declarationListOf(ts, node);
+  if (loopDeclarations !== undefined && !ts.isVariableStatement(node)) {
+    for (const declaration of loopDeclarations.declarations) collectBindingNames(ts, declaration.name, names);
   }
   return names;
 }

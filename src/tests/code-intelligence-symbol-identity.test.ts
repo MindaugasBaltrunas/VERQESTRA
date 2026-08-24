@@ -215,6 +215,105 @@ test("bloko lygio užgožimas irgi galioja", async () => {
   );
 });
 
+// 2026-08-24 (RAG auditas 9): trečia scope forma, kurios modelis nematė. Abu vardų rinkėjai rėmėsi
+// `ts.isVariableStatement`, o `for (const x of …)` inicializatorius yra PLIKAS
+// `VariableDeclarationList` — sakinio aplink jį nėra. Ciklo kintamasis į scope nepatekdavo niekada,
+// ir klysdavo ABU skaitytojai vienu metu, tad testas laiko juos kartu.
+test("ciklo inicializatoriaus vardas užgožia — visos trys `for` formos", async () => {
+  const indexed = await indexSources({
+    "src/lib.ts": "export function foo(): number {\n  return 1;\n}\n",
+    "src/loop-of.ts": [
+      'import { foo } from "./lib.js";',
+      "",
+      "export function run(items: (() => number)[]): number {",
+      "  let total = 0;",
+      "  for (const foo of items) {",
+      "    total += foo();",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/loop-in.ts": [
+      'import { foo } from "./lib.js";',
+      "",
+      "export function run(bag: Record<string, number>): string[] {",
+      "  const seen: string[] = [];",
+      "  for (const foo in bag) {",
+      "    seen.push(foo);",
+      "  }",
+      "  return seen;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/loop-classic.ts": [
+      'import { foo } from "./lib.js";',
+      "",
+      "export function run(): number {",
+      "  let total = 0;",
+      "  for (let foo = 0; foo < 3; foo += 1) {",
+      "    total += foo;",
+      "  }",
+      "  return total;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/loop-after.ts": [
+      'import { foo } from "./lib.js";',
+      "",
+      "export function run(items: number[]): number {",
+      "  for (const value of items) {",
+      "    void value;",
+      "  }",
+      "  return foo();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const referencesOf = (file: string): string[] =>
+    (indexed.get(file)?.edges ?? []).filter((edge) => edge.type === "references").map((edge) => edge.to);
+
+  for (const file of ["src/loop-of.ts", "src/loop-in.ts", "src/loop-classic.ts"]) {
+    assert.deepEqual(referencesOf(file), [], `${file}: ciklo kintamasis nėra importuotas \`foo\``);
+  }
+  // Kontrolė BŪTINA: ciklo vardas gyvena tik cikle. Jei jis būtų surenkamas per aplinkinio bloko
+  // sakinius, jis užgožtų ir po ciklo einantį kodą — teisingas atsakymas dingtų kartu su netikru.
+  assert.deepEqual(referencesOf("src/loop-after.ts"), ["src/lib.ts#foo"], "po ciklo `foo` vėl yra importas");
+});
+
+test("`for (const require of …)` nėra CommonJS importas; `var` forma užgožia visą funkciją", async () => {
+  const indexed = await indexSources({
+    "src/loop-cjs.js": [
+      "function run(list) {",
+      "  for (const require of list) {",
+      '    require("./slaptas.js");',
+      "  }",
+      "}",
+      "module.exports = { run };",
+      "",
+    ].join("\n"),
+    // `var` ciklo inicializatoriuje yra FUNKCIJOS apimties, tad jis užgožia ir kvietimą PO ciklo —
+    // hoistinimas nuo to, kad `var` stovi cikle, nedingsta.
+    "src/loop-var.js": [
+      "function run(list) {",
+      "  for (var require of list) {",
+      "    void require;",
+      "  }",
+      '  require("./slaptas2.js");',
+      "}",
+      "module.exports = { run };",
+      "",
+    ].join("\n"),
+    "src/real-cjs.js": 'const helper = require("./helper.js");\nmodule.exports = { helper };\n',
+    "src/helper.js": "module.exports = 1;\n",
+  });
+
+  assert.deepEqual(indexed.get("src/loop-cjs.js")?.file.imports, [], "ciklo `const require` yra eilinis kvietimas");
+  assert.deepEqual(indexed.get("src/loop-var.js")?.file.imports, [], "hoistintas ciklo `var require` užgožia funkciją");
+  assert.deepEqual(indexed.get("src/real-cjs.js")?.file.imports, ["src/helper.js"], "kontrolė: tikras require išlieka");
+});
+
 test("PHP grupiniai ir kelių vardų `use` sakiniai nebenukerpami", () => {
   const result = indexLexicalSource(
     fileOf("src/App.php", "php"),

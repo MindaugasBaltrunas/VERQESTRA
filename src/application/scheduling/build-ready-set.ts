@@ -124,8 +124,14 @@ export type BuildReadySetInput = {
    * raktas `vq/config/token-budget.json`, išlaidos — suma per `vq/logs/token-usage.jsonl`.
    * Ribos nesant paduodamas `undefined`, ir tada abu biudžeto vartai neveikia — tai sąmoninga:
    * `undefined` reiškia „ribos nėra", ne „biudžetas išnaudotas". Tikroji prievarta lieka
-   * dispatch'e (`enforceExecutionBudget`); šis vartas yra planavimo užuomina — „nepradėk to,
-   * už ką negalėsi sumokėti".
+   * dispatch'e — per `authorizeLlmCall` ir mid-dispatch watchdog'ą; šis vartas yra planavimo
+   * užuomina, „nepradėk to, už ką negalėsi sumokėti".
+   *
+   * 2026-08-24 auditas: čia buvo vardijamas `enforceExecutionBudget`, kuris produkcinių kvietėjų
+   * NETURI (kaip ir jo apvalkalas `assertExecutionBudget`) — jį pakeitė aktyvusis
+   * `authorizeLlmCall` kelias. Doc'as, rodantis į mirusį mechanizmą, yra pavojingesnis už jokio
+   * doc'o: skaitytojas, tikrinantis šį teiginį, randa funkciją be kvietėjų ir gali padaryti
+   * išvadą, kad biudžetas nevykdomas — arba prijungti būtent negyvąją pusę.
    */
   budget?: ReadySetBudget;
 };

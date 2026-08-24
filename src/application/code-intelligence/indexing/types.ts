@@ -74,7 +74,14 @@
 // tuščią eilutę ar komentarą (Python juos tarp `@` ir `def` leidžia), o blokas baigiasi ties PIRMA
 // nulinės įtraukos eilute — anksčiau modulio lygio kelių eilučių išraiškos tęsinys patekdavo į
 // ankstesnės funkcijos kūną. Keičiasi simbolių `line`/`endLine`.
-export const codeIndexVersion = "4.5.0";
+// 4.6.0 (2026-08-24 RAG auditas 9): scope modelis atpažįsta CIKLO inicializatorių. `for (const x
+// of …)` inicializatorius yra plikas `VariableDeclarationList`, o abu vardų rinkėjai rėmėsi
+// `ts.isVariableStatement`, tad ciklo kintamasis į scope nepatekdavo NIEKADA. Klydo abu skaitytojai:
+// `for (const foo of items)` duodavo `references` briauną į importuotą `foo`, o
+// `for (const require of list)` — netikrą CommonJS importą į nesantį failą. `var` forma buvo dar
+// platesnė: ji hoistinama į visą funkciją, tad užgoždavo ir kvietimą PO ciklo. Keičiasi
+// `references` ir `imports` briaunos tiems patiems failams.
+export const codeIndexVersion = "4.6.0";
 
 export type CodeIndexLanguage =
   | "typescript"

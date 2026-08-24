@@ -11,11 +11,15 @@
 //     lieka žmogaus approve).
 // Best-effort kontraktas: emisijos klaida niekada negali nutraukti task apdorojimo.
 
-import type { TaskEvent } from "../task-execution/task-events-model.js";
+import { ANALYTICS_SNAPSHOT_STATES, type TaskEvent } from "../task-execution/task-events-model.js";
 import { appendLearningMemoryRecord, readLearningMemoryRecords } from "./learning-memory.js";
 import type { LearningFsPort } from "./ports.js";
 
-const outcomeStates = new Set(["done", "human-review", "error", "failed"]);
+// Terminaliniai perėjimai imami iš `ANALYTICS_SNAPSHOT_STATES` — VIENO šaltinio (2026-08-24,
+// operatoriaus radinys). Iki tol čia gulėjo pažodinė to paties rinkinio kopija, o eksportuotoji
+// konstanta neturėjo nė vieno vartotojo: ta pati taisyklė dviem egzemplioriais, ir būtent tokia
+// pora išsiskiria tyliai — emiteris ir token-analytics snapshot'as imtų skirtingą „run'o pabaigą".
+const outcomeStates = ANALYTICS_SNAPSHOT_STATES;
 const failureStates = new Set(["human-review", "error", "failed"]);
 
 export const failurePatternRecommendationThreshold = 3;

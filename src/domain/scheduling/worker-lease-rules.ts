@@ -15,18 +15,22 @@ export const WORKER_LEASE_SCHEMA_VERSION = 1;
 export const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
 
 /**
- * Kiek laiko lease'o įrašas laikomas po atlaisvinimo (fencing skaitiklio atmintis).
+ * `released` įrašų RETENCIJOS POLITIKOS NĖRA — ir neturi būti (2026-08-24, operatoriaus radinys).
  *
- * BE VYKDYTOJO (įvardyta 2026-08-24, operatoriaus inventorius). Nė vienas kelias `released`
- * įrašų nešveičia, tad realiai jie laikomi AMŽINAI. Kryptis saugi — ilgesnis saugojimas fencing'ui
- * tik geriau, nes ištrintas įrašas leistų `fencing_token` skaitliukui pradėti iš naujo ir senas
- * workeris pratektų pro fencing'ą, — bet `vq/state/worker-leases/` auga be ribos.
+ * Čia gyveno `RELEASED_LEASE_RETENTION_MS` (7 d.) be vykdytojo, laikoma kaip „atidėtas sprendimas
+ * dėl šveitėjo". Abi jos prielaidos buvo klaidingos:
  *
- * Konstanta NEPAŠALINTA sąmoningai: ji yra vienintelis vietoje užrašytas politikos teiginys, o
- * šveitėjo įvedimas TRINA runtime būseną ir gali paliesti fencing'ą, tad reikalauja sprendimo,
- * o ne tylaus pridėjimo. Vieta, kur jis priklausytų — `reapDeadWorkerLeases`.
+ *   1. „`vq/state/worker-leases/` auga be ribos" — NE. Store yra `<worker_id>.json`, o `worker_id`
+ *      yra `w<index>` (`worker-limits.workerIdFor`), ribotas `WAVE_WORKER_HARD_CAP`. Katalogas
+ *      turi po VIENĄ perrašomą failą slot'ui; `reapDeadWorkerLeases` verčia `held` → `released`
+ *      ir failų netrina. Augimo problemos, kuriai šveitėjas buvo skirtas, nėra.
+ *   2. „Sprendimo reikia" — šveitėjas būtų ne neutralus, o ŽALINGAS: `released` įrašas neša
+ *      `fencing_token`, kurį didina kitas to paties slot'o `acquire`. Ištrynus jį prieš pakartotinį
+ *      panaudojimą skaitliukas pradėtų iš naujo ir senas workeris pratektų pro fencing'ą.
+ *
+ * Todėl įrašai laikomi iki slot'o pakartotinio panaudojimo, ir tai yra galutinė taisyklė, o ne
+ * laikinas trūkumas. Jei kada prireiktų valymo, jis privalo IŠSAUGOTI `fencing_token`.
  */
-export const RELEASED_LEASE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type WorkerLeaseStatus = "held" | "released";
 

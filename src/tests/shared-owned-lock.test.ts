@@ -142,7 +142,10 @@ test("LAIKINA pertikrinimo skaitymo klaida neatima mūsų pačių lock'o", async
     },
   };
 
-  const result = await withOwnedLock(flaky, LOCK, TIMING, () => Promise.resolve(void (entered += 1) ?? "ok"));
+  const result = await withOwnedLock(flaky, LOCK, TIMING, () => {
+    entered += 1;
+    return Promise.resolve("ok");
+  });
 
   // Be savo tokeno atpažinimo čia būtų buvęs laukimas iki `timeoutMs` ir klaida, o lock'as
   // būtų blokavęs VISUS iki stale ribos — nors įėjimą turėjome.

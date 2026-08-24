@@ -134,6 +134,14 @@ test("human-review maršrutas: patvirtintas pasiūlymas NEPRITAIKOMAS be žmogau
     // 403, o ne 409: tai ne būsenos konfliktas, o atsisakymas suteikti teisę — pasiūlymas
     // maršrutizuotas į human-review, o UI nėra tas žmogus.
     assert.equal(statusOf(blocked), 403);
+
+    // Žinutė privalo pasakyti, KUR sukurti žymę — bet REPO-RELIATYVIAI. Absoliutus kelias neša
+    // disko raidę, vartotojo vardą ir įdiegimo vietą, t. y. tą patį, ką `free-text-redaction`
+    // sąmoningai kerpa iš bangų vaizdo (2026-08-24 auditas, penktas ratas).
+    const message = JSON.stringify(jsonData(blocked));
+    assert.match(message, /vq\/state\/policy-approvals\//, "kelias privalo likti veiksmingas");
+    assert.doesNotMatch(message, /[A-Za-z]:[\\/]/, "disko raidė į naršyklę neišeina");
+    assert.equal(message.includes(sandbox.projectRoot.replace(/\\/g, "\\\\")), false, "šaknis neišeina");
     // Politikos failas NEPARAŠYTAS: vartai stovi PRIEŠ rašymą, ne po jo.
     await assert.rejects(() => readFile(path.join(sandbox.runtimeRoot, "architecture", "coding-principles.json"), "utf8"));
 

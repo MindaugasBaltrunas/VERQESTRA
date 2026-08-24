@@ -5,6 +5,7 @@
 
 import path from "node:path";
 import { toPrettyJson } from "../../shared/json.js";
+import { toPosixPath } from "../../shared/paths.js";
 import {
   applyPolicyProposal,
   approvePolicyProposal,
@@ -48,10 +49,23 @@ export class ProposalNotApprovedError extends Error {
  * „patvirtindavo" ir pritaikydavo — vartai, kurie patys save galėjo išjungti.
  */
 export class HumanReviewApprovalRequiredError extends Error {
-  constructor(readonly policyFile: string, readonly settingId: string, readonly markerPath: string) {
+  /**
+   * Žymės kelias REPO-RELIATYVUS, ne absoliutus.
+   *
+   * Ši žinutė yra vienintelė šios klaidos klasės, kuri realiai pasiekia naršyklę (`ui-error-mapping`
+   * ją perduoda kaip 403 kūną). Absoliutus kelias ten nešė disko raidę, vartotojo vardą ir įdiegimo
+   * vietą — tą patį, ką `free-text-redaction` sąmoningai kerpa iš bangų vaizdo, o
+   * `ui-error-mapping` antraštė vadina „vidinėmis detalėmis, liekančiomis serverio pusėje"
+   * (2026-08-24 auditas, penktas ratas).
+   *
+   * Aklas redagavimas į `<path>` čia netiktų: žinutės VISA prasmė yra pasakyti, KUR sukurti failą.
+   * Repo-reliatyvus kelias išsaugo veiksmą (operatorius savo šaknį mato Header'yje) ir nieko
+   * neatskleidžia — būtent todėl `free-text-redaction` santykinius kelius palieka matomus.
+   */
+  constructor(readonly policyFile: string, readonly settingId: string, readonly markerRef: string) {
     super(
       `Policy proposal is routed to human-review and cannot be applied from the UI: ${policyFile}/${settingId}. ` +
-        `A human must create the approval marker out-of-band: ${markerPath}`,
+        `A human must create the approval marker out-of-band: ${markerRef}`,
     );
     this.name = "HumanReviewApprovalRequiredError";
   }
@@ -68,9 +82,20 @@ export function humanReviewApprovalMarkerName(policyFile: string, settingId: str
   return `${flatten(policyFile)}__${flatten(settingId)}.approved`;
 }
 
-/** Pilnas žymės kelias (naudojamas ir patikrai, ir klaidos žinutei). */
+/** Pilnas žymės kelias — juo tikrinamas egzistavimas. Į klientą jis NEIŠEINA. */
 export function humanReviewApprovalMarkerPath(runtimeRoot: string, policyFile: string, settingId: string): string {
   return path.join(runtimeRoot, "state", "policy-approvals", humanReviewApprovalMarkerName(policyFile, settingId));
+}
+
+/**
+ * Tas pats kelias REPO-RELIATYVIA posix forma — tai, ką rodo žinutė.
+ *
+ * Šaknis išvedama taip pat, kaip `applyApprovedProposal`: `runtimeRoot` yra `<root>/vq`, tad jo
+ * tėvas yra projekto šaknis. Antros kelio aritmetikos čia neatsiranda.
+ */
+export function humanReviewApprovalMarkerRef(runtimeRoot: string, policyFile: string, settingId: string): string {
+  const absolute = humanReviewApprovalMarkerPath(runtimeRoot, policyFile, settingId);
+  return toPosixPath(path.relative(path.dirname(path.resolve(runtimeRoot)), absolute));
 }
 
 /**
@@ -157,9 +182,15 @@ export async function decidePolicyProposal(
       throw new ProposalNotApprovedError(input.policy_file, input.setting_id);
     }
     if (approved.proposal.routing === "human-review") {
+      // Tikrinama ABSOLIUČIU keliu, o pranešama REPO-RELIATYVIU: patikrai reikia tikslaus kelio,
+      // o žinutė keliauja į naršyklę.
       const markerPath = humanReviewApprovalMarkerPath(runtimeRoot, input.policy_file, input.setting_id);
       if (!(await ports.fs.exists(markerPath))) {
-        throw new HumanReviewApprovalRequiredError(input.policy_file, input.setting_id, markerPath);
+        throw new HumanReviewApprovalRequiredError(
+          input.policy_file,
+          input.setting_id,
+          humanReviewApprovalMarkerRef(runtimeRoot, input.policy_file, input.setting_id),
+        );
       }
     }
     await applyApprovedProposal(ports, runtimeRoot, approved.proposal);

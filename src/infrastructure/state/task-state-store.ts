@@ -28,12 +28,18 @@ import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
  * - `timeoutMs` (45 s) > `staleMs`: kitaip kritusio proceso lock'as išnaudotų mūsų deadline'ą dar
  *   nespėjus jo perimti.
  * - `minRetryMs`/`maxRetryMs` su PILNU jitter'iu: vienu metu startavę laukėjai kitaip liktų fazėje.
+ * - `readAttempts`/`readRetryMs`: `owner.json` skaitymo retry win32 contention atveju. Langas mažas
+ *   sąmoningai — tai ne laukimas eilėje, o vieno syscall'o pakartojimas, kol konkurentas baigia
+ *   trinti katalogą. Ilgesnis retry čia tik pailgintų kritinės sekcijos laukimą nieko neišsprendęs:
+ *   jei po trijų bandymų kelias vis dar neįskaitomas, atsakymas yra „nežinia", ir jis saugus.
  */
 export const taskMoveLockTiming = {
   staleMs: 30_000,
   timeoutMs: 45_000,
   minRetryMs: 20,
   maxRetryMs: 100,
+  readAttempts: 3,
+  readRetryMs: 5,
 } as const;
 
 /** Kiek kolizijos kandidatų bandoma prieš pasiduodant (`task.md`, `task-2.md`, ...). */
@@ -66,11 +72,56 @@ function ownerFile(lockDir: string): string {
   return path.join(lockDir, "owner.json");
 }
 
+/**
+ * Lock'o savininko skaitymo baigtis. TRYS būsenos, o ne dvi, nes „lock'o nėra" ir „lock'o
+ * perskaityti nepavyko" yra PRIEŠINGI atsakymai atlaisvinimo klausimui: pirmas leidžia trinti,
+ * antras — draudžia. Sulieti juos į `undefined` reiškia, kad laikina skaitymo klaida virsta
+ * svetimo lock'o trynimu, t. y. tuo pačiu trečiu rašytoju, kurio šis modulis ir saugosi.
+ */
+export type TaskMoveLockRead =
+  | { state: "owned"; lock: TaskMoveLock }
+  | { state: "absent" }
+  | { state: "unreadable" };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * `owner.json` skaitymas, kuris NIEKADA nemeta.
+ *
+ * Tai ne patogumas, o `shared/lock-steal` `readIdentity` KONTRAKTAS („NIEKADA nemeta:
+ * neįskaitomas lock'as = undefined"). Ankstesnė realizacija jį pažeidė: ji rėmėsi
+ * `readTextFileIfExists`, kuris sąmoningai praleidžia tik ENOENT/EISDIR/ENOTDIR, o win32
+ * delete-pending langas tą pačią lenktynę pateikia kaip EPERM. Rezultatas — `stealStaleLock`
+ * krisdavo per patį pirmą savo žingsnį, ir tai matydavosi tik pilnoje testų serijoje, kur
+ * lenktynės langas platesnis (izoliuotai testas praeidavo visada).
+ *
+ * Contention formos kartojamos trumpai (`readAttempts`), nes jos praeina pačios; visa kita —
+ * įskaitant POSIX teisių klaidą ir sugadintą JSON — virsta `unreadable`. Sugadintas turinys
+ * čia SĄMONINGAI nebėra „nėra savininko": įrodyti nuosavybės jis neleidžia lygiai taip pat,
+ * kaip ir neperskaitytas failas, o toks lock'as vis tiek bus atgautas per stale ribą.
+ */
+async function readTaskMoveLockState(lockDir: string): Promise<TaskMoveLockRead> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const raw = await nodeFsAdapter.readTextFileIfExists(ownerFile(lockDir));
+      if (raw === undefined) return { state: "absent" };
+      const parsed = tryParseJson<TaskMoveLock>(raw);
+      return parsed.ok ? { state: "owned", lock: parsed.value } : { state: "unreadable" };
+    } catch (error: unknown) {
+      if (!isLockContentionError(error) || attempt >= taskMoveLockTiming.readAttempts) {
+        return { state: "unreadable" };
+      }
+      await sleep(taskMoveLockTiming.readRetryMs);
+    }
+  }
+}
+
+/** Tapatybė `lock-steal` kontraktui: neįskaitomas IR nesamas lock'as vienodai — `undefined`. */
 async function readTaskMoveLock(lockDir: string): Promise<TaskMoveLock | undefined> {
-  const raw = await nodeFsAdapter.readTextFileIfExists(ownerFile(lockDir));
-  if (raw === undefined) return undefined;
-  const parsed = tryParseJson<TaskMoveLock>(raw);
-  return parsed.ok ? parsed.value : undefined;
+  const read = await readTaskMoveLockState(lockDir);
+  return read.state === "owned" ? read.lock : undefined;
 }
 
 function lockAgeMs(lock: TaskMoveLock | undefined, fallbackMtimeMs: number, now: number): number {
@@ -100,10 +151,23 @@ async function stealStaleTaskMoveLock(lockDir: string): Promise<void> {
   });
 }
 
+/**
+ * Ar atlaisvinant lock'ą jį galima TRINTI. Gryna, nes tai vienintelė vieta, kur klaida yra
+ * neatstatoma: klaidingai ištrintas svetimas lock'as įleidžia TREČIĄ rašytoją į kritinę sekciją.
+ *
+ * `unreadable` → `keep`. Neperskaitytas savininkas gali būti tas, kuris mūsų lock'ą ką tik perėmė
+ * kaip stale; jo trynimas būtų būtent ta klaida. Neatlaisvintas lock'as nieko neužrakina visam
+ * laikui — jį atgaus stale riba (`staleMs`), o klaidingai ištrintas neatgaunamas niekaip.
+ */
+export function taskMoveLockReleaseDecision(read: TaskMoveLockRead, ourLockId: string): "release" | "keep" {
+  if (read.state === "unreadable") return "keep";
+  if (read.state === "absent") return "release";
+  return read.lock.lock_id === ourLockId ? "release" : "keep";
+}
+
 async function releaseTaskMoveLock(lockDir: string, lock: TaskMoveLock): Promise<void> {
-  const current = await readTaskMoveLock(lockDir);
-  // Besąlyginis trynimas įleistų TREČIĄ rašytoją, jei mūsų lock'ą kas nors jau perėmė kaip stale.
-  if (!current || current.lock_id === lock.lock_id) {
+  const current = await readTaskMoveLockState(lockDir);
+  if (taskMoveLockReleaseDecision(current, lock.lock_id) === "release") {
     await nodeFsAdapter.removeDirectory(lockDir).catch(() => undefined);
   }
 }
@@ -118,7 +182,7 @@ function jitteredBackoff(backoffMs: number): number {
  * gali pateikti kaip laikiną EPERM/EACCES/EBUSY, kai konkurentas kaip tik atlaisvina katalogą. Tie
  * kodai yra contention TIK win32 — kitur teisių klaida yra tikras gedimas ir privalo mesti.
  */
-function isLockContentionError(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+export function isLockContentionError(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
   if (isAlreadyExistsError(error)) return true;
   if (platform !== "win32") return false;
   return isErrnoCode(error, "EPERM") || isErrnoCode(error, "EACCES") || isErrnoCode(error, "EBUSY");

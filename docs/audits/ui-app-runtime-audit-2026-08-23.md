@@ -243,7 +243,7 @@ taisyklė. 500 nukreiptų operatorių ieškoti serverio gedimo vietoje netinkamo
 | `src/tests/application-token-usage-query.test.ts` | filtrai, datos ribos įskaitymas, puslapiavimas nuo žurnalo galo, `?limit=0` |
 | `ui-app/src/model/apiEnvelopes.test.ts` | kliento pusė: vokas be `loop`/`proposals` duoda MATOMĄ klaidą, ne tylią sėkmę |
 
-### Patikros po antro rato
+### Patikros po antro rato (žr. taip pat trečią ratą žemiau)
 
 - `pnpm typecheck` — praeina.
 - `pnpm lint` — praeina.
@@ -253,3 +253,77 @@ taisyklė. 500 nukreiptų operatorių ieškoti serverio gedimo vietoje netinkamo
 - `pnpm typecheck:ui` — praeina.
 - `pnpm test:ui` — praeina, 49/49 failai ir 408/408 testai.
 - `pnpm build:ui` — praeina.
+
+## Trečias ratas: srautas, degradavimas ir wiring (2026-08-24)
+
+Pirmas ratas atidarė pirmą ekraną, antras — sutvarkė užklausų/atsakymų kontraktus. Trečias
+apžiūrėjo tai, ko nelietė nė vienas: **SSE srautą**, **degradavimo kanalą** ir **prijungimą**
+(ar kiekvienas UI paviršiaus įėjimas turi produkcinį kvietėją).
+
+### P0 — SSE praėjimo klaida NUTRAUKDAVO UI SERVERIO PROCESĄ
+
+`createSseHub.checkAndBroadcast` neturėjo `catch`, o taimeris jį paleisdavo per
+`void checkAndBroadcast()`. Vadinasi, bet kuris šaltinio skaitymo gedimas tapdavo **neperimtu
+atmetimu**, o Node 15+ tokį verčia neperimta išimtimi ir **nutraukia procesą**. Tas pats procesas
+aptarnauja dashboard'ą ir valdo loop'ą.
+
+Kelias nėra teorinis. Praėjimas kas 1,5 s skaito `claude-last.log` ir bandymo artefaktus, kuriuos
+**lygiagrečiai rašo vykdytojas**; Windows EBUSY ties tuo failu šiame repo jau dokumentuotas
+(`claude-last-log` dviejų kanalų rašytojas su backoff). Tai reiškia, kad dashboard'as krisdavo
+**aktyvaus dispatch'o metu** — tiksliai tada, kai jo labiausiai reikia. Etalonas turi tą pačią
+spragą (`ui/sse-service.ts:259`), tad tai **etalono spraga**, o taisymas — griežtinantis
+nukrypimas.
+
+Sprendimas: `SsePorts` gavo **privalomą** `logError`; praėjimas ir pirmasis snapshot'as apgaubti
+`catch`. Nepavykęs praėjimas praleidžiamas ir pavadinamas — kitas praėjimas po 1,5 s yra
+natūralus pakartojimas. Kartu ištaisyta smulkesnė to paties kodo klaida: `lastMtimes` žymės buvo
+atnaujinamos **prieš** `activityPayload`, tad jam nukritus pokytis dingtų NEGRĮŽTAMAI; dabar
+žymės rašomos tik sudėjus krovinį. `addClient` nesėkmė nebeišmetama: antraštės jau išsiųstos, tad
+išimtis reikštų srautą, kuris niekada neatiduoda nė vieno kadro.
+
+### P1 — degradavimo kanalas be vartotojo
+
+Pirmas ratas įvedė `/api/dashboard#degraded[]` su komentaru, kad sugadintas artefaktas virsta
+„įvardytu degradavusiu bloku, o ne 500". Bet lauko **nebuvo kliento tipe**, tad vardas niekada
+nepasiekdavo ekrano. Praktinė pasekmė: sugriuvus `control_plane`, `#/reviews` tyliai netekdavo
+politikų valdiklių, o **`#/learning` rodydavo TIK antraštę ir tuščią lapą** — tas pats tylus
+gedimas, kurį visas šis auditas ir uždarinėja, tik vieno ekrano dydžio.
+
+Sprendimas: `degraded` įtrauktas į `DashboardData`, kontroleris jį perduoda, `DashboardPage` rodo
+įvardytą pranešimą (ta pati forma kaip `WavesPanel`), o `#/learning` be control-plane bloko gauna
+aiškią būseną su „bandyti dar kartą", ne tuščią lapą.
+
+### Radinys, PALIKTAS OPERATORIUI: UI autostart neprijungtas
+
+`interfaces/http/ui-lifecycle.ts` (170 eil.: `ensureUiRunning`, `uiPidFile`, `UI_AUTOSTART_ENV`,
+starto malonės langas) yra pilnai perkeltas ir ištestuotas, bet **produkcinių kvietėjų turi nulį** —
+tik testus. Etalone jį kviečia `interfaces/cli/claude-loop/index.ts:516`, iš karto po prielaidų
+vartų: `verqestra loop` ten pakelia dashboard'ą pats. VERQESTRA'oje to kvietimo nėra, tad
+operatorius, paleidęs ciklą, dashboard'o negauna, kol nepaleidžia `verqestra ui` ranka.
+
+**Nepritaikiau sąmoningai.** Prijungimas priverstų `verqestra loop` spawn'inti atsietą serverio
+procesą, užimti prievadą ir perrašyti `vq/state/ui-server.json` — išorinis, sunkiai atšaukiamas
+šalutinis efektas komandai, kurios auditas neapima, o repo šiuo metu sukioja lygiagreti sesija.
+Tai sprendimas operatoriui, ne tylus pataisymas. Tai **septintas** šio repo „mechanizmas be
+wiring'o" atvejis.
+
+Smulkiau: `useDashboardController.logBytes` buvo skaičiuojamas be nė vieno vartotojo — ištrintas.
+`adaptOverview` gamina 6 metrikas, o `#/` rodo `.slice(0, 4)` (paskutinės dvi — „Latest activity",
+„Stable commit" — niekur nepatenka). Tai **etalono elgesys 1:1** (`DashboardPage.tsx:181` ten pat),
+tad palikta kaip produkto sprendimas, ne kaip klaida.
+
+### Vartai (trečias ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `src/tests/interfaces-http-sse.test.ts` (+2) | šaltinio klaida NEIŠEINA iš hub'o nei tiesioginiame, nei TAIMERIO kelyje; ji pavadinama; klientas lieka prijungtas; pokytis NEPRARANDAMAS ir atkeliauja kitame praėjime; pirmo snapshot'o klaida palieka ryšį atvirą |
+| `ui-app/src/dashboardSmoke.test.tsx` (+2) | degradavęs šaltinis PAVADINAMAS ekrane; `#/learning` be control-plane bloko rodo įvardytą būseną, ne tuščią lapą |
+
+### Patikros po trečio rato
+
+- `pnpm typecheck`, `pnpm lint`, `pnpm typecheck:ui` — praeina.
+- `pnpm test` — praeina, **1533/1533** (lygiagrečios sesijos kritimai irgi uždaryti).
+- `pnpm test:ui` — praeina, 49/49 failai ir **410/410** testai.
+- `pnpm build:ui` — praeina.
+- Realus atidarymas naršyklėje — **vis dar nepatikrintas** (toolchain'e nėra headless naršyklės, o
+  `ui` komandos paleidimo neleidžia bash politika). Įrodymą turi pridėti operatorius.

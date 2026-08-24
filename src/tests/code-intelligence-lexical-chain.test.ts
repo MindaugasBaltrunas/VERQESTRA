@@ -18,6 +18,7 @@ import { queryCodeGraph } from "../application/code-intelligence/query/query.js"
 import { findArchitectureBoundaryViolations } from "../application/code-intelligence/boundary/architecture-boundary.js";
 import { readCodeIndex } from "../application/code-intelligence/store/code-index-store.js";
 import { isTestPath } from "../application/code-intelligence/indexing/scanner.js";
+import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
 import { nodeFsTestPort } from "./helpers/node-fs-port.js";
 
 async function world(files: Record<string, string>): Promise<string> {
@@ -150,6 +151,69 @@ test("CommonJS `.cjs` faile require ir module.exports duoda importus, eksportus 
         assert.ok(entry?.symbols.includes(name), `${file}: eksportas ${name} be simbolio duotų kabančią briauną`);
       }
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/** Portas, kuris atsisako perskaityti nurodytus kelius — teisių problema arba lenktynė su trynimu. */
+function portRefusing(suffixes: readonly string[]): CodeIntelligenceFileSystemPort {
+  return {
+    ...nodeFsTestPort,
+    readTextFile: async (absolute: string) => {
+      const normalized = absolute.split("\\").join("/");
+      if (suffixes.some((suffix) => normalized.endsWith(suffix))) {
+        throw new Error(`EACCES: ${normalized}`);
+      }
+      return nodeFsTestPort.readTextFile(absolute);
+    },
+  };
+}
+
+// Leksinio ŠALTINIO skaitymo klaida privalo būti GARSI — kaip TypeScript kelyje.
+//
+// Iki 2026-08-23 abu keliai naudojo tą pačią tolerantišką funkciją, tad leksinis failas, kurio
+// nebepavyko perskaityti, likdavo indekse be importų ir simbolių, o TypeScript failas tokiu atveju
+// metė. Dvi to paties gedimo elgsenos viename indekse reiškia, kad pusė jo gali būti tyliai tuščia.
+//
+// 2026-08-24: patikrinta mutacija — grąžinus rijimą VISI 1614 testų liko žali, tad apsauga buvo
+// be sargybinio. Šis testas jį pastato.
+test("neperskaitomas leksinis ŠALTINIS nutraukia build'ą, o ne tyliai ištuština failą", async () => {
+  const root = await world({ "src/main.py": "def run():\n    return 1\n" });
+  try {
+    await assert.rejects(
+      () => buildCodeIndex(portRefusing(["src/main.py"]), root),
+      /EACCES/,
+      "pusiau tuščias indeksas, atrodantis pilnas, yra blogiau nei garsi klaida",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ta pati elgsena TypeScript kelyje — vienas gedimas, vienas atsakymas", async () => {
+  const root = await world({ "src/main.ts": "export const a = 1;\n" });
+  try {
+    await assert.rejects(
+      () => buildCodeIndex(portRefusing(["src/main.ts"]), root),
+      "TypeScript kelias metė visada; leksinis privalo elgtis TAIP PAT",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("neperskaitomas composer.json NĖRA klaida — tolerancija galioja TIK konfigui", async () => {
+  const root = await world({
+    "composer.json": JSON.stringify({ autoload: { "psr-4": { "App\\": "src/" } } }),
+    "src/Service.php": "<?php\nnamespace App;\n\nclass Service {}\n",
+  });
+  try {
+    const index = await buildCodeIndex(portRefusing(["composer.json"]), root);
+    assert.ok(
+      index.files.some((file) => file.path === "src/Service.php"),
+      "be PSR-4 žemėlapio importai tiesiog lieka kvalifikuotais vardais, bet build'as tęsiasi",
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

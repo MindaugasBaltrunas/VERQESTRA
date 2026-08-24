@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LoopControlData, LoopSlotData } from "./types";
+import type { DashboardData, LoopControlData, LoopSlotData } from "./types";
 import {
   adaptLoopControl,
   adaptOverview,
@@ -8,6 +8,48 @@ import {
   sanitizeLogLine,
   statusVariant,
 } from "./dashboardViewModel";
+
+describe("stop įrodymo kilmė ir korupcija", () => {
+  // 2026-08-24: serveris `stopStatusSource`/`stopStatusCorrupted` siunčia nuo pirmo audito rato su
+  // komentaru „kilmė rodoma, o ne nutylima" — bet klientas jų NESKAITĖ. Sugadintas įrodymas ekrane
+  // atrodė kaip tuščias „pending", nors tai priešingi faktai: pirmu atveju įrodymas RASTAS ir
+  // neperskaitomas (serveris sąmoningai nenusileidžia prie legacy veidrodžio), antru — jo nėra.
+  const base = (over: Partial<DashboardData>): DashboardData => ({
+    root: "/repo",
+    currentTaskId: null,
+    currentTaskFile: null,
+    claudeExit: null,
+    stableRef: null,
+    stopStatus: {},
+    decision: {},
+    supervisorResume: {},
+    claudeResume: {},
+    runtime: [],
+    claudeLogUpdatedAt: null,
+    claudeLogBytes: null,
+    workflowBuckets: [],
+    ...over,
+  });
+
+  it("sugadintas įrodymas pavadinamas ir dažomas klaida", () => {
+    const metric = adaptOverview(base({ stopStatusCorrupted: true, stopStatusSource: "attempt" }))[1];
+    expect(metric?.label).toBe("Stop status (unreadable)");
+    expect(metric?.value).toBe("corrupted");
+    expect(metric?.variant).toBe("error");
+  });
+
+  it("kilmė pasiekiama: `legacy` gali priklausyti KITAM task'ui", () => {
+    const metric = adaptOverview(base({ stopStatus: { status: "done" }, stopStatusSource: "legacy" }))[1];
+    expect(metric?.title).toBe("source: legacy");
+    expect(metric?.variant).toBe("good");
+  });
+
+  it("senas `dist` be kilmės laukų elgesio nekeičia", () => {
+    const metric = adaptOverview(base({ stopStatus: { status: "done" } }))[1];
+    expect(metric?.label).toBe("Stop status");
+    expect(metric?.title).toBeUndefined();
+  });
+});
 
 describe("dashboardViewModel", () => {
   it("removes ANSI control sequences and bounds oversized log lines", () => {

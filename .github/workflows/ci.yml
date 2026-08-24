@@ -33,3 +33,15 @@ jobs:
       - run: pnpm typecheck:ui
       - run: pnpm test:ui
       - run: pnpm build:ui
+      # `mobile-gateway` — irgi atskiras workspace paketas su savo tsconfig ir savo testais, tad
+      # šaknies `pnpm typecheck` jo nemato. Be šio žingsnio CI nepamatė, kad versijuotas kodas
+      # importuoja failus, kurių repo'je NĖRA: `request-rate-limiter.ts` ir `worktree-lifecycle.ts`
+      # kurį laiką egzistavo tik darbo medyje, tad švarus klonas nebūtų kompiliavęsis, o lokalus
+      # typecheck buvo žalias vien dėl to, kad failai gulėjo diske. Būtent tai ir aprašo dvi
+      # eilutės aukščiau: paketas, kurio niekas nepaleidžia, nustoja būti įrodymu.
+      #
+      # `mobile-app` ir `mobile-app/native` čia SĄMONINGAI neįtraukti: `mobile-app/src` kol kas
+      # tuščias (`tsc` grąžina TS18003 „No inputs were found"), tad jų žingsnis kristų dėl
+      # nepastatyto paketo, ne dėl regresijos. Įtraukti juos verta tada, kai turės ką tikrinti.
+      - run: pnpm typecheck:mobile
+      - run: pnpm test:mobile

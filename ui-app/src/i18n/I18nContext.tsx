@@ -463,6 +463,8 @@ const lt: Record<string, string> = {
   "Current task": "Dabartinė užduotis",
   "Stale task state": "Pasenusi užduoties būsena",
   "Stop status": "Stop būsena",
+  // 2026-08-24: sugadintas įrodymas nebeslepiamas už tuščio „pending".
+  "Stop status (unreadable)": "Stop būsena (neperskaitoma)",
   "Decision": "Sprendimas",
   "Claude result": "Claude rezultatas",
   "Latest activity": "Paskutinis aktyvumas",

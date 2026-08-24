@@ -88,8 +88,8 @@ async function indexLexical(
   // Skaitymo klaida PROPAGUOJAMA — lygiai kaip TypeScript kelyje. Failas, kurį ką tik nuskenavome,
   // bet nebegalime perskaityti, reiškia arba lenktynę, arba teisių problemą; abiem atvejais
   // pusiau tuščias indeksas, atrodantis pilnas, yra blogiau nei garsi klaida.
-  const text = await readOptionalConfig(fs, path.join(projectRoot, file.path));
-  return text === undefined ? undefined : indexLexicalSource(file, text, context);
+  const text = await fs.readTextFile(path.join(projectRoot, file.path));
+  return indexLexicalSource(file, text, context);
 }
 
 function deriveTestEdges(files: CodeIndexFile[]): CodeIndexEdge[] {

@@ -209,6 +209,16 @@ export type DashboardData = {
   claudeExit: string | null;
   stableRef: string | null;
   stopStatus: { status?: string; reason?: string };
+  /**
+   * Kuris stop įrodymas priimtas: `attempt` (šio bandymo `stop-state.json`), `legacy` (globalus
+   * veidrodis, galintis priklausyti KITAM task'ui) ar `none`.
+   *
+   * Neprivalomi dėl senesnio `dist`, bet PRIVALOMI prasmei: serveris juos siunčia su komentaru
+   * „kilmė rodoma, o ne nutylima", ir iki 2026-08-24 tai buvo pažadas, kurio klientas nevykdė.
+   */
+  stopStatusSource?: string;
+  /** Įrodymas RASTAS, bet neperskaitomas. Serveris tokiu atveju SĄMONINGAI nenusileidžia prie legacy. */
+  stopStatusCorrupted?: boolean;
   decision: { verdict?: string; reason?: string };
   supervisorResume: ResumeSummary;
   claudeResume: ResumeSummary;

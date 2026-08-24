@@ -155,9 +155,26 @@ export class TerminalSupervisor {
         await core.syncRegistry(runtime);
         return snapshotOf(runtime);
       } catch (error) {
-        if (runtime?.session.state === "starting") {
-          runtime.session = transitionTerminalSession(runtime.session, "failed");
-          core.emitSessionState(runtime, "terminal start failed");
+        if (runtime !== undefined) {
+          // `terminals.start` galėjo PAVYKTI, o kristi tai, kas eina po jo (`processes.identify`).
+          // Tada PTY jau gyvas, o `catch` iki 2026-08-24 nuimdavo tik `activeSessionId`: procesas
+          // likdavo be jokio valdytojo, lease galiojantis, o kitas kvietimas paleisdavo ANTRĄ
+          // seansą — atkurta kaip `starts=2, closes=0`, nors hostui deklaruotas vienas.
+          //
+          // Uždarymas eina PIRMAS ir tyliai: jo nesėkmė negali užgožti tikrosios starto klaidos,
+          // o handle, kurio uždaryti nepavyko, vis tiek nebeturi kam priklausyti.
+          if (runtime.handle !== undefined) {
+            await runtime.handle.close().catch(() => undefined);
+          }
+          if (runtime.session.state === "starting") {
+            runtime.session = transitionTerminalSession(runtime.session, "failed");
+            core.emitSessionState(runtime, "terminal start failed");
+          }
+          // Lease atšaukiamas TUO PAČIU `revokeTerminalLease`, kaip ir įprastame uždaryme: nesėkmingas
+          // startas negali palikti galiojančios nuosavybės seansui, kurio nebėra.
+          runtime.lease = revokeTerminalLease(runtime.lease, core.clock());
+          core.emitLease(runtime);
+          await core.syncRegistry(runtime).catch(() => undefined);
         }
         core.activeSessionId = undefined;
         if (error instanceof TerminalSupervisorError) throw error;

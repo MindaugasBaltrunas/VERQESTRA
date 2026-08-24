@@ -834,6 +834,56 @@ klaida, nes `deepEqual([], [])` būtų sutapimas be turinio.
 - `pnpm test` — **1614/1614**; `pnpm test:ui` — 53/53 failai, **436/436**.
 - `pnpm typecheck:ui` — praeina.
 
+## Tryliktas ratas: „ar visi duomenys atvaizduojami ir visi API veikia?" (2026-08-24)
+
+Operatoriaus klausimas. Atsakymas į pirmą dalį — **ne**, ir žemiau yra sąrašas.
+
+### API: visi 21 maršrutas turi kvietėją
+
+Dešimt `GET` ir vienuolika `POST`. Kiekvienas turi klientą, o jų atsakymų formos sulygintos
+antrame rate (vokai) ir penktame–šeštame (gilūs DTO). Vienintelė išimtis — `/api/logs`, kurio
+`ui-app` nekviečia SĄMONINGAI: jis pridėtas `mobile-gateway` adapteriui.
+
+### Duomenys: maždaug trečdalis krovinio niekur nerodomas
+
+`/api/dashboard` kas 30 s siunčia laukus, kuriuos klientas numeta:
+
+| Laukas | Būsena |
+|---|---|
+| `stopStatusSource`, `stopStatusCorrupted` | **IŠTAISYTA šiame rate** — žr. žemiau |
+| `stableRef`, `claudeLogUpdatedAt` (per `claudeResume.updated_at`) | patenka į apžvalgos metrikas #5–#6, kurias `OverviewPanel metrics={overview.slice(0, 4)}` nukerpa |
+| `claudeLogBytes`, `claudeLogSource` | be vartotojo (`logBytes` ištrintas trečiame rate) |
+| `queueCounts`, `statusFiles` | be vartotojo |
+| `supervisorResume` | tik validuojamas kontrakto patikroje, niekur nerodomas |
+| `controlPlane.config_controls` | be vartotojo — git automatikos valdikliai neturi panelės |
+| `controlPlane.loop_controls` | be vartotojo — klientas ciklo maršrutus žino pats |
+| `controlPlane.stack_decision` | be vartotojo |
+| `controlPlane.live_slots` | be vartotojo (aštuntame rate prijungtas SSE `slots[]`, ne šis) |
+| `controlPlane.token_budget` | be vartotojo — `buildSlotProgressViews` `budgets` sąmoningai negauna |
+| benchmark `report.compression` | be vartotojo (šeštas ratas) |
+
+Didžioji dalis jų yra **nepadarytos funkcijos**, ne klaidos: kad `token_budget` būtų rodomas,
+reikia biudžeto juostos; kad `config_controls` — git politikos panelės. Tai produkto darbas, ne
+audito, ir jis įvardytas, o ne tyliai padarytas.
+
+### IŠTAISYTA: kodo paties pažadas, kurio jis nevykdė
+
+`stopStatusSource` serveryje turi komentarą „kilmė rodoma, o ne nutylima", o `stopStatusCorrupted`
+reiškia, kad įrodymas RASTAS, bet neperskaitomas — būseną, kurioje serveris SĄMONINGAI nenusileidžia
+prie globalaus veidrodžio. Klientas nė vieno jų neskaitė, tad:
+
+- sugadintas įrodymas ekrane atrodė kaip tuščias `pending` — priešingas faktas;
+- `legacy` kilmė (įrodymas gali priklausyti KITAM task'ui) buvo nematoma, ir operatorius darydavo
+  išvadą iš svetimo įrodymo to nežinodamas.
+
+Dabar: sugadintas įrodymas gauna savo etiketę ir `error` toną, o kilmė — `title`. Senas `dist` be
+šių laukų elgesio nekeičia.
+
+### Patikros po trylikto rato
+
+- `pnpm test` — **1617/1617**; `pnpm test:ui` — 53/53 failai, **439/439** (+3).
+- `pnpm typecheck:ui`, `pnpm build:ui` — praeina.
+
 ### Patikros po aštunto rato
 
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.

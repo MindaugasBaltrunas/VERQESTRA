@@ -104,9 +104,15 @@ export function adaptOverview(data: DashboardData): OverviewMetric[] {
       variant: currentTaskIsStale ? "warning" : data.currentTaskState === "active" ? "live" : "neutral",
     },
     {
-      label: "Stop status",
-      value: stopText,
-      variant: statusVariant(data.stopStatus.status),
+      // Sugadintas įrodymas NĖRA „nėra įrodymo": serveris jį rado, bet perskaityti negalėjo, ir
+      // SĄMONINGAI nenusileido prie globalaus veidrodžio. Rodyti tuščią „pending" reikštų paslėpti
+      // būtent tą faktą, dėl kurio attempt namespace'as apskritai egzistuoja.
+      label: data.stopStatusCorrupted ? "Stop status (unreadable)" : "Stop status",
+      value: data.stopStatusCorrupted ? "corrupted" : stopText,
+      // Kilmė rodoma, o ne nutylima: `legacy` reiškia, kad įrodymas gali priklausyti KITAM task'ui,
+      // ir operatorius turi tai matyti prieš darydamas išvadą.
+      ...(data.stopStatusSource === undefined ? {} : { title: `source: ${data.stopStatusSource}` }),
+      variant: data.stopStatusCorrupted ? "error" : statusVariant(data.stopStatus.status),
     },
     {
       label: "Decision",

@@ -75,8 +75,63 @@ test("bash politika: --dir leidžia benchmark:smoke, bet ne mokamas ar rašanči
   // Kelio ribos nepasikeitė kartu su script'o vardu.
   assert.ok(evaluateBashCommandPolicy("pnpm --dir ../outside benchmark:smoke").blockedPattern);
   assert.ok(evaluateBashCommandPolicy("pnpm --dir C:/tmp benchmark:smoke").blockedPattern);
-  // Ir svarbiausia: generuoto hook runtime denylist'as liko nepaliestas.
-  assert.match(evaluateBashCommandPolicy("node dist/cli.js benchmark validate").blockedPattern ?? "", /dist[\\/]cli\.js/);
+});
+
+// 2026-08-24, operatoriaus sprendimas: `benchmark` per sugeneruotą CLI. Testas gina ne tai, kad
+// plyšys veikia, o tai, ko jis NEĮLEIDŽIA — mokama forma be `--scenario`/`--repetitions 1` ir
+// bet kuri kita subkomanda privalo likti už denylist'o.
+test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subkomandos", () => {
+  const blocked = (command: string): string => evaluateBashCommandPolicy(command).blockedPattern ?? "";
+
+  // Nemokamos formos.
+  assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark validate").blockedPattern, undefined);
+  assert.equal(
+    evaluateBashCommandPolicy("node dist/cli.js benchmark run --dry-run --mode deterministic-control --json").blockedPattern,
+    undefined,
+  );
+
+  // Mokama forma — leidžiama TIK su abiem apimties ribomis.
+  assert.equal(
+    evaluateBashCommandPolicy(
+      "node dist/cli.js benchmark run --allow-network --mode ag-loop --scenario bugfix-i18n-missing-key --repetitions 1",
+    ).blockedPattern,
+    undefined,
+  );
+
+  // BENCH-9: visi rinkinio scenarijai nedeterministiniai, tad 3 repeticijos yra GRINDYS.
+  assert.equal(
+    evaluateBashCommandPolicy(
+      "node dist/cli.js benchmark run --allow-network --mode ag-loop --scenario bugfix-i18n-missing-key --repetitions 3",
+    ).blockedPattern,
+    undefined,
+  );
+
+  // Trūkstant bet kurios iš trijų apimties ribų mokama forma NEPRAEINA — apimtis yra politikos
+  // savybė, ne kviečiančiojo pažadas.
+  assert.match(blocked("node dist/cli.js benchmark run --allow-network"), /dist[\\/]cli\.js/);
+  assert.match(
+    blocked("node dist/cli.js benchmark run --allow-network --scenario x --repetitions 3"),
+    /dist[\\/]cli\.js/,
+    "be --mode paleistų VISUS režimus, du iš jų mokami",
+  );
+  assert.match(
+    blocked("node dist/cli.js benchmark run --allow-network --mode ag-loop --repetitions 3"),
+    /dist[\\/]cli\.js/,
+    "be --scenario paleistų visą rinkinį",
+  );
+  assert.match(blocked("node dist/cli.js benchmark run --live --mode ag-loop --scenario x"), /dist[\\/]cli\.js/);
+  assert.match(blocked("node dist/cli.js benchmark run --live --mode ag-loop --scenario x --repetitions 5"), /dist[\\/]cli\.js/);
+  assert.match(
+    blocked("node dist/cli.js benchmark run --live --mode ag-loop --scenario x --repetitions 12"),
+    /dist[\\/]cli\.js/,
+    "1 nėra 12 prefiksas",
+  );
+
+  // Kitos subkomandos ir rašantys flag'ai lieka uždrausti.
+  assert.match(blocked("node dist/cli.js loop"), /dist[\\/]cli\.js/);
+  assert.match(blocked("node dist/cli.js benchmark report --out r.md"), /dist[\\/]cli\.js/);
+  assert.match(blocked("node dist/cli.js benchmark baseline create --out b.json"), /dist[\\/]cli\.js/);
+  assert.match(blocked("node dist/cli.js benchmark validate; node dist/cli.js loop"), /dist[\\/]cli\.js/);
 });
 
 test("bash politika: saugomi runtime keliai — vq ir AG formos, dist runtime, inline executor", () => {

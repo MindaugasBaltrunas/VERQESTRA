@@ -36,10 +36,45 @@ const readmeGuardEvidenceRegex =
 const inlineExecutorRegex =
   /\b(?:node|python3?|py|perl|ruby|pwsh|powershell|cmd|bash|sh)\b\s+(?:-enc(?:odedcommand)?\b|-[ce]\b|\/c\b)/i;
 
+/**
+ * `benchmark` per sugeneruotą CLI (2026-08-24, operatoriaus sprendimas).
+ *
+ * Kodėl išimties apskritai reikia: benchmark'as matuoja orkestratorių, tad į jį patenkama tik
+ * per tą patį `dist/cli.js`, kurį saugo `generatedHookRuntimeRegex`. Draudimas taikomas
+ * VISOMS komandoms, mininčioms tą kelią, tad be išimties benchmark'o paleisti negali niekas,
+ * išskyrus žmogų. Denylist'as NEsusilpnintas — pridėtas įrašas į tą patį išimčių sąrašą,
+ * kuriuo jau leidžiami `npm run build` ir `tsc`.
+ *
+ * Riba brėžiama ties APIMTIMI, ne ties pasitikėjimu. Mokamas variantas REIKALAUJA (lookahead'ai,
+ * ne leidimas) `--scenario <id>` ir `--repetitions 1`, o žodyne kitokio repeticijų skaičiaus
+ * nėra — tad „viena celė" yra politikos savybė, o ne kviečiančiojo pažadas. Taip pat:
+ *
+ *   - leidžiamos TIK `validate` ir `run`. `loop`, `dispatch` ir visa kita lieka uždrausta;
+ *   - reikšmę imantys `--out`/`--baseline` NEleidžiami — `--out` yra laisvo kelio rašymas
+ *     (ta pati priežastis, dėl kurios jie neleidžiami `ag optimization-benchmark` eilutėje);
+ *   - `baseline create`, `compare`, `report`, `verify` neįtraukti: pirmi trys rašo, o
+ *     `verify` perskaičiuoja akceptą — nė vieno jų šiam sprendimui neprireikė.
+ */
+const allowedBenchmarkCliCommands = [
+  // Nemokamos formos: `validate` tik skaito, `run --dry-run` išsprendžia planą ir nevykdo nieko.
+  // `--allow-network` čia NĖRA, tad ši eilutė negali tapti mokamu keliu.
+  /^node\s+dist[\\/]cli\.js\s+benchmark\s+(?:validate|run)(?:\s+(?:--dry-run|--json|--(?:mode|scenario)\s+[\w-]+))*$/i,
+  // Mokama forma — TIK vienas scenarijus, vienas režimas, ir tik BENCH-9 leidžiamas repeticijų
+  // skaičius. Visi trys reikalaujami lookahead'ais, ne leidžiami: be `--mode` paleistų VISUS
+  // režimus (du iš jų mokami), be `--scenario` — visą rinkinį.
+  //
+  // Kodėl `1|3`, o ne vien `1` (2026-08-24, empirinis radinys): visi 24 rinkinio scenarijai yra
+  // `deterministic: false`, o BENCH-9 tokius reikalauja kartoti bent 3 kartus. `--repetitions 1`
+  // atmetamas sprendžiant planą (`validationFailed`), tad riba, leidusi tik `1`, mokamo rato
+  // neleido NIEKADA. `3` yra grindys, ne pasirinkimas; didesnis skaičius į žodyną nepatenka.
+  /^(?=.*\s--scenario\s+[\w-]+)(?=.*\s--mode\s+[\w-]+)(?=.*\s--repetitions\s+[13](?!\d))node\s+dist[\\/]cli\.js\s+benchmark\s+run(?:\s+(?:--(?:allow-network|live|json)|--(?:mode|scenario)\s+[\w-]+|--repetitions\s+[13](?!\d)))+$/i,
+];
+
 const allowedGeneratedHookRuntimeCommands = [
   /\bnpm\s+run\s+build\b/i,
   /\bnpm\s+run\s+typecheck\b/i,
   /\btsc\b.*(?:-p|--project)\s+tsconfig\.json\b/i,
+  ...allowedBenchmarkCliCommands,
 ];
 
 const allowedCommandSegments = [
@@ -114,6 +149,9 @@ const allowedCommandSegments = [
   // pnpm leidžia script'us kviesti be "run" — agentų doc (pvz. audit-director) naudoja šią formą.
   /^pnpm\s+(?:typecheck|lint|test:architecture|check|format:check)\b/i,
   /^node\s+--test(?!.*--(?:require|loader|import|env-file|experimental-loader)\b)/i,
+  // Denylist'o išimtis viena pati neleidžia nieko: komanda privalo praeiti IR allowlist'ą.
+  // Šablonai tie patys, tad plyšys yra vienas, o ne du, galintys tyliai išsiskirti.
+  ...allowedBenchmarkCliCommands,
   /^tsc\b.*(?:--noEmit|-p\b|--project\b|-b\b)/i,
   // PowerShell Get-* verb pagal konvenciją yra read-only; Select/Sort/Format/Out-String — pipeline formatavimas.
   /^Get-[A-Za-z][\w-]*\b/i,

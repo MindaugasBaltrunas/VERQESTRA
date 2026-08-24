@@ -80,6 +80,19 @@ export function AnalyticsDecisionPanel({ comparison, rework, isPartial }: Props)
           {!rework.isExact && rework.metadataCoverage > 0 && (
             <small>{t("Exact retry metadata coverage")}: {percent(rework.metadataCoverage)}</small>
           )}
+          {/* „Kiek" be „kodėl" pasako, kad problema yra, bet ne kur ji yra: 40 pakartojimų dėl
+              `rate-limit` ir 40 dėl `gate-failed` reikalauja priešingų veiksmų. Rodomos trys
+              dažniausios — pilnas sąrašas priklauso žurnalui, ne suvestinei. Kodai NEVERČIAMI. */}
+          {rework.retryReasons.length > 0 && (
+            <small className="rework-reasons">
+              {t("Why")}:{" "}
+              {rework.retryReasons.slice(0, 3).map((entry) => (
+                <span key={entry.reason}>
+                  <code>{entry.reason}</code> {entry.count}{" "}
+                </span>
+              ))}
+            </small>
+          )}
         </article>
       </div>
     </section>

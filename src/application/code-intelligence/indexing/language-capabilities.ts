@@ -112,6 +112,22 @@ export function indexedCodeExtensions(): Set<string> {
   return new Set(codeIndexLanguageCapabilities.flatMap((capability) => capability.extensions));
 }
 
+/**
+ * Plėtiniai, kuriuos aptarnauja ECMAScript AST kelias (TypeScript + JavaScript).
+ *
+ * Išvedama IŠ REGISTRO, o ne surašoma antrą kartą (2026-08-24, operatoriaus radinys). `code-map`
+ * turėjo savo sąrašą, ir jis jau buvo atsilikęs: `.mts` ir `.cts` registre yra nuo pat pradžių, bet
+ * į code-map skenavimą nepateko. Pasekmė tyli ir būtent tokia, kokios saugomasi — tokio failo NĖRA
+ * nei diagramoje, nei aprėpties VARDIKLYJE, tad `--check` gali skelbti 100 %, kai dalis medžio
+ * apskritai neapžiūrėta. Vienas sąrašas dviejose vietose anksčiau ar vėliau išsiskiria; čia jis
+ * išsiskyrė tyliai.
+ */
+export function ecmascriptExtensions(): string[] {
+  return codeIndexLanguageCapabilities
+    .filter((capability) => capability.language === "typescript" || capability.language === "javascript")
+    .flatMap((capability) => capability.extensions);
+}
+
 /*
  * `sourceHashLanguages()` PAŠALINTA 2026-08-23 (operatoriaus radinys).
  *

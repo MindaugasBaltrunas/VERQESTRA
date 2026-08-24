@@ -14,7 +14,6 @@ import type {
   CliPort,
   DecisionReadResult,
   FailurePort,
-  JsonReadResult,
   LogPort,
   RepairPromptPort,
   ResumeStateSnapshot,
@@ -45,7 +44,7 @@ import { readTaskRepairPrompt, removeTaskRepairPrompt } from "../../infrastructu
 import { recordResumeCheckpoint } from "../../infrastructure/state/resume-checkpoint.js";
 import type { AttemptResolutionPort } from "../../infrastructure/state/attempt-resolution.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
-import { appendLogLine } from "./adapters.js";
+import { appendLogLine, readJsonSnapshot } from "./adapters.js";
 import { taskLedgerStore } from "../runtime/node-adapters.js";
 import { readOptionalFile } from "../quality/diagnose-adapters.js";
 import { run } from "../../infrastructure/process/run-process.js";
@@ -220,16 +219,8 @@ export function coordinatorJournalPort(input: CoordinatorAdapterInput): TaskJour
   };
 }
 
-/** Vieno JSON dokumento skaitymas su AIŠKIU „sugadintas" atsakymu (ne tuščia reikšme). */
-async function readJsonSnapshot<T>(absolutePath: string): Promise<JsonReadResult<T>> {
-  const raw = await nodeFsAdapter.readTextFileIfExists(absolutePath);
-  if (raw === undefined || raw.trim() === "") return { status: "ok", value: {} as T };
-  const parsed = tryParseJson<T>(raw);
-  if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
-    return { status: "corrupted", error: `unreadable JSON: ${absolutePath}` };
-  }
-  return { status: "ok", value: parsed.value };
-}
+// `readJsonSnapshot` iškelta į `adapters.ts` (2026-08-24): jos prireikė ir retry guard'ui, o
+// antra kopija būtų buvusi tas pats dvigubas atsakymas, kurį šis skaitytojas ir taiso.
 
 /** Runtime būsena: sprendimas, stop statusas, resume, einamasis task'as ir baseline. */
 export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeStatePort {

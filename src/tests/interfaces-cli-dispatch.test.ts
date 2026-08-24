@@ -313,7 +313,10 @@ function retryGuardDeps(overrides: Partial<RetryGuardCommandDeps> = {}): {
   const legacy: string[] = [];
   const deps: RetryGuardCommandDeps = {
     ensureDirs: async () => {},
-    readDecision: async () => ({ verdict: "repair", task_id: "0042", retry_key: "type-error" }),
+    readDecision: async () => ({
+      status: "ok" as const,
+      decision: { verdict: "repair", task_id: "0042", retry_key: "type-error" },
+    }),
     counts: {
       read: async () => ({ ...counts }),
       update: async (mutate) => {
@@ -345,11 +348,19 @@ function retryGuardDeps(overrides: Partial<RetryGuardCommandDeps> = {}): {
 }
 
 test("retry-guard: ne-repair skip, trūkstamas taskId → 1, skaitiklis+parašai+log, limitas → 1", async () => {
-  const skipped = retryGuardDeps({ readDecision: async () => ({}) });
+  const skipped = retryGuardDeps({ readDecision: async () => ({ status: "ok" as const, decision: {} }) });
   assert.equal(await retryGuard([], skipped.deps), 0);
-  assert.match(skipped.agLines[0] ?? "", /RETRY GUARD SKIPPED: verdict=<missing-or-corrupted-decision>/);
+  assert.match(skipped.agLines[0] ?? "", /RETRY GUARD SKIPPED: verdict=<missing-decision>/);
 
-  const noTask = retryGuardDeps({ readDecision: async () => ({ verdict: "repair" }) });
+  // 2026-08-24 (operatoriaus radinys): SUGADINTAS sprendimas anksčiau buvo sulietas su trūkstamu
+  // ir grąžindavo 0 — neįvykdytas retry limitas atrodydavo kaip įvykdytas.
+  const corrupted = retryGuardDeps({ readDecision: async () => ({ status: "corrupted" as const }) });
+  assert.equal(await retryGuard([], corrupted.deps), 1, "negalint suskaičiuoti, vartas sustoja");
+  assert.match(corrupted.errorLogs[0] ?? "", /RETRY GUARD CORRUPTED DECISION/);
+
+  const noTask = retryGuardDeps({
+    readDecision: async () => ({ status: "ok" as const, decision: { verdict: "repair" } }),
+  });
   assert.equal(await retryGuard([], noTask.deps), 1);
   assert.match(noTask.errorLogs[0] ?? "", /RETRY GUARD MISSING TASK ID/);
 
@@ -361,7 +372,10 @@ test("retry-guard: ne-repair skip, trūkstamas taskId → 1, skaitiklis+parašai
 
   // --task-id laimi prieš decision.task_id; error_signature — atsarginis retry_key.
   const flagged = retryGuardDeps({
-    readDecision: async () => ({ verdict: "repair", task_id: "kitas", error_signature: "sig-x" }),
+    readDecision: async () => ({
+      status: "ok" as const,
+      decision: { verdict: "repair", task_id: "kitas", error_signature: "sig-x" },
+    }),
   });
   assert.equal(await retryGuard(["--task-id", "0099"], flagged.deps), 0);
   assert.match(flagged.agLines[0] ?? "", /task=0099 .*retry_key=sig-x/);

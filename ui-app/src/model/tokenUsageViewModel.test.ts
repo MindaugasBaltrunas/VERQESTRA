@@ -178,9 +178,32 @@ describe("computeTokenUsageTotals", () => {
       outputInputRatio: 0,
       cacheHitRate: 0,
       cacheReadToCreationRatio: 0,
+      costUsd: 0,
+      costRecords: 0,
       firstTimestamp: null,
       latestTimestamp: null,
     });
+  });
+
+  it("kainą sumuoja TIK iš įrašų, kurie ją turi, ir skaičiuoja jų kiekį", () => {
+    const totals = computeTokenUsageTotals([
+      record({ total_cost_usd: 1.25 }),
+      record({ total_cost_usd: undefined }),
+      record({ total_cost_usd: 0.75 }),
+    ]);
+
+    expect(totals.costUsd).toBeCloseTo(2);
+    // Vardiklis yra kontrakto dalis: 2 iš 3 nurodo, kad tai NE visos imties sąskaita.
+    expect(totals.costRecords).toBe(2);
+    expect(totals.records).toBe(3);
+  });
+
+  it("nekainuota imtis duoda NULĮ įrašų su kaina, o ne nulinę kainą", () => {
+    const totals = computeTokenUsageTotals([record({ total_cost_usd: undefined })]);
+    // `costRecords === 0` yra vienintelis skirtumas tarp „nemokama" ir „nematuota"; panelė
+    // būtent iš jo sprendžia, ar kainos eilutę apskritai rodyti.
+    expect(totals.costRecords).toBe(0);
+    expect(totals.costUsd).toBe(0);
   });
 
   it("sums fields and never produces NaN when some records have missing fields", () => {
@@ -293,6 +316,29 @@ describe("computeReworkProxyStats", () => {
     expect(stats.exactRetryTokenShare).toBeCloseTo(40 / 140);
     expect(stats.retryAttempts).toBe(1);
     expect(stats.failedRetryAttempts).toBe(0);
+  });
+
+  it("surenka KODĖL buvo kartota, dažniausią pirma", () => {
+    const stats = computeReworkProxyStats([
+      record({ phase: "dispatch", attempt: 2, retry_reason: "gate-failed" }),
+      record({ phase: "dispatch", attempt: 2, retry_reason: "gate-failed" }),
+      record({ phase: "dispatch", attempt: 2, retry_reason: "rate-limit" }),
+      record({ phase: "dispatch", attempt: 1 }),
+    ]);
+
+    expect(stats.retryReasons).toEqual([
+      { reason: "gate-failed", count: 2 },
+      { reason: "rate-limit", count: 1 },
+    ]);
+  });
+
+  it("priežastis renka ir tada, kai `attempt` neužpildytas", () => {
+    // Susiaurinus iki `attempt > 1` dingtų būtent tie atvejai, kur metaduomenų dengiamumas
+    // prastas — t. y. tie, dėl kurių paaiškinimas ir reikalingas labiausiai.
+    const stats = computeReworkProxyStats([record({ phase: "diagnose", retry_reason: "stop-bridge-timeout" })]);
+
+    expect(stats.isExact).toBe(false);
+    expect(stats.retryReasons).toEqual([{ reason: "stop-bridge-timeout", count: 1 }]);
   });
 });
 

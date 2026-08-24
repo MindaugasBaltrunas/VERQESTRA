@@ -136,7 +136,7 @@ describe("adaptWorkerControl", () => {
   });
 
   it("disables editing when the environment dictates the value", () => {
-    const view = adaptWorkerControl({ requested: 2, source: "env", envOverride: true, lastWave: null });
+    const view = adaptWorkerControl({ requested: 2, source: "env", lastWave: null });
 
     expect(view.canEdit).toBe(false);
     expect(view.requested).toBe(2);
@@ -149,7 +149,6 @@ describe("adaptWorkerControl", () => {
     const view = adaptWorkerControl({
       requested: 1,
       source: "default",
-      envOverride: false,
       invalid: "malformed",
       lastWave: null,
     });
@@ -162,7 +161,6 @@ describe("adaptWorkerControl", () => {
     const view = adaptWorkerControl({
       requested: 2,
       source: "state",
-      envOverride: false,
       lastWave: {
         mode: "sequential",
         requested: 2,

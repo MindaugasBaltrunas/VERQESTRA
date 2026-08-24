@@ -3699,6 +3699,13 @@ main {
 .delta-better { color: var(--success, #15803d); }
 .delta-worse { color: var(--danger, #b91c1c); }
 
+/* Kaina ir kartojimo priežastys: kodai monospace, kad juos būtų galima nukopijuoti į žurnalo
+   paiešką — tas pats sprendimas kaip `.budget-reasons`. */
+.usage-cost-line { margin: 10px 0 0; font-size: 13px; }
+.usage-cost-line strong { font-variant-numeric: tabular-nums; }
+.usage-cost-line small { color: var(--muted); }
+.rework-reasons code { font-size: 11px; }
+
 .compression-combination { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .compression-combination h3 { margin: 0 0 4px; font-size: 13px; }
 .compression-combination ul { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; }

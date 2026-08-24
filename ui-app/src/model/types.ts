@@ -195,9 +195,15 @@ export type UiTokenBudget = {
  */
 export type WorkerRequestState = {
   requested: number;
-  /** `env` reiškia, kad reikšmę diktuoja `AG_MAX_WORKERS` ir ekrano valdiklis nieko nekeičia. */
+  /**
+   * `env` reiškia, kad reikšmę diktuoja `AG_MAX_WORKERS` ir ekrano valdiklis nieko nekeičia —
+   * `adaptWorkerControl` būtent iš čia išveda `canEdit`.
+   *
+   * Šalia iki 2026-08-24 keliavo `envOverride: boolean`, visada lygus `source === "env"`, ir jo
+   * neskaitė nė viena pusė. Pašalintas: du to paties fakto pavidalai viename atsakyme anksčiau ar
+   * vėliau prasilenkia, o prasilenkę nepasako, kuris teisus.
+   */
   source: "env" | "state" | "default";
-  envOverride: boolean;
   /**
    * Prašymo failas yra, bet nepanaudojamas — loop'as naudoja vieną workerį. KODAS, ne žinutė:
    * serveris sąmoningai nesiunčia fs/JSON teksto su absoliučiais keliais.

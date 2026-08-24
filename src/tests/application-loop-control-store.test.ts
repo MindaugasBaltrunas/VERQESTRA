@@ -172,17 +172,18 @@ test("resetLoopControl ir drainAllSlots: visi slot'ai vienu ėjimu", async () =>
 test("readWorkerRequest: aplinka nugali failą, bet šiukšlė NĖRA override", async () => {
   const world = storeWorld({ [REQUEST]: JSON.stringify({ requested: 2 }) });
 
+  // `deepEqual` čia yra ir varto dalis: šalia `source` iki 2026-08-24 stovėjo `envOverride`,
+  // visada lygus `source === "env"` ir neskaitomas NIEKUR. Griežtas palyginimas krenta, jei
+  // antras to paties fakto pavidalas grįžtų.
   assert.deepEqual(await readWorkerRequest(world.workers, STATE), {
     requested: 2,
     source: "state",
-    envOverride: false,
   });
 
   world.env.set(REQUESTED_WORKERS_ENV, "2");
   assert.deepEqual(await readWorkerRequest(world.workers, STATE), {
     requested: 2,
     source: "env",
-    envOverride: true,
   });
 
   // Rašybos klaida nėra prašymas: laikyti ją override'u reikštų tyliai užrakinti valdiklį ir rodyti
@@ -221,5 +222,5 @@ test("setRequestedWorkers: už ribų esantis prašymas META, o ne tyliai apkerpa
   assert.equal(world.store.has(REQUEST), false);
 
   const state = await setRequestedWorkers(world.workers, STATE, { requested: 2 });
-  assert.deepEqual(state, { requested: 2, source: "state", envOverride: false });
+  assert.deepEqual(state, { requested: 2, source: "state" });
 });

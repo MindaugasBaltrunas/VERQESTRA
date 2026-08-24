@@ -591,6 +591,13 @@ const lt: Record<string, string> = {
   "No reason recorded": "Priežastis neužfiksuota",
   "Samples outside every declared variant": "Mėginiai už visų deklaruotų variantų ribų",
   "This section cannot claim": "Ko ši sekcija negali teigti",
+  "Recorded cost": "Užfiksuota kaina",
+  "priced records": "įrašų su kaina",
+  "Why": "Kodėl",
+  "Supervisor written": "Prižiūrėtojas užrašė",
+  "Executor written": "Vykdytojas užrašė",
+  "This resume point belongs to another task": "Šis tęsimo taškas priklauso kitai užduočiai",
+  "current": "dabartinė",
   "Feature contributions": "Funkcijų indėliai",
   "Positive means tokens not spent. Contributions do not add up.":
     "Teigiama reikšmė — neišleisti tokenai. Indėliai nėra sudedami.",

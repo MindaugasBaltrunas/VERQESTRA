@@ -34,7 +34,7 @@ const GENERATED_HEADER = [
  */
 export function classIdForFile(filePath: string): string {
   const posix = toPosixPath(filePath);
-  const withoutExtension = posix.replace(/\.(tsx?|jsx?|mjs|cjs)$/, "");
+  const withoutExtension = posix.replace(/\.(tsx?|jsx?|[mc][tj]s)$/, "");
   const sanitized = withoutExtension.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   return `${sanitized.length > 0 ? sanitized : "f"}_${sha256Hex(posix).slice(0, 8)}`;
 }
@@ -125,7 +125,7 @@ export function resolveImportTarget(
   if (!toModule.startsWith(".")) return null;
   const fromDir = path.posix.dirname(toPosixPath(fromFile));
   const resolvedBase = toPosixPath(path.posix.normalize(path.posix.join(fromDir, toModule))).replace(
-    /\.(tsx?|jsx?|mjs|cjs)$/,
+    /\.(tsx?|jsx?|[mc][tj]s)$/,
     "",
   );
   // Tiesioginis failas visada tikrinamas PIRMIAU už `index` — kaip ir Node rezoliucijoje.

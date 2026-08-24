@@ -133,6 +133,11 @@ test("GET /api/dashboard grąžina PILNĄ dashboard snapshot'ą, ne vieną jo bl
       assert.equal("loop_controls" in controlPlane, false);
       assert.equal("live_slots" in controlPlane, false);
       assert.equal("queueCounts" in data, false, "dublikatas `workflowBuckets[].totalCount`");
+      // `envOverride` PAŠALINTAS 2026-08-24: jis visada lygus `source === "env"`, klientas
+      // `canEdit` išveda iš `source`, ir jo neskaitė NIEKAS nė vienoje pusėje.
+      const workerControl = data["workerControl"] as Record<string, unknown>;
+      assert.equal("envOverride" in workerControl, false, "dublikatas `source === \"env\"`");
+      assert.ok("source" in workerControl, "`source` yra vienintelis šio fakto pavidalas");
       assert.equal(JSON.stringify(data).includes("worktree_path"), false, "kelias į naršyklę neišeina");
       // Senoji (klaidinga) forma turėjo šiuos laukus ŠAKNYJE. Jei jie ten atsirastų dar kartą,
       // regresija būtų tiksliai ta pati.

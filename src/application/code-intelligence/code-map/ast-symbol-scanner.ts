@@ -7,6 +7,7 @@
 import path from "node:path";
 import type * as TypeScriptApi from "typescript";
 import { toPosixPath } from "../../../shared/paths.js";
+import { ecmascriptExtensions } from "../indexing/language-capabilities.js";
 import { loadTypeScript } from "../indexing/ts-loader.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
 
@@ -114,7 +115,7 @@ async function collectSourceFiles(fs: CodeIntelligenceFileSystemPort, dir: strin
  * failus indeksuoja per tą patį AST nuo daugiakalbio praplėtimo, o code-map jų vis dar nematė —
  * mišriame repo diagrama ir aprėptis rodydavo tik pusę medžio.
  */
-export const CODE_MAP_SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+export const CODE_MAP_SOURCE_EXTENSIONS = ecmascriptExtensions();
 
 function isSourceFileName(name: string): boolean {
   if (name.endsWith(".d.ts")) return false;

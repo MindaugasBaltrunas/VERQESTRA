@@ -80,6 +80,16 @@ export function DiagnosticsPanel({ data }: { data: DashboardData }) {
   const stack = data.controlPlane?.stack_decision;
   const config = data.controlPlane?.config_controls ?? [];
 
+  // Checkpoint'as be `task_id` NĖRA nesutapimas: tai dalinai įrašytas failas (visi laukai
+  // optional), o teigti apie jį „priklauso kitam task'ui" reikštų tvirtinti tai, ko nežinome.
+  const resumeMismatch: { label: string; taskId: string }[] = [
+    { label: "Supervisor", taskId: data.supervisorResume.task_id },
+    { label: "Executor", taskId: data.claudeResume.task_id },
+  ].filter(
+    (entry): entry is { label: string; taskId: string } =>
+      entry.taskId !== undefined && entry.taskId !== data.currentTaskId,
+  );
+
   return (
     <section className="panel" aria-labelledby="diagnostics-title">
       <div className="panel-header">
@@ -111,11 +121,42 @@ export function DiagnosticsPanel({ data }: { data: DashboardData }) {
             <span>{t("Executor")}</span>
             <strong>{data.claudeResume.status ?? "—"}</strong>
           </div>
+          {/* Fazė yra tai, KUR ciklas atsinaujintų. `run-coordinator` ją skaito tiesiogiai
+              (`phase.startsWith("preflight")`), tad ekrane ji nėra detalė — ji yra sprendimas. */}
+          <div>
+            <span>{t("Phase")}</span>
+            <strong>{data.claudeResume.phase ?? data.supervisorResume.phase ?? "—"}</strong>
+          </div>
           <div>
             <span>{t("Next action")}</span>
             <strong>{data.claudeResume.next_action ?? data.supervisorResume.next_action ?? "—"}</strong>
           </div>
+          <div>
+            <span>{t("Supervisor written")}</span>
+            <strong>{formatStamp(data.supervisorResume.updated_at, locale)}</strong>
+          </div>
+          <div>
+            <span>{t("Executor written")}</span>
+            <strong>{formatStamp(data.claudeResume.updated_at, locale)}</strong>
+          </div>
         </div>
+        {/* SVETIMAS ĮRODYMAS. `run-coordinator` prieš praleisdamas preflight'ą tikrina
+            `supervisorResume.task_id === state.taskId`, o nesutapimą traktuoja kaip ŠVARŲ STARTĄ.
+            Iki šiol ekranas rodė tik `status: finished` — operatorius matydavo užbaigtą fazę ir
+            darydavo išvadą apie DABARTINĘ užduotį iš kito task'o įrašo, lygiai kaip su `legacy`
+            žurnalo antspaudu (uždaryta trylikame rate). Priskyrimas rodomas TIK kai jis
+            prieštarauja: tylėjimas apie sutampantį task'ą nieko neprideda. */}
+        {resumeMismatch.length > 0 && (
+          <p className="notice notice-warning" role="status">
+            ⚠ {t("This resume point belongs to another task")}:{" "}
+            {resumeMismatch.map((entry) => (
+              <span key={entry.label}>
+                {t(entry.label)} <code>{entry.taskId}</code>{" "}
+              </span>
+            ))}
+            ({t("current")} <code>{data.currentTaskId ?? "—"}</code>)
+          </p>
+        )}
       </div>
 
       {statusFiles.length > 0 && (

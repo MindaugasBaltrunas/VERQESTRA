@@ -77,8 +77,8 @@ export type UiWaveWorkerPool = {
 
 export type UiWorkerControl = {
   requested: number;
+  /** Klientas iš čia sprendžia, ar valdiklis veikia (`canEdit: source !== "env"`). */
   source: WorkerRequestState["source"];
-  envOverride: boolean;
   invalid?: WorkerRequestProblem;
   /** `null` kol nė viena banga nesuplanavo pool'o — tada rezultato rodyti nėra iš ko. */
   lastWave: UiWaveWorkerPool | null;
@@ -205,7 +205,7 @@ const STATUS_FILE_NAMES = [
 const USER_CLAUDE_PID_FILE = "user-claude.pid";
 
 const UNKNOWN_PROCESS: UiProcessState = { status: "unknown" };
-const DEFAULT_WORKER_REQUEST: WorkerRequestState = { requested: 1, source: "default", envOverride: false };
+const DEFAULT_WORKER_REQUEST: WorkerRequestState = { requested: 1, source: "default" };
 const NO_STOP_EVIDENCE: DashboardStopEvidence = { record: {}, origin: "none", corrupted: false };
 const NO_CLAUDE_LOG: DashboardClaudeLogStamp = { source: "none" };
 
@@ -404,7 +404,6 @@ export async function buildDashboardView(input: BuildDashboardViewInput): Promis
       // matytų „prašoma 2" ir manytų, kad du workeriai dirba, nors banga antrą slot'ą atmetė.
       requested: workerRequest.requested,
       source: workerRequest.source,
-      envOverride: workerRequest.envOverride,
       ...(workerRequest.invalid === undefined ? {} : { invalid: workerRequest.invalid }),
       lastWave: waveSnapshot?.worker_pool ?? null,
     },

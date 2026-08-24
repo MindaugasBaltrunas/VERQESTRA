@@ -48,8 +48,8 @@ function dashboard(workerControl: WorkerControlData, loopControl?: LoopControlDa
   };
 }
 
-const oneWorker: WorkerControlData = { requested: 1, source: "state", envOverride: false, lastWave: null };
-const twoWorkers: WorkerControlData = { requested: 2, source: "state", envOverride: false, lastWave: null };
+const oneWorker: WorkerControlData = { requested: 1, source: "state", lastWave: null };
+const twoWorkers: WorkerControlData = { requested: 2, source: "state", lastWave: null };
 
 describe("useDashboardController worker slots", () => {
   beforeEach(() => {
@@ -62,7 +62,7 @@ describe("useDashboardController worker slots", () => {
 
   it("sends the request and reloads the dashboard with the state that took effect", async () => {
     vi.mocked(api.setRequestedWorkers).mockResolvedValue({
-      worker_request: { requested: 2, source: "state", envOverride: false },
+      worker_request: { requested: 2, source: "state" },
     });
 
     const { result } = renderHook(() => useDashboardController());

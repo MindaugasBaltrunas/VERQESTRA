@@ -48,6 +48,34 @@ test("SUGADINTAS failas META abiejuose keliuose — vartas, kuris negali suskai�
   }
 });
 
+// 2026-08-24 (operatoriaus radinys): `typeof [] === "object"`, tad masyvas praeidavo pro sugadinto
+// failo patikrą. `counts["task:x"] = 1` uždėdavo jam VARDINĘ savybę, o `JSON.stringify([])` ją
+// numesdavo — failas likdavo `[]`, retry limitas NIEKADA neaugdavo, ir repair kilpa tapdavo
+// begalinė. Apsauga buvo apeinama per savo pačios spragą.
+test("MASYVAS nėra galiojantis skaitiklių failas", async () => {
+  const { root, file } = await runtimeRoot();
+  try {
+    await writeFile(file, "[]", "utf8");
+    const store = retryCountsStore(root);
+    await assert.rejects(() => store.read(), /corrupt/);
+    await assert.rejects(() => store.update((counts) => counts), /corrupt/);
+    assert.equal(await readFile(file, "utf8"), "[]", "sugadintas failas neperrašomas");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ne skaitinė reikšmė yra sugadinimas, o ne nulis", async () => {
+  const { root, file } = await runtimeRoot();
+  try {
+    // `"3" + 1 === "31"`: be šios patikros limitas skaičiuotų ne tai, ką turi.
+    await writeFile(file, JSON.stringify({ "task:0042": "3" }), "utf8");
+    await assert.rejects(() => retryCountsStore(root).read(), /not a finite number/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("update grąžina mutacijos rezultatą ir įrašo būseną", async () => {
   const { root, file } = await runtimeRoot();
   try {

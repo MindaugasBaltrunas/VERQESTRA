@@ -56,6 +56,44 @@ describe("DiagnosticsPanel", () => {
     expect(screen.getByText("quality-gates")).toBeInTheDocument();
   });
 
+  it("SVETIMAS tęsimo taškas pavadinamas, o sutampantis netriukšmauja", () => {
+    // `run-coordinator` prieš praleisdamas preflight'ą tikrina `supervisorResume.task_id ===
+    // state.taskId` ir nesutapimą traktuoja kaip švarų startą. Ekranas rodė TIK `status`, tad
+    // operatorius darydavo išvadą apie dabartinę užduotį iš kito task'o įrašo.
+    const { rerender } = render(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          currentTaskId: "0100-dabartine",
+          supervisorResume: { status: "finished", phase: "preflight", task_id: "0042-sena" },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("0042-sena");
+    expect(screen.getByText("preflight")).toBeInTheDocument();
+
+    rerender(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          currentTaskId: "0100-dabartine",
+          supervisorResume: { status: "finished", phase: "preflight", task_id: "0100-dabartine" },
+        }}
+      />,
+    );
+
+    // Sutampantis priskyrimas nieko neprideda — įspėti apie jį reikštų mokyti ignoruoti įspėjimus.
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("checkpoint'as BE task_id nėra nesutapimas", () => {
+    // Visi resume laukai optional: failas rašomas palaipsniui. Teigti „priklauso kitam task'ui"
+    // apie dalinai įrašytą failą reikštų tvirtinti tai, ko nežinome.
+    render(<DiagnosticsPanel data={{ ...base, currentTaskId: "0100-dabartine", claudeResume: { status: "running" } }} />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("stack sprendimas su human-review reikalavimu rodo PRIEŽASTĮ", () => {
     render(
       <DiagnosticsPanel

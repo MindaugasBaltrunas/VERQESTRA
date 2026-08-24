@@ -37,9 +37,16 @@ export type WorkerRequestProblem = "unreadable" | "malformed" | "schema";
 export type WorkerRequestState = {
   /** Jau apkirpta reikšmė — vienintelis skaičius, kurį verta rodyti. */
   requested: number;
+  /**
+   * Kas reikšmę padiktavo. `"env"` kartu reiškia, kad ekrano valdiklis nieko pakeisti negali —
+   * `ui-app` būtent taip ir sprendžia (`canEdit: source !== "env"`).
+   *
+   * 2026-08-24 šalia stovėjo `envOverride: boolean`, visada lygus `source === "env"`, ir jo
+   * neskaitė NIEKAS — nei šis paketas, nei `ui-app`. Du to paties fakto pavidalai viename įraše
+   * anksčiau ar vėliau prasilenkia, o prasilenkę nepasako, kuris teisus; tas pats sprendimas
+   * kaip su `queueCounts` dashboard'o atsakyme.
+   */
   source: "env" | "state" | "default";
-  /** `true` kai reikšmę diktuoja aplinka, tad ekrano valdiklis nieko pakeisti negali. */
-  envOverride: boolean;
   /** Užpildoma TIK kai failas yra, bet nepanaudojamas. */
   invalid?: WorkerRequestProblem | undefined;
 };
@@ -65,14 +72,13 @@ export async function readWorkerRequest(deps: WorkerRequestDeps, stateDir: strin
   if (fromEnv) {
     const parsed = Number(fromEnv);
     if (Number.isFinite(parsed)) {
-      return { requested: clampWaveWorkers(parsed), source: "env", envOverride: true };
+      return { requested: clampWaveWorkers(parsed), source: "env" };
     }
   }
 
   const fallback: WorkerRequestState = {
     requested: clampWaveWorkers(undefined),
     source: "default",
-    envOverride: false,
   };
 
   let raw: string | undefined;
@@ -92,7 +98,7 @@ export async function readWorkerRequest(deps: WorkerRequestDeps, stateDir: strin
 
   const result = workerRequestSchema.safeParse(payload);
   if (!result.success) return { ...fallback, invalid: "schema" };
-  return { requested: clampWaveWorkers(result.data.requested), source: "state", envOverride: false };
+  return { requested: clampWaveWorkers(result.data.requested), source: "state" };
 }
 
 /**

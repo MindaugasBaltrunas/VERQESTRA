@@ -18,11 +18,16 @@ const IMPORT_FROM = /^[ \t]*from[ \t]+(\.*)([A-Za-z0-9_.]*)[ \t]+import[ \t]+([^
 const DECLARATION = /^([ \t]*)(async[ \t]+def|def|class)[ \t]+([A-Za-z_][A-Za-z0-9_]*)/gm;
 const ALL_LIST = /__all__\s*=\s*[[(]([^\])]*)[\])]/;
 
-export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths: ReadonlySet<string>): LanguageIndexResult {
+export function indexPythonSource(
+  file: CodeIndexFile,
+  text: string,
+  knownPaths: ReadonlySet<string>,
+  declaredRoots: ReadonlySet<string> = new Set(),
+): LanguageIndexResult {
   const clean = blankOutNoise(text, "hash", PYTHON_QUOTES);
   const offsets = lineIndex(clean);
   const imports = new Set<string>();
-  const roots = pythonRoots(knownPaths);
+  const roots = pythonRoots(knownPaths, declaredRoots);
 
   for (const match of clean.matchAll(IMPORT_PLAIN)) {
     for (const part of splitList(match[1] ?? "")) {
@@ -94,23 +99,40 @@ export function indexPythonSource(file: CodeIndexFile, text: string, knownPaths:
   };
 }
 
-/** Failai, kurių buvimas kataloge daro jį Python paketo šaknimi (`sys.path` įrašu). */
-const PYTHON_ROOT_MARKERS = ["pyproject.toml", "setup.py", "setup.cfg", "tox.ini"];
+/**
+ * Failai, kurių buvimas kataloge daro jį Python paketo šaknimi (`sys.path` įrašu).
+ *
+ * Šio sąrašo PATS INDEKSAS nemato: `.toml`, `.cfg` ir `.ini` nėra indeksuojami plėtiniai, tad jie
+ * niekada nepatenka į `knownPaths`. Todėl juos suranda BUILDER'is per FS portą ir paduoda kaip
+ * `declaredRoots` — tas pats kelias, kuriuo skaitomas `composer.json` (2026-08-24, operatoriaus
+ * radinys: iš keturių markerių realiai veikė tik `setup.py`, nes jis vienintelis yra `.py`).
+ */
+export const PYTHON_ROOT_MARKERS = ["pyproject.toml", "setup.py", "setup.cfg", "tox.ini"];
 
 /**
  * Katalogai, nuo kurių absoliutus importas gali prasidėti.
  *
- * Visada įskaitoma repo šaknis (`""`) — taip Python elgiasi paleistas iš projekto katalogo — plius
- * kiekvienas katalogas, kuriame guli projekto manifestas, ir konvencinis `src/`, jei jis egzistuoja.
+ * Trys šaltiniai, ir kiekvienas atitinka realų `sys.path` įrašą:
+ *   • repo šaknis (`""`) — taip Python elgiasi paleistas iš projekto katalogo;
+ *   • `src` išdėstymas BET KURIAME gylyje (2026-08-24, operatoriaus radinys): anksčiau buvo
+ *     `candidate.startsWith("src/")`, tad monorepo `packages/api/src` šaknimi netapdavo NIEKADA, ir
+ *     `packages/api/src/app/main.py` importas `app.service` likdavo tekstinis — su juo dingdavo ir
+ *     importai, ir architektūros pažeidimai, ir `impacted_tests`. `src` layout yra dominuojanti
+ *     Python paketavimo forma, tad tai buvo ne kraštinis atvejis;
+ *   • katalogai, kuriuose guli projekto manifestas (`declaredRoots`, žr. `PYTHON_ROOT_MARKERS`).
  */
-function pythonRoots(knownPaths: ReadonlySet<string>): string[] {
-  const roots = new Set<string>([""]);
+function pythonRoots(knownPaths: ReadonlySet<string>, declaredRoots: ReadonlySet<string>): string[] {
+  const roots = new Set<string>(["", ...declaredRoots]);
   for (const candidate of knownPaths) {
     const slash = candidate.lastIndexOf("/");
     const directory = slash === -1 ? "" : candidate.slice(0, slash);
-    const name = candidate.slice(slash + 1);
-    if (PYTHON_ROOT_MARKERS.includes(name)) roots.add(directory);
-    if (candidate.startsWith("src/")) roots.add("src");
+    if (PYTHON_ROOT_MARKERS.includes(candidate.slice(slash + 1))) roots.add(directory);
+    // Kiekvienas `src` segmentas kelyje yra kandidatas: `packages/api/src/app/service.py` duoda
+    // `packages/api/src`, o `src/app/x.py` — `src`.
+    const segments = candidate.split("/");
+    for (const [index, segment] of segments.entries()) {
+      if (segment === "src" && index < segments.length - 1) roots.add(segments.slice(0, index + 1).join("/"));
+    }
   }
   return [...roots];
 }

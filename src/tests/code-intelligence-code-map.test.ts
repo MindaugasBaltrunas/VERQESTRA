@@ -6,10 +6,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTypeScript } from "../application/code-intelligence/indexing/ts-loader.js";
 import {
+  CODE_MAP_SOURCE_EXTENSIONS,
   extractImportEdges,
   extractSymbolRecords,
   layerForSourcePath,
 } from "../application/code-intelligence/code-map/ast-symbol-scanner.js";
+import { codeIndexLanguageCapabilities } from "../application/code-intelligence/indexing/language-capabilities.js";
 import {
   classIdForFile,
   generateCodeMapMermaid,
@@ -77,6 +79,36 @@ test("code-map: klasės ID injektyvus", () => {
   assert.match(ids[0] ?? "", /^src_a_b_[0-9a-f]{8}$/, "skaitomas prefiksas išlieka, tapatybę duoda hash'as");
   assert.equal(classIdForFile("src/a-b.ts"), ids[0], "deterministinis");
   assert.match(classIdForFile("...ts"), /^f_[0-9a-f]{8}$/, "vardas be raidžių irgi gauna galiojantį ID");
+});
+
+// 2026-08-24 (operatoriaus radinys): code-map turėjo SAVO plėtinių sąrašą, ir jis jau buvo
+// atsilikęs — `.mts` ir `.cts` registre yra nuo pat pradžių, bet į skenavimą nepateko.
+//
+// Pasekmė tyli ir būtent tokia, kokios saugomasi: tokio failo NĖRA nei diagramoje, nei aprėpties
+// VARDIKLYJE, tad `--check` skelbia 100 %, kai dalis medžio apskritai neapžiūrėta. Šis vartas
+// tikrina ne dvi trūkstamas eilutes, o INVARIANTĄ: ką indeksas priskiria AST keliui, tą code-map ir
+// skenuoja.
+test("gate: code-map skenuoja KIEKVIENĄ plėtinį, kurį indeksas priskiria AST keliui", () => {
+  const fromRegistry = codeIndexLanguageCapabilities
+    .filter((capability) => capability.language === "typescript" || capability.language === "javascript")
+    .flatMap((capability) => capability.extensions);
+
+  assert.deepEqual(
+    [...CODE_MAP_SOURCE_EXTENSIONS].sort(),
+    [...fromRegistry].sort(),
+    "du sąrašai tam pačiam klausimui išsiskiria tyliai — todėl sąrašas yra vienas",
+  );
+  for (const extension of [".mts", ".cts"]) {
+    assert.ok(CODE_MAP_SOURCE_EXTENSIONS.includes(extension), `${extension} privalo būti skenuojamas`);
+  }
+});
+
+// `.mts` failo ID negali prarasti tik DALIES plėtinio: `x.mts` → `x_m` reikštų kitą mazgą nei
+// `x.ts` → `x`, bet vardas skaitytojui atrodytų sugadintas.
+test("code-map: `.mts`/`.cts` ID nuima VISĄ plėtinį", () => {
+  assert.match(classIdForFile("src/x.mts"), /^src_x_[0-9a-f]{8}$/);
+  assert.match(classIdForFile("src/x.cts"), /^src_x_[0-9a-f]{8}$/);
+  assert.notEqual(classIdForFile("src/x.mts"), classIdForFile("src/x.cts"), "skirtingi failai — skirtingi ID");
 });
 
 // 2026-08-23 (RAG auditas 3): `--check` galėjo rodyti 100 %, nors failo diagramoje nebuvo.

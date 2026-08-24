@@ -93,7 +93,7 @@ function fakePorts(input: FakeInput = {}): { ports: DashboardViewPorts; errors: 
         fail("control_plane");
         return Promise.resolve(EMPTY_CONTROL_PLANE);
       },
-      readWorkerRequest: () => Promise.resolve({ requested: 2, source: "state", envOverride: false }),
+      readWorkerRequest: () => Promise.resolve({ requested: 2, source: "state" }),
       readLoopControl: () => Promise.resolve(RUNNING_CONTROL),
       readWaveSnapshot: () => Promise.resolve(input.snapshot),
       listWorkerLeases: () => Promise.resolve([]),

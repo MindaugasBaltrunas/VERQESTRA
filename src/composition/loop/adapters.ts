@@ -8,6 +8,7 @@
 import path from "node:path";
 import { withStateFileLock } from "../../infrastructure/fs/state-file-lock.js";
 import type { RetryCountsStorePort, SupervisorRetryDecision } from "../../application/task-execution/retry-counts.js";
+import type { JsonReadResult } from "../../application/task-execution/run-coordinator-ports.js";
 import { loadAgentPolicy } from "../../application/policy-governance/agent-policy.js";
 import type { LoopPreconditionPorts } from "../../application/scheduling/loop-preconditions.js";
 import type { SchedulingFileSystemPort } from "../../application/scheduling/ports.js";
@@ -63,11 +64,23 @@ export function retryCountsStore(runtimeRoot: string): RetryCountsStorePort {
   const readCounts = async (): Promise<Record<string, number>> => {
     const raw = await nodeFsAdapter.readTextFileIfExists(file);
     if (raw === undefined) return {};
-    const parsed = tryParseJson<Record<string, number>>(raw);
-    if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
+    const parsed = tryParseJson<unknown>(raw);
+    // `typeof [] === "object"` (2026-08-24, operatoriaus radinys): masyvas pro ankstesnę patikrą
+    // praeidavo, `counts["task:x"] = 1` uždėdavo jam VARDINĘ savybę, o `JSON.stringify([])` ją
+    // numesdavo — failas likdavo `[]`, tad retry limitas NIEKADA neaugdavo ir repair kilpa tapdavo
+    // begalinė. Tai buvo tos pačios apsaugos, kurią ši funkcija ir yra, apėjimas.
+    if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
       throw new Error(`retry counts file is corrupt: ${file}`);
     }
-    return parsed.value;
+    // Reikšmės tikrinamos irgi: ne skaičius (`"3"`, `null`, objektas) tyliai virstų šiukšlėmis
+    // pirmame inkremente (`"3" + 1 === "31"`), ir limitas skaičiuotų ne tai, ką turi.
+    const counts = parsed.value as Record<string, unknown>;
+    for (const [key, value] of Object.entries(counts)) {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`retry counts file is corrupt: ${file} (${key} is not a finite number)`);
+      }
+    }
+    return counts as Record<string, number>;
   };
 
   return {
@@ -80,6 +93,27 @@ export function retryCountsStore(runtimeRoot: string): RetryCountsStorePort {
         return result;
       }),
   };
+}
+
+/**
+ * Vieno JSON dokumento skaitymas su AIŠKIU „sugadintas" atsakymu (ne tuščia reikšme).
+ *
+ * 2026-08-24: iškelta iš `coordinator-adapters`, kur buvo privati. Jos prireikė antram kvietėjui
+ * (retry guard'ui), ir antra kopija būtų buvusi ta pati klaida, kurią šis skaitytojas ir taiso —
+ * du atsakymai vienam klausimui „ar failas skaitomas".
+ *
+ * Masyvas atmetamas AIŠKIAI: `typeof [] === "object"`, tad be šios sąlygos `[]` praeidavo kaip
+ * galiojantis dokumentas, o kiekvienas laukas iš jo grįždavo `undefined` — sugadintas failas
+ * atrodydavo kaip tuščias, teisėtas.
+ */
+export async function readJsonSnapshot<T>(absolutePath: string): Promise<JsonReadResult<T>> {
+  const raw = await nodeFsAdapter.readTextFileIfExists(absolutePath);
+  if (raw === undefined || raw.trim() === "") return { status: "ok", value: {} as T };
+  const parsed = tryParseJson<T>(raw);
+  if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+    return { status: "corrupted", error: `unreadable JSON: ${absolutePath}` };
+  }
+  return { status: "ok", value: parsed.value };
 }
 
 /** Vienos JSON būsenos skaitymas su `{}` fallback'u — trūkstamas/sugadintas failas nėra klaida. */
@@ -97,7 +131,14 @@ export function appendLogLine(runtimeRoot: string, name: string, line: string): 
 }
 
 export type RetryGuardAdapters = {
-  readDecision(): Promise<SupervisorRetryDecision>;
+  /**
+   * Supervizoriaus sprendimas. `corrupted` yra ATSKIRAS nuo nesančio failo (2026-08-24,
+   * operatoriaus radinys): abu anksčiau virsdavo `{}`, tad neperskaitomas sprendimas atrodydavo
+   * kaip „nebuvo repair" ir vartas grąžindavo 0 — limitas likdavo neįvykdytas. Koordinatorius tą
+   * patį failą jau skaitė teisingai (`readJsonSnapshot` → `invalid`); dvi doktrinos vienam failui
+   * čia ir buvo problema.
+   */
+  readDecision(): Promise<{ status: "ok"; decision: SupervisorRetryDecision } | { status: "corrupted" }>;
   counts: RetryCountsStorePort;
   maxRetriesPerError(): Promise<number>;
   readCurrentTaskId(): Promise<string | undefined>;
@@ -127,7 +168,10 @@ export async function maxRetriesPerError(runtimeRoot: string): Promise<number> {
 export function retryGuardAdapters(runtimeRoot: string): RetryGuardAdapters {
   const statePath = (name: string): string => path.join(runtimeRoot, "state", name);
   return {
-    readDecision: () => readJsonOrEmpty<SupervisorRetryDecision>(path.join(runtimeRoot, "supervisor", "decision.json")),
+    readDecision: async () => {
+      const read = await readJsonSnapshot<SupervisorRetryDecision>(path.join(runtimeRoot, "supervisor", "decision.json"));
+      return read.status === "corrupted" ? { status: "corrupted" } : { status: "ok", decision: read.value };
+    },
     counts: retryCountsStore(runtimeRoot),
     maxRetriesPerError: () => maxRetriesPerError(runtimeRoot),
     readCurrentTaskId: () => readCurrentTaskId(runtimeRoot),

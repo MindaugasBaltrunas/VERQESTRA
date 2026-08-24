@@ -72,6 +72,26 @@ export const TokenUsageSummaryPanel = memo(function TokenUsageSummaryPanel({
         ))}
       </div>
 
+      {/* TIKROJI kaina doleriais. Telemetrija `total_cost_usd` neša nuo pat pradžių, o visas šis
+          ekranas — apie kainą — rodė tik tokenus. Rodoma TIK kai bent vienas įrašas ją turi:
+          `$0.00` iš nekainuotos imties yra išmatuotas teiginys apie nemokamą darbą. Kai kainą
+          turi ne visi įrašai, vardiklis stovi šalia — dalinai kainuota imtis kitaip skaitoma
+          kaip visa sąskaita. */}
+      {totals.costRecords > 0 && (
+        <p className="usage-cost-line">
+          <span>{t("Recorded cost")}</span>{" "}
+          <strong>
+            {new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(totals.costUsd)}
+          </strong>{" "}
+          {totals.costRecords < totals.records && (
+            <small>
+              ({t("priced records")}: {formatNumber(totals.costRecords, locale)} /{" "}
+              {formatNumber(totals.records, locale)})
+            </small>
+          )}
+        </p>
+      )}
+
       <p className="usage-cache-explainer">
         <strong>{t("Cache hit rate")}</strong> = cache_read / (input + cache_read + cache_creation) —{" "}
         {language === "lt"

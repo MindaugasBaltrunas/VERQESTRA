@@ -14,8 +14,14 @@ import {
 
 export type RetryGuardCommandDeps = {
   ensureDirs(): Promise<void>;
-  /** `vq/supervisor/decision.json`; trūkstamas/sugadintas → `{}` (etalono readJson fallback). */
-  readDecision(): Promise<SupervisorRetryDecision>;
+  /**
+   * `vq/supervisor/decision.json`. TRŪKSTAMAS failas → `{ status: "ok" }` su tuščiu sprendimu
+   * (sprendimo dar nėra — teisėta būsena); SUGADINTAS → `{ status: "corrupted" }`.
+   *
+   * Iki 2026-08-24 abu virsdavo `{}` (etalono readJson fallback), tad neperskaitomas sprendimas
+   * atrodydavo kaip „nebuvo repair" ir vartas grąžindavo 0 — retry limitas likdavo neįvykdytas.
+   */
+  readDecision(): Promise<{ status: "ok"; decision: SupervisorRetryDecision } | { status: "corrupted" }>;
   counts: RetryCountsStorePort;
   /** MAX_RETRIES_PER_ERROR iš `vq/config/commands.env` (default'ą taiko krautuvas). */
   maxRetriesPerError(): Promise<number>;
@@ -53,11 +59,29 @@ export async function retryGuard(args: string[], deps: RetryGuardCommandDeps): P
   await deps.ensureDirs();
   const now = deps.now ?? (() => new Date());
 
-  const decision = await deps.readDecision();
+  const read = await deps.readDecision();
 
+  // SUGADINTAS sprendimas nėra „nebuvo repair" (2026-08-24, operatoriaus radinys). Neperskaitę
+  // verdikto nežinome, ar remontas buvo nurodytas, tad limito įvykdyti NEGALIME — o `0` reikštų,
+  // kad neįvykdytas limitas atrodo kaip įvykdytas. Tas pats atsakas kaip neišsprendžiamam
+  // `task_id` žemiau: kai vartas negali suskaičiuoti, jis sustoja.
+  if (read.status === "corrupted") {
+    await deps.agLog("RETRY GUARD BLOCKED: verdict=<corrupted-decision>");
+    await deps.appendErrorLog(
+      [
+        "=== RETRY GUARD CORRUPTED DECISION ===",
+        `date=${now().toISOString()}`,
+        "Supervisor decision.json is unreadable; the retry limit cannot be enforced.",
+        "",
+      ].join("\n"),
+    );
+    return 1;
+  }
+
+  const decision = read.decision;
   if (decision.verdict !== "repair") {
-    // Tuščias verdict reiškia trūkstamą arba korumpuotą decision.json — fiksuojama auditui.
-    await deps.agLog(`RETRY GUARD SKIPPED: verdict=${decision.verdict ?? "<missing-or-corrupted-decision>"}`);
+    // Tuščias verdict reiškia TRŪKSTAMĄ decision.json — teisėta būsena (sprendimo dar nėra).
+    await deps.agLog(`RETRY GUARD SKIPPED: verdict=${decision.verdict ?? "<missing-decision>"}`);
     return 0;
   }
 

@@ -118,6 +118,14 @@ export type TokenUsageTotals = {
   cacheHitRate: number;
   /** cache_read / cache_creation — how many cached reads each cache-write token later paid for. */
   cacheReadToCreationRatio: number;
+  /**
+   * Summed `total_cost_usd`, in dollars. The field is optional in the telemetry, so this is the
+   * cost of the records that carried one — never the cost of the selection.
+   */
+  costUsd: number;
+  /** How many records carried a cost. Published with `costUsd`: a sum without its denominator
+   *  reads as the total, and a partially-priced selection would understate the bill silently. */
+  costRecords: number;
   firstTimestamp: string | null;
   latestTimestamp: string | null;
 };
@@ -137,6 +145,8 @@ export function computeTokenUsageTotals(records: TokenUsageRecord[]): TokenUsage
     outputInputRatio: 0,
     cacheHitRate: 0,
     cacheReadToCreationRatio: 0,
+    costUsd: 0,
+    costRecords: 0,
     firstTimestamp: null,
     latestTimestamp: null,
   };
@@ -149,6 +159,13 @@ export function computeTokenUsageTotals(records: TokenUsageRecord[]): TokenUsage
     totals.outputTokens += coerce(record.output_tokens);
     totals.cacheReadTokens += coerce(record.cache_read_input_tokens);
     totals.cacheCreationTokens += coerce(record.cache_creation_input_tokens);
+    // Kaina sumuojama TIK iš įrašų, kurie ją turi, ir jų suskaičiuojama atskirai. `coerce` be
+    // šito nematuotą kainą paverstų nuliu, o nulis dolerių yra IŠMATUOTAS teiginys — priešingas
+    // tam, ką sako trūkstamas laukas.
+    if (typeof record.total_cost_usd === "number" && Number.isFinite(record.total_cost_usd)) {
+      totals.costUsd += record.total_cost_usd;
+      totals.costRecords += 1;
+    }
     if (record.ts) {
       if (!totals.firstTimestamp || record.ts < totals.firstTimestamp) totals.firstTimestamp = record.ts;
       if (!totals.latestTimestamp || record.ts > totals.latestTimestamp) totals.latestTimestamp = record.ts;
@@ -238,14 +255,31 @@ export type ReworkProxyStats = {
   exactRetryTokenShare: number;
   retryAttempts: number;
   failedRetryAttempts: number;
+  /**
+   * Kodėl buvo kartota — dažniausios `retry_reason` reikšmės, dažniausia pirma.
+   *
+   * Telemetrija šį lauką neša nuo pat pradžių, o ekranas rodė TIK kiek kartų kartota. „Kiek" be
+   * „kodėl" nurodo, kad problema yra, bet ne kur ji yra: 40 pakartojimų dėl `rate-limit` ir 40
+   * dėl `gate-failed` reikalauja priešingų veiksmų. Kodai NEVERČIAMI — jų ieškoma žurnale.
+   */
+  retryReasons: { reason: string; count: number }[];
   metadataCoverage: number;
   isExact: boolean;
 };
 
 /**
- * A transparent rework proxy. Raw telemetry has no retry/failed-outcome field, so
- * only model-backed `diagnose` activity is counted; local and fast-path diagnoses
- * are deliberately excluded.
+ * Perdirbimo (rework) rodiklis — DVIEM tikslumo lygiais.
+ *
+ * Antraštė iki 2026-08-24 teigė, kad „telemetrija neturi retry/failed-outcome lauko", ir tai
+ * NEBEGALIOJA jau nuo `attempt`/`outcome` įvedimo — funkcijos kūnas abu skaito septyniomis
+ * eilutėmis žemiau. Pasenusi antraštė čia pavojingesnė už jokią: ji sako skaitytojui, kad tikslių
+ * duomenų nėra, ir kviečia perstatyti proxy tam, ką galima suskaičiuoti tiksliai.
+ *
+ * Tikroji riba yra DENGIAMUMAS, ne buvimas: `attempt` užpildytas ne kiekviename `dispatch`
+ * įraše, todėl skaičiuojami abu — tikslus (`exactRetryTokens`, tik iš `attempt > 1`) ir proxy
+ * (`diagnosisTokens`, tik modelinė `diagnose` veikla; vietinės ir fast-path diagnozės
+ * sąmoningai neįskaitomos). `metadataCoverage` pasako, kuriuo verta remtis, o `isExact` — ar
+ * tikslusis dengia visą imtį.
  */
 export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProxyStats {
   const allTasks = new Set(records.map((record) => record.task_id));
@@ -257,10 +291,16 @@ export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProx
   let failedRetryAttempts = 0;
   let dispatchRecords = 0;
   let dispatchRecordsWithAttempt = 0;
+  const reasonCounts = new Map<string, number>();
 
   for (const record of records) {
     const tokens = recordTotalTokens(record);
     totalTokens += tokens;
+    // Priežastis renkama iš BET KURIOS fazės ir nepriklausomai nuo `attempt`: ją rašo tas, kas
+    // kartojimą inicijavo, o susiaurinus iki `dispatch` + `attempt > 1` dingtų būtent tie atvejai,
+    // kur `attempt` neužpildytas — t. y. ta pati dengiamumo spraga, kurią rodiklis ir matuoja.
+    const reason = record.retry_reason?.trim();
+    if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
     if (record.phase === "dispatch") {
       dispatchRecords += 1;
       if (typeof record.attempt === "number") {
@@ -288,6 +328,11 @@ export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProx
     exactRetryTokenShare: totalTokens > 0 ? exactRetryTokens / totalTokens : 0,
     retryAttempts,
     failedRetryAttempts,
+    // Rūšiuojama pagal dažnį, o lygiaverčiai — pagal vardą, kad eilė nepriklausytų nuo žurnalo
+    // skaitymo tvarkos: šokinėjantis sąrašas kas 30 s atrodo kaip pasikeitę duomenys.
+    retryReasons: [...reasonCounts.entries()]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason)),
     metadataCoverage,
     isExact: dispatchRecords > 0 && metadataCoverage === 1,
   };

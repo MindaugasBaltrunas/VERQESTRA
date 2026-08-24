@@ -101,14 +101,37 @@ export function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(Math.trunc(value), minimum), maximum);
 }
 
+/**
+ * Bucket → task count, read from the ONE place the server still publishes it.
+ *
+ * VERQESTRA UI turėjo `queueCounts` žemėlapį IR `workflowBuckets[].totalCount`; 2026-08-24
+ * `queueCounts` pašalintas kaip to paties skaičiaus dublikatas. Ši projekcija jo vis dar
+ * skaitė, tad telefone visi skaitikliai virto nuliais, nors grafe buvo 13 queued ir 1 done.
+ *
+ * `queueCounts` NĖRA paliktas kaip atsarginis kelias sąmoningai: būtent dviguba forma ir
+ * leido lūžiui pragyventi — mobile fikstūra tiekė lauką, kurio serveris nebesiuntė, tad abu
+ * paketai atskirai buvo žali. Vienas šaltinis reiškia, kad kitas jo dingimas krenta iš karto.
+ */
+function bucketCounts(source: Record<string, unknown>): Record<string, number> {
+  const byName = new Map<string, number>();
+  for (const entry of list(source["workflowBuckets"])) {
+    const bucket = record(entry);
+    const name = bucket["name"];
+    const total = bucket["totalCount"];
+    if (typeof name === "string" && typeof total === "number" && Number.isSafeInteger(total) && total >= 0) {
+      byName.set(name, total);
+    }
+  }
+  const counts: Record<string, number> = {};
+  for (const bucket of taskBuckets) {
+    counts[bucket] = byName.get(bucket) ?? 0;
+  }
+  return counts;
+}
+
 export function projectDashboardPayload(payload: unknown, now = new Date()): AgLoopDashboard {
   const source = record(payload);
-  const rawCounts = record(source["queueCounts"]);
-  const queueCounts: Record<string, number> = {};
-  for (const bucket of taskBuckets) {
-    const value = rawCounts[bucket];
-    queueCounts[bucket] = typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-  }
+  const queueCounts = bucketCounts(source);
   const runtime = Array.isArray(source["runtime"])
     ? source["runtime"]
       .map(record)

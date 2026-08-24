@@ -20,7 +20,15 @@ test("dashboard projection drops mutation metadata, paths and raw logs", () => {
     root: "D:/secret/repo",
     currentTaskId: "123-safe-task",
     currentTaskState: "active",
-    queueCounts: { queue: 2, failed: 1, injected: 999 },
+    // Serverio forma, ne išgalvota: VERQESTRA UI siunčia `workflowBuckets[]`, o `queueCounts`
+    // pašalintas 2026-08-24. Sena fikstūra tiekė būtent tą lauką, kurio serveris nebesiunčia —
+    // dėl to telefone visi skaitikliai buvo nuliai, o abu paketų rinkiniai atskirai žali.
+    // `injected` čia lieka kaip nežinomas bucket'as: projekcija privalo jo neišleisti.
+    workflowBuckets: [
+      { name: "queue", tasks: ["0042-a.md"], totalCount: 2 },
+      { name: "failed", tasks: [], totalCount: 1 },
+      { name: "injected", tasks: [], totalCount: 999 },
+    ],
     runtime: [
       { name: "AG UI", status: "running", pid: 42 },
       { name: "D:/secret/process", status: "running" },
@@ -64,7 +72,7 @@ test("adapter bootstraps an in-memory token and refreshes once after 403", async
     return Response.json({
       currentTaskId: null,
       currentTaskState: "none",
-      queueCounts: {},
+      workflowBuckets: [],
       runtime: [],
       controlPlane: { human_review_tasks: [] },
     });

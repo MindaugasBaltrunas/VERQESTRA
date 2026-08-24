@@ -68,7 +68,7 @@ function world(): World {
     requestLoopStop: () => record("loop-stop", null, { status: "stop-requested", pid: 7 }),
     drainAllSlots: () => record("drain", null, { slots: { w1: { mode: "drain" }, w2: { mode: "drain" } } }),
     resetLoopControl: () => record("reset", null, { slots: { w1: { mode: "run" }, w2: { mode: "run" } } }),
-    setRequestedWorkers: (body) => record("workers", body, { requested: 2, source: "state", envOverride: false }),
+    setRequestedWorkers: (body) => record("workers", body, { requested: 2, source: "state" }),
     setSlotMode: (workerId, body) => record("slot", { workerId, body }, { slots: {} }),
     applyTaskTriage: (action, reference) => record("triage", { action, reference }, {}),
     hasStaticAssets: () => false,
@@ -169,7 +169,7 @@ test("`/api/runtime/loop/start`: `requested` yra svetimas laukas — 400, o ne t
 test("`/api/runtime/workers` grąžina `{ worker_request }`, o netinkama reikšmė — 400", async () => {
   const state = world();
   assert.deepEqual(await post(state, "/api/runtime/workers", { requested: 2 }).then((r) => r.data), {
-    worker_request: { requested: 2, source: "state", envOverride: false },
+    worker_request: { requested: 2, source: "state" },
   });
 
   const invalid = world();

@@ -31,6 +31,7 @@ export async function buildCodeIndex(
   const context: LexicalIndexContext = {
     knownPaths: new Set(scanned.map((file) => file.path)),
     psr4: parseComposerPsr4(await readOptionalConfig(fs, path.join(projectRoot, "composer.json"))),
+    pythonRoots: await discoverPythonRoots(fs, projectRoot, scanned),
   };
 
   for (const file of scanned) {

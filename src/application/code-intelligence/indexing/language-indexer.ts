@@ -17,6 +17,11 @@ import type { CodeIndexEdge, CodeIndexFile, CodeIndexSymbol } from "./types.js";
 export type LexicalIndexContext = {
   knownPaths: ReadonlySet<string>;
   psr4: Psr4Map;
+  /**
+   * Katalogai su Python projekto manifestu. Paduodami IŠ IŠORĖS, nes `pyproject.toml`, `setup.cfg`
+   * ir `tox.ini` nėra indeksuojami plėtiniai — `knownPaths` jų nemato iš principo (2026-08-24).
+   */
+  pythonRoots?: ReadonlySet<string>;
 };
 
 /** Kalbos, kurias aptarnauja leksiniai ištraukėjai (t. y. VISOS, išskyrus ECMAScript šeimą). */
@@ -58,7 +63,7 @@ function uniqueSymbols(symbols: readonly CodeIndexSymbol[]): CodeIndexSymbol[] {
 function extract(file: CodeIndexFile, text: string, context: LexicalIndexContext): LanguageIndexResult | undefined {
   switch (file.language) {
     case "python":
-      return indexPythonSource(file, text, context.knownPaths);
+      return indexPythonSource(file, text, context.knownPaths, context.pythonRoots ?? new Set());
     case "php":
       return indexPhpSource(file, text, context.knownPaths, context.psr4);
     case "csharp":

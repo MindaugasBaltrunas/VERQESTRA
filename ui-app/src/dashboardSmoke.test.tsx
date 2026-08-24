@@ -65,7 +65,7 @@ const DASHBOARD_PAYLOAD = {
     policy_controls: [],
     live_slots: [],
   },
-  workerControl: { requested: 1, source: "state", envOverride: false, lastWave: null },
+  workerControl: { requested: 1, source: "state", lastWave: null },
   loopControl: {
     loop: { status: "stopped", stopRequested: false },
     slots: [

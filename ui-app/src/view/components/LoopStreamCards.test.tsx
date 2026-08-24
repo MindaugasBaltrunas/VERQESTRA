@@ -134,15 +134,19 @@ describe("LoopStreamCards with slot progress", () => {
     expect(drain).toBeDisabled();
     expect(stream(2).getByRole("button", { name: "Abort stream" })).toBeDisabled();
     // Priežastis pasiekiama, o ne nutylima: išjungtas mygtukas be paaiškinimo yra mįslė.
-    expect(drain).toHaveAttribute("title", "Srautas nevykdo jokios užduoties");
+    // Be `I18nProvider` `t()` grąžina patį raktą — tai numatytoji anglų kalba, ne trūkstamas vertimas.
+    expect(drain).toHaveAttribute("title", "The stream has no running task");
 
     fireEvent.click(drain);
     expect(onStopSlot).not.toHaveBeenCalled();
+  });
 
-    // Dirbantis srautas lieka valdomas — taisyklė liečia TIK tuščią.
-    const working = bothStreamsWorking();
-    render(<LoopStreamCards loopControl={working} slotProgress={progressFor(working)} onStopSlot={onStopSlot} />);
-    expect(stream(2).getAllByRole("button", { name: "Stop stream (drain)" }).at(-1)).toBeEnabled();
+  it("dirbantis srautas lieka valdomas — taisyklė liečia TIK tuščią", () => {
+    const control = bothStreamsWorking();
+    render(<LoopStreamCards loopControl={control} slotProgress={progressFor(control)} onStopSlot={vi.fn()} onAbortSlot={vi.fn()} />);
+
+    expect(stream(2).getByRole("button", { name: "Stop stream (drain)" })).toBeEnabled();
+    expect(stream(2).getByRole("button", { name: "Abort stream" })).toBeEnabled();
   });
 
   it("resumes exactly the stream whose button was pressed", () => {

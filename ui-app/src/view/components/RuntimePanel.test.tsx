@@ -362,10 +362,16 @@ describe("RuntimePanel loop streams", () => {
 
   it("drains exactly the stream whose button was pressed", () => {
     const onStopSlot = vi.fn();
+    // ABU srautai su darbu: nuo 2026-08-24 tuščio srauto stabdymas išjungtas, tad numatytasis
+    // fixture (tuščias `w2`) tikrintų išjungtą mygtuką, o ne per-srautinį taikymą.
+    const control = loopControl({
+      slots: [
+        loopSlot({ state: "running", taskId: "0052-loop-streams", attempt: 2 }),
+        loopSlot({ workerId: "w2", index: 2, state: "running", taskId: "0052-antra", attempt: 1 }),
+      ],
+    });
 
-    render(
-      <RuntimePanel processes={processes} root="D:/project" loopControl={loopControl()} onStopSlot={onStopSlot} />,
-    );
+    render(<RuntimePanel processes={processes} root="D:/project" loopControl={control} onStopSlot={onStopSlot} />);
 
     fireEvent.click(stream(2).getByRole("button", { name: "Stop stream (drain)" }));
 

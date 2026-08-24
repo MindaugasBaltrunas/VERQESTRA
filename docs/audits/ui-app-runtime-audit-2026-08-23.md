@@ -709,6 +709,77 @@ jis yra maršruto antraštė, ne pakartojimas.
 - `pnpm typecheck:ui`, `pnpm test:ui` (52/52 failai, **427/427**), `pnpm build:ui` — praeina.
 - Serverio pusė šiame rate NELIESTA (pakeitimai tik `ui-app/`).
 
+## Vienuoliktas ratas: operatoriaus pakeitimų sąrašas (2026-08-24)
+
+Šeši nurodymai, ne radiniai — operatorius pasakė, ką keisti. Visi šeši padaryti.
+
+### 1. Ryšys, šviežumas ir sveikata — TRYS atskiri ženklai
+
+Devintame rate `FreshnessIndicator` SULIEJO du iš jų: nutrūkęs SSE srautas versdavo duomenis
+„pasenusiais". Tai buvo klaida abiem kryptimis — `/api/dashboard` pollinimas veikia visiškai
+nepriklausomai nuo SSE ir gali būti sėkmingas tą pačią sekundę, kai srautas krito.
+
+Dabar: `resolveFreshness` mato TIK `refreshFailed` ir `loadedAt` (duomenų amžius), o srauto būsena
+turi savo `StreamIndicator`. Sistemos sveikata čia neminima iš viso — ji gyvena `RuntimePanel`.
+
+### 2. Mobiliajame ekrane — vienas užduočių stulpelis
+
+`≤760px` `workflow-board` gauna `grid-template-columns: 1fr`. Du siauri stulpeliai laužė tekstą
+per vidurį ir nesutaupė nieko: bucket'ų yra septyni, tad vertikalus sąrašas vis tiek slenkamas, o
+vienas stulpelis kiekvienam duoda visą plotį.
+
+### 3. Failai iki ID ir pavadinimo
+
+Naujas grynas `taskFileLabel`: `0042-perkelti-loop.md` → `0042` + `perkelti loop`. Sudėtinis vaiko
+ID (`0042-02`) lieka VIENAS vienetas — suskaldytas jis rodytų į tėvą. Vardas be skaitinio prefikso
+ID NEĮGYJA: atlaidus „bet kas iki pirmo brūkšnelio" paverstų `readme-guard` ID `readme`.
+
+**PILNAS vardas nedingsta** — jis lieka `title`. Tai skirtumas tarp trumpinimo ir informacijos
+praradimo, ir testas pin'ina abi puses.
+
+### 4. Mobilus „Daugiau" meniu
+
+`MoreMenu` neša VISUS devynis ekranus ir įrankius (ciklo start/stop, atnaujinimas). Rodomas tik
+`≤760px`, kur skirtukų slinkiklis yra ne navigacija, o slėptuvė: nematomas skirtukas neegzistuoja
+tam, kas jo neieško. Ciklo veiksmai jame kartojasi SĄMONINGAI — juosta gali būti nuslinkusi, o
+„Sustabdyti ciklą" negali tapti nepasiekiamu.
+
+`<details>`, o ne savas dropdown'as: klaviatūra ir screen reader'iai jį moka be nė vienos `aria-*`
+eilutės; pridėta tik tai, ko jam trūksta — uždarymas paspaudus šalia ir per `Escape`.
+
+### 5. Tuščias srautas: stabdymas ir nutraukimas išjungti
+
+`drain` ir `abort` veikia VYKDOMĄ bandymą; tuščiam srautui jie nekeičia nieko, tad aktyvus
+mygtukas žadėjo veiksmą, kurio vienintelė galima pasekmė — tyla. „Tęsti" lieka aktyvus: juo
+atrakinamas anksčiau sustabdytas srautas, ir tai yra veiksmas net be užduoties. Išjungimo
+priežastis pasiekiama per `title` — išjungtas mygtukas be paaiškinimo yra mįslė.
+
+**Testų pamoka:** keturi esami testai krito, ir jie buvo TEISŪS savo tikslu — jie tikrino
+per-srautinį taikymą, o ne mygtuko būseną. Numatytasis fixture turėjo tuščią `w2`, tad po
+pakeitimo jie būtų tikrinę išjungtą mygtuką. Sprendimas — atskiras `bothStreamsWorking()`
+fixture toms patikroms; numatytasis liko nepaliestas, nes juo remiasi „No task assigned" atvejis.
+Pirmas bandymas keisti BENDRĄ fixture'ą sulaužė būtent tą testą ir buvo atsuktas.
+
+### 6. Paspaudimo taikiniai ≥ 44 px
+
+`.button`, `.small-button`, `.nav-tab`, `.more-menu > summary`, `.more-menu-item` gauna
+`min-height: 44px` (ir `min-width` mygtukams). 32–41px pakanka pelei, per maža pirštui — o tai
+buvo būtent dažniausiai spaudžiami valdikliai (WCAG 2.5.8).
+
+### Vartai (vienuoliktas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `ui-app/src/model/taskFileLabel.test.ts` (naujas, 6) | ID atskiriamas nuo pavadinimo; sudėtinis vaiko ID lieka vienetu; vardas be prefikso ID neįgyja; vardas be aprašomosios dalies grąžina ID, ne tuščią eilutę; kelias nukerpamas abiem separatoriais |
+| `ui-app/src/view/components/LoopStreamCards.test.tsx` (+2) | tuščiame sraute `drain`/`abort` išjungti ir paspaudimas serverio nekviečia; priežastis pasiekiama; dirbantis srautas lieka valdomas |
+| `FreshnessIndicator.test.tsx` (perrašytas) | srauto būsena šviežumo NEBELIEČIA |
+
+### Patikros po vienuolikto rato
+
+- `pnpm typecheck:ui`, `pnpm build:ui` — praeina.
+- `pnpm test:ui` — **53/53 failai, 435/435** testai.
+- `pnpm test` — **1603/1603**.
+
 ### Patikros po aštunto rato
 
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.

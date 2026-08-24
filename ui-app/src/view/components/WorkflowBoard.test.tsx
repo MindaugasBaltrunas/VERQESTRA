@@ -30,7 +30,12 @@ describe("WorkflowBoard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all (3)" }));
 
     await waitFor(() => expect(onLoadTasks).toHaveBeenCalledWith("done"));
-    expect(screen.getByText("task-1.md")).toBeInTheDocument();
+    // 2026-08-24 (operatoriaus nurodymas): sąraše rodomas užduoties ID ir pavadinimas, be
+    // plėtinio — jis stumdavo pavadinimą iš matomo ploto ir vertė jį kirpti. PILNAS vardas
+    // NEDINGSTA: jis lieka `title`, tad detalė pasiekiama. Tai skirtumas tarp trumpinimo ir
+    // informacijos praradimo.
+    expect(screen.getByText("task-1")).toBeInTheDocument();
+    expect(screen.getByTitle("task-1.md")).toBeInTheDocument();
     expect(screen.getByText("Showing all 3 tasks")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open folder: done" })).toBeInTheDocument();
   });

@@ -111,6 +111,9 @@ export async function withOwnedLock<T>(
   holder?: string,
 ): Promise<T> {
   const deadlineMs = io.nowMs() + timing.timeoutMs;
+  // Ankstesnėse iteracijose mūsų pačių užrašyti tokenai. Tokenas unikalus tarp procesų, tad
+  // sutikę jį savininko įraše ŽINOME, kad lock'as mūsų — jo negalėjo užrašyti niekas kitas.
+  const ourClaims = new Set<string>();
 
   for (;;) {
     if ((await io.createLockDirectory(lockDir)) === "created") {
@@ -119,6 +122,7 @@ export async function withOwnedLock<T>(
         created_at: io.nowMs(),
         ...(holder === undefined ? {} : { holder }),
       };
+      ourClaims.add(claim.lock_id);
       await io.writeTextFileAtomic(ownerPath(lockDir), JSON.stringify(claim));
 
       // PERTIKRINIMAS: tarp `mkdir` ir šio skaitymo katalogą galėjo perimti stale laukėjas.
@@ -133,6 +137,18 @@ export async function withOwnedLock<T>(
         }
       }
     } else {
+      // Katalogas užimtas — bet gal MŪSŲ pačių. Taip atsitinka, kai ankstesnės iteracijos
+      // pertikrinimo skaitymas nepavyko LAIKINAI: lock'as tada liko mūsų, o be šios patikros
+      // laukėme jo paties iki stale ribos ir grąžindavome klaidą, nors įėjimą turėjome.
+      // Svetimo tokeno čia sutikti neįmanoma — jis unikalus šiam kvietimui.
+      const current = await readOwner(io, lockDir);
+      if (current !== undefined && ourClaims.has(current.lock_id)) {
+        try {
+          return await work();
+        } finally {
+          await releaseOwnedLock(io, lockDir, current.lock_id);
+        }
+      }
       await stealStaleOwnedLock(io, lockDir, timing.staleMs);
     }
 

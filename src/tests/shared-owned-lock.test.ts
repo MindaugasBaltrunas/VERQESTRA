@@ -124,6 +124,33 @@ test("perėmus lock'ą tarp `mkdir` ir patvirtinimo — į kritinę sekciją NE�
   assert.equal(entered, 0, "darbas NEBUVO paleistas ant svetimo lock'o");
 });
 
+test("LAIKINA pertikrinimo skaitymo klaida neatima mūsų pačių lock'o", async () => {
+  const { io } = lockIo(1_000);
+  let reads = 0;
+  let entered = 0;
+
+  // Pirmas savininko skaitymas „nepavyksta" (grąžina undefined) — lygiai taip pasielgtų
+  // `readTextFileIfExists` po laikinos FS klaidos. Lock'as tuo metu JAU mūsų.
+  const flaky: OwnedLockIo = {
+    ...io,
+    readTextFileIfExists: (p) => {
+      if (p.endsWith("owner.json")) {
+        reads += 1;
+        if (reads === 1) return Promise.resolve(undefined);
+      }
+      return io.readTextFileIfExists(p);
+    },
+  };
+
+  const result = await withOwnedLock(flaky, LOCK, TIMING, () => Promise.resolve(void (entered += 1) ?? "ok"));
+
+  // Be savo tokeno atpažinimo čia būtų buvęs laukimas iki `timeoutMs` ir klaida, o lock'as
+  // būtų blokavęs VISUS iki stale ribos — nors įėjimą turėjome.
+  assert.equal(entered, 1, "darbas įvykdytas, o ne prarastas dėl laikinos skaitymo klaidos");
+  assert.equal(result, "ok");
+  assert.equal(await io.createLockDirectory(LOCK), "created", "lock'as atlaisvintas");
+});
+
 test("laisvas lock'as paimamas, darbas įvykdomas, katalogas atlaisvinamas", async () => {
   const { io } = lockIo(1_000);
   const order: string[] = [];

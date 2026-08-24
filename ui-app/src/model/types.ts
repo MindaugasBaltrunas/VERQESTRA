@@ -118,7 +118,10 @@ export type UiLearningRecommendation = {
 
 export type UiControlPlaneData = {
   config_controls: UiConfigControl[];
-  loop_controls: Array<{ id: "resume" | "stop"; label: string; endpoint: string; method: "POST" }>;
+  // `loop_controls` PAŠALINTAS 2026-08-24 abiejose pusėse: serveris siuntė maršrutus
+  // (`/tasks/resume`, `/tasks/stop`), kuriuos klientas turi savo `api.ts` ir skaito IŠ TEN.
+  // Nenaudojamas endpoint'as atsakyme atrodo kaip autoritetas — pervadinus maršrutą kiltų pagunda
+  // taisyti jį, o realus kelias liktų senas.
   human_review_tasks: UiHumanReviewTask[];
   learning_recommendations: UiLearningRecommendation[];
   learning_summary: {
@@ -280,6 +283,8 @@ export type DashboardData = {
   runtime: RuntimeProcess[];
   claudeLogUpdatedAt: string | null;
   claudeLogBytes: number | null;
+  /** `attempt` | `legacy` | `none` — `legacy` antspaudas gali priklausyti KITAM task'ui. */
+  claudeLogSource?: string;
   workflowBuckets: WorkflowBucket[];
   queueCounts?: Record<string, number>;
   statusFiles?: Array<{ name: string; present: boolean; bytes?: number; updatedAt?: string }>;

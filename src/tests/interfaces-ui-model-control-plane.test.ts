@@ -154,10 +154,10 @@ test("loadUiControlPlaneData: git politika, governance ir loop valdikliai", asyn
   assert.equal(byId.get("auto_push_enabled")?.value, true);
   // Trūkstamas governance konfigas yra „missing:N", o ne „ok" — nežinia neatrodo žalia.
   assert.match(String(byId.get("architecture_governance")?.value), /^missing:/);
-  assert.deepEqual(
-    data.loop_controls.map((control) => control.id),
-    ["resume", "stop"],
-  );
+  // `loop_controls` PAŠALINTAS 2026-08-24: jis siuntė maršrutus, kuriuos klientas turi savo
+  // `api.ts` ir skaito iš ten. Serverio siunčiamas endpoint'as be vartotojo atrodo kaip
+  // autoritetas, tad pervadinus maršrutą kiltų pagunda taisyti jį, o realus kelias liktų senas.
+  assert.equal("loop_controls" in data, false);
   assert.deepEqual(data.human_review_tasks, [], "nesamas katalogas nėra klaida");
   assert.equal(data.stack_decision, undefined);
 });

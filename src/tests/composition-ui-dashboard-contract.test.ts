@@ -126,7 +126,14 @@ test("GET /api/dashboard grąžina PILNĄ dashboard snapshot'ą, ne vieną jo bl
       const controlPlane = data["controlPlane"] as Record<string, unknown> | undefined;
       assert.ok(controlPlane, "controlPlane privalo būti atsakymo VIDUJE");
       assert.ok(Array.isArray(controlPlane["human_review_tasks"]));
-      assert.ok(Array.isArray(controlPlane["loop_controls"]));
+      assert.ok(Array.isArray(controlPlane["config_controls"]));
+      // `loop_controls` ir `live_slots` PAŠALINTI 2026-08-24: pirmasis siuntė maršrutus, kuriuos
+      // klientas turi savo `api.ts`, antrasis buvo miręs IR nešė absoliutų `worktree_path` į
+      // naršyklę. Vartas laiko juos pašalintus — kitaip jie grįžtų kaip „naudingas kontekstas".
+      assert.equal("loop_controls" in controlPlane, false);
+      assert.equal("live_slots" in controlPlane, false);
+      assert.equal("queueCounts" in data, false, "dublikatas `workflowBuckets[].totalCount`");
+      assert.equal(JSON.stringify(data).includes("worktree_path"), false, "kelias į naršyklę neišeina");
       // Senoji (klaidinga) forma turėjo šiuos laukus ŠAKNYJE. Jei jie ten atsirastų dar kartą,
       // regresija būtų tiksliai ta pati.
       assert.equal(data["human_review_tasks"], undefined);

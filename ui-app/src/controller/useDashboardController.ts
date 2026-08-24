@@ -492,6 +492,15 @@ export function useDashboardController() {
     notice,
     refreshError,
     loadedAt,
+    /**
+     * Patikrintas atsakymas BE adaptavimo — diagnostikos paviršiui.
+     *
+     * `dashboard` yra vaizdo modelis: jis interpretuoja. Diagnostika priešingai — ji rodo ĮRODYMĄ
+     * pažodžiui (būsenos failų antspaudus, resume taškus, log kilmę), ir adapteris čia tik
+     * kopijuotų laukus, pridėdamas sluoksnį, kuriame galima suklysti. Pavadinta `raw`, kad niekas
+     * jo nesupainiotų su vaizdo modeliu.
+     */
+    raw: data,
     resumeLabel,
     stopLabel,
     agentActivity,

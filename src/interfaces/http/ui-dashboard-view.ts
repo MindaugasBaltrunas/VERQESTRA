@@ -29,7 +29,7 @@ import {
   type UiLoopSlot,
 } from "../ui-model/loop-slot-model.js";
 import { toUiTokenBudget, type UiTokenBudget } from "../ui-model/token-budget-view.js";
-import type { UiControlPlaneData, UiLiveSlot } from "../ui-model/control-plane-model.js";
+import type { UiControlPlaneData } from "../ui-model/control-plane-model.js";
 import { loopPidFile, loopStopFile } from "./loop-lifecycle.js";
 import type { WorkflowBucketView } from "./workflow-buckets.js";
 
@@ -129,7 +129,12 @@ export type UiDashboardData = {
 export type DashboardWaveSnapshot = {
   worker_pool?: UiWaveWorkerPool | undefined;
   tasks?: readonly { task_id: string; state: string }[] | undefined;
-  live_slots?: readonly UiLiveSlot[] | undefined;
+  /**
+   * Vykdymo AUTORITETAS `deriveLoopSlots`ui. `started_at`/`worktree_path` čia SĄMONINGAI nėra:
+   * pirmojo niekas nerodo (praėjęs laikas skaičiuojamas iš lease'o), o antrasis yra absoliutus
+   * kelias, kurio `ui-waves-view` taisyklė į naršyklę neišleidžia.
+   */
+  live_slots?: readonly { worker_id: string; task_id: string; attempt: number }[] | undefined;
 };
 
 export type DashboardStopEvidence = {
@@ -340,13 +345,6 @@ export async function buildDashboardView(input: BuildDashboardViewInput): Promis
   ]);
 
   const tokenBudget: UiTokenBudget | undefined = toUiTokenBudget(parseJsonRecord(tokenBudgetRaw));
-  const liveSlots: UiLiveSlot[] = (waveSnapshot?.live_slots ?? []).map((slot) => ({
-    worker_id: slot.worker_id,
-    task_id: slot.task_id,
-    attempt: slot.attempt,
-    started_at: slot.started_at,
-    worktree_path: slot.worktree_path,
-  }));
 
   // `controlPlane` praleidžiamas TIK tada, kai jo perskaityti nepavyko: klientui `undefined`
   // reiškia „duomenų nėra", o tuščias blokas melagingai reikštų „nieko nelaukia".
@@ -355,7 +353,6 @@ export async function buildDashboardView(input: BuildDashboardViewInput): Promis
       ? undefined
       : {
           ...controlPlane,
-          live_slots: liveSlots,
           ...(tokenBudget === undefined ? {} : { token_budget: tokenBudget }),
         };
 
@@ -396,7 +393,10 @@ export async function buildDashboardView(input: BuildDashboardViewInput): Promis
     claudeLogBytes: claudeLogStamp.bytes ?? null,
     claudeLogSource: claudeLogStamp.source,
     workflowBuckets,
-    queueCounts: Object.fromEntries(workflowBuckets.map((bucket) => [bucket.name, bucket.totalCount])),
+    // `queueCounts` PAŠALINTAS 2026-08-24: jis buvo `workflowBuckets[].totalCount` perrašymas kitu
+    // raktu, ir klientas jo neskaitė — jis skaito patį `totalCount`. Du to paties skaičiaus
+    // pavidalai viename atsakyme anksčiau ar vėliau prasilenkia, o tada ekranas turi du atsakymus
+    // į vieną klausimą.
     statusFiles,
     ...(controlPlaneView === undefined ? {} : { controlPlane: controlPlaneView }),
     workerControl: {

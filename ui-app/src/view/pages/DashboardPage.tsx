@@ -6,7 +6,9 @@ import { fixableTaskIds } from "../../model/loopControlsViewModel";
 import { buildQueuePipeline } from "../../model/queuePipelineViewModel";
 import { buildSlotProgressViews, correlateActivity } from "../../model/slotProgressViewModel";
 import { AgentChainProgress } from "../components/AgentChainProgress";
+import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { FreshnessIndicator, StreamIndicator } from "../components/FreshnessIndicator";
+import { TokenBudgetPanel } from "../components/TokenBudgetPanel";
 import { Header, type Route } from "../components/Header";
 import { HumanReviewPanel } from "../components/HumanReviewPanel";
 import { LearningPanel } from "../components/LearningPanel";
@@ -33,6 +35,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
     notice,
     refreshError,
     loadedAt,
+    raw,
     resumeLabel,
     stopLabel,
     agentActivity,
@@ -195,7 +198,10 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         )}
         {activeRoute === "overview" && (
           <>
-            <OverviewPanel metrics={dashboard.overview.slice(0, 4)} />
+            {/* VISOS metrikos. Iki 2026-08-24 čia stovėjo `.slice(0, 4)`, tad „Latest activity" ir
+                „Stable commit" buvo skaičiuojamos serveryje, siunčiamos laidu ir NIEKADA nerodomos
+                — o `stableRef` yra vienintelė nuoroda, nuo kurio commit'o atkuriamas medis. */}
+            <OverviewPanel metrics={dashboard.overview} />
             <div className="command-grid">
               {agentActivity && (
                 <AgentChainProgress
@@ -284,10 +290,14 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         {/* Eilės lenta yra ATSKIRA sekcija, o ne `WavesPanel` vidus: jos duomenys ateina daugiausia
             iš `/api/dashboard`, tad paslėpta už bangų klaidos/įkėlimo ji dingtų dėl svetimo
             endpoint'o gedimo, o įspėjimas „bangų duomenų nėra" niekada nepasiektų ekrano. */}
+        {/* Biudžetas ir diagnostika gyvena `#/system`, nes abu atsako į klausimą „kodėl sistema
+            elgiasi taip, kaip elgiasi". Iki 2026-08-24 abiejų duomenys buvo siunčiami ir numetami. */}
+        {activeRoute === "system" && raw && <TokenBudgetPanel budget={raw.controlPlane?.token_budget} />}
         {activeRoute === "system" && pipeline && <QueuePipelineBoard board={pipeline} />}
         {activeRoute === "system" && (
           <WavesPanel data={waves} error={wavesError} onReload={() => void reloadWaves()} />
         )}
+        {activeRoute === "system" && raw && <DiagnosticsPanel data={raw} />}
       </main>
     </>
   );

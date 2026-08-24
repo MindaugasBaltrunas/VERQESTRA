@@ -92,19 +92,15 @@ export type UiStackDecision = {
   reason: string;
 };
 
-/**
- * Realaus laiko slot'o užimtumas — bangos snapshot'o `live_slots[]` veidrodis, autoritetas dėl
- * task/attempt/started_at/worktree priskyrimo, įskaitant papildymus (refill), kurie jokiam
- * bangos planui nepriklauso. Šis modelis snapshot'o pats neskaito: kvietėjas jį jau turi iš savo
- * lygiagretaus skaitymo ir tik suneša į kontraktą.
- */
-export type UiLiveSlot = {
-  worker_id: string;
-  task_id: string;
-  attempt: number;
-  started_at: string;
-  worktree_path: string;
-};
+// `UiLiveSlot` ir `UiControlPlaneData.live_slots` PAŠALINTI 2026-08-24. Du dalykai vienu metu:
+//
+//   1. MIRĘS LAUKAS. Nė vienas `ui-app` kelias jo neskaitė. Vykdymo priskyrimą ekranas gauna iš
+//      `loopControl.slots` (kur `deriveLoopSlots` snapshot'o `live_slots` naudoja kaip autoritetą)
+//      ir iš SSE `slots[]` (per-srautinės grandinės).
+//   2. KELIO NUTEKĖJIMAS. Įrašas nešė `worktree_path` — ABSOLIUTŲ darbo kopijos kelią — tiesiai į
+//      naršyklę, kas 30 s. `ui-waves-view` tą patį duomenį sąmoningai sumažina iki `has_worktree`
+//      vėliavos su komentaru „pats kelias sąmoningai neatskleidžiamas"; šis kelias tos taisyklės
+//      nepaisė. Miręs laukas, nešantis tai, ko negalima rodyti, yra blogiausias jų derinys.
 
 /**
  * Vieno gyvo slot'o agentų grandinės būsena — OPTIONAL blokas šalia globalių laukų.
@@ -125,13 +121,11 @@ export type UiSlotActivity = {
 
 export type UiControlPlaneData = {
   config_controls: UiConfigControl[];
-  loop_controls: Array<{ id: "resume" | "stop"; label: string; endpoint: string; method: "POST" }>;
   human_review_tasks: UiHumanReviewTask[];
   learning_recommendations: UiLearningRecommendation[];
   learning_summary: LearningMemorySummary;
   policy_controls: UiPolicyGroup[];
   stack_decision?: UiStackDecision;
-  live_slots?: UiLiveSlot[];
   token_budget?: UiTokenBudget;
 };
 
@@ -336,10 +330,10 @@ export async function loadUiControlPlaneData(
         command: "verqestra architecture check --json",
       },
     ],
-    loop_controls: [
-      { id: "resume", label: "Resume loop", endpoint: "/tasks/resume", method: "POST" },
-      { id: "stop", label: "Request loop stop", endpoint: "/tasks/stop", method: "POST" },
-    ],
+    // `loop_controls` PAŠALINTAS 2026-08-24: jis siuntė maršrutus (`/tasks/resume`, `/tasks/stop`),
+    // kuriuos klientas ir taip turi savo `api.ts` — ir SKAITĖ juos iš ten, o ne iš čia. Serverio
+    // siunčiamas endpoint'as, kurio niekas nenaudoja, yra ne tik nereikalingas: jis atrodo kaip
+    // autoritetas, todėl pervadinus maršrutą kiltų pagunda taisyti ČIA, o realus kelias liktų senas.
     human_review_tasks: humanReviewTasks,
     learning_recommendations: latestLearningRecommendations(learningRecords),
     learning_summary: learningSummary,

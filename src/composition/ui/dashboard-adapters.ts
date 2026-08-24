@@ -88,12 +88,12 @@ async function readDashboardWaveSnapshot(stateDir: string): Promise<DashboardWav
   return {
     ...(snapshot.worker_pool === undefined ? {} : { worker_pool: snapshot.worker_pool }),
     tasks: snapshot.tasks.map((task) => ({ task_id: task.task_id, state: task.state })),
+    // TIK vykdymo priskyrimas. `started_at` ir `worktree_path` nebeperduodami: pirmojo niekas
+    // nerodo, o antrasis yra absoliutus kelias, kuriam kelio į naršyklę nėra (2026-08-24).
     live_slots: snapshot.live_slots.map((slot) => ({
       worker_id: slot.worker_id,
       task_id: slot.task_id,
       attempt: slot.attempt,
-      started_at: slot.started_at,
-      worktree_path: slot.worktree_path,
     })),
   };
 }

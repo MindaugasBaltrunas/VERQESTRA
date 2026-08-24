@@ -43,7 +43,6 @@ const CLIENT_REQUIRED_FIELDS = [
 
 const EMPTY_CONTROL_PLANE: UiControlPlaneData = {
   config_controls: [],
-  loop_controls: [],
   human_review_tasks: [],
   learning_recommendations: [],
   learning_summary: {

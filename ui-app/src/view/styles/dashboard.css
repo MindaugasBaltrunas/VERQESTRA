@@ -3645,6 +3645,44 @@ main {
 
 /* Ženklelio tonas seka JO PAČIO verdiktą: „gyvi" ir „pasenę" negali atrodyti vienodai, kitaip
    tekstas pasikeičia, o ekranas ir toliau atrodo ramus (2026-08-24 operatoriaus radinys). */
+/* --- Biudžeto ir diagnostikos blokai (2026-08-24: „viskas matoma") ------------------------ */
+
+.budget-block,
+.diagnostics-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.budget-block h3,
+.diagnostics-block h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+.budget-grid > div { display: grid; gap: 2px; }
+.budget-grid span { font-size: 11px; color: var(--muted); }
+.budget-grid strong { font-variant-numeric: tabular-nums; }
+
+/* Priežastys yra vartų kodai — monospace, kad juos būtų galima nusikopijuoti į žurnalo paiešką. */
+.budget-reasons { margin-top: 12px; }
+.budget-reasons ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.budget-reasons code { font-size: 11px; }
+
+.diagnostics-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.diagnostics-table th,
+.diagnostics-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.diagnostics-table th[scope="row"] { font-weight: 500; }
+.diagnostics-table td { font-variant-numeric: tabular-nums; }
+/* Nesamas failas nublanksta, bet LIEKA sąraše: jo nebuvimas yra faktas, ne tuštuma. */
+.state-file-missing { color: var(--faint); }
+
 /* --- Signalai, taikiniai ir „Daugiau" meniu (2026-08-24, operatoriaus nurodymai) ---------- */
 
 /* Trys skirtingi faktai stovi šalia, bet kaip ATSKIRI ženklai — ne kaip vienas jungtinis. */

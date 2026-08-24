@@ -884,6 +884,72 @@ Dabar: sugadintas įrodymas gauna savo etiketę ir `error` toną, o kilmė — `
 - `pnpm test` — **1617/1617**; `pnpm test:ui` — 53/53 failai, **439/439** (+3).
 - `pnpm typecheck:ui`, `pnpm build:ui` — praeina.
 
+## Keturioliktas ratas: „viskas matoma ir veikia" (2026-08-24)
+
+Trylikto rato inventorius pavirto darbu. Taisyklė, pagal kurią jis darytas: **kiekvienas laukas
+arba matomas ekrane, arba nebesiunčiamas.** Trečio kelio — „siunčiam, gal kada prireiks" — nebėra.
+
+### Padaryta MATOMA
+
+| Laukas | Kur dabar matomas |
+|---|---|
+| `stableRef`, `claudeResume.updated_at` | apžvalga rodo VISAS 6 metrikas (buvo `.slice(0, 4)`) |
+| `controlPlane.token_budget` | naujas `TokenBudgetPanel` (`#/system`) |
+| `statusFiles`, `claudeLogUpdatedAt/Bytes/Source`, `supervisorResume`, `claudeResume`, `config_controls`, `stack_decision` | naujas `DiagnosticsPanel` (`#/system`) |
+
+`TokenBudgetPanel` buvo brangiausias praradimas: jis vienintelis atsako, **kodėl** dispatch'as
+pristabdytas ar neleistas. Du blokai jame nesuliejami — juos rašo skirtingi momentai, ir bendras
+skaičius iš dviejų laiko taškų meluotų apie abu. Priežastys rodomos KAIP KODAI (`max_total_tokens_exceeded`),
+nes būtent jų ieškoma žurnale; `null` riba rodoma kaip „neribota", o ne kaip nulis.
+
+`DiagnosticsPanel` renderina įrodymą PAŽODŽIUI, tad gauna `raw` atsakymą, o ne vaizdo modelį:
+adapteris čia tik kopijuotų laukus, pridėdamas sluoksnį, kuriame galima suklysti.
+
+### Padaryta NEBESIUNČIAMA
+
+| Laukas | Kodėl pašalintas |
+|---|---|
+| `queueCounts` | `workflowBuckets[].totalCount` perrašymas kitu raktu; klientas skaitė `totalCount`. Du to paties skaičiaus pavidalai viename atsakyme anksčiau ar vėliau prasilenkia |
+| `controlPlane.loop_controls` | siuntė maršrutus, kuriuos klientas turi savo `api.ts` ir skaito iš ten. Nenaudojamas endpoint'as atsakyme atrodo kaip autoritetas — pervadinus maršrutą kiltų pagunda taisyti jį, o realus kelias liktų senas |
+| `controlPlane.live_slots` | **miręs laukas IR kelio nutekėjimas** — žr. žemiau |
+
+### `live_slots`: blogiausias derinys
+
+Laukas nešė `worktree_path` — ABSOLIUTŲ darbo kopijos kelią — tiesiai į naršyklę kas 30 s, ir jo
+neskaitė niekas. `ui-waves-view` tą patį duomenį sąmoningai sumažina iki `has_worktree` vėliavos su
+komentaru „pats kelias sąmoningai neatskleidžiamas"; šis kelias tos taisyklės nepaisė.
+
+Vykdymo priskyrimas nedingo: `deriveLoopSlots` snapshot'o `live_slots` toliau naudoja kaip
+autoritetą, tik DTO susiaurintas iki `{worker_id, task_id, attempt}` — be `started_at` (jo niekas
+nerodo) ir be `worktree_path`.
+
+### Ko NEPADARIAU
+
+Benchmark `report.compression` lieka nerodomas: tai `AG/benchmark` paketo duomuo, ir jo panelė yra
+BENCH apimties darbas, ne šio audito.
+
+### Vartai (keturioliktas ratas)
+
+| Failas | Ką pin'ina |
+|---|---|
+| `ui-app/src/view/components/DiagnosticsPanel.test.tsx` (naujas, 5) | būsenos failai (įsk. nesamą, kuris LIEKA sąraše), log kilmė, tęsimo taškai, stack sprendimo priežastis, automatikos politika; biudžetas be verdikto sako TAI, o ne rodo nulius; priežastys rodomos kaip kodai; `null` riba yra „neribota" |
+| `src/tests/composition-ui-dashboard-contract.test.ts` (+4) | `loop_controls`, `live_slots`, `queueCounts` PAŠALINTI ir negrįžta; `worktree_path` neišeina į naršyklę |
+
+Paskutinis vartas svarbus dėl to, ką jis draudžia: be jo pašalinti laukai grįžtų kaip „naudingas
+kontekstas", o kelio nutekėjimas kartu su jais.
+
+### Pamoka apie testus ir build'ą
+
+Kliento tipo pakeitimas praėjo pro 444 vitest testus ir krito ties `pnpm build:ui`: vitest
+transformuoja per esbuild BE pilno tipų tikrinimo, o `tsc -b` — su. **Žali testai `ui-app` pakete
+NEĮRODO, kad tipai suveda** — `typecheck:ui` ir `build:ui` yra atskiri vartai, ir juos reikia
+paleisti abu.
+
+### Patikros po keturiolikto rato
+
+- `pnpm test` — **1617/1617**; `pnpm test:ui` — **54/54 failai, 444/444**.
+- `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm build:ui` — praeina.
+
 ### Patikros po aštunto rato
 
 - `pnpm typecheck`, `pnpm typecheck:ui`, `pnpm lint` — praeina.

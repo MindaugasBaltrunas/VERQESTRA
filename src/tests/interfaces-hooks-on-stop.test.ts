@@ -258,6 +258,48 @@ test("hookOnStop: nepavykęs commit — error; nepavykęs PUSH po commit'o — d
   assert.match(failedPush.errors.join("\n"), /Commit atliktas/);
 });
 
+// Task 002 lenktynė (2026-08-25): žinutė buvo valoma PRIEŠ sužinant commit'o baigtį, tad
+// guard'o atmestas commit'as palikdavo darbą medyje, o aprašą — ištrintą; kitas stop'as
+// krisdavo į fallback su WIP žyme. Kontraktas dabar simetriškas: žinutė ir darbas, kurį ji
+// aprašo, išgyvena arba išsivalo KARTU.
+test("hookOnStop: nepavykęs commit'as ŽINUTĖS nepraranda — kitas bandymas ją perpanaudoja", async () => {
+  const AUTHORED = "feat: tikroji antraste\n\nkunas";
+  const world = stopWorld({
+    [CURRENT_TASK]: "890\n",
+    [LEDGER]: JSON.stringify(["src/a.ts"]),
+    [COMMIT_MSG]: AUTHORED,
+  });
+  world.changed = ["src/a.ts"];
+  world.status = " M src/a.ts\n";
+  world.commitResult = { ok: false, step: "commit", result: { code: 1, stdout: "", stderr: "guard blocked" } };
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.equal(world.bridge.at(-1)?.status, "error");
+  assert.equal(world.store.get(COMMIT_MSG), AUTHORED, "atmestas commit'as negali ištrinti darbo aprašo");
+
+  // Antras stop'as po pataisymo: TA PATI autorinė žinutė, ne failų vardų fallback'as su WIP.
+  world.commitResult = { ok: true, branch: "main" };
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.match(world.commits.at(-1)?.message ?? "", /^feat: tikroji antraste/);
+  assert.equal(world.store.get(COMMIT_MSG), "", "po sėkmės žinutė išvalyta");
+});
+
+test("hookOnStop: push kritimas PO commit'o žinutę išvalo — darbas jau istorijoje", async () => {
+  const world = stopWorld({
+    [CURRENT_TASK]: "890\n",
+    [LEDGER]: JSON.stringify(["src/a.ts"]),
+    [COMMIT_MSG]: "feat: antraste\n\nkunas",
+  });
+  world.changed = ["src/a.ts"];
+  world.status = " M src/a.ts\n";
+  world.autoPush = true;
+  world.commitResult = { ok: false, step: "push", result: { code: 1, stdout: "", stderr: "rejected" } };
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.equal(world.bridge.at(-1)?.status, "done");
+  assert.equal(world.store.get(COMMIT_MSG), "", "commit'as istorijoje — palikta žinutė priliptų prie svetimo darbo");
+});
+
 test("hookOnStop: sesijos nuotrauka užrašoma PRIEŠ commit'ą, kuris išvalo changes.log", async () => {
   const world = stopWorld({ [CURRENT_TASK]: "890\n", [LEDGER]: JSON.stringify(["src/a.ts"]) });
   world.changed = ["src/a.ts"];

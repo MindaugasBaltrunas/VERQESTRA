@@ -137,7 +137,12 @@ async function resolveCommitMessage(
     title = enforceCommitTitlePolicy(first.replace(/\r/g, ""), titleSource, policy);
     body = rest.join("\n").replace(/\r/g, "");
     await context.log(`Naudojama Claude commit žinutė: ${title}`);
-    await ports.fs.writeTextFile(commitMsgFile, "");
+    // Žinutė čia NEVALOMA (2026-08-25, task 002 lenktynė): iki šiol ji buvo ištrinama dar
+    // PRIEŠ sužinant commit'o baigtį, tad guard'o ar git'o atmestas commit'as palikdavo darbą
+    // medyje, o jo aprašą — jau ištrintą. Kitas stop'as krisdavo į fallback šaką ir autorinį
+    // tekstą pakeisdavo failų vardų konvencija su WIP žyme („rollback_failed=1 missing_commit"
+    // simptomas). Valymas dabar gyvena `clearAuthoredCommitMessage`, kviečiamame TIK po
+    // sėkmingo commit'o: žinutė ir darbas, kurį ji aprašo, išgyvena arba išsivalo KARTU.
   } else {
     // Fallback'as pasiekiamas TIK kai sesija nutrūko (timeout, stream-cut) nespėjusi parašyti
     // žinutės. Antraštė lieka failų vardų konvencija — task id keliauja į body trailer'į, nes
@@ -151,6 +156,18 @@ async function resolveCommitMessage(
   }
 
   return `${title}\n\n${body}\n\n[orchestrator] ${context.now().toISOString()}`;
+}
+
+/**
+ * Išvalo autorinę commit žinutę — kviesti TIK kai commit'as jau repo istorijoje.
+ *
+ * Valymo paskirtis nepasikeitė: pasenusi žinutė negali būti prisegta prie VĖLESNIO, nesusijusio
+ * darbo. Pasikeitė MOMENTAS — anksčiau ji buvo valoma dar prieš `git add`, tad nepavykęs
+ * commit'as prarasdavo aprašą negrįžtamai. Nepavykus commit'ui žinutė sąmoningai paliekama:
+ * darbas, kurį ji aprašo, irgi tebėra necommit'intas, tad kitas bandymas ją teisėtai perpanaudos.
+ */
+async function clearAuthoredCommitMessage(context: StopHookContext): Promise<void> {
+  await context.deps.ports.fs.writeTextFile(context.logPath("commit-msg.md"), "");
 }
 
 async function logStagingEvidence(context: StopHookContext, plan: StagePlanResult, taskId: string): Promise<void> {
@@ -319,7 +336,9 @@ export async function hookOnStop(deps: StopHookDeps): Promise<number> {
       });
     }
     // Commit'as JAU įvyko: tai nebėra klaida, o rankinio užbaigimo atvejis — kitaip
-    // orkestratorius perdarytų darbą, kuris repo jau yra.
+    // orkestratorius perdarytų darbą, kuris repo jau yra. Žinutė išvaloma ir čia: jos darbas
+    // istorijoje, tad palikta ji tegalėtų prilipti prie svetimo vėlesnio commit'o.
+    await clearAuthoredCommitMessage(context);
     const reason = result.step === "branch" ? "Git branch nenustatytas" : "Push nepavyko";
     await ports.fs.appendTextFile(context.logPath("hooks.log"), output);
     return await finish(context, {
@@ -331,6 +350,7 @@ export async function hookOnStop(deps: StopHookDeps): Promise<number> {
     });
   }
 
+  await clearAuthoredCommitMessage(context);
   await clearChangesLog(context);
   return await finish(context, {
     status: "done",

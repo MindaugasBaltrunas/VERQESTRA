@@ -14,6 +14,8 @@ export type BenchmarkComparable = {
   integrity_ok: boolean;
   totals: BenchmarkTotals;
   tokens_per_verified_accepted_change: TokensPerAcceptedChange;
+  /** Nepriskirtų task'ų aibė ir jų suvartoti tokenai — jei nesant, senos projekcijos elgesys nesikeičia. */
+  unassigned?: { task_ids: string[]; total_tokens: number };
 };
 
 export type BenchmarkComparisonVerdict = "improved" | "neutral" | "regressed" | "not_comparable";
@@ -87,6 +89,18 @@ export function compareBenchmarkRuns(
     reasons.push(
       `benchmark case set changed: baseline [${baselineCaseIds.join(", ")}], current [${currentCaseIds.join(", ")}]`,
     );
+  }
+  if (baseline.unassigned !== undefined || current.unassigned !== undefined) {
+    const baselineUnassignedIds = [...(baseline.unassigned?.task_ids ?? [])].sort();
+    const currentUnassignedIds = [...(current.unassigned?.task_ids ?? [])].sort();
+    const baselineUnassignedTokens = baseline.unassigned?.total_tokens ?? 0;
+    const currentUnassignedTokens = current.unassigned?.total_tokens ?? 0;
+    const hasUnassignedUsage = baselineUnassignedTokens > 0 || currentUnassignedTokens > 0;
+    if (baselineUnassignedIds.join(",") !== currentUnassignedIds.join(",") && hasUnassignedUsage) {
+      reasons.push(
+        `unassigned task set changed: baseline [${baselineUnassignedIds.join(", ")}], current [${currentUnassignedIds.join(", ")}]`,
+      );
+    }
   }
   if (!baseline.integrity_ok) reasons.push("baseline integrity is not clean");
   if (!current.integrity_ok) reasons.push("current integrity is not clean");

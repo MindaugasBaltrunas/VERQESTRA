@@ -188,6 +188,38 @@ test("nepriskirtas task'as SU usage>0 vienas pats laužia integrity.ok, o usage 
   assert.equal(report.totals.usage.total_tokens, 600);
 });
 
+test("keli SKIRTINGI nepriskirti task'ai: usage sumuojasi per abu, ne tik per vieną", async () => {
+  const files = cleanFiles();
+  files[abs("vq/logs/token-usage.jsonl")] = `${USAGE_LINES}\n${[
+    JSON.stringify({
+      phase: "dispatch",
+      task_id: "X-99",
+      model: "claude-sonnet-5",
+      input_tokens: 30,
+      output_tokens: 20,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      total_cost_usd: 0.05,
+    }),
+    JSON.stringify({
+      phase: "dispatch",
+      task_id: "X-01",
+      model: "claude-sonnet-5",
+      input_tokens: 7,
+      output_tokens: 3,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      total_cost_usd: 0.01,
+    }),
+  ].join("\n")}\n`;
+  const report = await captureBenchmarkReport(fakeFs(files), OPTIONS);
+  assert.deepEqual(report.integrity.unassigned_task_ids, ["X-01", "X-99"]);
+  assert.equal(report.integrity.unassigned_usage_records, 2);
+  assert.equal(report.integrity.unassigned_total_tokens, 60, "60 = (30+20 X-99) + (7+3 X-01), sumuojama per abu task'us");
+  assert.equal(report.integrity.ok, false);
+  assert.equal(report.totals.usage.total_tokens, 600, "nepriskirtų usage neturi patekti į measured totals");
+});
+
 test("nepriskirtas task'as BE usage nelaužo integrity.ok", async () => {
   const files = cleanFiles();
   files[abs("vq/logs/task-events.jsonl")] = `${EVENT_LINES}\n${JSON.stringify({

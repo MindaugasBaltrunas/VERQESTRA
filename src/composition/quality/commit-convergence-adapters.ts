@@ -27,9 +27,19 @@ export type CommitConvergenceAdapterInput = {
   projectRoot: string;
   /** `<projectRoot>/vq` — telemetry, status išvestys, konfigai. */
   runtimeRoot: string;
-  /** `<projectRoot>/AG` — task bucket'ai ir spec. Praleidus išvedama iš `projectRoot`. */
-  agRoot?: string;
 };
+
+/**
+ * `<projectRoot>/AG` — task bucket'ai ir spec.
+ *
+ * NĖRA parametro sąmoningai: `projectStatus` savo AG šaknį skaičiuoja pats iš `projectRoot`
+ * (interfaces/cli/reports/project-status.ts), tad įleidus atskirą `agRoot` release įrodymas ir
+ * task'ų skaičiai ateitų iš DVIEJŲ skirtingų medžių, o telemetry įrašas sudėtų juos į vieną
+ * eilutę taip, tarsi jie būtų iš to paties.
+ */
+function agRootFor(projectRoot: string): string {
+  return path.join(projectRoot, "AG");
+}
 
 /**
  * Telemetry žurnalas: `<runtimeRoot>/state/commit-convergence.jsonl`.
@@ -89,10 +99,9 @@ async function summarizeProjectStatus(
  */
 export function commitConvergencePorts(input: CommitConvergenceAdapterInput): CommitConvergencePorts {
   const { projectRoot, runtimeRoot } = input;
-  const agRoot = input.agRoot ?? path.join(projectRoot, "AG");
 
   return {
-    runProjectStatus: () => summarizeProjectStatus(projectRoot, runtimeRoot, agRoot),
+    runProjectStatus: () => summarizeProjectStatus(projectRoot, runtimeRoot, agRootFor(projectRoot)),
     runConverge: () => converge(convergePorts, { projectRoot, runtimeRoot }),
     writeTelemetry: (record) => nodeFsAdapter.appendTextFile(telemetryPath(runtimeRoot), `${JSON.stringify(record)}\n`),
     now: () => new Date().toISOString(),

@@ -176,6 +176,36 @@ test("stop-adapters: po sėkmingo commit'o konvergencija perleidžiama ir teleme
   assert.equal(lines[0]?.commit, head);
 });
 
+// Priešinga kryptis nei ankstesnis testas, ir ji svarbesnė, nei atrodo: be `if (result.ok)`
+// nepavykęs commit'as vis tiek parašytų telemetry eilutę su PRAEITU HEAD — įrašą, kuris teigia
+// konvergenciją commit'ui, kurio nėra. Melagingas įrašas žurnale blogesnis už jokį.
+test("stop-adapters: nepavykus commit'ui konvergencija NEPALEIDŽIAMA", async () => {
+  const projectRoot = await makeRoot("vq-cc-stop-skip-");
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const git = async (...args: string[]): Promise<void> => {
+    const result = await run("git", ["-C", projectRoot, ...args]);
+    assert.equal(result.code, 0, `git ${args.join(" ")}: ${result.stderr || result.stdout}`);
+  };
+
+  await git("init");
+  await git("config", "user.email", "test@example.com");
+  await git("config", "user.name", "Test");
+  await git("config", "commit.gpgsign", "false");
+
+  // Tuščias medis: `git commit` neturi ką įrašyti, tad krenta ties `commit` žingsniu.
+  const ports = stopHookPorts(projectRoot, runtimeRoot);
+  const result = await ports.commitAndPush({
+    projectRoot,
+    message: "nieko nepakeista",
+    paths: [],
+    push: false,
+  });
+
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(await nodeFsAdapter.exists(telemetryFile(runtimeRoot)), false);
+  assert.equal(await nodeFsAdapter.exists(path.join(runtimeRoot, "project", "status.md")), false);
+});
+
 test("stop-adapters: krentanti konvergencija NEPAVERČIA commit'o nesėkme", async () => {
   const projectRoot = await makeRoot("vq-cc-stop-fail-");
   const runtimeRoot = path.join(projectRoot, "vq");

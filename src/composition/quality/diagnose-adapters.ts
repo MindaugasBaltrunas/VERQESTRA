@@ -36,6 +36,7 @@ import {
 import { run } from "../../infrastructure/process/run-process.js";
 import { productPathsFromDiffNames } from "../../domain/git/changes.js";
 import { windowProductWorkSha } from "../../infrastructure/git/work-evidence.js";
+import { readTaskStartBaseline } from "../../infrastructure/state/task-start-baseline.js";
 import { consoleCliIo, type CliIo } from "../../interfaces/cli/registry.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { attemptLogPath } from "../../infrastructure/runtime-paths.js";
@@ -99,20 +100,20 @@ export async function readClaudeSessionLog(
 }
 
 /**
- * Attempt-only `task-start-status`. Bet kuri ne-ok baigtis duoda `{}` (fail-closed).
+ * `task-start-status` iš bandymo namespace'o su atsarginiu globaliu veidrodžiu
+ * (`infrastructure/state/task-start-baseline` — tas pats skaitytojas, kurį naudoja work-evidence).
  *
- * Tai NĖRA nutylėjimas: tuščia bazė uždaro įrodymų langą, tad klaida veda į PILNĄ diagnozę,
- * o ne į greitkelį „matyt viskas gerai".
+ * Neradus bazės grąžinamas `{}` (fail-closed): tuščia bazė uždaro įrodymų langą, tad klaida veda į
+ * PILNĄ diagnozę, o ne į greitkelį „matyt viskas gerai". Iki 2026-08-25 skaitytas buvo TIK bandymo
+ * namespace, o jis kiekviename dispatch'e būdavo `no-runtime` — fail-closed šaka buvo ne išimtis,
+ * o vienintelis realus kelias.
  */
 export async function readTaskStartStatus(
   taskId: string,
   resolution: AttemptResolutionPort,
+  runtimeRoot: string,
 ): Promise<{ task_id?: string; base_head?: string }> {
-  if (taskId.trim() === "") return {};
-  const resolved = await resolution.resolveActiveAttempt(taskId);
-  if (!resolved.ok) return {};
-  const read = await resolved.attempt.handle.readJson<{ task_id?: string; base_head?: string }>("task-start-status");
-  return read.ok ? read.data : {};
+  return (await readTaskStartBaseline({ taskId, runtimeRoot, resolution })) ?? {};
 }
 
 /** Diagnozės modelis: haiku bazė, pakelta pagal nesėkmingų bandymų skaičių. */
@@ -263,7 +264,12 @@ export function diagnoseStatePorts(input: DiagnoseAdapterInput): {
     // Sibling procese nonce jau ištrintas — tuščia eilutė yra normali, o ne gedimas.
     envDispatchNonce: () => (env["AG_DISPATCH_NONCE"] ?? "").trim(),
     windowProductWorkSha: (taskId) =>
-      windowProductWorkSha({ projectRoot: input.projectRoot, taskId, resolution: input.resolution }),
+      windowProductWorkSha({
+        projectRoot: input.projectRoot,
+        runtimeRoot: input.runtimeRoot,
+        taskId,
+        resolution: input.resolution,
+      }),
   };
 }
 
@@ -364,7 +370,7 @@ export function claudeDiagnosePorts(input: DiagnoseAdapterInput & { agRoot: stri
       };
     },
     readClaudeSessionLog: () => readClaudeSessionLog(input.runtimeRoot, taskId, input.resolution),
-    readTaskStartStatus: () => readTaskStartStatus(taskId, input.resolution),
+    readTaskStartStatus: () => readTaskStartStatus(taskId, input.resolution, input.runtimeRoot),
     ...diagnoseLlmPorts(input),
     loadDiagnoseLimits: () => loadDiagnoseLimits(input.runtimeRoot),
     get attempt() {

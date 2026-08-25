@@ -80,7 +80,12 @@ export async function locateTaskBucket(deps: WaveInputAdapterDeps, taskId: strin
 export async function taskHasAcceptedWork(deps: WaveInputAdapterDeps, taskId: string): Promise<boolean> {
   if (!(await isGitRepository(deps.projectRoot))) return false;
   return (
-    (await taskCommittedProductWorkSha({ projectRoot: deps.projectRoot, taskId, resolution: deps.resolution })) !== undefined
+    (await taskCommittedProductWorkSha({
+      projectRoot: deps.projectRoot,
+      runtimeRoot: deps.runtimeRoot,
+      taskId,
+      resolution: deps.resolution,
+    })) !== undefined
   );
 }
 

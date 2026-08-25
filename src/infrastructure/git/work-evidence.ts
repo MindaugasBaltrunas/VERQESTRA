@@ -14,6 +14,7 @@ import { splitChildParentStemCandidates } from "../../domain/tasks/identity.js";
 import { isWipCommitMessage } from "../../domain/policies/commit-message.js";
 import { productPathsFromDiffNames } from "../../domain/git/changes.js";
 import { run } from "../process/run-process.js";
+import { readTaskStartBaseline } from "../state/task-start-baseline.js";
 import type { AttemptResolutionPort } from "../state/attempt-resolution.js";
 
 /** Tuščias intervalas: sintaksiškai galiojantis git range, kuris niekada nieko negrąžina. */
@@ -62,33 +63,13 @@ export function taskWorkEvidenceGrepArgs(taskId: string): string[] | undefined {
 
 export type WorkEvidenceInput = {
   projectRoot: string;
+  /** vq runtime šaknis — bazės globalus veidrodis gyvena po ja. */
+  runtimeRoot: string;
   taskId: string;
   resolution: AttemptResolutionPort;
   /** Neblokuojantis įspėjimas, kai bazė nepasiekiama dėl REALIOS degradacijos. */
   warn?: (line: string) => Promise<void>;
 };
-
-/**
- * Attempt-only `task-start-status` bazė. `undefined`, kai jos nėra.
- *
- * `disabled`/`no-runtime`/`not-created` yra normalios būsenos ir tyli; likusios reiškia realią
- * degradaciją, o degradacija čia tiesiogiai reiškia tuščią įrodymų langą — todėl ji matoma.
- */
-async function readTaskStartBaseline(
-  input: WorkEvidenceInput,
-): Promise<{ task_id?: string; base_head?: string } | undefined> {
-  const resolved = await input.resolution.resolveActiveAttempt(input.taskId);
-  if (!resolved.ok) {
-    if (resolved.reason !== "disabled" && resolved.reason !== "no-runtime" && resolved.reason !== "not-created") {
-      await input.warn?.(
-        `WARNING: work evidence baseline unavailable task=${input.taskId} reason=${resolved.reason} — evidence window empty`,
-      );
-    }
-    return undefined;
-  }
-  const read = await resolved.attempt.handle.readJson<{ task_id?: string; base_head?: string }>("task-start-status");
-  return read.ok ? read.data : undefined;
-}
 
 /**
  * Įrodymų paieškos intervalas: commit'ai PO šio task'o starto.
@@ -98,7 +79,12 @@ async function readTaskStartBaseline(
  * senas atitikmuo patvirtintų darbą, kurio šis task'as niekada nedarė.
  */
 export async function taskEvidenceRangeArgs(input: WorkEvidenceInput): Promise<string[]> {
-  const baseline = await readTaskStartBaseline(input);
+  const baseline = await readTaskStartBaseline({
+    taskId: input.taskId,
+    runtimeRoot: input.runtimeRoot,
+    resolution: input.resolution,
+    ...(input.warn === undefined ? {} : { warn: input.warn }),
+  });
   if (baseline === undefined || baseline.task_id !== input.taskId) return [EVIDENCE_RANGE_NONE];
   const base = (baseline.base_head ?? "").trim();
   if (!/^[0-9a-f]{7,40}$/i.test(base)) return [EVIDENCE_RANGE_NONE];

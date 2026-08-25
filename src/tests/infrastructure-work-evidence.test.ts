@@ -5,6 +5,9 @@
 // Melagingas įrodymas uždarytų niekada neįgyvendintą užduotį ir atrakintų jos priklausinius.
 
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import type { AttemptResolutionPort } from "../infrastructure/state/attempt-resolution.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
@@ -13,6 +16,23 @@ import {
   taskEvidenceRangeArgs,
   taskWorkEvidenceGrepArgs,
 } from "../infrastructure/git/work-evidence.js";
+
+/**
+ * runtimeRoot BE globalaus veidrodžio.
+ *
+ * Testai, tikrinantys „be bazės — tuščias langas", privalo neturėti nė vieno bazės šaltinio.
+ * Rodant juos į tikrą `vq/`, jie praeitų dėl atsitiktinio `task_id` nesutapimo, o ne dėl tikrinamos
+ * taisyklės.
+ */
+const NO_MIRROR = path.join(tmpdir(), "vq-work-evidence-no-mirror-DOES-NOT-EXIST");
+
+/** runtimeRoot su globaliu veidrodžiu — tokiu, kokį rašo `recordTaskStartStatus`. */
+async function runtimeRootWithMirror(baseline: unknown): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "vq-mirror-"));
+  await mkdir(path.join(root, "state"), { recursive: true });
+  await writeFile(path.join(root, "state", "task-start-status.json"), JSON.stringify(baseline), "utf8");
+  return root;
+}
 
 /** Attempt handle'o pakaitalas: intervalo taisyklei reikia TIK `readJson("task-start-status")`. */
 function resolutionWith(baseline: unknown, ok = true): AttemptResolutionPort {
@@ -53,6 +73,7 @@ test("grep argumentai: ERE metasimboliai escape'inami pažodžiui", () => {
 test("be attempt bazės langas TUŠČIAS, o ne visa istorija", async () => {
   const args = await taskEvidenceRangeArgs({
     projectRoot: process.cwd(),
+    runtimeRoot: NO_MIRROR,
     taskId: "0042",
     resolution: noRuntimeAttemptResolution,
   });
@@ -62,6 +83,7 @@ test("be attempt bazės langas TUŠČIAS, o ne visa istorija", async () => {
 test("SVETIMO task'o bazė lango neatidaro", async () => {
   const args = await taskEvidenceRangeArgs({
     projectRoot: process.cwd(),
+    runtimeRoot: NO_MIRROR,
     taskId: "0042",
     resolution: resolutionWith({ task_id: "0099", base_head: "abc1234" }),
   });
@@ -72,6 +94,7 @@ test("netinkamos formos base_head lango neatidaro", async () => {
   for (const base of ["", "   ", "ne-sha", "abc"]) {
     const args = await taskEvidenceRangeArgs({
       projectRoot: process.cwd(),
+      runtimeRoot: NO_MIRROR,
       taskId: "0042",
       resolution: resolutionWith({ task_id: "0042", base_head: base }),
     });
@@ -83,8 +106,55 @@ test("neegzistuojantis commit'as lango neatidaro net su teisinga forma", async (
   // Forma tinkama, bet tokio objekto repo nėra — `rev-parse --verify` tai pagauna.
   const args = await taskEvidenceRangeArgs({
     projectRoot: process.cwd(),
+    runtimeRoot: NO_MIRROR,
     taskId: "0042",
     resolution: resolutionWith({ task_id: "0042", base_head: "0123456789abcdef0123456789abcdef01234567" }),
+  });
+  assert.deepEqual(args, [EVIDENCE_RANGE_NONE]);
+});
+
+// ---------------------------------------------------------------------------
+// globalus veidrodis: „normali" no-runtime būsena nebeuždaro lango
+// ---------------------------------------------------------------------------
+
+test("bandymo namespace NEPASIEKIAMAS, bet veidrodis turi bazę — langas ATSIDARO", async () => {
+  // 2026-08-25 regresija: kiekvienas dispatch'as buvo `no-runtime`, skaitytojas žiūrėjo TIK į
+  // bandymo namespace'ą, tad langas visada likdavo `HEAD..HEAD` ir `hasWorkEvidence` niekada
+  // negalėjo tapti `true` — visi `ALREADY_IMPLEMENTED` task'ai krito į human-review.
+  const { run } = await import("../infrastructure/process/run-process.js");
+  const head = await run("git", ["-C", process.cwd(), "rev-parse", "HEAD"], { cwd: process.cwd() });
+  if (head.code !== 0) return; // ne-git aplinkoje šis testas neturi ką tikrinti
+  const sha = head.stdout.trim();
+
+  const args = await taskEvidenceRangeArgs({
+    projectRoot: process.cwd(),
+    runtimeRoot: await runtimeRootWithMirror({ task_id: "0042", base_head: sha }),
+    taskId: "0042",
+    resolution: noRuntimeAttemptResolution,
+  });
+  assert.deepEqual(args, [`${sha}..HEAD`]);
+});
+
+test("veidrodis su SVETIMU task_id lango NEATIDARO — atsarginis kelias nieko neatlaisvina", async () => {
+  const args = await taskEvidenceRangeArgs({
+    projectRoot: process.cwd(),
+    runtimeRoot: await runtimeRootWithMirror({ task_id: "0099", base_head: "a".repeat(40) }),
+    taskId: "0042",
+    resolution: noRuntimeAttemptResolution,
+  });
+  assert.deepEqual(args, [EVIDENCE_RANGE_NONE]);
+});
+
+test("sugadintas veidrodis nėra bazė — spėti draudžiama", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "vq-mirror-broken-"));
+  await mkdir(path.join(root, "state"), { recursive: true });
+  await writeFile(path.join(root, "state", "task-start-status.json"), "{ not json", "utf8");
+
+  const args = await taskEvidenceRangeArgs({
+    projectRoot: process.cwd(),
+    runtimeRoot: root,
+    taskId: "0042",
+    resolution: noRuntimeAttemptResolution,
   });
   assert.deepEqual(args, [EVIDENCE_RANGE_NONE]);
 });
@@ -97,6 +167,7 @@ test("REALUS HEAD atidaro langą", async () => {
   const sha = head.stdout.trim();
   const args = await taskEvidenceRangeArgs({
     projectRoot: process.cwd(),
+    runtimeRoot: NO_MIRROR,
     taskId: "0042",
     resolution: resolutionWith({ task_id: "0042", base_head: sha }),
   });

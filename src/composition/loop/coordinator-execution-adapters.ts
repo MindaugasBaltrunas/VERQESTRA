@@ -70,6 +70,7 @@ import {
 export function coordinatorGitPort(input: CoordinatorAdapterInput): GitPort {
   const evidence = (taskId: string): Parameters<typeof taskCommittedWorkSha>[0] => ({
     projectRoot: input.projectRoot,
+    runtimeRoot: input.runtimeRoot,
     taskId,
     resolution: input.resolution,
     warn: (line) => appendLogLine(input.runtimeRoot, "orchestrator.log", line),

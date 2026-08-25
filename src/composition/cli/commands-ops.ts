@@ -41,7 +41,11 @@ import {
   onStopBridgeAdapters,
   reapDeadLeases,
   retryGuardAdapters,
+  schedulingFs,
 } from "../loop/adapters.js";
+import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
+import { leaseGuardsTask } from "../../domain/scheduling/worker-lease-rules.js";
+import { isProcessAlive } from "../../infrastructure/process/process-tree.js";
 import { evaluateLoopPreconditions } from "../../application/scheduling/loop-preconditions.js";
 import { claudeDiagnosePorts } from "../quality/diagnose-adapters.js";
 import { claudePreflightPorts } from "../agent/preflight-adapters.js";
@@ -284,6 +288,18 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
             listMarkdownFilePaths: async (dir: string) => {
               const names = (await nodeFsAdapter.listDirectoryIfExists(dir)) ?? [];
               return names.filter((name) => name.endsWith(".md")).map((name) => path.join(dir, name)).sort();
+            },
+            // Gyvi lease'ai — vienintelis skirtumas tarp „nutrūkęs" ir „vykdomas šią sekundę".
+            // Skaitymo klaida NEVIRSTA tuščiu sąrašu: tyliai tuščias rinkinys atrakintų kiekvieną
+            // veikiantį task'ą atstatymui, o tai yra būtent tas gedimas, kurį šis portas uždaro.
+            liveLeaseTaskIds: async () => {
+              const leases = await listWorkerLeases(schedulingFs, deps.roots.projectRoot);
+              const now = new Date();
+              return new Set(
+                leases
+                  .filter((lease) => leaseGuardsTask(lease, now, (pid) => isProcessAlive(pid)))
+                  .map((lease) => lease.task_id),
+              );
             },
           },
           consumeStopRequest: () =>

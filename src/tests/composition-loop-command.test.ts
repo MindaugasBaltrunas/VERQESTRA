@@ -40,7 +40,10 @@ async function deps(): Promise<{ deps: LoopCommandDeps; root: string }> {
       out: () => {},
       emptyQueue,
       preconditions: { gitStatusPorcelain: () => Promise.resolve([]) } as never,
-      taskSelection: { listMarkdownFilePaths: () => Promise.resolve([]) },
+      taskSelection: {
+        listMarkdownFilePaths: () => Promise.resolve([]),
+        liveLeaseTaskIds: () => Promise.resolve(new Set<string>()),
+      },
       consumeStopRequest: () => Promise.resolve(false),
       resumeTask: () => Promise.resolve(true),
       processAuditRepairTask: () => Promise.resolve(),

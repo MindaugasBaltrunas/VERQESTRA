@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createWaveProvisioningCoordinator } from "../application/scheduling/wave-provisioning.js";
 import { listWorkerLeases } from "../application/scheduling/worker-lease-store.js";
+import { leaseGuardsTask, type WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
 import type { SchedulingFileSystemPort } from "../application/scheduling/ports.js";
 import type { WorktreeProvisionOutcome } from "../application/scheduling/wave-provisioning.js";
 import { memorySchedulingFs } from "./helpers/memory-scheduling-fs.js";
@@ -133,4 +134,55 @@ test("aprūpinimo išimtis nepalieka aktyvaus lease", async () => {
     "aprūpinimas NIEKADA nemeta — nesėkmė lieka žurnale",
   );
   assert.equal(result.held, 0, `išimtis privalo grąžinti lease; log:\n  ${result.logs.join("\n  ")}`);
+});
+
+// ---------------------------------------------------------------------------
+// leaseGuardsTask — ar task'as VYKDOMAS dabar (2026-08-25 dvigubos aktyvacijos incidentas)
+// ---------------------------------------------------------------------------
+
+const GUARD_NOW = new Date("2026-08-23T12:00:00.000Z");
+const ALIVE = (): boolean => true;
+const DEAD = (): boolean => false;
+
+function leaseFixture(overrides: Partial<WorkerLease> = {}): WorkerLease {
+  return {
+    schema_version: 1,
+    lease_id: "lease-1",
+    owner_id: "loop-4242",
+    run_id: "run-1",
+    worker_id: "w1",
+    task_id: "0042",
+    attempt: 1,
+    status: "held",
+    fencing_token: 1,
+    acquired_at: "2026-08-23T11:00:00.000Z",
+    heartbeat_at: "2026-08-23T11:59:00.000Z",
+    expires_at: "2026-08-23T13:00:00.000Z",
+    ...overrides,
+  };
+}
+
+test("leaseGuardsTask: held + nepasibaigęs + gyvas savininkas = task'as VYKDOMAS", () => {
+  assert.equal(leaseGuardsTask(leaseFixture(), GUARD_NOW, ALIVE), true);
+});
+
+test("leaseGuardsTask: pasibaigęs TTL arba miręs savininkas atlaisvina task'ą atstatymui", () => {
+  const expired = leaseFixture({ expires_at: "2026-08-23T11:30:00.000Z" });
+  assert.equal(leaseGuardsTask(expired, GUARD_NOW, ALIVE), false, "TTL pasibaigęs");
+
+  assert.equal(leaseGuardsTask(leaseFixture(), GUARD_NOW, DEAD), false, "savininko procesas miręs");
+
+  const released = leaseFixture({ status: "released" });
+  assert.equal(leaseGuardsTask(released, GUARD_NOW, ALIVE), false, "lease atlaisvintas");
+});
+
+test("leaseGuardsTask: FAIL-CLOSED abiem kryptim", () => {
+  // Neperskaitomas `expires_at` laikomas pasibaigusiu — sugadintas lease neužrakina task'o amžiams.
+  const broken = leaseFixture({ expires_at: "ne-data" });
+  assert.equal(leaseGuardsTask(broken, GUARD_NOW, ALIVE), false);
+
+  // Neatpažinta savininko forma gyvumo klausimo NEATSAKO, tad lease lieka galioti: nežinojimas
+  // apie svetimą savininką nesuteikia teisės perimti jo task'o.
+  const foreignOwner = leaseFixture({ owner_id: "ui-session-7" });
+  assert.equal(leaseGuardsTask(foreignOwner, GUARD_NOW, DEAD), true);
 });

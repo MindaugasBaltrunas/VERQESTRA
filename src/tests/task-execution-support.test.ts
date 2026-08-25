@@ -46,13 +46,70 @@ test("createTaskRunState: neperskaitomas failas nestabdo run'o — snapshot unde
 test("task-selection: resumable bucket'ai pagal prioritetą", async () => {
   const listings = new Map<string, string[]>();
   const bucketKey = (bucket: string) => path.join("/repo/AG", "tasks", bucket);
-  const ports = { listMarkdownFilePaths: async (dir: string) => listings.get(dir) ?? [] };
+  const ports = {
+    listMarkdownFilePaths: async (dir: string) => listings.get(dir) ?? [],
+    liveLeaseTaskIds: async () => new Set<string>(),
+  };
   assert.equal(await selectNextResumableTask("/repo/AG", ports), undefined);
 
   listings.set(bucketKey("error"), ["/repo/AG/tasks/error/0002.md"]);
   listings.set(bucketKey("delegated"), ["/repo/AG/tasks/delegated/0001.md"]);
   const picked = await selectNextResumableTask("/repo/AG", ports);
   assert.deepEqual(picked, { bucket: "delegated", file: "/repo/AG/tasks/delegated/0001.md" }, "delegated > error");
+});
+
+test("task-selection: GYVO lease saugomas task'as NĖRA atstatomas", async () => {
+  // 2026-08-25 regresija: `delegated` bucket'as reiškia „atiduota vykdytojui", tad veikiantis ir
+  // apleistas task'as atrodė identiškai. Dviguba aktyvacija iškėlė failą iš po gyvo vykdytojo,
+  // jam baigus perkėlimas neteko šaltinio, slot'as krito ir ciklas sustojo.
+  const listings = new Map<string, string[]>();
+  const bucketKey = (bucket: string) => path.join("/repo/AG", "tasks", bucket);
+  listings.set(bucketKey("delegated"), ["/repo/AG/tasks/delegated/0001-gyvas.md"]);
+  listings.set(bucketKey("error"), ["/repo/AG/tasks/error/0002-apleistas.md"]);
+
+  const ports = {
+    listMarkdownFilePaths: async (dir: string) => listings.get(dir) ?? [],
+    liveLeaseTaskIds: async () => new Set(["0001-gyvas"]),
+  };
+
+  const picked = await selectNextResumableTask("/repo/AG", ports);
+  assert.deepEqual(
+    picked,
+    { bucket: "error", file: "/repo/AG/tasks/error/0002-apleistas.md" },
+    "gyvas praleidžiamas, o paieška TĘSIAMA — vienas vykdytojas neužblokuoja atstatymo visiems",
+  );
+});
+
+test("task-selection: praleidžiamas TIK saugomas failas, o ne visas bucket'as", async () => {
+  const listings = new Map<string, string[]>();
+  const bucketKey = (bucket: string) => path.join("/repo/AG", "tasks", bucket);
+  listings.set(bucketKey("delegated"), [
+    "/repo/AG/tasks/delegated/0001-gyvas.md",
+    "/repo/AG/tasks/delegated/0003-laisvas.md",
+  ]);
+
+  const ports = {
+    listMarkdownFilePaths: async (dir: string) => listings.get(dir) ?? [],
+    liveLeaseTaskIds: async () => new Set(["0001-gyvas"]),
+  };
+
+  assert.deepEqual(await selectNextResumableTask("/repo/AG", ports), {
+    bucket: "delegated",
+    file: "/repo/AG/tasks/delegated/0003-laisvas.md",
+  });
+});
+
+test("task-selection: kai VISI saugomi — atstatytinų nėra", async () => {
+  const listings = new Map<string, string[]>();
+  const bucketKey = (bucket: string) => path.join("/repo/AG", "tasks", bucket);
+  listings.set(bucketKey("delegated"), ["/repo/AG/tasks/delegated/0001-gyvas.md"]);
+
+  const ports = {
+    listMarkdownFilePaths: async (dir: string) => listings.get(dir) ?? [],
+    liveLeaseTaskIds: async () => new Set(["0001-gyvas"]),
+  };
+
+  assert.equal(await selectNextResumableTask("/repo/AG", ports), undefined);
 });
 
 test("probeWorkEvidence: be įrodymo git status net neklausiamas (nulinis pėdsakas)", async () => {

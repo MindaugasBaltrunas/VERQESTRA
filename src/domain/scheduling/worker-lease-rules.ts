@@ -106,6 +106,31 @@ export function isLeaseActive(lease: WorkerLease, now: Date): boolean {
   return lease.status === "held" && !isLeaseExpired(lease, now);
 }
 
+/**
+ * Ar šis lease VIS DAR saugo savo task'ą, t. y. ar task'as yra vykdomas dabar.
+ *
+ * Egzistuoja dėl 2026-08-25 incidento: `selectNextResumableTask` sprendė „nutrūkęs darbas" vien
+ * pagal tai, kad task'o failas guli `delegated` bucket'e. Bet `delegated` pažodžiui reiškia
+ * „atiduota vykdytojui" — VEIKIANTIS ir APLEISTAS task'as tokiam skaitytojui atrodė identiškai.
+ * Rezultatas: 012 buvo aktyvuotas antrą kartą, kol jo pirmasis dispatch'as dar dirbo; antroji
+ * aktyvacija iškėlė failą iš po veikiančio vykdytojo kojų, pirmajai baigus perkėlimas nebeturėjo
+ * šaltinio (`Unique move source file does not exist`), slot'as krito ir ciklas sustojo. Pakeliui
+ * tas pats gyvas vykdytojas laikė bendrą `claude-last.log`, ir dėl `EBUSY` žuvo NESUSIJĘS
+ * task'as 007.
+ *
+ * Taisyklė ta pati, kurią projektas jau taiko PID'ams (`domain/scheduling/loop-runtime`):
+ * buvimas nėra gyvumo įrodymas. Čia įrodymas yra `held` lease su nepasibaigusiu TTL IR gyvas
+ * savininko procesas. Abi patikros fail-closed: neperskaitomas `expires_at` laikomas pasibaigusiu,
+ * o neatpažinta savininko forma NESUTEIKIA teisės ignoruoti lease'o.
+ */
+export function leaseGuardsTask(
+  lease: WorkerLease,
+  now: Date,
+  isAlive: (pid: number) => boolean,
+): boolean {
+  return isLeaseActive(lease, now) && !isLeaseOwnerProcessDead(lease, isAlive);
+}
+
 /** Lease → claim'as, kurį jo savininkas turi pateikti kiekvienai mutacijai. */
 export function leaseClaimOf(lease: WorkerLease): WorkerLeaseClaim {
   return {

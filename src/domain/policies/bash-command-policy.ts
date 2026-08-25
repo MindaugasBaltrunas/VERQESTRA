@@ -92,6 +92,10 @@ const allowedBenchmarkCliCommands = [
  */
 const allowedTaskMoveCliCommands = [
   /^node\s+dist[\\/]cli\.js\s+task-move\s+AG[\\/]tasks[\\/]human-review[\\/][\w.-]+\.md\s+AG[\\/]tasks[\\/]done$/i,
+  // `task-ledger-sync` — perkėlimo UŽBAIGA, ne atskira teisė: task-move judina tik failą, o
+  // ledger'į derina sync'as, kuriam bucket'ų failai yra tiesos šaltinis. `ag` formoje jau
+  // allowlist'intas kaip saugus; be argumentų, inkaruota iki galo.
+  /^node\s+dist[\\/]cli\.js\s+task-ledger-sync$/i,
 ];
 
 const allowedGeneratedHookRuntimeCommands = [

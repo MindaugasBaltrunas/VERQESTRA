@@ -136,6 +136,8 @@ test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subk
     evaluateBashCommandPolicy("node dist/cli.js task-move AG/tasks/human-review/005-x.md AG/tasks/done").blockedPattern,
     undefined,
   );
+  assert.equal(evaluateBashCommandPolicy("node dist/cli.js task-ledger-sync").blockedPattern, undefined, "sync be argumentų");
+  assert.match(blocked("node dist/cli.js task-ledger-sync --force"), /dist[\\/]cli\.js/, "sync su argumentais — ne");
   assert.match(blocked("node dist/cli.js task-move AG/tasks/done/005-x.md AG/tasks/queue"), /dist[\\/]cli\.js/, "atgal į eilę — ne");
   assert.match(blocked("node dist/cli.js task-move AG/tasks/queue/005-x.md AG/tasks/done"), /dist[\\/]cli\.js/, "iš queue — ne");
   assert.match(

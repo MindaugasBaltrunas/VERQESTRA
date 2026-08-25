@@ -14,7 +14,7 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 AG/openspec/changes/verqestra-backlog-v1/tasks.md
 
 ## Tikslas
-`baseline-comparison.ts` projekcija perduoda domain snapshot'ui tik `integrity_ok`. Reikia prijungti anksčiau pridėtus unassigned integrity laukus (task id'us ir tokenų sumą) iš `report.integrity`, kad `compareWithBaseline` matytų unassigned skirtumą ir jis pasiektų verdikto priežastis nuo galo iki galo.
+`baseline-comparison.ts` projekcija perduoda domain snapshot'ui tik `integrity_ok`. Prijungti anksčiau pridėtus unassigned integrity laukus (task id'us ir tokenų sumą) iš `report.integrity`, kad `compareWithBaseline` matytų unassigned skirtumą ir jis pasiektų verdikto priežastis nuo galo iki galo.
 
 ## Agentai
 readme-guard -> coder -> reviewer -> tester (privaloma tvarka, readme-guard pirmas)
@@ -29,9 +29,9 @@ Draudžiama:
 - `src/application/benchmark/capture-baseline.ts`
 
 ## Veiksmas
-- Ties `integrity_ok: report.integrity.ok` projekcijoje prijungti unassigned task id'us ir tokenų sumą iš `report.integrity` į domain snapshot'ą.
-- Užtikrinti, kad senas baseline be šių laukų projektuojasi be klaidos (default tuščia aibė / 0).
+- Ties `integrity_ok: report.integrity.ok` projekcijoje prijungti unassigned task id'us ir tokenų sumą iš `report.integrity` į domain snapshot'ą, senam baseline be šių laukų projektuojant default tuščią aibę / 0.
 - Parašyti end-to-end testą: du report'ai su skirtingomis unassigned aibėmis ir usage > 0 duoda `not_comparable` su atitinkama priežastimi per `compareWithBaseline`.
+- Prieš keisdamas patikrink, ar tikslas jau tenkinamas esamame kode — jei taip, nekeisk nieko ir ataskaitą pradėk eilute `ALREADY_IMPLEMENTED: <failai/eilutės>`.
 
 ## Patikra
 - `pnpm typecheck`

@@ -279,6 +279,20 @@ test("claudeDispatch: veidrodžio token_budget_tier=large → DISPATCH TURN BUDG
   assert.match(routingLine ?? "", /selected=opus/, "selected= rodo realų supervisor pasirinkimą");
 });
 
+// Antra to paties lauko pusė: kai sprendimo NĖRA (nei attempt, nei veidrodis), log'as turi
+// tai ir pasakyti. Iki 2026-08-25 P1-3 čia stovėjo hardcoded `sonnet`, tad 09:41–10:06
+// eilutės (`selected=sonnet model=claude-haiku-4-5`) atrodė kaip routing klaida, nors melavo
+// tik šis laukas. Vienetinis testas to neįrodo — reikia REALIOS log'o eilutės iš grandinės.
+test("claudeDispatch: be jokio decision → MODEL ROUTING eilutėje selected=none", async () => {
+  const h = makeHarness({ files: { [TASK_FILE.replace(/\\/g, "/")]: TASK_TEXT } });
+  const code = await claudeDispatch(["AG/tasks/queue/0042-demo.md"], h.ports);
+  assert.equal(code, 0);
+  const routingLine = h.agLines.find((line) => line.startsWith("MODEL ROUTING:")) ?? "";
+  assert.notEqual(routingLine, "", "routing eilutė yra");
+  assert.match(routingLine, /selected=none/, "nepriimtas pasirinkimas skelbiamas kaip none");
+  assert.doesNotMatch(routingLine, /selected=(sonnet|opus|haiku)/, "joks konkretus modelis neprasimano");
+});
+
 test("prepareDispatchArtifacts: attempt kopija pirmi; legacy promotinamas; write klaidos — WARNING", async () => {
   const warnings: string[] = [];
   const promoted: string[] = [];

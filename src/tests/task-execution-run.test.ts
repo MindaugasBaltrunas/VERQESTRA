@@ -256,6 +256,29 @@ test("verifyTask: done su produkto commit'ais → done; be jų — marker/clean-
   assert.match((dirty as { reason: string }).reason, /Claude did not create a new commit/);
 });
 
+test("verifyTask: 018 seka — rollback išsaugo necommit'intą darbą, priežastyje matoma vieta", async () => {
+  const { env } = verifyEnv();
+  const { state } = await makeState(env, "active");
+  env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
+  // Ledger'yje 2 nuosavi produkto keliai (018: capture-baseline.ts, baseline-report.ts),
+  // commit'o nėra — tiksliai ta baigtis, kuri anksčiau sunaikindavo darbą tyliai.
+  env.behavior.git.productDirtyCount = 2;
+  env.behavior.git.committedProductWorkSha = undefined;
+  env.behavior.cli = (args) =>
+    args[0] === "rollback-stable"
+      ? {
+          code: 0,
+          output:
+            "ROLLBACK PRESERVED: task=0042 ref=refs/verqestra/preserved/deadbeef commit=deadbeef paths=2 record=/vq/state/rollback-preserved/0042.json\nROLLBACK TASK-SCOPED: restored 2 task path(s) to 88a695cc",
+        }
+      : 0;
+  const result = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
+  assert.equal(result.kind, "human-review");
+  const reason = (result as { reason: string }).reason;
+  assert.match(reason, /^TASK NOT DONE: 0042 Claude did not create a new commit preserved_work=refs\/verqestra\/preserved\/deadbeef$/);
+  assert.ok(env.cliCalls.some((args) => args[0] === "rollback-stable"));
+});
+
 test("verifyTask: done vartai — raudoni gates, korumpuotas/svetimas/error stop status", async () => {
   const { env } = verifyEnv();
   const { state } = await makeState(env, "active");

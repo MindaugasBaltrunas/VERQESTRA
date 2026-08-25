@@ -168,9 +168,14 @@ async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Pr
   // `rollback` (necommit'intas produkto darbas) arba `human-review` (švarus medis be
   // įrodymo). Task-scoped rollback yra no-op jau švariam medžiui, tad abi šakos saugiai
   // parkuojamos po scope atstatymo.
-  const rollbackCode = await ports.cli.run(["rollback-stable", "--allow-task-changes", "--task-id", state.taskId]);
-  if (rollbackCode !== 0) {
-    return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} rollback_failed=${rollbackCode} missing_commit` };
+  //
+  // `runCaptured` (o ne `run`) — 021-c-04: rollback CLI, kai išsaugo necommit'intą turinį
+  // prieš atstatymą, atspausdina kanoninę `ROLLBACK PRESERVED: … ref=<ref> …` eilutę į
+  // stdout (021 design C2/C3). Ta eilutė yra vienintelis būdas priežastyje pasakyti
+  // operatoriui, kur guli darbas — be jos „TASK NOT DONE" atrodo kaip darbo praradimas.
+  const rollback = await ports.cli.runCaptured(["rollback-stable", "--allow-task-changes", "--task-id", state.taskId]);
+  if (rollback.code !== 0) {
+    return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} rollback_failed=${rollback.code} missing_commit` };
   }
 
   const noCompletionSignalReason =
@@ -179,5 +184,7 @@ async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Pr
       : isRepo
         ? "Claude did not create a new commit"
         : "no verified product changes (non-git project)";
-  return { kind: "human-review", reason: `TASK NOT DONE: ${state.taskId} ${noCompletionSignalReason}` };
+  const preservedRef = /^ROLLBACK PRESERVED: .*\bref=(\S+)/m.exec(rollback.output)?.[1];
+  const preservedSuffix = preservedRef === undefined ? "" : ` preserved_work=${preservedRef}`;
+  return { kind: "human-review", reason: `TASK NOT DONE: ${state.taskId} ${noCompletionSignalReason}${preservedSuffix}` };
 }

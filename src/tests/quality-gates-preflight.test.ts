@@ -3,9 +3,9 @@
 // matrica (trijų pakopų įrodymai) ir evaluatePreflight seka su fake portais.
 //
 // FS: unit dalis eina per fake portą (jokio realaus FS). VIENINTELĖ išimtis — config-drift
-// vartas (016-a-02), kuris skaito REALIUS `vq/config/preflight-limits.json` ir
-// `templates/vq/config/preflight-limits.json`: šio varto dalykas yra pats diske gulintis
-// konfigas, tad fake port'as jį paverstų tautologija.
+// vartas (016-a-02), kuris skaito REALIUS `config/preflight-limits.json` (lubos) ir
+// `config/token-budget.json` (kanoninė turn lentelė) po `vq/` bei `templates/vq/`: šio varto
+// dalykas yra pats diske gulintis konfigas, tad fake port'as jį paverstų tautologija.
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   mergePreflightLimits,
   readPreflightLimitsFile,
 } from "../application/policy-governance/preflight-limits-policy.js";
+import { loadTokenBudgetConfig } from "../application/token-governance/token-budget-config.js";
 import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { evaluateArchitectureAndPolicyGates } from "../application/quality-gates/preflight-rules.js";
@@ -164,19 +165,32 @@ test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.la
     const limits = await loadPreflightLimits(nodeFsAdapter, runtimeRoot);
     const large = limits.turnLimits?.large;
     assert.equal(typeof large, "number", `${runtimeRoot}: loadPreflightLimits privalo užpildyti turnLimits`);
-    assertCeilingCoversLarge(runtimeRoot, limits.dispatchMaxTurns, large ?? DEFAULT_TURN_LIMITS.large);
+    assertCeilingCoversLarge(`${runtimeRoot} (preflight-limits legacy sluoksnis)`, limits.dispatchMaxTurns, large ?? DEFAULT_TURN_LIMITS.large);
+
+    // KANONINĖ lentelė gyvena `config/token-budget.json`; `preflight-limits.json#turnLimits`
+    // yra tik LEGACY sluoksnis, ir abiejuose realiuose konfiguose jo NĖRA — tad assert'as
+    // aukščiau lygina diske gulinčias lubas su KODO default'u, o ne su diske gulinčia lentele.
+    // Dispatch kelias (`resolveDispatchBudgetPlan`) lubas taiko būtent token-budget lentelei:
+    // pakelta `token-budget.json#turnLimits.large` prieš nepakeltas lubas yra tas pats tylus
+    // 0033 nukirtimas iš kitos pusės, tad vartas privalo tikrinti KANONINĘ lentelę.
+    const limitsFile = await readPreflightLimitsFile(nodeFsAdapter, runtimeRoot);
+    const tokenBudget = await loadTokenBudgetConfig(nodeFsAdapter, runtimeRoot, {
+      ...(limitsFile.values.turnLimits === undefined ? {} : { legacyTurnLimits: limitsFile.values.turnLimits }),
+    });
+    const canonicalLarge = tokenBudget.turnLimits.large;
+    assertCeilingCoversLarge(`${runtimeRoot} (token-budget kanoninė lentelė)`, limits.dispatchMaxTurns, canonicalLarge);
 
     // Tas pats invariantas elgesio kalba: efektyvus large langas = pilna kalibruota reikšmė
     // (arba 0 = „be --max-turns flag'o", kai operatorius aiškiai išjungė lubas).
     const effective = resolveMaxTurns({
       phase: "implementation",
       tier: "large",
-      ...(limits.turnLimits ? { limits: limits.turnLimits } : {}),
+      limits: tokenBudget.turnLimits,
       ceiling: limits.dispatchMaxTurns,
     });
     assert.ok(
-      effective === 0 || effective === large,
-      `${runtimeRoot}: resolveMaxTurns(large)=${effective}, laukta ${large}. ${DRIFT_REASON}`,
+      effective === 0 || effective === canonicalLarge,
+      `${runtimeRoot}: resolveMaxTurns(large)=${effective}, laukta ${canonicalLarge}. ${DRIFT_REASON}`,
     );
   }
 });
@@ -199,6 +213,25 @@ test("preflight-limits: config-drift vartas kanda — 120 lubos prieš large=180
 
   const optedOut = await withCeiling(0);
   assert.equal(ceilingCoversLarge(optedOut.ceiling, optedOut.large), true, "0 = be ribos: kalibracija nenukertama");
+
+  // Simetriškas atvejis: lubos NEPAKEISTOS, bet pakelta kanoninė `token-budget.json` lentelė.
+  // Be šio įrodymo vartas tikrintų tik legacy sluoksnį ir pakeltą lentelę praleistų tyliai.
+  const raisedTable = fakeFs({
+    [`${driftedRoot}/config/preflight-limits.json`]: JSON.stringify({ dispatchMaxTurns: 180 }),
+    [`${driftedRoot}/config/token-budget.json`]: JSON.stringify({
+      version: 1,
+      turnLimits: { small: 20, medium: 60, large: 240, repair: 30, semanticReview: 12 },
+    }),
+  });
+  const raisedCeiling = (await loadPreflightLimits(raisedTable, driftedRoot)).dispatchMaxTurns;
+  const raised = await loadTokenBudgetConfig(raisedTable, driftedRoot);
+  assert.equal(raised.sources.large, "config", "kanoninė large reikšmė ateina iš token-budget.json");
+  assert.equal(raised.turnLimits.large, 240);
+  assert.equal(
+    ceilingCoversLarge(raisedCeiling, raised.turnLimits.large),
+    false,
+    "180 lubos nukerta pakeltą kanoninį large=240 — vartas krenta",
+  );
 });
 
 const CLASSIFICATION_FEATURE = classifyTask("implement feature x", ["src/commands/x.ts"], defaultTaskClassificationPolicy);

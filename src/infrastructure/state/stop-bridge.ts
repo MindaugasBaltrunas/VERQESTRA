@@ -158,6 +158,20 @@ export function interactiveStopMayOverwrite(existingRaw: string): boolean {
   }
 }
 
+/** Rašymo VARTAI (022-a-02): statusas, kuriuo pažymimas pasenusio nonce rašytojo įrašas. */
+export const STOP_BRIDGE_STALE_STATUS = "stale";
+
+/** Jau tilte gulinčio įrašo `dispatch_nonce`, arba `""`, kai tilto nėra/sugadintas/tuščias. */
+function existingBridgeNonce(existingRaw: string): string {
+  if (!existingRaw.trim()) return "";
+  try {
+    const parsed = JSON.parse(existingRaw) as { dispatch_nonce?: unknown };
+    return typeof parsed.dispatch_nonce === "string" ? parsed.dispatch_nonce.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function stopBridgeForProject(input: {
   projectRoot: string;
   runtimeRoot: string;
@@ -179,11 +193,12 @@ export async function stopBridgeForProject(input: {
   const dispatch_nonce = ((input.env ?? process.env)["AG_DISPATCH_NONCE"] ?? "").trim();
 
   const bridgeFile = stopBridgePath(runtimeRoot);
+  const existingRaw = (await nodeFsAdapter.readTextFileIfExists(bridgeFile).catch(() => "")) ?? "";
+
   // No-clobber vartai (2026-08-12): interaktyvi sesija nenaikina dispatch'o įrodymo.
   // Ankstyvas return praleidžia ir attempt rašymą (interaktyviai sesijai jis ir taip
   // no-op per no-nonce vartą), o claude-stop.log gauna PRESERVED eilutę.
   if (dispatch_nonce === "") {
-    const existingRaw = (await nodeFsAdapter.readTextFileIfExists(bridgeFile).catch(() => "")) ?? "";
     if (!interactiveStopMayOverwrite(existingRaw)) {
       await nodeFsAdapter.appendTextFile(
         path.join(logsDir, "claude-stop.log"),
@@ -193,6 +208,16 @@ export async function stopBridgeForProject(input: {
     }
   }
 
+  // 022-a-02: jei šio rašytojo nonce nebesutampa su tuo, kuris jau tilte įrašytas, kitas
+  // dispatch'as jau perėmė šį globalų slot'ą tarp mano paleidimo ir šio Stop įvykio — mano
+  // įrodymas atvyksta VĖLUODAMAS. `status=done` čia būtų klaidingas „aš baigiau" signalas;
+  // `STOP_BRIDGE_STALE_STATUS` palieka įrašą matomą, bet nepretenduoja į done reikšmę
+  // (classifyStopBridgeDone bet kokį ne-"done" statusą jau traktuoja kaip "none", ne
+  // lipnų "foreign-done").
+  const priorNonce = dispatch_nonce === "" ? "" : existingBridgeNonce(existingRaw);
+  const isStaleDispatchWrite = dispatch_nonce !== "" && priorNonce !== "" && priorNonce !== dispatch_nonce;
+  const bridgeStatus = isStaleDispatchWrite ? STOP_BRIDGE_STALE_STATUS : status;
+
   // TVARKA YRA KONTRAKTAS: globalus `status=done` yra watchdog'o KILL trigger'is, tad
   // attempt artefaktas rašomas PIRMAS — kitaip watchdog gali pradėti grace skaičiavimą,
   // kol įrodymas dar nerašytas. Ateities optimizacija tvarkos apversti negali.
@@ -200,7 +225,7 @@ export async function stopBridgeForProject(input: {
     runtimeRoot,
     resolution: input.resolution,
     taskId,
-    status,
+    status: bridgeStatus,
     reason,
     date,
     head,
@@ -219,7 +244,7 @@ export async function stopBridgeForProject(input: {
     // zero-usage avarijų per dieną, kai interaktyvios sesijos „done" žudė svetimą dispatch).
     toPrettyJson({
       date,
-      status,
+      status: bridgeStatus,
       reason,
       task_id: taskId,
       dispatch_nonce,
@@ -229,6 +254,6 @@ export async function stopBridgeForProject(input: {
   );
   await nodeFsAdapter.appendTextFile(
     path.join(logsDir, "claude-stop.log"),
-    `[${timestampLine()}] CLAUDE STOP BRIDGE status=${status} reason=${reason}\n`,
+    `[${timestampLine()}] CLAUDE STOP BRIDGE status=${bridgeStatus} reason=${reason}\n`,
   );
 }

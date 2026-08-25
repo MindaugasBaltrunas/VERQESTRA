@@ -34,11 +34,14 @@ Draudžiama:
 - `dist/**`
 
 ## Veiksmas
-- KRITINĖ DARBO TAISYKLĖ (2026-08-25, ankstesnio bandymo pamoka): visą kodą rašyk TIESIOGIAI
-  Edit/Write įrankiais PAGRINDINĖJE sesijoje — NENAUDOK Agent/subagentų rašymui. Ankstesnis
-  bandymas darbą padarė teisingai (patikros praėjo), bet visi rašymai buvo subagento rankomis,
-  session-writes ledger'is jų nematė, stop hook'as pakeitimus palaikė svetimais ir commit'o
-  nepadarė — o orkestratorius necommit'intą darbą atsuko. Subagentai leidžiami tik SKAITYMUI.
+- KRITINĖ DARBO TAISYKLĖ (2026-08-25, patikslinta pagal 020 diagnozę,
+  docs/audits/020-session-writes-ledger-diagnosis-2026-08-25.md): ankstesnio bandymo darbą
+  sunaikino R2 — Stop hook'o commit'as neįvyko iki dispatch pabaigos, ir rollback'as atsuko
+  ledger'io matomą necommit'intą darbą. (Ankstesnė šio task'o pastaba kaltino subagentus —
+  KLAIDINGAI: diagnozės įrodymas A rodo, kad subagento Edit rašymai ledger'į pasiekia.)
+  Todėl: COMMIT'INK IŠ KARTO, kai tik patikros žalios — nepalik necommit'into darbo sesijos
+  pabaigai. R1 fallback'as (020-a-02) jau saugo Bash kanalu rašytą darbą, bet R2 (task 021)
+  dar atviras — ankstyvas commit'as yra vienintelė tikra apsauga.
 - `capture-baseline.ts`: į `BenchmarkIntegrity` pridėti unassigned usage matomumą (`unassigned_usage_records` ir `unassigned_total_tokens`, skaičiuojant iš `usageByTask` prieš `continue`) ir sugriežtinti `ok` taip, kad unassigned task'as su usage > 0 duotų `ok: false`; sprendimą pagrįsti ataskaitoje.
 - `baseline-report.ts`: naujus laukus atspausdinti integrity sekcijoje ir perskaityti parse'e taip, kad `parseBenchmarkReportMarkdown(render(x)) == x`, o senas baseline be naujų laukų toliau parsintųsi (default 0).
 - `src/tests/**`: testai — task'as be case atitikmens su usage > 0 duoda `integrity.ok=false` ir nenulinius naujus laukus; unassigned be usage nelaužo `ok`; round-trip su naujais laukais; senas markdown be jų perskaitomas.

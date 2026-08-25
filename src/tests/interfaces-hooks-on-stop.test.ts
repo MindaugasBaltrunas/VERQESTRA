@@ -300,6 +300,47 @@ test("hookOnStop: push kritimas PO commit'o žinutę išvalo — darbas jau isto
   assert.equal(world.store.get(COMMIT_MSG), "", "commit'as istorijoje — palikta žinutė priliptų prie svetimo darbo");
 });
 
+// 020-a-02 (R1): Bash kanalu parašytas darbas ledger'iui nematomas, o rescue/gap saugikliai
+// ilgame bandyme išsijungia. Fallback'as jį grąžina TIK su scope įrodymu ir TIK garsiai.
+test("hookOnStop: allowed-paths fallback stage'ina ledger'iui nematomą darbą su GARSIA žyma", async () => {
+  const TASK_FILE = path.join(ROOT, "AG", "tasks", "delegated", "890.md");
+  const world = stopWorld({
+    [CURRENT_TASK]: "890\n",
+    [LEDGER]: "[]",
+    [path.join(RUNTIME, "state", "current-task-file")]: `${TASK_FILE}\n`,
+    [TASK_FILE]: [
+      "# Task",
+      "",
+      "## Tikslas",
+      "Testinis task'as.",
+      "",
+      "## Failai",
+      "Leidžiama:",
+      "- `src/app/**`",
+      "",
+      "## Patikra",
+      "- `pnpm test`",
+    ].join("\n"),
+    [path.join(RUNTIME, "state", "session-start-status.json")]: JSON.stringify({
+      dispatch_nonce: "nonce-1",
+      task_id: "890",
+      baseline_valid: true,
+      non_runtime_dirty_entries: [{ status: " M", path: "src/app/bash-written.ts" }],
+    }),
+  });
+  world.ports.env = (name) => (name === "AG_DISPATCH_NONCE" ? "nonce-1" : undefined);
+  world.changed = ["src/app/bash-written.ts"];
+  world.status = " M src/app/bash-written.ts\n";
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.deepEqual(world.commits[0]?.paths, ["src/app/bash-written.ts"], "ledger'iui nematomas darbas grįžo į commit'ą");
+  assert.match(
+    world.store.get(HOOKS_LOG) ?? "",
+    /STAGING LEDGER FALLBACK: task=890 \+1 files: src\/app\/bash-written\.ts/,
+    "fallback'as niekada nebūna tylus",
+  );
+});
+
 test("hookOnStop: sesijos nuotrauka užrašoma PRIEŠ commit'ą, kuris išvalo changes.log", async () => {
   const world = stopWorld({ [CURRENT_TASK]: "890\n", [LEDGER]: JSON.stringify(["src/a.ts"]) });
   world.changed = ["src/a.ts"];

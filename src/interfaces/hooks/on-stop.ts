@@ -188,6 +188,12 @@ async function logStagingEvidence(context: StopHookContext, plan: StagePlanResul
     // apie realiai pakeistus produkto failus nieko nebežinojo.
     await context.log(`STAGING LEDGER GAP: +${plan.gap.length} files: ${plan.gap.join(", ")}`);
   }
+  if (plan.fallback.length > 0) {
+    // 020-a-02 (R1): darbas parašytas ne per Write|Edit kanalą, tad ledger'is jo nematė; į
+    // commit'ą jis grįžo TIK todėl, kad visas medžio produkto purvas telpa į aktyvaus task'o
+    // Leidžiama aibę. Garsi ir grep'inama — fallback'as niekada nebūna tylus.
+    await context.log(`STAGING LEDGER FALLBACK: task=${taskId} +${plan.fallback.length} files: ${plan.fallback.join(", ")}`);
+  }
 }
 
 /**

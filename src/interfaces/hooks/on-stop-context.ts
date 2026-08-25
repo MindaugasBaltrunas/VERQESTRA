@@ -3,6 +3,7 @@
 // patenka į commit'ą — `application/task-execution/session-stage-planning`.
 
 import path from "node:path";
+import { parseTaskMarkdown } from "../../application/context-pack/assemble/parse-task.js";
 import type { GitAutomationPolicy } from "../../application/policy-governance/git-automation-policy.js";
 import type { QualityGatesStatus } from "../../application/quality-gates/quality-gates-status.js";
 import {
@@ -115,6 +116,8 @@ export type StagePlanResult = {
   foreign: string[];
   /** Purvini produkto keliai, kuriuos grąžino ledger-gap saugiklis. */
   gap: string[];
+  /** Purvini produkto keliai, kuriuos grąžino allowed-paths fallback'as (020-a-02). */
+  fallback: string[];
 };
 
 async function readJsonObject<T>(fs: HookFsPort, filePath: string): Promise<T> {
@@ -139,6 +142,7 @@ export async function resolveStagePlan(context: StopHookContext, taskId: string)
   const stateDir = path.join(context.runtimeRoot, "state");
 
   const status = await ports.gitStatusPorcelain(context.root);
+  const allowedPaths = await readActiveTaskAllowedPaths(context);
   const plan: SessionStagingPlan = planSessionStaging({
     statusOutput: status.stdout,
     sessionWrites: parseJsonStringArray(await fs.readTextFileIfExists(sessionWritesPath)),
@@ -147,6 +151,7 @@ export async function resolveStagePlan(context: StopHookContext, taskId: string)
     taskBaseline: await readJsonObject<TaskStartBaseline>(fs, path.join(stateDir, "task-start-status.json")),
     taskId,
     dispatchNonce: (ports.env("AG_DISPATCH_NONCE") ?? "").trim(),
+    ...(allowedPaths === undefined ? {} : { allowedPaths }),
   });
 
   const ignored = await ports.filterGitIgnored(plan.paths, context.root);
@@ -157,5 +162,30 @@ export async function resolveStagePlan(context: StopHookContext, taskId: string)
     // Ta pati gitignore riba kaip visam planui: gap saugiklis prideda TIK tuos kelius, kurie ir
     // šiaip praeitų produkto klasifikaciją bei gitignore filtrą.
     gap: plan.gap.filter((candidate) => !ignored.has(candidate)),
+    fallback: plan.fallback.filter((candidate) => !ignored.has(candidate)),
   };
+}
+
+/**
+ * Aktyvaus task'o `## Failai / Leidžiama` aibė allowed-paths fallback'ui (020-a-02).
+ *
+ * Šaltinis — `vq/state/current-task-file` (rašo `task-state-store` aktyvuodamas task'ą), o
+ * parse'ina KANONINIS `parseTaskMarkdown` — glob semantika lieka viena visai sistemai.
+ * Bet kuri kliūtis (failo nėra, neperskaitomas, be Leidžiama sekcijos) grąžina `undefined`,
+ * ir fallback'as tyliai lieka IŠJUNGTAS — trūkstama scope žinia niekada nevirsta platesniu
+ * stage'inimu.
+ */
+async function readActiveTaskAllowedPaths(context: StopHookContext): Promise<readonly string[] | undefined> {
+  const fs = context.deps.ports.fs;
+  const pointer = await fs.readTextFileIfExists(context.statePath("current-task-file"));
+  const taskFile = pointer?.trim();
+  if (!taskFile) return undefined;
+  const taskText = await fs.readTextFileIfExists(taskFile);
+  if (taskText === undefined) return undefined;
+  try {
+    const allowed = parseTaskMarkdown(taskText, taskFile).allowedPaths;
+    return allowed.length > 0 ? allowed : undefined;
+  } catch {
+    return undefined;
+  }
 }

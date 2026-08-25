@@ -12,6 +12,7 @@
 //      likęs įrodymas, kai sesijos baseline nebėra.
 
 import { normalizeGitPath, parseDirtyEntries } from "../../domain/git/changes.js";
+import { matchesAllowedPath } from "../../domain/tasks/allowed-paths.js";
 import {
   sessionBaselineBelongsToSession,
   sessionBaselineWasClean,
@@ -36,6 +37,11 @@ export type SessionStagingInput = {
   taskId: string;
   /** Dispatch nonce; tuščias = interaktyvi sesija, kuri nieko nemeta. */
   dispatchNonce: string;
+  /**
+   * Aktyvaus task'o `## Failai / Leidžiama` aibė (020-a-02). NEPRIVALOMA: be jos
+   * allowed-paths fallback'as išjungtas, o visi kiti sprendimai lieka lygiai tokie, kokie buvo.
+   */
+  allowedPaths?: readonly string[];
 };
 
 export type SessionStagingPlan = {
@@ -44,6 +50,8 @@ export type SessionStagingPlan = {
   foreign: string[];
   /** Purvini produkto keliai, kuriuos į planą grąžino ledger-gap saugiklis. */
   gap: string[];
+  /** Purvini produkto keliai, kuriuos grąžino allowed-paths fallback'as (020-a-02, R1). */
+  fallback: string[];
   baselineClean: boolean;
 };
 
@@ -81,11 +89,13 @@ export function planSessionStaging(input: SessionStagingInput): SessionStagingPl
   // stipresnis įrodymas. Be šito filtro rescue sugriebtų co-tenant'o WIP atgal į commit'ą.
   const paths = plan.paths.filter((candidate) => lifecycle.has(candidate) || !foreignSet.has(candidate));
   const gap = resolveLedgerGap(input, paths, foreignSet, ownBaseline);
+  const fallback = resolveAllowedPathsFallback(input, [...paths, ...gap], identity);
 
   return {
-    paths: [...paths, ...gap],
+    paths: [...paths, ...gap, ...fallback],
     ledgerMisses: plan.ledgerMisses.filter((candidate) => !foreignSet.has(candidate)),
     gap,
+    fallback,
     // Skelbiamas tik realiai purvinas ir realiai paliktas kelias: ledger'yje gali gulėti seniai
     // sucommit'intų failų, o lifecycle keliai stage'inami vis tiek — abu vardyti būtų triukšmas.
     foreign: [...foreignSet].filter((candidate) => dirty.has(candidate) && !lifecycle.has(candidate)),
@@ -128,4 +138,64 @@ function resolveLedgerGap(
   return unplannedProductPaths(input.statusOutput, planned).filter(
     (candidate) => !foreignSet.has(candidate) && !preAttemptDirty.has(candidate),
   );
+}
+
+/**
+ * Allowed-paths fallback (020-a-02, uždaro R1 iš 020 diagnozės).
+ *
+ * GEDIMAS, kurį jis taiso: ledger'is yra ĮRANKIO KILMĖS, ne darbo ledger'is — jį pildo tik
+ * `Write|Edit` hook kanalas. Darbas, parašytas per `Bash`/`PowerShell` (ar jų paleistą procesą),
+ * lieka ledger'iui nematomas, tad Stop hook'as jo ne-stage'ina ir teisingas darbas iškrenta iš
+ * commit'o. Abu esami saugikliai išsijungia kaip tik ilgame bandyme: clean-baseline rescue
+ * reikalauja švaraus baseline'o, o `resolveLedgerGap` — kad savo baseline'o NEBEBŪTŲ. Šis
+ * fallback'as dengia likusią spragą, bet SIAURIAU už abu: vietoj baseline'o įrodymo jis
+ * reikalauja SCOPE įrodymo.
+ *
+ * Įsijungia tik kai galioja VISOS sąlygos vienu metu:
+ *   1. sesija dispatch'inta (nonce netuščias) — interaktyviame Stop'e išjungtas visada;
+ *   2. žinoma aktyvaus task'o `Leidžiama` aibė ir ji netuščia;
+ *   3. VISI ne-runtime purvini `git status` produkto keliai (ne tik kandidatai) telpa į tą aibę —
+ *      VIENAS kelias už ribos išjungia fallback'ą VISIŠKAI, ne dalinai: svetimas purvas medyje
+ *      reiškia, kad scope įrodymas nebeatskiria mūsų darbo nuo co-tenant'o;
+ *   4. joks kandidatas nėra įrodytai svetimas (owners) — svetimumas stipresnis už scope;
+ *   5. kandidatas nebuvo purvinas jau task'o aktyvacijoje (tas purvas įrodytai ne šio bandymo).
+ *
+ * Kiekvieną suveikimą kvietėjas skelbia garsia `STAGING LEDGER FALLBACK` eilute — fallback'as
+ * niekada nebūna tylus.
+ */
+function resolveAllowedPathsFallback(
+  input: SessionStagingInput,
+  planned: readonly string[],
+  identity: { session: string; taskId: string },
+): string[] {
+  if (!input.dispatchNonce.trim()) return [];
+  const allowed = (input.allowedPaths ?? []).map(normalizeTaskPathPattern).filter((pattern) => pattern !== "");
+  if (allowed.length === 0) return [];
+
+  const candidates = unplannedProductPaths(input.statusOutput, planned);
+  if (candidates.length === 0) return [];
+
+  // Sąlyga 3 tikrinama prieš VISĄ produkto purvą, ne tik prieš kandidatus: jau suplanuotas, bet
+  // už scope ribų esantis kelias lygiai taip pat įrodo, kad medyje yra ne šio task'o darbo.
+  const allProductDirt = unplannedProductPaths(input.statusOutput, []);
+  const fitsScope = (candidate: string): boolean => allowed.some((pattern) => matchesAllowedPath(candidate, pattern));
+  if (!allProductDirt.every(fitsScope)) return [];
+
+  // Svetimumas tikrinamas TIESIAI per owners sidecar'ą, ne per ledger'io foreignSet: šio
+  // fallback'o prielaida ir yra tuščias/nepilnas ledger'is, tad iš jo išvestas foreignSet čia
+  // nieko nemato. Kanoninis filtras tas pats kaip pagrindiniame plane — svetimumo apibrėžimas
+  // negali skirtis pagal tai, kuris saugiklis klausia.
+  if (filterStagePathsByOwnership(candidates, input.owners, identity).foreign.length > 0) return [];
+
+  const preAttemptDirty = new Set(
+    (input.taskBaseline.task_id === input.taskId ? (input.taskBaseline.non_runtime_dirty_entries ?? []) : []).map(
+      (entry) => normalizeGitPath(entry.path),
+    ),
+  );
+  return candidates.filter((candidate) => !preAttemptDirty.has(candidate));
+}
+
+/** Ta pati normalizacija kaip diagnozės pusėje (`dispositions.ts`): markdown backtick'ai kerpami. */
+function normalizeTaskPathPattern(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^`|`$/g, "").trim();
 }

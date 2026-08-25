@@ -173,6 +173,108 @@ test("planSessionStaging: gap saugiklis praleidžia aktyvacijos metu jau purvin�
   assert.deepEqual(foreignBaseline.gap.sort(), ["src/early.ts", "src/pre-existing.ts"]);
 });
 
+// 020-a-02 (R1 iš 020 diagnozės): ledger'is yra įrankio kilmės — Bash/PowerShell parašytas darbas
+// jam nematomas, o abu senieji saugikliai kaip tik ilgame bandyme išsijungia (rescue reikalauja
+// švaraus baseline'o, gap — kad savo baseline'o nebebūtų). Fallback'as dengia likusią spragą
+// SCOPE įrodymu: visi purvini produkto keliai privalo tilpti į task'o Leidžiama aibę.
+test("planSessionStaging: 018 regresija — Bash rašytas darbas grįžta per allowed-paths fallback", () => {
+  // NEDENGTOJI zona, kurią vardija 020 diagnozė: SAVO baseline galioja (attemptStartKnown=true —
+  // gap saugiklis IŠJUNGTAS), bet jis PURVINAS nepaaiškintu purvu (daugiaetapio bandymo ankstesnės
+  // stadijos darbas; ledger'is tuščias, tad nepaaiškinamas) — rescue irgi IŠJUNGTAS. Iki
+  // 020-a-02 abu failai iškrisdavo iš commit'o.
+  const plan = planSessionStaging(
+    input({
+      statusOutput: " M src/app/capture-baseline.ts\n M src/app/baseline-report.ts\n",
+      sessionWrites: [],
+      sessionBaseline: {
+        dispatch_nonce: NONCE,
+        task_id: TASK,
+        baseline_valid: true,
+        non_runtime_dirty_entries: [
+          { status: " M", path: "src/app/capture-baseline.ts" },
+          { status: " M", path: "src/app/baseline-report.ts" },
+        ],
+      },
+      allowedPaths: ["src/app/**", "src/tests/**"],
+    }),
+  );
+
+  assert.deepEqual(plan.fallback.sort(), ["src/app/baseline-report.ts", "src/app/capture-baseline.ts"]);
+  assert.deepEqual(plan.paths.sort(), ["src/app/baseline-report.ts", "src/app/capture-baseline.ts"]);
+  assert.deepEqual(plan.gap, [], "gap saugiklis su galiojančiu baseline'u lieka išjungtas");
+});
+
+test("planSessionStaging: fallback SIAURINANTIS — vienas kelias už scope išjungia jį visiškai", () => {
+  const outside = planSessionStaging(
+    input({
+      statusOutput: " M src/app/mine.ts\n M src/other/foreign-work.ts\n",
+      sessionWrites: [],
+      sessionBaseline: {
+        dispatch_nonce: NONCE,
+        task_id: TASK,
+        baseline_valid: true,
+        non_runtime_dirty_entries: [{ status: " M", path: "src/other/foreign-work.ts" }],
+      },
+      allowedPaths: ["src/app/**"],
+    }),
+  );
+  assert.deepEqual(outside.fallback, [], "svetimas purvas medyje — scope įrodymas nebegalioja NĖ VIENAM keliui");
+  assert.deepEqual(outside.paths, []);
+
+  // Be nonce (interaktyvi sesija) ir be allowed aibės fallback'as neegzistuoja.
+  const interactive = planSessionStaging(
+    input({
+      statusOutput: " M src/app/mine.ts\n",
+      dispatchNonce: "",
+      allowedPaths: ["src/app/**"],
+    }),
+  );
+  assert.deepEqual(interactive.fallback, []);
+  const noScope = planSessionStaging(
+    input({
+      statusOutput: " M src/app/mine.ts\n",
+      sessionBaseline: { dispatch_nonce: NONCE, task_id: TASK, baseline_valid: true },
+    }),
+  );
+  assert.deepEqual(noScope.fallback, []);
+});
+
+test("planSessionStaging: fallback'o negauna svetimas ir aktyvacijoje jau purvinas kelias", () => {
+  // Įrodytai svetimas kandidatas išjungia fallback'ą VISĄ: svetimumas stipresnis už scope.
+  const foreign = planSessionStaging(
+    input({
+      statusOutput: " M src/app/mine.ts\n M src/app/theirs.ts\n",
+      sessionWrites: [],
+      owners: { "src/app/theirs.ts": { sessions: ["kitas-nonce"], tasks: ["999"] } },
+      sessionBaseline: {
+        dispatch_nonce: NONCE,
+        task_id: TASK,
+        baseline_valid: true,
+        non_runtime_dirty_entries: [{ status: " M", path: "src/app/theirs.ts" }],
+      },
+      allowedPaths: ["src/app/**"],
+    }),
+  );
+  assert.deepEqual(foreign.fallback, []);
+
+  // Aktyvacijos purvas įrodytai ne šio bandymo — jis atmetamas pavieniui, likęs darbas grįžta.
+  const preDirty = planSessionStaging(
+    input({
+      statusOutput: " M src/app/old.ts\n M src/app/new.ts\n",
+      sessionWrites: [],
+      sessionBaseline: {
+        dispatch_nonce: NONCE,
+        task_id: TASK,
+        baseline_valid: true,
+        non_runtime_dirty_entries: [{ status: " M", path: "src/app/old.ts" }],
+      },
+      taskBaseline: { task_id: TASK, non_runtime_dirty_entries: [{ status: " M", path: "src/app/old.ts" }] },
+      allowedPaths: ["src/app/**"],
+    }),
+  );
+  assert.deepEqual(preDirty.fallback, ["src/app/new.ts"]);
+});
+
 test("planSessionStaging: task tapatybė imama iš SAVO baseline, ne iš globalaus current-task-id", () => {
   // Co-tenant'o dispatch'as perrašo globalų `current-task-id`; jei juo pasitikėtume, svetimi
   // keliai mūsų Stop'ui atrodytų kaip „to paties task'o darbas".

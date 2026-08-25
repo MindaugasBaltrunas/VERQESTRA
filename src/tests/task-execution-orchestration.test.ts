@@ -3,6 +3,7 @@
 // scope perkėlimas, ledger'io seen-before taisyklė, task-events kontraktas ir spec checkbox
 // parseris. Jokios realios FS — tik fake portai.
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { buildTaskSplitPlan, shouldSplitTask } from "../application/task-execution/task-splitting.js";
 import { measureTaskSize } from "../domain/tasks/size.js";
@@ -135,6 +136,25 @@ function makeEnqueuePorts(maxDepth = 3): {
 }
 
 const VALID_CHILD = "# Task\n## Spec source\nopenspec/changes/demo\n## Tikslas\nVaikas.\n## Veiksmas\n- daryk\n## Stop\nStop.\n";
+
+test("enqueueChildTasks: vaikai rašomi į <agRoot>/tasks/queue, be pasikartojančio segmento", async () => {
+  // 2026-08-25: kvietėjas paduodavo jau suskaičiuotą queue katalogą per `path.dirname(...)`, o ši
+  // funkcija kelią stato PATI (`taskBucketDir`). Segmentas `tasks` atsirasdavo du kartus, vaikai
+  // nusėsdavo į `AG/tasks/tasks/queue/` — planuoklis jų neskenuoja, o runtime kelių filtras jų
+  // nepažįsta, tad jie dar ir stabdydavo ciklą kaip „produkto purvas".
+  const { ports, written } = makeEnqueuePorts();
+
+  const result = await enqueueChildTasks(ports, "/ag", "0042", {
+    child_tasks: [{ title: "vaikas", claude_task: VALID_CHILD }],
+  });
+  assert.deepEqual(result, { ok: true, enqueued: 1 });
+
+  const paths = [...written.keys()];
+  assert.equal(paths.length, 1);
+  const dir = path.dirname(paths[0] ?? "").replace(/\\/g, "/");
+  assert.equal(dir, "/ag/tasks/queue");
+  assert.ok(!dir.includes("tasks/tasks"), `segmentas neturi kartotis: ${dir}`);
+});
 
 test("enqueueChildTasks: gylio vartai PRIEŠ rašymą ir validacija PRIEŠ pirmą vaiką", async () => {
   const { ports, written } = makeEnqueuePorts(1);

@@ -234,7 +234,6 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
       if (outcome.action === "error") await logLine(`WARNING: auto-openspec archive failed task=${taskId}`);
     },
     enqueueChildTasks: async (taskId, decision): Promise<ChildTaskEnqueueResult> => {
-      const queueDir = path.join(input.agRoot, "tasks", "queue");
       const ledgerPath = childTaskLedgerPath(input.runtimeRoot);
       const outcome = await enqueueChildTasks(
         {
@@ -269,7 +268,14 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
           log: logLine,
           nowIso: () => new Date().toISOString(),
         },
-        path.dirname(queueDir),
+        // AG ŠAKNIS, ne queue katalogas: `enqueueChildTasks` pati stato kelią per
+        // `taskBucketDir(agRoot, "queue")`. Iki 2026-08-25 čia buvo `path.dirname(queueDir)` —
+        // kelias buvo suskaičiuojamas, o paskui iš jo bandoma „atstatyti" šaknis: `dirname` nuimdavo
+        // tik `queue`, o `taskBucketDir` `tasks` pridėdavo ANTRĄ kartą. Vaikai nusėsdavo į
+        // `AG/tasks/tasks/queue/`, kurio planuoklis neskenuoja (užduotys dingdavo) ir kuris nepatenka
+        // į runtime kelių filtrą, tad kiekvienas toks failas atrodė kaip PRODUKTO purvas ir stabdydavo
+        // ciklą ties „dirty product tree".
+        input.agRoot,
         taskId,
         decision,
       );

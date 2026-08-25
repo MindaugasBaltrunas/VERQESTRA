@@ -158,6 +158,8 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     `- event_records: ${report.integrity.event_records}`,
     `- malformed_event_lines: ${report.integrity.malformed_event_lines}`,
     `- unassigned_task_ids: ${report.integrity.unassigned_task_ids.join(", ") || "-"}`,
+    `- unassigned_usage_records: ${report.integrity.unassigned_usage_records}`,
+    `- unassigned_total_tokens: ${report.integrity.unassigned_total_tokens}`,
     `- ambiguous_task_ids: ${report.integrity.ambiguous_task_ids.map((entry) => `${entry.task_id} -> ${entry.case_ids.join("/")}`).join(", ") || "-"}`,
     ...(report.warnings.length > 0 ? report.warnings.map((warning) => `- warning: ${warning}`) : ["- warning: -"]),
     "",
@@ -203,7 +205,19 @@ export function parseBenchmarkReportMarkdown(markdown: string, label = "optimiza
   }
 
   parseWithSchema(benchmarkReportEnvelopeSchema, parsed, label);
-  return parsed as BenchmarkReport;
+  const report = parsed as BenchmarkReport;
+
+  // Senas markdown (sugeneruotas prieš unassigned usage laukų įvedimą) šių dviejų JSON bloko
+  // laukų neturės — normalizuojame į 0, kad round-trip su naujais raportais liktų identiškas,
+  // o seni failai toliau sėkmingai parsintųsi.
+  if (typeof report.integrity.unassigned_usage_records !== "number") {
+    report.integrity.unassigned_usage_records = 0;
+  }
+  if (typeof report.integrity.unassigned_total_tokens !== "number") {
+    report.integrity.unassigned_total_tokens = 0;
+  }
+
+  return report;
 }
 
 export function renderBenchmarkReportText(report: BenchmarkReport): string {

@@ -13,12 +13,15 @@
 import path from "node:path";
 import {
   BENCHMARK_REPORT_SCHEMA_VERSION,
+  addUsageTotals,
   assignTaskToCase,
   computeTaskMetrics,
   computeTokensPerVerifiedAcceptedChange,
+  emptyUsageTotals,
   matchingCaseIds,
   summarizeCase,
   summarizeTasks,
+  usageTotalsFromEntry,
   type BenchmarkCaseDefinition,
   type BenchmarkCaseResult,
   type BenchmarkEventEntry,
@@ -38,6 +41,8 @@ export type BenchmarkIntegrity = {
   event_records: number;
   malformed_event_lines: number;
   unassigned_task_ids: string[];
+  unassigned_usage_records: number;
+  unassigned_total_tokens: number;
   ambiguous_task_ids: { task_id: string; case_ids: string[] }[];
   ok: boolean;
 };
@@ -181,6 +186,8 @@ export async function captureBenchmarkReport(
   const unassigned: string[] = [];
   const ambiguous: { task_id: string; case_ids: string[] }[] = [];
   const tasks: BenchmarkTaskMetrics[] = [];
+  let unassignedUsageRecords = 0;
+  let unassignedUsageTotals = emptyUsageTotals();
 
   for (const taskId of taskIds) {
     const matches = matchingCaseIds(taskId, cases);
@@ -193,6 +200,11 @@ export async function captureBenchmarkReport(
     if (!assigned) {
       unassigned.push(taskId);
       warnings.push(`task ${taskId} does not match any frozen benchmark case`);
+      const orphanedUsage = usageByTask.get(taskId) ?? [];
+      unassignedUsageRecords += orphanedUsage.length;
+      for (const entry of orphanedUsage) {
+        unassignedUsageTotals = addUsageTotals(unassignedUsageTotals, usageTotalsFromEntry(entry));
+      }
       continue;
     }
 
@@ -245,8 +257,10 @@ export async function captureBenchmarkReport(
       event_records: events.length,
       malformed_event_lines: malformed,
       unassigned_task_ids: [...unassigned].sort(),
+      unassigned_usage_records: unassignedUsageRecords,
+      unassigned_total_tokens: unassignedUsageTotals.total_tokens,
       ambiguous_task_ids: [...ambiguous].sort((a, b) => a.task_id.localeCompare(b.task_id)),
-      ok: malformed === 0 && ambiguous.length === 0,
+      ok: malformed === 0 && ambiguous.length === 0 && unassignedUsageTotals.total_tokens === 0,
     },
     warnings: warnings.sort(),
   };

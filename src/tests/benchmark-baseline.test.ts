@@ -147,8 +147,60 @@ test("sugadinta event eilutė ir nepriskirtas task'as degraduoja į integrity fa
   const report = await captureBenchmarkReport(fakeFs(files), OPTIONS);
   assert.equal(report.integrity.malformed_event_lines, 1);
   assert.deepEqual(report.integrity.unassigned_task_ids, ["X-99"]);
+  assert.equal(report.integrity.unassigned_usage_records, 1);
+  assert.equal(report.integrity.unassigned_total_tokens, 10);
   assert.equal(report.integrity.ok, false);
   assert.ok(report.warnings.some((warning) => warning.includes("does not match any frozen benchmark case")));
+});
+
+test("nepriskirtas task'as SU usage>0 vienas pats laužia integrity.ok, o usage sumuojamas totals nematomai", async () => {
+  const files = cleanFiles();
+  files[abs("vq/logs/token-usage.jsonl")] = `${USAGE_LINES}\n${[
+    JSON.stringify({
+      phase: "dispatch",
+      task_id: "X-99",
+      model: "claude-sonnet-5",
+      input_tokens: 30,
+      output_tokens: 20,
+      cache_read_input_tokens: 5,
+      cache_creation_input_tokens: 5,
+      total_cost_usd: 0.05,
+    }),
+    JSON.stringify({
+      phase: "dispatch",
+      task_id: "X-99",
+      model: "claude-sonnet-5",
+      input_tokens: 10,
+      output_tokens: 10,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      total_cost_usd: 0.01,
+    }),
+  ].join("\n")}\n`;
+  const report = await captureBenchmarkReport(fakeFs(files), OPTIONS);
+  assert.equal(report.integrity.malformed_event_lines, 0);
+  assert.equal(report.integrity.ambiguous_task_ids.length, 0);
+  assert.deepEqual(report.integrity.unassigned_task_ids, ["X-99"]);
+  assert.equal(report.integrity.unassigned_usage_records, 2);
+  assert.equal(report.integrity.unassigned_total_tokens, 80);
+  assert.equal(report.integrity.ok, false, "nepriskirto task'o usage niekada neturi tyliai dingti iš integrity");
+  // X-99 usage neturi patekti į measured totals — jis lieka nepriskirtas jokiam case'ui.
+  assert.equal(report.totals.usage.total_tokens, 600);
+});
+
+test("nepriskirtas task'as BE usage nelaužo integrity.ok", async () => {
+  const files = cleanFiles();
+  files[abs("vq/logs/task-events.jsonl")] = `${EVENT_LINES}\n${JSON.stringify({
+    task_id: "X-99",
+    to_state: "dispatched",
+    reason: "",
+  })}\n`;
+  const report = await captureBenchmarkReport(fakeFs(files), OPTIONS);
+  assert.equal(report.integrity.malformed_event_lines, 0);
+  assert.deepEqual(report.integrity.unassigned_task_ids, ["X-99"]);
+  assert.equal(report.integrity.unassigned_usage_records, 0);
+  assert.equal(report.integrity.unassigned_total_tokens, 0);
+  assert.equal(report.integrity.ok, true);
 });
 
 test("sugadinta usage eilutė yra klaida — benchmark'as yra integrity kelias", async () => {
@@ -166,6 +218,50 @@ test("markdown round-trip: parse(render(report)) grąžina identišką raportą"
   assert.deepEqual(parseBenchmarkReportMarkdown(markdown), report);
   assert.match(renderBenchmarkReportText(report), /tokens_per_verified_accepted_change: 600 \[computed\]/);
   assert.throws(() => parseBenchmarkReportMarkdown("# be markerio"), /marker not found/);
+});
+
+test("markdown round-trip: nepriskirto task'o usage laukai išgyvena render/parse be pakeitimų", async () => {
+  const files = cleanFiles();
+  files[abs("vq/logs/token-usage.jsonl")] = `${USAGE_LINES}\n${JSON.stringify({
+    phase: "dispatch",
+    task_id: "X-99",
+    model: "claude-sonnet-5",
+    input_tokens: 30,
+    output_tokens: 20,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    total_cost_usd: 0.03,
+  })}\n`;
+  const report = await captureBenchmarkReport(fakeFs(files), OPTIONS);
+  assert.equal(report.integrity.unassigned_usage_records, 1);
+  assert.equal(report.integrity.unassigned_total_tokens, 50);
+  const markdown = renderBenchmarkReportMarkdown(report);
+  assert.match(markdown, /- unassigned_usage_records: 1/);
+  assert.match(markdown, /- unassigned_total_tokens: 50/);
+  assert.deepEqual(parseBenchmarkReportMarkdown(markdown), report);
+});
+
+test("senas markdown be unassigned usage laukų JSON bloke parsinamas su default 0", async () => {
+  const report = await captureBenchmarkReport(fakeFs(cleanFiles()), OPTIONS);
+  const legacyReport: Record<string, unknown> = JSON.parse(JSON.stringify(report)) as Record<string, unknown>;
+  const legacyIntegrity = legacyReport["integrity"] as Record<string, unknown>;
+  delete legacyIntegrity["unassigned_usage_records"];
+  delete legacyIntegrity["unassigned_total_tokens"];
+
+  const markdown = [
+    "# AG Loop optimization benchmark baseline",
+    "",
+    "<!-- ag:optimization-benchmark:v1 -->",
+    "",
+    "```json",
+    JSON.stringify(legacyReport, null, 2),
+    "```",
+    "",
+  ].join("\n");
+
+  const parsed = parseBenchmarkReportMarkdown(markdown);
+  assert.equal(parsed.integrity.unassigned_usage_records, 0);
+  assert.equal(parsed.integrity.unassigned_total_tokens, 0);
 });
 
 test("compareWithBaseline: identiškas run'as prieš išsaugotą baseline yra palyginamas su nulinėmis deltomis", async () => {

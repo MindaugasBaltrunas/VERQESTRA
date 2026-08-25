@@ -39,9 +39,11 @@ import {
 import { loadTaskClassificationPolicy } from "../../../../application/policy-governance/task-classification-policy.js";
 import { loadContextBudget } from "../../../../application/policy-governance/context-budget.js";
 import {
-  loadPreflightLimits,
+  mergePreflightLimits,
+  readPreflightLimitsFile,
   type PreflightLimits,
 } from "../../../../application/policy-governance/preflight-limits-policy.js";
+import { loadTokenBudgetConfig } from "../../../../application/token-governance/token-budget-config.js";
 import { analyzeOpenSpecReferences, buildOpenSpecContext } from "../../../../application/task-planning/openspec-context.js";
 import { optimizeTokenBudget } from "../../../../application/token-governance/token-budget-optimizer.js";
 import { resolveMaxTurns } from "../../../../application/token-governance/turn-budget.js";
@@ -138,8 +140,17 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
   // Legacy/near-kanoninių sekcijų deterministinis normalizavimas PRIEŠ bet kokį gate'ą
   // (task 882); activeText toliau gali būti papildytas auto-OpenSpec nuoroda.
   let activeText = normalizeLegacyTaskSections(taskText);
-  const configuredLimits = await loadPreflightLimits(ports.policyFs, ports.runtimeRoot);
+  const preflightLimitsFile = await readPreflightLimitsFile(ports.policyFs, ports.runtimeRoot);
+  const configuredLimits = mergePreflightLimits(preflightLimitsFile.values);
   const contextBudget = await loadContextBudget(ports.policyFs, ports.runtimeRoot);
+  // 016 (2026-08-25): turn lentelė imama iš TO PATIES šaltinio kaip dispatch'o
+  // `resolveDispatchBudgetPlan` (token-budget.json > legacy preflight-limits.turnLimits >
+  // kodas) — kitaip preflight žurnalas skelbtų max_turns, kurio dispatch'as niekada nevykdo.
+  const tokenBudgetConfig = await loadTokenBudgetConfig(ports.policyFs, ports.runtimeRoot, {
+    ...(preflightLimitsFile.values.turnLimits === undefined
+      ? {}
+      : { legacyTurnLimits: preflightLimitsFile.values.turnLimits }),
+  });
   const limits: PreflightLimits = {
     ...configuredLimits,
     maxAllowedPaths: Math.min(configuredLimits.maxAllowedPaths, contextBudget.max_files),
@@ -235,15 +246,25 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     classification: policyGateClassification,
     baseBudget: contextBudget,
     splitRequired: mustSplit,
+    turnLimits: tokenBudgetConfig.turnLimits,
   });
   const optimizedTier = optimizedBudget.model_policy_hint;
   // Aktyvus OpenSpec darbas lieka bent Sonnet; rutininiai bounded task'ai gali gauti Haiku
   // ir remtis retry eskalacija, jei quality gates nepraeis.
   const preflightTier = openSpecRefs.activeChangeDirs.length > 0 && optimizedTier === "haiku" ? "sonnet" : optimizedTier;
   const model = await ports.resolveModel(preflightTier);
+  // 016: žurnale — VYKDOMA reikšmė (ta pati lentelė + tos pačios dispatchMaxTurns lubos kaip
+  // dispatch'e), ne deklaratyvi. Iki 2026-08-25 čia buvo skelbiama max_turns=180, kurią
+  // dispatch'as su 120 lubomis niekada nevykdė (optimizavimo audito P1-2/P2-4).
+  const publishedMaxTurns = resolveMaxTurns({
+    phase: "implementation",
+    tier: optimizedBudget.tier,
+    limits: tokenBudgetConfig.turnLimits,
+    ceiling: limits.dispatchMaxTurns,
+  });
   await ports.agLog(
     `CLAUDE PREFLIGHT: task=${taskId} token-budget tier=${optimizedBudget.tier} model=${preflightTier} ` +
-      `max_turns=${optimizedBudget.max_turns || "none"} reasons=${optimizedBudget.reasons.join("; ")}`,
+      `max_turns=${publishedMaxTurns || "none"} reasons=${optimizedBudget.reasons.join("; ")}`,
   );
 
   // TOK-01: deterministinis fast-path — kanoninis task'as dispatch'inamas be LLM.

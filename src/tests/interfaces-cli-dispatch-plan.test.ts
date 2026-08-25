@@ -415,8 +415,9 @@ test("dispatch-budget-plan: paskelbtas tier'as, reduced šaka ir stebimi šaltin
     decision: { task_id: "0042", token_budget_tier: "large" },
     reduceContextReasons: [],
   });
-  // large lentelės 180 apkerpa preflight-limits dispatchMaxTurns lubos (default 120).
-  assert.equal(published.dispatchMaxTurns, 120);
+  // 016 (2026-08-25): lubos default'as suderintas su 0033 kalibracija — large tier'as gauna
+  // PILNĄ lentelės 180, lubos jo nebekerpa (min(180, 180)).
+  assert.equal(published.dispatchMaxTurns, DEFAULT_TURN_LIMITS.large);
   assert.match(published.turnLog, /tier=large source=token-budget/);
   assert.match(published.tokenLog, /limit=1500000 limit_source=dispatch-ceiling/);
 

@@ -73,6 +73,38 @@ test("runPreDispatchGates: context-pack klaida — advisory repair'ui, blokas no
   assert.equal(config.kind, "infrastructure", "konfigo gedimas nevirsta advisory net repair'ui");
 });
 
+// 017 (2026-08-25, audito P1-1): vartai tikrina ROUTING'O modelį, ne preflight pasirinkimą.
+test("runPreDispatchGates: enforceBudget gauna routed modelį; routing klaida — garsus fallback į decision modelį", async () => {
+  const env = createFakeTaskRunEnv();
+  env.behavior.decision = { status: "ok", decision: { verdict: "delegate", selected_model: "opus" } };
+  // Routing'as (pvz. biudžeto downgrade) parenka haiku, nors decision skelbia opus.
+  env.behavior.routedModelClass = async () => "haiku";
+  const { state, file } = await makeState(env);
+  const routed = await runPreDispatchGates(state, env.ports, { promptFile: file, isRepair: false });
+  assert.equal(routed.kind, "ok");
+  assert.deepEqual(env.budgetModels, ["haiku"], "vartai tikrino realiai dispatch'insimą modelį, ne opus");
+
+  // Routing'o infrastruktūrinė klaida neparkuoja task'o: krentama į decision modelį SU log'u.
+  env.budgetModels.length = 0;
+  env.logs.length = 0;
+  env.behavior.routedModelClass = async () => {
+    throw new Error("routing policy unreadable");
+  };
+  const fallback = await runPreDispatchGates(state, env.ports, { promptFile: file, isRepair: false });
+  assert.equal(fallback.kind, "ok");
+  assert.deepEqual(env.budgetModels, ["opus"], "fallback — decision modelis (senoji patikra geriau nei jokios)");
+  assert.ok(env.logs.some((line) => line.includes("DISPATCH MODEL GATE FALLBACK")));
+
+  // Draudžiamas routed modelis blokuoja, nors decision modelis būtų leidžiamas.
+  env.budgetModels.length = 0;
+  env.behavior.routedModelClass = async () => "haiku";
+  env.behavior.budgetOk = false;
+  env.behavior.budgetReasons = ["model not allowed: haiku"];
+  const vetoed = await runPreDispatchGates(state, env.ports, { promptFile: file, isRepair: false });
+  assert.equal(vetoed.kind, "human-review");
+  assert.match((vetoed as { reason: string }).reason, /model not allowed: haiku/);
+});
+
 test("runPreDispatchGates: biudžeto veto → human-review su priežastimis", async () => {
   const env = createFakeTaskRunEnv();
   env.behavior.budgetOk = false;

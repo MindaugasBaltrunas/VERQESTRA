@@ -130,6 +130,21 @@ export type ClaudeDispatchPorts = {
     selectedModel?: string;
   }): Promise<ResolveAttemptResult>;
 
+  /**
+   * Globalus supervisor sprendimo veidrodis (`vq/supervisor/decision.json`) — atsarginis
+   * 0941 kanalas, kai attempt kanalas sprendimo neduoda. `ok` grąžinamas TIK kai sprendimo
+   * `task_id` sutampa su šiuo task'u (veidrodis yra vienos eilutės failas, kurį perrašo
+   * kiekvienas preflight — svetimo task'o sprendimas čia yra pasenęs įrašas, ne klaida).
+   * `invalid` — failas neperskaitomas: kvietėjas jį paverčia MATOMU įspėjimu, bet
+   * dispatch'o nestabdo, nes ir sugadintas veidrodis gali būti svetimo task'o liekana.
+   */
+  readSupervisorDecision(taskId: string): Promise<
+    | { kind: "ok"; decision: DispatchDecision }
+    | { kind: "missing" }
+    | { kind: "foreign" }
+    | { kind: "invalid"; errors: string[] }
+  >;
+
   policyFs: PolicyConfigFileSystemPort;
   /** Worker prompt paruošimo deps (context-pack fs/clock/task-events). */
   workerPromptDeps: PrepareWorkerPromptDeps;

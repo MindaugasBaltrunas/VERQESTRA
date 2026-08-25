@@ -20,7 +20,14 @@ import { enqueueChildTasks } from "../../application/task-execution/enqueue-chil
 import { routeBlockedTasksToHumanReview } from "../../application/task-execution/task-graph-import.js";
 import { childTaskLedgerPath } from "../../application/task-execution/task-ledger-rules.js";
 import { syncArchitectureTaskCompletion } from "../../application/architecture/task-sync.js";
-import { enforceExecutionBudget } from "../../application/token-governance/tool-budget-gates.js";
+import { authorizeLlmCall, enforceExecutionBudget } from "../../application/token-governance/tool-budget-gates.js";
+import { loadRoutingPolicy, routeModel } from "../../application/token-governance/route-model.js";
+import { measureTaskSize } from "../../application/quality-gates/preflight-fastpath.js";
+import {
+  modelTierOfRoutingTier,
+  routingTierOfSelection,
+} from "../../infrastructure/adapters/claude-model-env.js";
+import { loadProjectProfile } from "../agent/preflight-adapters.js";
 import { buildTaskUsageLedger, parseTaskUsageEntries } from "../../domain/tokens/usage-ledger.js";
 import { logHasAlreadyImplementedMarker } from "../../domain/diagnosis/stream-log.js";
 import { resolveNoCommitDisposition } from "../../domain/diagnosis/dispositions.js";
@@ -47,7 +54,7 @@ import { assembleContextPackDeps } from "../quality/architecture-adapters.js";
 import { blockedTaskRoutingPorts, policyConfigFs, tokenBudgetPorts } from "../runtime/node-adapters.js";
 import { architectureWavePorts } from "../quality/architecture-adapters.js";
 import { changedProductPathsSince, readOptionalFile } from "../quality/diagnose-adapters.js";
-import { appendLogLine } from "./adapters.js";
+import { appendLogLine, retryCountsStore } from "./adapters.js";
 import {
   coordinatorCliPort,
   coordinatorFailurePort,
@@ -101,6 +108,48 @@ export function coordinatorPolicyPort(input: CoordinatorAdapterInput): Execution
         assembleContextPackDeps(input.projectRoot, input.runtimeRoot, input.resolution),
       );
       return result.pack;
+    },
+    /**
+     * 017 (2026-08-25, audito P1-1): vartams — REALIAI dispatch'insimo modelio klasė.
+     * Skaičiuojama tais pačiais įėjimais kaip `resolveDispatchRoutingPlan` claude-dispatch
+     * viduje: tas pats task tekstas, ta pati routing politika, tie patys retry skaitikliai ir
+     * tie patys biudžeto signalai iš `authorizeLlmCall` (jo `writeBudgetStatus` čia perrašomas
+     * dispatch'o vėlesnio kvietimo — snapshot'as, ne skaitiklis, tad dvigubo skaičiavimo nėra).
+     * `routeModel` deterministinis, tad verdiktas sutampa su tuo, ką dispatch'as paleis.
+     */
+    resolveDispatchModelClass: async (request) => {
+      const taskText = await readOptionalFile(request.promptFile);
+      const routingPolicy = await loadRoutingPolicy(policyConfigFs, input.runtimeRoot);
+      const projectProfile = await loadProjectProfile(input.runtimeRoot).catch(() => undefined);
+      const metrics = measureTaskSize(taskText, projectProfile?.source_roots);
+      const retryCounts = await retryCountsStore(input.runtimeRoot).read();
+      const rawRetryCount = retryCounts[`task:${request.taskId}`];
+      const failedAttempts =
+        typeof rawRetryCount === "number" && Number.isFinite(rawRetryCount) ? rawRetryCount : 0;
+      const authorization = await authorizeLlmCall(tokenBudgetPorts(input.runtimeRoot), input.runtimeRoot, {
+        taskId: request.taskId,
+        phase: request.phase,
+      });
+      const routing = routeModel({
+        phase: request.phase,
+        taskText,
+        ...(request.selectedModel ? { selectedTier: routingTierOfSelection(request.selectedModel) } : {}),
+        failedAttempts,
+        size: {
+          lines: metrics.lines,
+          allowedPaths: metrics.allowedPaths,
+          domains: metrics.domains,
+          actionBullets: metrics.actionBullets,
+        },
+        budget: {
+          reduceContext: authorization.reduce_context,
+          remainingTotalLlmCalls: authorization.remaining_total_llm_calls,
+          remainingTotalTokens: authorization.remaining_total_tokens,
+          totalLlmCalls: authorization.total_llm_calls,
+        },
+        policy: routingPolicy,
+      });
+      return modelTierOfRoutingTier(routing.tier);
     },
     enforceBudget: async (request) => {
       const verdict = await enforceExecutionBudget(tokenBudgetPorts(input.runtimeRoot), input.runtimeRoot, {

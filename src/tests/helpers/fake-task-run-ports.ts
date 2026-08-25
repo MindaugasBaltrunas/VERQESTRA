@@ -21,6 +21,8 @@ export type FakeTaskRunEnv = {
   phaseFailures: { taskId: string; phase: string; exitCode: number }[];
   checkpoints: RunCheckpoint[];
   ledgerRecords: { taskId: string; state: string; file: string }[];
+  /** 017: kiekvieno `enforceBudget` kvietimo `model` — testas tvirtina, KĄ vartai tikrino. */
+  budgetModels: string[];
   /** Failų kūnai pagal absoliutų kelią — bucket perkėlimai juda šiame žemėlapyje. */
   files: Map<string, string>;
   /** Elgesio rankenėlės — testas jas perrašo pagal scenarijų. */
@@ -32,6 +34,8 @@ export type FakeTaskRunEnv = {
     infrastructureExitCodes: number[];
     dispatchInfrastructureFailure: boolean;
     contextPack(): Record<string, unknown>;
+    /** 017: routed modelio klasė vartams; funkcija gali mesti — tada dispatch-task krenta į decision modelį. */
+    routedModelClass(request: { selectedModel?: string }): Promise<string>;
     budgetOk: boolean;
     budgetReasons: string[];
     adapterAssert(): void;
@@ -61,6 +65,7 @@ export function createFakeTaskRunEnv(): FakeTaskRunEnv {
     phaseFailures: [],
     checkpoints: [],
     ledgerRecords: [],
+    budgetModels: [],
     files: new Map<string, string>(),
     behavior: {
       cli: () => 0,
@@ -70,6 +75,8 @@ export function createFakeTaskRunEnv(): FakeTaskRunEnv {
       infrastructureExitCodes: [74, 75, 78, 124],
       dispatchInfrastructureFailure: false,
       contextPack: () => ({}),
+      // Default'as atkartoja seną elgesį (decision modelis), kad esami scenarijai nepasikeistų.
+      routedModelClass: async (request) => request.selectedModel ?? "sonnet",
       budgetOk: true,
       budgetReasons: [],
       adapterAssert: () => undefined,
@@ -193,7 +200,14 @@ export function createFakeTaskRunEnv(): FakeTaskRunEnv {
     },
     policy: {
       buildContextPack: async () => env.behavior.contextPack(),
-      enforceBudget: async () => ({ ok: env.behavior.budgetOk, reasons: env.behavior.budgetReasons }),
+      resolveDispatchModelClass: async (request) =>
+        env.behavior.routedModelClass({
+          ...(request.selectedModel === undefined ? {} : { selectedModel: request.selectedModel }),
+        }),
+      enforceBudget: async (request) => {
+        env.budgetModels.push(request.model);
+        return { ok: env.behavior.budgetOk, reasons: env.behavior.budgetReasons };
+      },
       assertLoopAdapterAllowed: async () => env.behavior.adapterAssert(),
       async logTaskUsageLedger() {},
     },

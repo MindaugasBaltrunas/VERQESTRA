@@ -193,6 +193,21 @@ export type GitPort = {
 export type ExecutionPolicyPort = {
   /** Meta klaidą, kai context-pack nepavyksta — klasifikaciją atlieka `dispatch-task.ts`. */
   buildContextPack(promptFile: string): Promise<Record<string, unknown>>;
+  /**
+   * REALIAI dispatch'insimo modelio klasė (`haiku`/`sonnet`/`opus`) biudžeto vartams —
+   * suskaičiuota TAIS PAČIAIS įėjimais kaip `claude-dispatch` routing'as (`routeModel`
+   * deterministinis, tad rezultatai sutampa). 2026-08-25 optimizavimo audito P1-1: iki tol
+   * `enforceBudget` gaudavo `decision.selected_model`, o dirbo routing'o parinktas modelis —
+   * `modelAllowed` verdiktas buvo taikomas modeliui, kuris niekada nebus paleistas (012
+   * atvejis: gate tikrino opus, dirbo sonnet). Adapterio klaida čia PROPAGUOJASI —
+   * kvietėjas (`runPreDispatchGates`) krenta atgal į decision modelį su garsiu log'u.
+   */
+  resolveDispatchModelClass(request: {
+    promptFile: string;
+    taskId: string;
+    phase: "implementation" | "repair";
+    selectedModel?: string;
+  }): Promise<string>;
   enforceBudget(request: {
     model: string;
     contextPack: Record<string, unknown>;

@@ -579,6 +579,16 @@
   ],
   "deviations": [
     {
+      "date": "2026-08-25",
+      "area": "interfaces/cli/claude-dispatch — supervisor sprendimo kanalas (0941) + composition/agent/dispatch-adapters",
+      "etalon_behaviour": "dispatch-invocation.ts kviečia PILNĄ resolveActiveAttempt su create:true ir sprendimą skaito iš attempt namespace decision.json (readJson('decision', decisionStateSchema)); globalus vq/supervisor/decision.json dispatch'o NESKAITOMAS.",
+      "verqestra_behaviour": "resolveAttempt kompozicijoje lieka stub'as (DispatchAttemptView closures dar neįvielintos — žr. komentarą dispatch-adapters.ts), o sprendimas dispatch'ą pasiekia per NAUJĄ readSupervisorDecision portą: globalus vq/supervisor/decision.json veidrodis priimamas TIK su šio task'o task_id (nuosavybės patikra kaip coordinator-adapters.readDecision, bet griežtesnė — veidrodis be task_id atmetamas kaip foreign); neperskaitomas veidrodis — MATOMAS WARNING, ne stabdis. selected= log lauke be sprendimo rašoma none vietoje hardcoded sonnet.",
+      "reason": "Įrodoma gyva spraga (2026-08-25 optimizavimo auditas, P0-1): stub'as reiškė decision={} kiekviename gamybiniame dispatch'e — 17/17 DISPATCH TURN BUDGET eilučių source=structural, task 012 preflight skelbė tier=large model=opus max_turns=180, dispatch davė small/20 su sonnet. Aukšto jautrumo užduotys gaudavo mažiausią langą — ta pati klaidos klasė, dėl kurios etalone kalibruota 80→120→180. Veidrodžio fallback'as yra 015 task'o sankcionuotas minimalus variantas; pilnas attempt kanalo vielinimas lieka atviras darbas (šis įrašas jį fiksuoja).",
+      "direction": "griežtinantis — sprendimo kanalas atkurtas su GRIEŽTESNE nuosavybės taisykle nei koordinatoriaus (empty task_id → foreign, ne ok); jokių praleidimų nepridėta, invalid attempt decision refuse elgesys nepakitęs",
+      "etalon_annotation": "NEIRASYTA — etalonas uzsaldytas 2026-08-22 (AG_loop a75f9fe3), tasks.md nebekeiciamas; nukrypimas fiksuojamas cia ir commit'o ataskaitoje",
+      "tests": "src/tests/interfaces-cli-dispatch-command.test.ts: prepareDispatchInvocation ok/foreign/invalid/attempt-first keliai + pilna claudeDispatch grandinė su tvirtinimu tier=large source=token-budget ir selected=opus"
+    },
+    {
       "date": "2026-08-24",
       "area": "mobile-app (MVA → MVC) + mobile-app/native",
       "etalon_behaviour": "(1) MVA žiedai `model/ view/ adapters/ composition/`; `view/contracts.ts` laikė TIK ekrano kontraktus, o presenterių grąžinami `*ViewState` tipai gyveno pačiuose presenteriuose po `adapters/presentation/`; (2) wire ir keystore parseriai kirsdavo pasitikėjimo ribą su `as` (`as AgLoopTaskBucket`, penki `as string` invite'e, `as number` per JSON); (3) `mva-boundaries.test.ts` skaičiavo kelius nuo `process.cwd()`; (4) `reducer.ts` `terminal.output-chunk` šakojosi pagal `lines.length === 0`, o paskui skaitė `lines[lines.length - 1]`; (5) 7 failai virš 500 eilučių (`reducer.ts` 505, `push-notification-adapter.test.ts` 645, `pairing-controller.test.ts` 533 ir kt.); (6) `native/` kiautas NEBUVO nė viename CI varte.",

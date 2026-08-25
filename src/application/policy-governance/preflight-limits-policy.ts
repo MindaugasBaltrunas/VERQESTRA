@@ -74,11 +74,14 @@ export const DEFAULT_PREFLIGHT_LIMITS: PreflightLimits = {
   autoOpenSpec: false,
   fastPath: true,
   llmMaxTurns: 12,
-  // 120 (etalono 2026-08-07 auditas): opus dispatch'ai su pilna agentų grandine atsitrenkdavo
-  // į 80 lubas paskutiniuose turn'uose — nukirsta sesija pabaigoje sudegina visą kontekstą ir
-  // vis tiek virsta repair/human-review ratu. Turn lentelė (small/medium/large) ir toliau yra
-  // tikrasis ribotuvas: `min(lentelė, dispatchMaxTurns)`.
-  dispatchMaxTurns: 120,
+  // 180 (0033 kalibracija, HUMAN-REVIEW-APPROVED 2026-08-08): lubos NEGALI kirsti kalibruotos
+  // turn lentelės `large=180` — `min(180, 120)=120` grąžindavo reikšmę, kurią 0033 auditas
+  // pripažino nepakankama (opus grandinės kirstos paskutiniuose turn'uose, į master pateko
+  // sugadintas kodas; nukirsta sesija pabaigoje sudegina visą kontekstą ir vis tiek virsta
+  // repair/human-review ratu). Istorija: 80 → 120 (2026-08-07) → 180 (2026-08-25, optimizavimo
+  // audito P1-2 — 120 lubos tyliai anuliavo 0033). Turn lentelė (small/medium/large) lieka
+  // tikrasis ribotuvas: `min(lentelė, dispatchMaxTurns)`; lubos saugo tik nuo konfigo klaidos.
+  dispatchMaxTurns: 180,
   maxSplitDepth: 3,
   turnLimits: { ...DEFAULT_TURN_LIMITS },
 };

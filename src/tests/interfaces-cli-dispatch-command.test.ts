@@ -71,6 +71,7 @@ function makeHarness(input: {
   authorization?: LlmCallAuthorization;
   requiredContext?: boolean;
   attempt?: DispatchAttemptView;
+  supervisorDecision?: Awaited<ReturnType<ClaudeDispatchPorts["readSupervisorDecision"]>>;
 } = {}): Harness {
   const agLines: string[] = [];
   const errs: string[] = [];
@@ -100,6 +101,7 @@ function makeHarness(input: {
     readCurrentTaskId: async () => "",
     readRetryCounts: async () => ({}),
     resolveAttempt: async () => ({ ...(input.attempt ? { attempt: input.attempt } : {}), warnings: [] }),
+    readSupervisorDecision: async () => input.supervisorDecision ?? { kind: "missing" },
     policyFs: { readTextFileIfExists: async () => undefined },
     workerPromptDeps: {
       fs: fakeContextPackFs(),
@@ -171,7 +173,9 @@ test("prepareDispatchInvocation: usage refuse, repair fazės detekcija, invalid 
   if (repair.kind === "ready") {
     assert.equal(repair.dispatchPhase, "repair");
     assert.equal(repair.taskId, "0042-demo", "be attempt'o — failo stem");
-    assert.equal(repair.selected, "sonnet");
+    // Be supervisor sprendimo `selected` yra `none`, ne hardcoded sonnet (2026-08-25 P1-3):
+    // MODEL ROUTING eilutė nebegali rodyti „pasirinkimo", kurio niekas nepriėmė.
+    assert.equal(repair.selected, "none");
   }
 
   const attempt: DispatchAttemptView = {
@@ -191,6 +195,88 @@ test("prepareDispatchInvocation: usage refuse, repair fazės detekcija, invalid 
     assert.match(invalid.message, /Invalid attempt decision\.json/);
     assert.match(invalid.logLine ?? "", /task=0042-orig reason=corrupted/);
   }
+});
+
+// 0941 kanalo atkūrimas (2026-08-25 auditas, P0-1): be attempt'o preflight sprendimas
+// dispatch'ą pasiekia per globalų decision.json veidrodį — su nuosavybės patikra.
+test("prepareDispatchInvocation: globalus decision veidrodis — ok/foreign/invalid keliai", async () => {
+  const own = await prepareDispatchInvocation(
+    ["t"],
+    makeHarness({
+      supervisorDecision: {
+        kind: "ok",
+        decision: { task_id: "0042-demo", selected_model: "opus", token_budget_tier: "large" },
+      },
+    }).ports,
+  );
+  assert.equal(own.kind, "ready");
+  if (own.kind === "ready") {
+    assert.equal(own.selected, "opus", "supervisor pasirinkimas iš veidrodžio");
+    assert.equal(own.decision["token_budget_tier"], "large", "paskelbtas tier'as pasiekia dispatch'ą");
+  }
+
+  const foreign = await prepareDispatchInvocation(["t"], makeHarness({ supervisorDecision: { kind: "foreign" } }).ports);
+  assert.equal(foreign.kind, "ready");
+  if (foreign.kind === "ready") {
+    assert.deepEqual(foreign.decision, {}, "svetimo task'o veidrodis ignoruojamas");
+    assert.equal(foreign.selected, "none");
+  }
+
+  const invalidMirror = await prepareDispatchInvocation(
+    ["t"],
+    makeHarness({ supervisorDecision: { kind: "invalid", errors: ["blogas JSON"] } }).ports,
+  );
+  assert.equal(invalidMirror.kind, "ready", "neperskaitomas veidrodis nestabdo — jis gali būti svetima liekana");
+  if (invalidMirror.kind === "ready") {
+    assert.deepEqual(invalidMirror.decision, {});
+    assert.ok(
+      invalidMirror.warnings.some((line) => line.includes("unreadable global supervisor decision.json")),
+      "bet paliekamas MATOMAS įspėjimas",
+    );
+  }
+
+  // Attempt'o sprendimas turi pirmenybę — veidrodis tada NEskaitomas.
+  const attemptDecision: DispatchAttemptView = {
+    taskId: "0042-demo",
+    writeTaskOnce: async () => ({ ok: true }),
+    readDecision: async () => ({ kind: "ok", decision: { task_id: "0042-demo", selected_model: "sonnet" } }),
+    readArtifactText: async () => undefined,
+    promoteExecutionContext: async () => ({ ok: true }),
+    promoteContextPack: async () => ({ ok: true }),
+    writeExecutionResult: async () => ({ ok: true }),
+    appendDispatchLog: async () => {},
+    readStopState: async () => ({ ok: false, reason: "missing", errors: [] }),
+  };
+  const attemptFirst = await prepareDispatchInvocation(
+    ["t"],
+    makeHarness({
+      attempt: attemptDecision,
+      supervisorDecision: { kind: "ok", decision: { task_id: "0042-demo", selected_model: "opus" } },
+    }).ports,
+  );
+  assert.equal(attemptFirst.kind, "ready");
+  if (attemptFirst.kind === "ready") {
+    assert.equal(attemptFirst.selected, "sonnet", "attempt kanalas autoritetingesnis už veidrodį");
+  }
+});
+
+// Pilna grandinė: veidrodžio tier'as realiai keičia turn langą — `source=token-budget`
+// vietoje struktūrinio fallback'o (iki pataisos gamyboje: 17/17 `source=structural`).
+test("claudeDispatch: veidrodžio token_budget_tier=large → DISPATCH TURN BUDGET source=token-budget", async () => {
+  const h = makeHarness({
+    files: { [TASK_FILE.replace(/\\/g, "/")]: TASK_TEXT },
+    supervisorDecision: {
+      kind: "ok",
+      decision: { task_id: "0042-demo", selected_model: "opus", token_budget_tier: "large" },
+    },
+  });
+  const code = await claudeDispatch(["AG/tasks/queue/0042-demo.md"], h.ports);
+  assert.equal(code, 0);
+  const turnLine = h.agLines.find((line) => line.startsWith("DISPATCH TURN BUDGET:")) ?? "";
+  assert.notEqual(turnLine, "", "turn budžeto eilutė yra");
+  assert.match(turnLine, /tier=large source=token-budget/, "tier'as iš preflight sprendimo, ne struktūrinis");
+  const routingLine = h.agLines.find((line) => line.startsWith("MODEL ROUTING:"));
+  assert.match(routingLine ?? "", /selected=opus/, "selected= rodo realų supervisor pasirinkimą");
 });
 
 test("prepareDispatchArtifacts: attempt kopija pirmi; legacy promotinamas; write klaidos — WARNING", async () => {

@@ -43,8 +43,10 @@ import { ensureRuntimeDirs } from "../../infrastructure/state/runtime-dirs.js";
 import { recordResumeCheckpoint } from "../../infrastructure/state/resume-checkpoint.js";
 import type { AttemptResolutionPort } from "../../infrastructure/state/attempt-resolution.js";
 import { taskLedgerKey } from "../../domain/tasks/identity.js";
+import { tryParseJson } from "../../shared/json.js";
 import type {
   ClaudeDispatchPorts,
+  DispatchDecision,
   DispatchDeliveryHandle,
   DispatchToolPolicyView,
   DispatchWatchdogHandle,
@@ -98,10 +100,14 @@ export type ClaudeDispatchAdapterInput = {
 /**
  * Visi `claude-dispatch` portai vienu pjūviu.
  *
- * `resolveAttempt` kol kas VISADA grąžina „be attempt'o" su įvardyta priežastimi: attempt
- * namespace'o kūrimas reikalauja run/worker tapatybės, kurią išduoda loop scheduler'is, o jis
- * dar nemigruotas. Tai NĖRA tylus praleidimas — įspėjimas keliauja į dispatch žurnalą, ir visi
- * artefaktai tada rašomi į globalius veidrodžius, kaip ir pre-attempt eroje.
+ * `resolveAttempt` kol kas VISADA grąžina „be attempt'o" su įvardyta priežastimi. Loop'as JAU
+ * migruotas ir pilnas resolveris (`activeAttemptResolution`) aptarnauja stop-hooks, diagnozę
+ * ir telemetriją, bet dispatch attempt KANALAS (interfaces `DispatchAttemptView` closures virš
+ * runtime-artifact-store, 1117a) dar neįvielintas — tai užfiksuotas nukrypimas nuo etalono
+ * (migration-coverage.json, 2026-08-25). Tai NĖRA tylus praleidimas: įspėjimas keliauja į
+ * dispatch žurnalą, artefaktai rašomi į globalius veidrodžius, o supervisor SPRENDIMAS
+ * dispatch'ą pasiekia per `readSupervisorDecision` globalaus veidrodžio fallback'ą su
+ * task_id nuosavybės patikra (0941 kanalas atkurtas 2026-08-25, auditas P0-1).
  */
 export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDispatchPorts {
   const deliveries = new WeakMap<DispatchDeliveryHandle, DispatchPromptDelivery>();
@@ -128,6 +134,23 @@ export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDi
             " — artifacts fall back to global mirrors",
         ],
       }),
+
+    // Nuosavybės taisyklė ta pati kaip `coordinator-adapters.readDecision`, bet griežtesnė
+    // kryptimi: veidrodis be `task_id` čia NEPRIIMAMAS (preflight jį rašo visada, tad jo
+    // nebuvimas reiškia ne mūsų rašytą failą), o svetimas `task_id` yra pasenęs įrašas —
+    // `foreign`, ne klaida.
+    readSupervisorDecision: async (taskId) => {
+      const raw = await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "supervisor", "decision.json"));
+      if (raw === undefined || raw.trim() === "") return { kind: "missing" };
+      const parsed = tryParseJson<unknown>(raw);
+      if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+        return { kind: "invalid", errors: [parsed.ok ? "decision.json is not a JSON object" : parsed.error.message] };
+      }
+      const decision = parsed.value as DispatchDecision;
+      const owner = typeof decision.task_id === "string" ? decision.task_id.trim() : "";
+      if (owner === "" || owner.toLowerCase() !== taskId.trim().toLowerCase()) return { kind: "foreign" };
+      return { kind: "ok", decision };
+    },
 
     policyFs: policyConfigFs,
     workerPromptDeps: workerPromptDeps(input.runtimeRoot),

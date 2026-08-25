@@ -6,6 +6,6 @@
   "autoOpenSpec": true,
   "fastPath": true,
   "llmMaxTurns": 12,
-  "dispatchMaxTurns": 120,
+  "dispatchMaxTurns": 180,
   "maxSplitDepth": 3
 }

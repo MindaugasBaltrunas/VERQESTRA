@@ -187,9 +187,27 @@ export async function runPreDispatchGates(
     return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} context_pack_failed=${packResult.reason}` };
   }
   if (packResult.kind === "ok") {
-    // Model routing: modelio klasę parenka vienas sprendimo įrašas; tuščia reikšmė
-    // krenta į provider-neutralų numatytąjį tier'ą.
-    const model = decisionResult.decision.selected_model?.trim() || "sonnet";
+    // 017 (2026-08-25, audito P1-1): vartai tikrina REALIAI dispatch'insimą modelį, ne
+    // preflight pasirinkimą — routing'as skaičiuojamas prieš vartus tais pačiais įėjimais
+    // kaip claude-dispatch viduje („vetuota prieš paleidimą" kontraktas išlaikytas).
+    // Adapterio klaida — garsi ir krenta atgal į decision modelį: senoji (netiksli) patikra
+    // geriau nei jokios, o infrastruktūrinė klaida čia neturi parkuoti task'o.
+    const decisionModel = decisionResult.decision.selected_model?.trim() || "sonnet";
+    let model = decisionModel;
+    try {
+      const selectedModel = decisionResult.decision.selected_model?.trim();
+      model = await ports.policy.resolveDispatchModelClass({
+        promptFile,
+        taskId: state.taskId,
+        phase: isRepair ? "repair" : "implementation",
+        ...(selectedModel ? { selectedModel } : {}),
+      });
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await ports.log.write(
+        `DISPATCH MODEL GATE FALLBACK: task=${state.taskId} routed model unavailable (${reason}) — enforcing decision model=${decisionModel}`,
+      );
+    }
     // PC-TOOLBUDGET-03: naudojamas vienintelis `default` tool-budget profilis. `taskId`/`phase`
     // perduodami eksplicitiškai, kad whole-task valdymas nepriklausytų nuo context-pack turinio
     // ir projektuojamas kvietimas būtų priskirtas realiai vykdomai fazei.

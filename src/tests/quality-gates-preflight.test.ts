@@ -17,7 +17,7 @@ import {
   mergePreflightLimits,
   readPreflightLimitsFile,
 } from "../application/policy-governance/preflight-limits-policy.js";
-import { DEFAULT_TURN_LIMITS } from "../application/token-governance/turn-budget.js";
+import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
 import { evaluateArchitectureAndPolicyGates } from "../application/quality-gates/preflight-rules.js";
 import {
   evaluatePreflight,
@@ -94,6 +94,22 @@ test("preflight-limits: present/absent, nežinomas raktas = PolicyConfigError, t
     () => readPreflightLimitsFile(fakeFs({ "/repo/vq/config/preflight-limits.json": '{"turnLimits":{"small":0}}' }), "/repo/vq"),
     (error: unknown) => error instanceof PolicyConfigError,
     "turnLimits 0 neleidžiamas — jis reikštų neribotą dispatch'ą",
+  );
+});
+
+// 016 (2026-08-25, optimizavimo audito P1-2): lubos NEGALI kirsti 0033 kalibracijos.
+// `min(180, 120)=120` tyliai anuliavo HUMAN-REVIEW-APPROVED `large=180` — šis testas
+// pin'ina, kad default lubos praleidžia pilną kalibruotą large langą.
+test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos large=180", () => {
+  assert.equal(DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns, 180);
+  assert.equal(
+    resolveMaxTurns({
+      phase: "implementation",
+      tier: "large",
+      ceiling: DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns,
+    }),
+    DEFAULT_TURN_LIMITS.large,
+    "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos",
   );
 });
 

@@ -24,7 +24,7 @@ export async function prepareDispatchInvocation(
   args: string[],
   ports: Pick<
     ClaudeDispatchPorts,
-    "resolveExistingTaskFile" | "readOptionalFile" | "readCurrentTaskId" | "resolveAttempt"
+    "resolveExistingTaskFile" | "readOptionalFile" | "readCurrentTaskId" | "resolveAttempt" | "readSupervisorDecision"
   >,
 ): Promise<PrepareDispatchInvocationResult> {
   const taskFileArg = args[0];
@@ -45,9 +45,11 @@ export async function prepareDispatchInvocation(
   const rawTaskText = await ports.readOptionalFile(taskFile);
   const dispatchPhase: "repair" | "implementation" = isRepairDispatchPrompt(rawTaskText) ? "repair" : "implementation";
   const taskFileId = path.basename(taskFile, path.extname(taskFile));
-  const decisionTaskId = taskIdArg ?? decision.task_id?.trim();
+  // Tapatybės kandidatas čia — TIK iš argumento: `decision` užpildomas tik žemiau (attempt
+  // arba globalus veidrodis), tad ankstesnis `decision.task_id?.trim()` buvo negyva šaka,
+  // maskavusi faktą, kad sprendimas dispatch'o dar nepasiekė (2026-08-25 auditas, P0-1).
   const resolved = await ports.resolveAttempt({
-    taskId: decisionTaskId || taskFileId,
+    taskId: taskIdArg || taskFileId,
     phase: dispatchPhase,
     taskFile,
   });
@@ -59,13 +61,15 @@ export async function prepareDispatchInvocation(
     taskId = active.taskId;
   } else {
     const currentTaskId = await ports.readCurrentTaskId();
-    taskId = decisionTaskId || currentTaskId.trim() || taskFileId;
+    taskId = taskIdArg || currentTaskId.trim() || taskFileId;
   }
 
+  let decisionLoaded = false;
   if (active) {
     const attemptDecision = await active.readDecision();
     if (attemptDecision.kind === "ok") {
       decision = attemptDecision.decision;
+      decisionLoaded = true;
     } else if (attemptDecision.kind === "invalid") {
       const detail = attemptDecision.errors.join("; ");
       return {
@@ -76,6 +80,23 @@ export async function prepareDispatchInvocation(
     }
   }
 
+  // 0941 atsarginis kanalas (2026-08-25 auditas, P0-1): be attempt sprendimo preflight
+  // paskelbtas tier'as/modelis dispatch'o nepasiekdavo NIEKADA — visi turn langai krisdavo
+  // į struktūrinį fallback'ą. Veidrodis priimamas tik su šio task'o `task_id` (nuosavybės
+  // patikra kaip `coordinator-adapters.readDecision`); neperskaitomas failas — MATOMAS
+  // įspėjimas, bet ne stabdis, nes sugadintas veidrodis gali būti svetimo task'o liekana.
+  if (!decisionLoaded) {
+    const mirror = await ports.readSupervisorDecision(taskId);
+    if (mirror.kind === "ok") {
+      decision = mirror.decision;
+    } else if (mirror.kind === "invalid") {
+      warnings.push(
+        `WARNING: unreadable global supervisor decision.json task=${taskId} — ` +
+          `dispatching with structural budget fallback: ${mirror.errors.join("; ")}`,
+      );
+    }
+  }
+
   return {
     kind: "ready",
     taskFile,
@@ -83,7 +104,11 @@ export async function prepareDispatchInvocation(
     dispatchPhase,
     taskId,
     decision,
-    selected: decision.selected_model ?? "sonnet",
+    // `none`, kai supervisor pasirinkimo nėra: hardcoded `sonnet` čia 09:41–10:06 log'uose
+    // atrodė kaip routing klaida (`selected=sonnet model=claude-haiku-4-5`), nors routing'as
+    // buvo teisus — melavo šis laukas. Routing'as `selected` nenaudoja (jis skaito
+    // `decision.selected_model`), tad reikšmė čia yra grynai žurnalo/įrašų tiesa.
+    selected: decision.selected_model ?? "none",
     ...(active === undefined ? {} : { active }),
     warnings,
   };

@@ -147,7 +147,14 @@ const allowedCommandSegments = [
   // loop-guard yra read-only pre-loop pasiruošimo patikra (nieko nejudina).
   // `(?:pnpm\s+)?` — npm-package režime target projektas neturi pnpm ag script'o,
   // komanda kviečiama tiesiogiai; leidžiamos TOS PAČIOS subkomandos, saugumo profilis nesikeičia.
-  /^(?:pnpm\s+)?ag\s+(?:loop|loop-guard|run-claude-loop|status)$/i,
+  //
+  // `verqestra` pridėtas 2026-08-25: migruojant CLI buvo pervadintas (`package.json` bin =
+  // `verqestra`), o politika liko su etalono vardu `ag`. Pasekmė buvo ne higieninė — NĖ VIENAS
+  // agentas negalėjo paleisti ciklo per sankcionuotą kelią, nors etalone galėjo. Subkomandų aibė
+  // nesikeičia, tad saugumo profilis lieka tas pats: leidžiamas kitas VARDAS tai pačiai komandai,
+  // o ne nauja galia. `exec` forma reikalinga todėl, kad workspace bin'as pasiekiamas per
+  // `pnpm exec`; anchor'ai neleidžia jai virsti bendru „pnpm exec bet kas".
+  /^(?:pnpm\s+(?:exec\s+)?)?(?:ag|verqestra)\s+(?:loop|loop-guard|run-claude-loop|status)$/i,
   // Requeue saugus: tik perkelia task'ą human-review → queue ir išvalo ledger įrašą.
   /^(?:pnpm\s+)?ag\s+requeue\s+[\w.-]+\.md$/i,
   // task-move leidžiamas tik viena kryptimi: human-review → done (patikrintiems taskams).

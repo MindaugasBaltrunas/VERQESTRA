@@ -1,7 +1,13 @@
 // VQ-305 (2/3-b): preflight kelio unit testai — policy loaderiai per fake portą (default'ai
 // trūkstant failo, fail-fast blogam JSON/nežinomam raktui), architektūros/enforcement vartų
-// matrica (trijų pakopų įrodymai) ir evaluatePreflight seka su fake portais. Jokio realaus FS.
+// matrica (trijų pakopų įrodymai) ir evaluatePreflight seka su fake portais.
+//
+// FS: unit dalis eina per fake portą (jokio realaus FS). VIENINTELĖ išimtis — config-drift
+// vartas (016-a-02), kuris skaito REALIUS `vq/config/preflight-limits.json` ir
+// `templates/vq/config/preflight-limits.json`: šio varto dalykas yra pats diske gulintis
+// konfigas, tad fake port'as jį paverstų tautologija.
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { PolicyConfigError } from "../shared/errors.js";
 import {
@@ -18,6 +24,7 @@ import {
   readPreflightLimitsFile,
 } from "../application/policy-governance/preflight-limits-policy.js";
 import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
+import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { evaluateArchitectureAndPolicyGates } from "../application/quality-gates/preflight-rules.js";
 import {
   evaluatePreflight,
@@ -111,6 +118,87 @@ test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos lar
     DEFAULT_TURN_LIMITS.large,
     "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos",
   );
+});
+
+// 016-a-02 (2026-08-25): CONFIG DRIFT VARTAS. Testas aukščiau pin'ina KODO default'us, bet
+// realų dispatch langą lemia DISKE gulintis konfigas: `min(turnLimits.large, dispatchMaxTurns)`.
+// Būtent tylus `dispatchMaxTurns: 120` prieš `large: 180` anuliavo 0033 kalibraciją, ir varto
+// tam nebuvo — nes lubos ir lentelė gyvena skirtinguose failuose, o jų santykio niekas netikrino.
+const DRIFT_REASON =
+  "dispatchMaxTurns žemiau turnLimits.large tyliai nukerta 0033 kalibruotą large langą " +
+  "(HUMAN-REVIEW-APPROVED 2026-08-08): resolveMaxTurns skaičiuoja min(lentelė, lubos), tad " +
+  "žemesnės lubos anuliuoja kalibraciją be jokio signalo — nukirsta sesija sudegina visą " +
+  "kontekstą ir vis tiek virsta repair/human-review ratu. Taisymas: KELK dispatchMaxTurns " +
+  "(arba 0 = be ribos), o NE mažink turnLimits.large.";
+
+/** `0` yra dokumentuotas „be ribos" opt-out: jis kalibracijos nekerta, tad varto neliečia. */
+function ceilingCoversLarge(ceiling: number, large: number): boolean {
+  return ceiling === 0 || ceiling >= large;
+}
+
+function assertCeilingCoversLarge(source: string, ceiling: number, large: number): void {
+  assert.ok(
+    ceilingCoversLarge(ceiling, large),
+    `${source}: dispatchMaxTurns=${ceiling} < turnLimits.large=${large}. ${DRIFT_REASON}`,
+  );
+}
+
+test("preflight-limits: kodo default'ų lubos nekerta kalibruotos turnLimits.large", () => {
+  assertCeilingCoversLarge(
+    "DEFAULT_PREFLIGHT_LIMITS",
+    DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns,
+    DEFAULT_TURN_LIMITS.large,
+  );
+});
+
+// `vq/` yra runtime katalogas ir git'e jo gali nebūti: tada `loadPreflightLimits` teisėtai
+// grąžina default'us ir vartas tikrina tą pačią invariantą ant jų (ne flaky, ne praleidimas).
+// `templates/vq/` git'e YRA — tai konfigas, kurį gauna kiekvienas naujas projektas.
+const RUNTIME_ROOTS_WITH_PREFLIGHT_LIMITS = [
+  path.join(process.cwd(), "vq"),
+  path.join(process.cwd(), "templates", "vq"),
+];
+
+test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.large", async () => {
+  for (const runtimeRoot of RUNTIME_ROOTS_WITH_PREFLIGHT_LIMITS) {
+    const limits = await loadPreflightLimits(nodeFsAdapter, runtimeRoot);
+    const large = limits.turnLimits?.large;
+    assert.equal(typeof large, "number", `${runtimeRoot}: loadPreflightLimits privalo užpildyti turnLimits`);
+    assertCeilingCoversLarge(runtimeRoot, limits.dispatchMaxTurns, large ?? DEFAULT_TURN_LIMITS.large);
+
+    // Tas pats invariantas elgesio kalba: efektyvus large langas = pilna kalibruota reikšmė
+    // (arba 0 = „be --max-turns flag'o", kai operatorius aiškiai išjungė lubas).
+    const effective = resolveMaxTurns({
+      phase: "implementation",
+      tier: "large",
+      ...(limits.turnLimits ? { limits: limits.turnLimits } : {}),
+      ceiling: limits.dispatchMaxTurns,
+    });
+    assert.ok(
+      effective === 0 || effective === large,
+      `${runtimeRoot}: resolveMaxTurns(large)=${effective}, laukta ${large}. ${DRIFT_REASON}`,
+    );
+  }
+});
+
+// Vartas be įrodymo, kad jis KANDA, yra dekoracija: konfigas su `dispatchMaxTurns: 120` privalo
+// varto kriterijų sulaužyti (o `0` — ne, nes tai aiškus „be ribos" opt-out).
+test("preflight-limits: config-drift vartas kanda — 120 lubos prieš large=180 yra pažeidimas", async () => {
+  const driftedRoot = "/repo/vq";
+  const withCeiling = async (ceiling: number): Promise<{ ceiling: number; large: number }> => {
+    const limits = await loadPreflightLimits(
+      fakeFs({ [`${driftedRoot}/config/preflight-limits.json`]: JSON.stringify({ dispatchMaxTurns: ceiling }) }),
+      driftedRoot,
+    );
+    return { ceiling: limits.dispatchMaxTurns, large: limits.turnLimits?.large ?? DEFAULT_TURN_LIMITS.large };
+  };
+
+  const drifted = await withCeiling(120);
+  assert.equal(drifted.large, DEFAULT_TURN_LIMITS.large, "trūkstamas turnLimits užpildomas iš kalibruotos lentelės");
+  assert.equal(ceilingCoversLarge(drifted.ceiling, drifted.large), false, "120 lubos nukerta large=180 — vartas krenta");
+
+  const optedOut = await withCeiling(0);
+  assert.equal(ceilingCoversLarge(optedOut.ceiling, optedOut.large), true, "0 = be ribos: kalibracija nenukertama");
 });
 
 const CLASSIFICATION_FEATURE = classifyTask("implement feature x", ["src/commands/x.ts"], defaultTaskClassificationPolicy);

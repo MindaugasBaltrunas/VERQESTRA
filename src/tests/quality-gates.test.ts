@@ -138,6 +138,13 @@ test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subk
   );
   assert.equal(evaluateBashCommandPolicy("node dist/cli.js task-ledger-sync").blockedPattern, undefined, "sync be argumentų");
   assert.match(blocked("node dist/cli.js task-ledger-sync --force"), /dist[\\/]cli\.js/, "sync su argumentais — ne");
+  assert.equal(evaluateBashCommandPolicy('node dist/cli.js compound-init "VERQESTRA orchestrator"').blockedPattern, undefined);
+  assert.match(
+    blocked('node dist/cli.js compound-init "x" --force'),
+    /dist[\\/]cli\.js/,
+    "perrašymas (--force) lieka žmogui — writeTextIfMissing be jo esamų failų neliečia",
+  );
+  assert.match(blocked("node dist/cli.js compound-init x"), /dist[\\/]cli\.js/, "aprašymas tik kabutėse");
   assert.match(blocked("node dist/cli.js task-move AG/tasks/done/005-x.md AG/tasks/queue"), /dist[\\/]cli\.js/, "atgal į eilę — ne");
   assert.match(blocked("node dist/cli.js task-move AG/tasks/queue/005-x.md AG/tasks/done"), /dist[\\/]cli\.js/, "iš queue — ne");
   assert.match(

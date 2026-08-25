@@ -96,6 +96,12 @@ const allowedTaskMoveCliCommands = [
   // ledger'į derina sync'as, kuriam bucket'ų failai yra tiesos šaltinis. `ag` formoje jau
   // allowlist'intas kaip saugus; be argumentų, inkaruota iki galo.
   /^node\s+dist[\\/]cli\.js\s+task-ledger-sync$/i,
+  // `compound-init` BE `--force` (2026-08-25, task 004): komanda idempotentiška pagal
+  // konstrukciją — `writeTextIfMissing` esamo failo NIEKADA neperrašo, tad pakartotinis
+  // kvietimas esamoje darbo erdvėje tegali sukurti trūkstamus runtime failus. `--force` į
+  // žodyną nepatenka: perrašymas yra kitas saugumo profilis ir lieka žmogui. Aprašymas tik
+  // dvigubose kabutėse be jų pačių viduje — jokių flag'ų, jokio antro argumento.
+  /^node\s+dist[\\/]cli\.js\s+compound-init\s+"[^"]*"$/i,
 ];
 
 const allowedGeneratedHookRuntimeCommands = [

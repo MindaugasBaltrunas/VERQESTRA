@@ -16,6 +16,7 @@ import { collectChangedFiles } from "../../infrastructure/git/changed-files.js";
 import { commitAndPush } from "../../infrastructure/git/git-automation.js";
 import {
   filterGitIgnored,
+  gitHead,
   gitStatusPorcelain,
   isGitRepository,
 } from "../../infrastructure/git/git-client.js";
@@ -24,6 +25,7 @@ import { commandExists, run, runShell } from "../../infrastructure/process/run-p
 import { stopBridgeForProject } from "../../infrastructure/state/stop-bridge.js";
 import { activeAttemptResolution } from "../../infrastructure/state/active-attempt.js";
 import { policyConfigFs } from "../runtime/node-adapters.js";
+import { commitConvergencePorts, recordCommitConvergence } from "../quality/commit-convergence-adapters.js";
 import { postWriteGuardPorts } from "./guard-adapters.js";
 import { readStdin } from "./adapters.js";
 import { cliEntryPath } from "../runtime/context.js";
@@ -73,6 +75,18 @@ export function stopHookPorts(projectRoot: string, runtimeRoot: string): StopHoo
         paths: [...input.paths],
         push: input.push,
       });
+      // Konvergencija perleidžiama TIK po sėkmingo commit'o ir tik kaip stebėsena: SHA
+      // išsprendžiamas atskirai (`commitAndPush` grąžina šaką, ne commit'ą), o visa likusi
+      // klaidų gaudyklė gyvena `recordCommitConvergence` viduje — čia nėra kelio, kuriuo
+      // ataskaitos nesėkmė galėtų virsti commit'o nesėkme.
+      if (result.ok) {
+        const commit = await gitHead(input.projectRoot).catch(() => undefined);
+        await recordCommitConvergence({
+          ports: commitConvergencePorts({ projectRoot: input.projectRoot, runtimeRoot }),
+          runtimeRoot,
+          commit,
+        });
+      }
       return result.ok
         ? { ok: true, branch: result.branch }
         : {

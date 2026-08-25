@@ -163,3 +163,30 @@ export function sessionScopedChangedFiles(sessionWrites: readonly string[]): str
     .filter((file) => file.length > 0 && !isRuntimePath(file) && !isOutsideProjectPath(file));
   return Array.from(new Set(normalized));
 }
+
+export type SessionScopedAttribution = {
+  /** Tas pats filtruotas/dedup'intas sąrašas kaip sessionScopedChangedFiles(...). */
+  changedFiles: string[];
+  /**
+   * True kai session-writes ledger'io failo nebuvo (`ledgerPresent=false`) — out-of-scope
+   * attribution šiai sesijai buvo praleista kaip safe fallback (be false human_review).
+   * Kvietėjas šį lauką paverčia warning log eilute arba kitu signalu — čia tik faktas.
+   */
+  outOfScopeAttributionSkipped: boolean;
+};
+
+/**
+ * Plonas adityvus wrapper'is virš `sessionScopedChangedFiles`: prideda eksplicitinį
+ * "ar ledger'io failas buvo" signalą kaip struktūrizuotą lauką, o ne vien log eilutę
+ * (task 020-b-03 / regresija 015). Filtro logika NEDUBLIUOJAMA — deleguojama esamai
+ * `sessionScopedChangedFiles` funkcijai.
+ */
+export function sessionScopedAttribution(input: {
+  sessionWrites: readonly string[];
+  ledgerPresent: boolean;
+}): SessionScopedAttribution {
+  return {
+    changedFiles: sessionScopedChangedFiles(input.sessionWrites),
+    outOfScopeAttributionSkipped: !input.ledgerPresent,
+  };
+}

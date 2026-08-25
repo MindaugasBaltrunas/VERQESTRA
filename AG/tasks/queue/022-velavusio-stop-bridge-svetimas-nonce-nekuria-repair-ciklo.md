@@ -33,10 +33,13 @@ depends_on: none
 
 ## Veiksmas
 - ĮRODYMAI: `vq/logs/orchestrator.log:3188` — `DISPATCH STOP BRIDGE FOREIGN:
-  task=021-d-05-... status=done bet dispatch_nonce nesutampa — ignoruojama` (iš viso 4 tokie
-  įvykiai žurnale). Kontekstas: 020 diagnozės įrodymas A rodo, kad vaiko Stop hook'as gali
-  suveikti ~24 s PO `CLAUDE FINISHED` — orkestratorius kontrolę perima anksčiau, nei hook'ai
-  baigia.
+  task=021-d-05-... status=done bet dispatch_nonce nesutampa — ignoruojama`. Iš viso 4 tokie
+  įvykiai (2026-08-25: 08:04:55 task=010, 08:35:09 task=012, 10:10:53 task=007, 19:20:43
+  task=021-d-05) — ir KIEKVIENAS jų koreliuoja su to paties task'o kritimu į
+  human-review/error tą pačią dieną. Tai ne šalutinis triukšmas, o pasikartojantis mechanizmas
+  po keliais šios dienos parkavimais. Kontekstas: 020 diagnozės įrodymas A rodo, kad vaiko
+  Stop hook'as gali suveikti ~24 s PO `CLAUDE FINISHED` — orkestratorius kontrolę perima
+  anksčiau, nei hook'ai baigia.
 - IŠTIRTI hipotezę (patvirtinti arba paneigti ŽURNALU, ne prielaida): FOREIGN bridge yra
   ankstesnio TO PATIES task'o bandymo vėlavęs Stop hook'as — jis rašo bridge su savo (jau
   pasenusiu) nonce tada, kai orkestratorius jau laukia naujo bandymo nonce. Nonce gyvavimo

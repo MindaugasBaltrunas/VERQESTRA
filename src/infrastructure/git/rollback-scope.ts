@@ -5,6 +5,7 @@
 
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pushedRollbackBlock, type PushedRollbackDecision } from "../../domain/git/rollback-rules.js";
 import {
@@ -43,8 +44,76 @@ export async function detectPushedRollback(root: string, stableRef: string): Pro
 }
 
 export type TaskScopeRestoreResult =
-  | { ok: true; restored: string[] }
+  | { ok: true; restored: string[]; preserved?: PreservedTaskScope }
   | { ok: false; failures: string[] };
+
+export type PreservedTaskScope = {
+  /** `refs/verqestra/preserved/<sha>` — GC nesušluos. */
+  ref: string;
+  /** To paties objekto sha (ref'as ir sha sutampa sąmoningai). */
+  commit: string;
+  /** Bazė, prieš kurią diffinasi išsaugotas darbas. */
+  baseRef: string;
+  /** Keliai, kurių turinys skyrėsi nuo `baseRef` ir buvo išsaugoti. */
+  paths: string[];
+};
+
+type PreserveOutcome = { ok: true; preserved?: PreservedTaskScope } | { ok: false; failures: string[] };
+
+/**
+ * 021-a-02: prieš destruktyvų atstatymo kelią (žr. `restoreTaskScope`) nufotografuoja task'o
+ * kelių DABARTINĮ (necommit'intą) turinį į git commit objektą po `stableRef` medžiu — plumbing
+ * lygmeniu, per laikiną `GIT_INDEX_FILE`, kad realus `.git/index` ir worktree liktų neliesti.
+ * `update-ref` privalomas: be jo commit'as būtų dangling ir `git gc` teisėtai jį sušluotų.
+ * Bet kuri git nesėkmė šioje grandinėje yra fail-closed — kvietėjas gauna `ok:false` ir
+ * atstatymo kilpa NEPALEIDŽIAMA, kad purvinas medis niekada netaptų tyliai sunaikintu.
+ */
+async function preserveTaskScope(root: string, stableRef: string, paths: readonly string[]): Promise<PreserveOutcome> {
+  const indexPath = path.join(tmpdir(), `verqestra-preserve-${process.pid}.index`);
+  const env = { ...process.env, GIT_INDEX_FILE: indexPath };
+  const runGit = async (args: string[]): Promise<CommandResult> => await run("git", ["-C", root, ...args], { env });
+  const failure = (step: string, result: CommandResult): PreserveOutcome => ({
+    ok: false,
+    failures: [`preserve ${step}: ${(result.stderr || result.stdout).trim() || `code ${result.code}`}`],
+  });
+
+  try {
+    const stableTree = await runGit(["rev-parse", `${stableRef}^{tree}`]);
+    if (stableTree.code !== 0) return failure("rev-parse", stableTree);
+
+    const readTree = await runGit(["read-tree", stableRef]);
+    if (readTree.code !== 0) return failure("read-tree", readTree);
+
+    const updateIndex = await runGit(["update-index", "--add", "--remove", "--", ...paths]);
+    if (updateIndex.code !== 0) return failure("update-index", updateIndex);
+
+    const writeTree = await runGit(["write-tree"]);
+    if (writeTree.code !== 0) return failure("write-tree", writeTree);
+
+    const tree = writeTree.stdout.trim();
+    const stableTreeSha = stableTree.stdout.trim();
+    if (tree === stableTreeSha) return { ok: true };
+
+    const diff = await runGit(["diff", "--name-only", stableTreeSha, tree, "--", ...paths]);
+    if (diff.code !== 0) return failure("diff", diff);
+    const changedPaths = diff.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const commitTree = await runGit(["commit-tree", tree, "-p", stableRef, "-m", "verqestra: preserved task scope"]);
+    if (commitTree.code !== 0) return failure("commit-tree", commitTree);
+    const commit = commitTree.stdout.trim();
+    const ref = `refs/verqestra/preserved/${commit}`;
+
+    const updateRef = await runGit(["update-ref", ref, commit]);
+    if (updateRef.code !== 0) return failure("update-ref", updateRef);
+
+    return { ok: true, preserved: { ref, commit, baseRef: stableRef, paths: changedPaths } };
+  } finally {
+    await rm(indexPath, { force: true }).catch(() => undefined);
+  }
+}
 
 /**
  * Task 1077 regresija: task-scoped rollback restauruodavo ledger kelius į `base_head` net
@@ -84,6 +153,9 @@ export async function restoreTaskScope(
   stableRef: string,
   paths: readonly string[],
 ): Promise<TaskScopeRestoreResult> {
+  const preserve: PreserveOutcome = paths.length === 0 ? { ok: true } : await preserveTaskScope(root, stableRef, paths);
+  if (!preserve.ok) return { ok: false, failures: preserve.failures };
+
   const restored: string[] = [];
   const failures: string[] = [];
   for (const p of paths) {
@@ -117,7 +189,8 @@ export async function restoreTaskScope(
     }
     restored.push(p);
   }
-  return failures.length > 0 ? { ok: false, failures } : { ok: true, restored };
+  if (failures.length > 0) return { ok: false, failures };
+  return preserve.preserved ? { ok: true, restored, preserved: preserve.preserved } : { ok: true, restored };
 }
 
 /**

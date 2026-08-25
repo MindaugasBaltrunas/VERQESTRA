@@ -84,9 +84,24 @@ test("rollback scope: committedTaskWorkSince mato commit'intą darbą, restoreTa
   await nodeFsAdapter.writeTextFile(path.join(root, "src", "a.ts"), "necommitintas edit\n");
   await nodeFsAdapter.writeTextFile(path.join(root, "src", "naujas.ts"), "task'o sukurtas\n");
   const restore = await restoreTaskScope(root, head!, ["src/a.ts", "src/naujas.ts"]);
-  assert.deepEqual(restore, { ok: true, restored: ["src/a.ts", "src/naujas.ts"] });
+  assert.equal(restore.ok, true);
+  if (!restore.ok) return;
+  assert.deepEqual(restore.restored, ["src/a.ts", "src/naujas.ts"]);
   assert.equal(await nodeFsAdapter.readTextFile(path.join(root, "src", "a.ts")), "užcommitintas pakeitimas\n");
   assert.equal(await nodeFsAdapter.exists(path.join(root, "src", "naujas.ts")), false);
+
+  // Snapshot ref turi necommit'intą turinį, kurį rollback'as ką tik atsuko — o ne
+  // atstatytą (užcommitintą) būseną, kurioje medis liko po `restoreTaskScope`.
+  assert.ok(restore.preserved);
+  const preserved = restore.preserved;
+  assert.equal(preserved.baseRef, head);
+  assert.deepEqual([...preserved.paths].sort(), ["src/a.ts", "src/naujas.ts"]);
+  const preservedA = await run("git", ["-C", root, "show", `${preserved.ref}:src/a.ts`]);
+  assert.equal(preservedA.code, 0);
+  assert.equal(preservedA.stdout, "necommitintas edit\n");
+  const preservedNaujas = await run("git", ["-C", root, "show", `${preserved.ref}:src/naujas.ts`]);
+  assert.equal(preservedNaujas.code, 0);
+  assert.equal(preservedNaujas.stdout, "task'o sukurtas\n");
 
   // Be upstream'o push'intos istorijos būti negali — rollback neblokuojamas.
   assert.deepEqual(await detectPushedRollback(root, stable), { blocked: false });

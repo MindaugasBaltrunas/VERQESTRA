@@ -27,3 +27,6 @@ export * from "./compression-quality-check.js";
 export * from "./converge-check.js";
 export * from "./readiness-audit.js";
 export * from "./backlog-audit.js";
+// Backlog: „Automatizuoti project status ir converge perleidimą po kiekvieno commit'o su
+// telemetry įrašu" (1/2 — use-case; composition wiring atskiras task'as).
+export * from "./commit-convergence.js";

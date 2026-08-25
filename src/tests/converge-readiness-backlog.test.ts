@@ -11,7 +11,13 @@ import {
   type BacklogAuditPorts,
   type BacklogCategory,
 } from "../application/release-readiness/backlog-audit.js";
-import { converge, type ConvergePorts } from "../application/release-readiness/converge-check.js";
+import { converge, type ConvergePorts, type ConvergeResult } from "../application/release-readiness/converge-check.js";
+import {
+  runCommitConvergence,
+  type CommitConvergencePorts,
+  type CommitConvergenceProjectStatus,
+  type CommitConvergenceTelemetry,
+} from "../application/release-readiness/commit-convergence.js";
 import {
   parseReadmeMainCommands,
   parseRegisteredCommands,
@@ -155,4 +161,65 @@ test("auditTaskStates: skaito visus bucket'us per portą ir pažymi realią nume
   const result = await auditTaskStates(ports, path.join(ROOT, "AG", "tasks"));
   assert.equal(result.task_count, 2);
   assert.deepEqual(result.duplicate_numbers, [21]);
+});
+
+function commitConvergencePorts(
+  projectStatus: CommitConvergenceProjectStatus,
+  convergeResult: ConvergeResult,
+  writtenTelemetry: CommitConvergenceTelemetry[],
+): CommitConvergencePorts {
+  return {
+    runProjectStatus: async () => projectStatus,
+    runConverge: async () => convergeResult,
+    writeTelemetry: async (record) => {
+      writtenTelemetry.push(record);
+    },
+    now: () => "2026-08-25T00:00:00.000Z",
+  };
+}
+
+const convergedResult: ConvergeResult = {
+  status: "converged",
+  active_spec: undefined,
+  planned_tasks: [],
+  task_files: { queue: [], active: [], delegated: [], error: [], failed: [], "human-review": [], done: [] },
+  issues: [],
+};
+
+test("runCommitConvergence: sėkmingas perleidimas — status ok, converge converged, telemetry parašytas", async () => {
+  const writtenTelemetry: CommitConvergenceTelemetry[] = [];
+  const ports = commitConvergencePorts({ status: "ok", issues: [] }, convergedResult, writtenTelemetry);
+  const result = await runCommitConvergence(ports, { commit: "abc123" });
+  assert.equal(result.status.status, "ok");
+  assert.equal(result.converge.status, "converged");
+  assert.equal(writtenTelemetry.length, 1);
+  assert.deepEqual(result.telemetry, writtenTelemetry[0]);
+});
+
+test("runCommitConvergence: nesuartėjęs converge vis tiek rašo telemetry įrašą", async () => {
+  const writtenTelemetry: CommitConvergenceTelemetry[] = [];
+  const issuesResult: ConvergeResult = {
+    ...convergedResult,
+    status: "issues",
+    issues: [{ kind: "missing-task", ref: "some-slug", message: "planned task missing from task folders: X" }],
+  };
+  const ports = commitConvergencePorts({ status: "ok", issues: [] }, issuesResult, writtenTelemetry);
+  const result = await runCommitConvergence(ports, { commit: "def456" });
+  assert.equal(result.converge.status, "issues");
+  assert.equal(writtenTelemetry.length, 1);
+  assert.equal(writtenTelemetry[0]?.convergeStatus, "issues");
+  assert.equal(writtenTelemetry[0]?.convergeIssueCount, 1);
+});
+
+test("runCommitConvergence: telemetry įrašo forma atitinka commit, laiką ir abiejų patikrų statusus", async () => {
+  const writtenTelemetry: CommitConvergenceTelemetry[] = [];
+  const ports = commitConvergencePorts({ status: "issues", issues: ["stale-status"] }, convergedResult, writtenTelemetry);
+  const result = await runCommitConvergence(ports, { commit: "shape789" });
+  assert.deepEqual(result.telemetry, {
+    commit: "shape789",
+    at: "2026-08-25T00:00:00.000Z",
+    projectStatus: "issues",
+    convergeStatus: "converged",
+    convergeIssueCount: 0,
+  });
 });

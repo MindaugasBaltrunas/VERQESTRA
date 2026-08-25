@@ -131,6 +131,19 @@ test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subk
   assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark report --format markdown").blockedPattern, undefined);
   assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark verify --json").blockedPattern, undefined);
 
+  // task-move per dist/cli.js — TA PATI viena kryptis kaip `ag` formoje (2026-08-25).
+  assert.equal(
+    evaluateBashCommandPolicy("node dist/cli.js task-move AG/tasks/human-review/005-x.md AG/tasks/done").blockedPattern,
+    undefined,
+  );
+  assert.match(blocked("node dist/cli.js task-move AG/tasks/done/005-x.md AG/tasks/queue"), /dist[\\/]cli\.js/, "atgal į eilę — ne");
+  assert.match(blocked("node dist/cli.js task-move AG/tasks/queue/005-x.md AG/tasks/done"), /dist[\\/]cli\.js/, "iš queue — ne");
+  assert.match(
+    blocked("node dist/cli.js task-move AG/tasks/human-review/../queue/x.md AG/tasks/done"),
+    /dist[\\/]cli\.js/,
+    "traversal failo varde — ne",
+  );
+
   // Kitos subkomandos ir rašantys flag'ai lieka uždrausti.
   assert.match(blocked("node dist/cli.js loop"), /dist[\\/]cli\.js/);
   assert.match(blocked("node dist/cli.js benchmark report --out r.md"), /dist[\\/]cli\.js/, "--out yra laisvo kelio rašymas");

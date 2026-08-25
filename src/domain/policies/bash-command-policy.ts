@@ -75,11 +75,31 @@ const allowedBenchmarkCliCommands = [
   /^(?=.*\s--scenario\s+[\w-]+)(?=.*\s--mode\s+[\w-]+)(?=.*\s--repetitions\s+[13](?!\d))node\s+dist[\\/]cli\.js\s+benchmark\s+run(?:\s+(?:--(?:allow-network|live|json)|--(?:mode|scenario)\s+[\w-]+|--repetitions\s+[13](?!\d)))+$/i,
 ];
 
+/**
+ * `task-move human-review → done` per sugeneruotą CLI (2026-08-25, operatoriaus sprendimas).
+ *
+ * Tai NE nauja teisė: lygiai ši operacija, lygiai šia VIENA kryptimi, jau yra
+ * `allowedCommandSegments` sąraše (`ag task-move AG/tasks/human-review/... AG/tasks/done`) —
+ * bet tik per `ag` įėjimą, kurio šiame repo nėra (`package.json` neturi `ag` script'o).
+ * Čia ta pati taisyklė pro tikrąjį įėjimą; ribos identiškos etalono formai:
+ *
+ *   - TIK iš `human-review`, TIK į `done` — jokių kitų bucket'ų nė viena puse;
+ *   - failo vardas be kelio separatorių (`[\w.-]+`), tad traversal neįmanomas;
+ *   - inkaruota iki eilutės galo — jokių papildomų argumentų.
+ *
+ * Kryptis saugi dėl to paties, dėl ko ji saugi `ag` formoje: human-review → done yra
+ * OPERATORIAUS parašas ant jau atlikto darbo, ne darbo vykdymas.
+ */
+const allowedTaskMoveCliCommands = [
+  /^node\s+dist[\\/]cli\.js\s+task-move\s+AG[\\/]tasks[\\/]human-review[\\/][\w.-]+\.md\s+AG[\\/]tasks[\\/]done$/i,
+];
+
 const allowedGeneratedHookRuntimeCommands = [
   /\bnpm\s+run\s+build\b/i,
   /\bnpm\s+run\s+typecheck\b/i,
   /\btsc\b.*(?:-p|--project)\s+tsconfig\.json\b/i,
   ...allowedBenchmarkCliCommands,
+  ...allowedTaskMoveCliCommands,
 ];
 
 const allowedCommandSegments = [
@@ -157,6 +177,7 @@ const allowedCommandSegments = [
   // Denylist'o išimtis viena pati neleidžia nieko: komanda privalo praeiti IR allowlist'ą.
   // Šablonai tie patys, tad plyšys yra vienas, o ne du, galintys tyliai išsiskirti.
   ...allowedBenchmarkCliCommands,
+  ...allowedTaskMoveCliCommands,
   /^tsc\b.*(?:--noEmit|-p\b|--project\b|-b\b)/i,
   // PowerShell Get-* verb pagal konvenciją yra read-only; Select/Sort/Format/Out-String — pipeline formatavimas.
   /^Get-[A-Za-z][\w-]*\b/i,

@@ -16,6 +16,7 @@ import {
   rollbackStableCommand,
   type RollbackCommandResult,
   type RollbackStablePorts,
+  type TaskScopeRestoreOutcome,
 } from "../interfaces/cli/bootstrap/rollback-stable.js";
 
 const ROOT = path.resolve("/repo");
@@ -155,7 +156,7 @@ function world(
     commitExists?: boolean;
     pushedBlocked?: string;
     committedPaths?: string[];
-    restore?: { ok: true; restored: string[] } | { ok: false; failures: string[] };
+    restore?: TaskScopeRestoreOutcome;
     scopePaths?: string[];
     resetCode?: number;
     cleanUntracked?: boolean;
@@ -305,6 +306,72 @@ test("rollbackStableCommand: task-scoped kelias atstato kelius ir NIEKADA nerese
   assert.ok(!gitVerbs(scoped.gitCalls).includes("reset"), "šakos rodyklė nejuda task-scoped kelyje");
   assert.ok(scoped.logs.some((line) => line.startsWith("ROLLBACK TASK-SCOPED: restored 2 task path(s)")));
   assert.ok(scoped.logs.includes(`ROLLBACK DONE: ${BASE_HEAD}`));
+});
+
+test("rollbackStableCommand: išsaugotas necommit'intas darbas matomas išvestyje ir būsenos įraše", async () => {
+  const preserved = {
+    ref: `refs/verqestra/preserved/${"d".repeat(40)}`,
+    commit: "d".repeat(40),
+    baseRef: BASE_HEAD,
+    paths: ["src/a.ts", "src/b.ts"],
+  };
+  const scoped = world({
+    files: { "vq/state/task-start-status.json": JSON.stringify(VALID_BASELINE) },
+    scopePaths: ["src/a.ts", "src/b.ts"],
+    restore: { ok: true, restored: ["src/a.ts", "src/b.ts"], preserved },
+  });
+  const { io, out } = captureIo();
+  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
+    "--allow-task-changes",
+    "--task-id",
+    "0042",
+  ]);
+
+  assert.equal(exit, 0);
+  const preservedLine = out.find((line) => line.startsWith("ROLLBACK PRESERVED: "));
+  assert.ok(preservedLine, "operatorius turi pamatyti, kur guli išsaugotas darbas");
+  assert.match(preservedLine ?? "", /task=0042 ref=refs\/verqestra\/preserved\/d{40} commit=d{40} paths=2 record=/);
+  assert.ok(
+    scoped.logs.some((line) => line.startsWith("ROLLBACK PRESERVED: ")),
+    "ta pati eilutė turi eiti ir į agLog",
+  );
+
+  const preservedIndex = out.indexOf(preservedLine ?? "");
+  const restoredLogIndex = scoped.logs.findIndex((line) => line.startsWith("ROLLBACK TASK-SCOPED: restored"));
+  assert.ok(preservedIndex >= 0 && restoredLogIndex >= 0);
+  assert.ok(
+    scoped.logs.indexOf(preservedLine ?? "") < restoredLogIndex,
+    "PRESERVED eilutė eina prieš TASK-SCOPED santrauką",
+  );
+
+  const recordEntry = [...scoped.writes.entries()].find(([key]) => norm(key).endsWith("rollback-preserved/0042.json"));
+  assert.ok(recordEntry, "būsenos įrašas turi būti parašytas per writeTextFile portą");
+  const record = JSON.parse(recordEntry?.[1] ?? "{}") as Record<string, unknown>;
+  assert.equal(record["task_id"], "0042");
+  assert.equal(record["ref"], preserved.ref);
+  assert.equal(record["commit"], preserved.commit);
+  assert.equal(record["base_ref"], BASE_HEAD);
+  assert.deepEqual(record["paths"], preserved.paths);
+  assert.equal(record["recorded_at"], NOW.toISOString());
+});
+
+test("rollbackStableCommand: kai išsaugojimo nėra, elgesys nesikeičia — jokios PRESERVED eilutės ar įrašo", async () => {
+  const scoped = world({
+    files: { "vq/state/task-start-status.json": JSON.stringify(VALID_BASELINE) },
+    scopePaths: ["src/a.ts", "src/b.ts"],
+    restore: { ok: true, restored: ["src/a.ts", "src/b.ts"] },
+  });
+  const { io, out } = captureIo();
+  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
+    "--allow-task-changes",
+    "--task-id",
+    "0042",
+  ]);
+
+  assert.equal(exit, 0);
+  assert.ok(!out.some((line) => line.startsWith("ROLLBACK PRESERVED:")));
+  assert.ok(!scoped.logs.some((line) => line.startsWith("ROLLBACK PRESERVED:")));
+  assert.ok(![...scoped.writes.keys()].some((key) => norm(key).includes("rollback-preserved")));
 });
 
 test("rollbackStableCommand: jau užcommitintas task'o kelias ir nepavykęs atstatymas — blokuoja", async () => {

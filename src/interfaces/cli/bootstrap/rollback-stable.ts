@@ -24,7 +24,20 @@ import { consoleCliIo, type CliIo } from "../registry.js";
 
 export type RollbackCommandResult = { code: number; stdout: string; stderr: string };
 
-export type TaskScopeRestoreOutcome = { ok: true; restored: string[] } | { ok: false; failures: string[] };
+export type PreservedTaskScope = {
+  /** `refs/verqestra/preserved/<sha>` — GC nesušluos. */
+  ref: string;
+  /** To paties objekto sha (ref'as ir sha sutampa sąmoningai). */
+  commit: string;
+  /** Bazė, prieš kurią diffinasi išsaugotas darbas. */
+  baseRef: string;
+  /** Keliai, kurių turinys skyrėsi nuo `baseRef` ir buvo išsaugoti. */
+  paths: string[];
+};
+
+export type TaskScopeRestoreOutcome =
+  | { ok: true; restored: string[]; preserved?: PreservedTaskScope }
+  | { ok: false; failures: string[] };
 
 export type RollbackStablePorts = {
   ensureDirs(): Promise<void>;
@@ -216,7 +229,45 @@ async function resolveStableTarget(context: RollbackContext): Promise<{ targetRe
   return { targetRef: stableRef };
 }
 
-async function runTaskScopedRestore(context: RollbackContext, targetRef: string): Promise<number> {
+/**
+ * 021-b-03: kai `restoreTaskScope` grąžina `preserved`, operatorius turi sužinoti, KUR
+ * necommit'intas darbas guli, PRIEŠ pamatydamas, ką rollback'as atstatė — kitaip įrodymas apie
+ * atkuriamą kopiją pasimeta už "restored N path(s)" eilutės. Būsenos įrašas leidžia `verify-task`
+ * (021-c-04) pasiekti tą pačią vietą be stdout parsinimo iš naujo.
+ */
+async function recordPreservedTaskScope(
+  context: RollbackContext,
+  taskId: string,
+  preserved: PreservedTaskScope,
+): Promise<void> {
+  const recordPath = path.join(context.runtimeRoot, "state", "rollback-preserved", `${taskId}.json`);
+  await context.ports.makeDirectory(path.dirname(recordPath));
+  await context.ports.writeTextFile(
+    recordPath,
+    JSON.stringify(
+      {
+        task_id: taskId,
+        ref: preserved.ref,
+        commit: preserved.commit,
+        base_ref: preserved.baseRef,
+        paths: preserved.paths,
+        recorded_at: context.now().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
+
+  const line = `ROLLBACK PRESERVED: task=${taskId} ref=${preserved.ref} commit=${preserved.commit} paths=${preserved.paths.length} record=${recordPath}`;
+  context.io.out(line);
+  await context.ports.agLog(line);
+}
+
+async function runTaskScopedRestore(
+  context: RollbackContext,
+  targetRef: string,
+  taskId: string | undefined,
+): Promise<number> {
   const paths = await context.ports.taskScopePaths();
 
   // Task 1077: jei dalis ledger kelių jau UŽCOMMITINTA nuo base_head (pvz. stop hook'as
@@ -236,6 +287,10 @@ async function runTaskScopedRestore(context: RollbackContext, targetRef: string)
       context,
       `ROLLBACK BLOCKED: task-scoped restore failed (${restore.failures.join("; ")}). Move the task to human-review.`,
     );
+  }
+
+  if (restore.preserved) {
+    await recordPreservedTaskScope(context, taskId ?? "", restore.preserved);
   }
 
   await context.ports.agLog(`ROLLBACK TASK-SCOPED: restored ${restore.restored.length} task path(s) to ${targetRef}`);
@@ -276,6 +331,7 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
 
   await deps.ports.ensureDirs();
   const allowTaskChanges = args.includes("--allow-task-changes");
+  const taskId = argValue(args, "--task-id");
 
   if (!(await deps.ports.isGitRepository(root))) {
     io.error(`Rollback requires a git repository: ${root}`);
@@ -284,7 +340,7 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
   }
 
   const target = allowTaskChanges
-    ? await resolveTaskTarget(context, argValue(args, "--task-id"))
+    ? await resolveTaskTarget(context, taskId)
     : await resolveStableTarget(context);
   if ("blocked" in target) return target.blocked;
   const targetRef = target.targetRef;
@@ -306,7 +362,7 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
   );
 
   const exitCode = allowTaskChanges
-    ? await runTaskScopedRestore(context, targetRef)
+    ? await runTaskScopedRestore(context, targetRef, taskId)
     : await runHardReset(context, targetRef);
   if (exitCode !== 0) return exitCode;
 

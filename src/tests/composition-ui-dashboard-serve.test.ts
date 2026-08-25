@@ -41,7 +41,7 @@ test("listenUiServer: realiai paleistas serveris klauso TIK 127.0.0.1, ne 0.0.0.
     // `UiListenResult` grąžina tik `{ port, close() }` — adreso jame nėra. Todėl adresą tikriname
     // TIESIOGIAI per `server` objektą, kurį gavome iš `createUiServer`, o ne per fetch URL, kuris
     // hardkodina `127.0.0.1` ir todėl niekada neįrodytų, kad serveris klauso būtent ten.
-    const address = server.address() as AddressInfo | string | null;
+    const address = server.address();
     assert.equal(typeof address, "object");
     assert.notEqual(address, null);
     const info = address as AddressInfo;

@@ -6,11 +6,12 @@
 // sudedami prieš projekto šaknį, o startas kviečia reaper'ius.
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { buildLoopCyclePorts, type LoopCommandDeps } from "../composition/loop/command.js";
+import { buildLoopCyclePorts, runLoopCommand, type LoopCommandDeps } from "../composition/loop/command.js";
 import type { EmptyQueuePorts } from "../application/scheduling/loop-empty-queue.js";
 
 async function deps(): Promise<{ deps: LoopCommandDeps; root: string }> {
@@ -94,6 +95,61 @@ test("tuščia eilė be task'ų duoda `empty`, o ne kritimą", async () => {
     const ports = buildLoopCyclePorts(world.deps);
     const selection = await ports.scheduler.nextTask();
     assert.equal(selection.kind, "empty");
+  } finally {
+    await rm(world.root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// gyvybės žymė: ciklas atnaujina SAVO heartbeat'ą ir atlaisvina įrašą pabaigoje
+// ---------------------------------------------------------------------------
+
+/**
+ * 2026-08-25 defektas: `heartbeat_at` amžinai lygdavosi `started_at`, tad `loopRuntimeIsAlive`
+ * po 5 min TTL veikiantį ciklą laikydavo sustojusiu. UI atrakindavo „Paleisti", o `startLoop` prie
+ * „negyvo" įrašo paleisdavo ANTRĄ orkestratorių ant tos pačios eilės.
+ *
+ * Įrašas stebimas BĖGIMO metu: `runLoopCycle` pirmiausia kviečia `consumeStopRequest`, tad būtent
+ * ten matomas tas pats failas, kurį skaito UI. `true` grąžinimas iškart ir tvarkingai baigia ciklą.
+ */
+test("runLoopCommand: heartbeat šviežias bėgimo metu, o įrašas atlaisvinamas pabaigoje", async () => {
+  const world = await deps();
+  const stateDir = path.join(world.root, "vq", "state");
+  const recordPath = path.join(stateDir, "ui-loop.runtime.json");
+  const STARTED_AT = "2026-08-25T10:00:00.000Z";
+
+  try {
+    // Ankstesnio bandymo įrašas TUO PAČIU pid: `started_at` privalo išlikti, heartbeat — atsinaujinti.
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(
+      recordPath,
+      JSON.stringify({ pid: process.pid, started_at: STARTED_AT, heartbeat_at: STARTED_AT }),
+      "utf8",
+    );
+
+    let seen: { pid?: number; started_at?: string; heartbeat_at?: string } | undefined;
+    const before = Date.now();
+
+    const code = await runLoopCommand({
+      ...world.deps,
+      consumeStopRequest: async () => {
+        seen = JSON.parse(await readFile(recordPath, "utf8")) as typeof seen;
+        return true;
+      },
+    });
+    assert.equal(code, 0, "stop-requested yra tvarkinga pabaiga");
+
+    assert.equal(seen?.pid, process.pid, "įrašas priklauso ŠIAM procesui");
+    assert.equal(seen?.started_at, STARTED_AT, "started_at paveldimas, o ne perrašomas");
+    assert.notEqual(seen?.heartbeat_at, STARTED_AT, "heartbeat privalo būti atnaujintas");
+    assert.ok(
+      Date.parse(seen?.heartbeat_at ?? "") >= before,
+      `heartbeat turi būti šviežias: ${String(seen?.heartbeat_at)}`,
+    );
+
+    // Švariai sustojęs ciklas savo įrašą ištrina — kitaip UI dar TTL laiką rodytų jį gyvą.
+    assert.equal(existsSync(recordPath), false, "įrašas privalo būti atlaisvintas");
+    assert.equal(existsSync(path.join(stateDir, "ui-loop.pid")), false, "legacy pid failas irgi");
   } finally {
     await rm(world.root, { recursive: true, force: true });
   }

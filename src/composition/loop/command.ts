@@ -30,6 +30,14 @@ import { WAVE_SLOT_LEASE_TTL_MS } from "../../application/scheduling/loop-runtim
 import { createWaveWorkerRequestReader } from "../../application/scheduling/wave-worker-request.js";
 import { readWorkerRequest } from "../../application/scheduling/worker-request-store.js";
 import { selectNextResumableTask, type TaskSelectionPorts } from "../../application/task-execution/task-selection.js";
+import { LOOP_HEARTBEAT_TTL_MS } from "../../domain/scheduling/loop-runtime.js";
+import {
+  readLoopRuntimeRecord,
+  releaseLoopRuntimeRecord,
+  writeLoopRuntimeRecord,
+} from "../../interfaces/hooks/loop-runtime-store.js";
+import { loopPidFile } from "../../interfaces/http/loop-lifecycle.js";
+import { loopRuntimePorts } from "../ui/lifecycle-adapters.js";
 import { importTaskGraphFromMarkdown } from "../../application/task-execution/task-graph-import.js";
 import { reclaimEvidencelessSynthesizedTasks, reclaimExternalInputNodes } from "../../application/architecture/wave-reclaim.js";
 import type { WaveDispatchSlot } from "../../application/scheduling/wave-dispatch-model.js";
@@ -309,9 +317,76 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
  * KAS LŪŽTA: skriptai, kurie `verqestra loop` gatino pagal `$?`, blokuotą sustojimą nuo šiol
  * matys kaip nesėkmę. Repo viduje tokių nėra (patikrinta) — visi vartotojai išoriniai.
  */
+/**
+ * Kaip dažnai ciklas patvirtina, kad gyvas. Penktadalis TTL (`LOOP_HEARTBEAT_TTL_MS` = 5 min):
+ * vienas praleistas taktas dar nepaverčia gyvo proceso „sustojusiu", o keturi iš eilės — jau taip.
+ */
+const LOOP_HEARTBEAT_REFRESH_MS = LOOP_HEARTBEAT_TTL_MS / 5;
+
+/**
+ * Ciklo proceso GYVYBĖS ŽYMĖ — trūkstamas `loop-lifecycle.ts` pažado antras galas.
+ *
+ * Ten, iškart po spawn'o, parašytas komentaras sako: „Pradinis įrašas su heartbeat'u; toliau jį
+ * atnaujina PATS loop'as". To rašytojo nebuvo. `writeLoopRuntimeRecord` produkcijoje buvo
+ * kviečiamas lygiai du kartus — po spawn'o ir sesijos starte — tad `heartbeat_at` amžinai lygdavosi
+ * `started_at`.
+ *
+ * Ką tai reiškė praktiškai (išmatuota 2026-08-24 ir 2026-08-25): `loopRuntimeIsAlive` reikalauja
+ * PID + ŠVIEŽIO heartbeat, tad ciklas UI'ui atrodydavo gyvas TIK pirmąsias 5 minutes. Po jų —
+ * „sustojęs", nors suko užduotis (matuota 11 min ir 38 min). Blogiausia pasekmė ne rodmuo:
+ * atrakintas „Paleisti" mygtukas, o `startLoop` prie negyvo įrašo ištrina jį kaip pasenusį ir
+ * paleidžia ANTRĄ orkestratorių ant tos pačios eilės — dviguba tos pačios užduoties aktyvacija,
+ * `EBUSY` ant bendrų žurnalų ir nužudyti nesusiję task'ai.
+ *
+ * Atlaisvinimas pabaigoje yra to paties kontrakto pusė: `domain/scheduling/loop-runtime` aprašo,
+ * kad „švariai sustojęs loop'as PATS ištrina savo įrašą", ir kad būtent dėl to įrašo NEBUVIMAS
+ * savo įrašą valdančiam procesui reiškia „sustojęs". Be trynimo UI po tvarkingo sustojimo dar
+ * TTL laiką rodytų gyvą ciklą.
+ *
+ * Nė viena heartbeat klaida nestabdo ciklo: gyvybės žymė yra rodmuo, o ne darbo sąlyga.
+ */
+async function startLoopRuntimeHeartbeat(deps: LoopCommandDeps): Promise<() => Promise<void>> {
+  const pidFile = loopPidFile(path.join(deps.roots.runtimeRoot, "state"));
+  const ownPid = process.pid;
+
+  const beat = async (): Promise<void> => {
+    try {
+      // Perskaitoma KIEKVIENĄ taktą: `started_at` ir supervizoriaus būsena priklauso ne mums, o
+      // įrašui — perrašius juos iš atminties, watchdog'o skaitiklis grįžtų atgal.
+      const current = await readLoopRuntimeRecord(loopRuntimePorts, pidFile);
+      const mine = current?.pid === ownPid ? current : undefined;
+      await writeLoopRuntimeRecord(loopRuntimePorts, pidFile, ownPid, {
+        ...(mine?.started_at === undefined ? {} : { startedAt: mine.started_at }),
+        ...(mine?.supervisor === undefined ? {} : { supervisor: mine.supervisor }),
+      });
+    } catch (error) {
+      await deps.log(`WARNING: loop heartbeat neužrašytas pid=${ownPid} — ${String(error)}`);
+    }
+  };
+
+  await beat();
+  const timer = setInterval(() => void beat(), LOOP_HEARTBEAT_REFRESH_MS);
+  // `unref`: taimeris niekada nelaiko proceso gyvo ilgiau už patį ciklą.
+  timer.unref?.();
+
+  return async () => {
+    clearInterval(timer);
+    try {
+      await releaseLoopRuntimeRecord(loopRuntimePorts, pidFile, ownPid);
+    } catch (error) {
+      await deps.log(`WARNING: loop įrašas neatlaisvintas pid=${ownPid} — ${String(error)}`);
+    }
+  };
+}
+
 export async function runLoopCommand(deps: LoopCommandDeps): Promise<number> {
   const ports = buildLoopCyclePorts(deps);
-  await ports.scheduler.recoverFromCrash();
-  const outcome = await runLoopCycle(ports);
-  return outcome.kind === "blocked" ? LOOP_BLOCKED_EXIT_CODE : 0;
+  const stopHeartbeat = await startLoopRuntimeHeartbeat(deps);
+  try {
+    await ports.scheduler.recoverFromCrash();
+    const outcome = await runLoopCycle(ports);
+    return outcome.kind === "blocked" ? LOOP_BLOCKED_EXIT_CODE : 0;
+  } finally {
+    await stopHeartbeat();
+  }
 }

@@ -32,8 +32,16 @@ import { buildTaskUsageLedger, parseTaskUsageEntries } from "../../domain/tokens
 import { logHasAlreadyImplementedMarker } from "../../domain/diagnosis/stream-log.js";
 import { resolveNoCommitDisposition } from "../../domain/diagnosis/dispositions.js";
 import { nonRuntimeDirtyEntriesFromStatus } from "../../domain/git/changes.js";
+import {
+  mergeStopBridgeSources,
+  STOP_BRIDGE_WAIT_POLL_MS,
+  stopBridgeWaitMs,
+  waitForOwnStopBridgeDone,
+  type StopBridgeProbe,
+} from "../../application/task-execution/stop-bridge-wait.js";
 import type {
   ChildTaskEnqueueResult,
+  CliPort,
   CompletionPort,
   DiagnosisRulesPort,
   ExecutionPolicyPort,
@@ -49,6 +57,7 @@ import {
 } from "../../infrastructure/git/work-evidence.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { isGitRepository } from "../../infrastructure/git/git-client.js";
+import { stopBridgePath, stopStateSchema } from "../../infrastructure/state/stop-bridge.js";
 import { toPrettyJson } from "../../shared/json.js";
 import { assembleContextPackDeps } from "../quality/architecture-adapters.js";
 import { blockedTaskRoutingPorts, policyConfigFs, tokenBudgetPorts } from "../runtime/node-adapters.js";
@@ -288,6 +297,79 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
 }
 
 /**
+ * Coordinator's OWN stop-bridge probe (021-d-05, C4) — tas pats šaltinių sujungimas kaip
+ * dispatch kelyje (`mergeStopBridgeSources` ant attempt + global šaltinių), bet skaitomas iš
+ * ŠIO (coordinator) proceso pusės: verifikacija vyksta jame, o ne dispatch'o vaike, tad
+ * `claude-dispatch-outcome.ts` probe'o čia perpanaudoti negalima — jis uždaras savo faile.
+ */
+function ownStopBridgeProbe(input: CoordinatorAdapterInput, taskId: string, dispatchNonce: string): StopBridgeProbe {
+  const globalStopBridgeFile = stopBridgePath(input.runtimeRoot);
+  return async () => {
+    try {
+      let attemptRaw: string | undefined;
+      const resolved = await input.resolution.resolveActiveAttempt(taskId);
+      if (resolved.ok) {
+        const read = await resolved.attempt.handle.readJson("stop-state", stopStateSchema);
+        if (read.ok) attemptRaw = JSON.stringify(read.data);
+      }
+      return mergeStopBridgeSources(
+        attemptRaw,
+        (await nodeFsAdapter.readTextFileIfExists(globalStopBridgeFile)) ?? "",
+        dispatchNonce,
+      );
+    } catch {
+      return { classification: "none", source: "none" };
+    }
+  };
+}
+
+/**
+ * 021-d-05 (C4) — antras laukimo taškas: prieš `verifyTask` iškvietimą (jos pirmas veiksmas
+ * yra `cli.run(["quality-gates"])`) coordinator laukia SAVO stop-bridge įrodymo ribotą langą.
+ *
+ * 018 incidentas: verifikacija nusprendė „nėra commit'o" 24s PRIEŠ tai, kai Stop hook'as jį
+ * realiai parašė (jis rašomas PO `commitAndPush`), o esamas dispatch kelio laukimas
+ * (`claude-dispatch-outcome.ts`) tos akimirkos nepadengia — jis atsidaro tik dviprasmiškam
+ * usage deriniui, o 018 usage buvo netuščias. `own-done` nutraukia laukimą iškart; timeout
+ * NIEKO nekeičia — tik nebeleidžia verify aplenkti hook'o (žr.
+ * docs/audits/021-rollback-preserve-design-2026-08-25.md, C4).
+ *
+ * Vartai — `AG_DISPATCH_NONCE` netuščias: tuščias reiškia interaktyvią/be-nonce sesiją, ir
+ * elgesys lieka baitas-į-baitą nepakitęs. Skip-dispatch (`skip-dispatch.ts`) kviečia TĄ PATĮ
+ * `cli.run(["quality-gates"])` PRIEŠ bet kokį dispatch'ą — tas pats vartas jį irgi apsaugo, nes
+ * nonce iš to paties šaltinio ten tokiu pat būdu tuščias.
+ */
+function verifyStopBridgeWaitCliPort(input: CoordinatorAdapterInput, basePort: CliPort): CliPort {
+  return {
+    ...basePort,
+    run: async (args) => {
+      if (args.length === 1 && args[0] === "quality-gates") {
+        const dispatchNonce = (process.env["AG_DISPATCH_NONCE"] ?? "").trim();
+        if (dispatchNonce !== "") {
+          const taskId = (
+            (await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "state", "current-task-id"))) ?? ""
+          ).trim();
+          const waited = await waitForOwnStopBridgeDone({
+            probe: ownStopBridgeProbe(input, taskId, dispatchNonce),
+            timeoutMs: stopBridgeWaitMs(),
+            pollMs: STOP_BRIDGE_WAIT_POLL_MS,
+          });
+          await appendLogLine(
+            input.runtimeRoot,
+            "orchestrator.log",
+            `COORDINATOR STOP WAIT RESULT: task=${taskId} ` +
+              `result=${waited.classification === "own-done" ? "own-done" : "timeout"} ` +
+              `classification=${waited.classification} source=${waited.source} ` +
+              `waited_ms=${waited.waitedMs} polls=${waited.polls}`,
+          );
+        }
+      }
+      return basePort.run(args);
+    },
+  };
+}
+
+/**
  * Visi koordinatoriaus portai vienoje vietoje.
  *
  * `integration`, `integrationGate` ir `preflightMemo` prijungti (61/N): visi trys reikalavo
@@ -301,7 +383,7 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
 export function taskRunPorts(input: CoordinatorAdapterInput): TaskRunPorts {
   return {
     log: coordinatorLogPort(input.runtimeRoot),
-    cli: coordinatorCliPort(input),
+    cli: verifyStopBridgeWaitCliPort(input, coordinatorCliPort(input)),
     failure: coordinatorFailurePort(input.runtimeRoot),
     tasks: coordinatorTaskFilePort(input),
     repairPrompt: coordinatorRepairPromptPort(input.runtimeRoot),

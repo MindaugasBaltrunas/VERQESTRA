@@ -4,11 +4,16 @@
 // kodą; `help` rodo TIK realiai surištas komandas.
 
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { CLI_VERSION, runCli } from "../composition/cli/main.js";
 import { buildCliCommands, renderCliHelp } from "../composition/cli/registry.js";
 import { PROJECT_DIR_ENV, resolveRuntimeRoots } from "../composition/runtime/context.js";
+import { taskRunPorts } from "../composition/loop/coordinator-execution-adapters.js";
+import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
+import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import type { CliCommand, CliIo } from "../interfaces/cli/registry.js";
 import { INFRASTRUCTURE_IO_EXIT_CODE, USAGE_ERROR_EXIT_CODE } from "../shared/exit-codes.js";
 
@@ -210,4 +215,73 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
     renderCliHelp(commands).some((line) => line.includes("export-json-schema [--out <dir>]")),
     true,
   );
+});
+
+test("021-d-05: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ quality-gates (own-done greitai, timeout nekeičia elgesio)", async () => {
+  const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-coord-stopwait-"));
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const agRoot = path.join(projectRoot, "AG");
+  const orchestratorLog = path.join(runtimeRoot, "logs", "orchestrator.log");
+  const readLog = async () => (await nodeFsAdapter.readTextFileIfExists(orchestratorLog)) ?? "";
+
+  let qualityGatesRuns = 0;
+  const ports = taskRunPorts({
+    projectRoot,
+    runtimeRoot,
+    agRoot,
+    resolution: noRuntimeAttemptResolution,
+    runCli: async (args) => {
+      if (args[0] === "quality-gates") qualityGatesRuns += 1;
+      return 0;
+    },
+    runCliCaptured: async () => ({ code: 0, output: "" }),
+  });
+
+  const previousNonce = process.env["AG_DISPATCH_NONCE"];
+  const previousWaitMs = process.env["AG_DISPATCH_STOP_WAIT_MS"];
+  try {
+    // a) be nonce (interaktyvi/be-dispatch sesija) — pass-through, jokio laukimo žurnalo.
+    delete process.env["AG_DISPATCH_NONCE"];
+    assert.equal(await ports.cli.run(["quality-gates"]), 0);
+    assert.equal(qualityGatesRuns, 1);
+    assert.equal((await readLog()).includes("COORDINATOR STOP WAIT"), false);
+
+    // b) own-done: globalus stop failas su MŪSŲ nonce parašytas PRIEŠ kvietimą — sulaukiama
+    // iškart (pirmas probe), be jokio realaus miego.
+    process.env["AG_DISPATCH_NONCE"] = "nonce-1";
+    await nodeFsAdapter.writeTextFile(path.join(runtimeRoot, "state", "current-task-id"), "0042\n");
+    await nodeFsAdapter.writeTextFile(
+      path.join(runtimeRoot, "state", "claude-stop-status.json"),
+      JSON.stringify({ status: "done", dispatch_nonce: "nonce-1", task_id: "0042" }),
+    );
+    assert.equal(await ports.cli.run(["quality-gates"]), 0);
+    assert.equal(qualityGatesRuns, 2);
+    assert.match(
+      await readLog(),
+      /COORDINATOR STOP WAIT RESULT: task=0042 result=own-done classification=own-done source=global/,
+    );
+
+    // c) timeout: langas išjungtas (AG_DISPATCH_STOP_WAIT_MS=0 — explicit opt-out, vienas
+    // probe), stop failo įrodymo nebėra — verdiktas lieka `none`, o cli.run vis tiek įvyksta
+    // (timeout NIEKADA nepakeičia baigties).
+    process.env["AG_DISPATCH_STOP_WAIT_MS"] = "0";
+    await nodeFsAdapter.writeTextFile(path.join(runtimeRoot, "state", "claude-stop-status.json"), "");
+    assert.equal(await ports.cli.run(["quality-gates"]), 0);
+    assert.equal(qualityGatesRuns, 3);
+    assert.match(
+      await readLog(),
+      /COORDINATOR STOP WAIT RESULT: task=0042 result=timeout classification=none source=none/,
+    );
+
+    // d) kiti cli.run argumentai (pvz. preflight) — laukimas neliečiamas net su gyvu nonce.
+    const linesBefore = (await readLog()).split("\n").length;
+    assert.equal(await ports.cli.run(["claude-preflight", "AG/tasks/active/0042.md"]), 0);
+    assert.equal((await readLog()).split("\n").length, linesBefore, "kiti args nekviečia stop-bridge laukimo");
+  } finally {
+    if (previousNonce === undefined) delete process.env["AG_DISPATCH_NONCE"];
+    else process.env["AG_DISPATCH_NONCE"] = previousNonce;
+    if (previousWaitMs === undefined) delete process.env["AG_DISPATCH_STOP_WAIT_MS"];
+    else process.env["AG_DISPATCH_STOP_WAIT_MS"] = previousWaitMs;
+    await rm(projectRoot, { recursive: true, force: true });
+  }
 });

@@ -70,6 +70,7 @@ function makeHarness(input: {
   launch?: DispatchLaunchResultView;
   authorization?: LlmCallAuthorization;
   requiredContext?: boolean;
+  retryCounts?: Record<string, number>;
   attempt?: DispatchAttemptView;
   supervisorDecision?: Awaited<ReturnType<ClaudeDispatchPorts["readSupervisorDecision"]>>;
 } = {}): Harness {
@@ -99,7 +100,7 @@ function makeHarness(input: {
       removed.push(p.replace(/\\/g, "/"));
     },
     readCurrentTaskId: async () => "",
-    readRetryCounts: async () => ({}),
+    readRetryCounts: async () => input.retryCounts ?? {},
     resolveAttempt: async () => ({ ...(input.attempt ? { attempt: input.attempt } : {}), warnings: [] }),
     readSupervisorDecision: async () => input.supervisorDecision ?? { kind: "missing" },
     policyFs: { readTextFileIfExists: async () => undefined },
@@ -291,6 +292,22 @@ test("claudeDispatch: be jokio decision → MODEL ROUTING eilutėje selected=non
   assert.notEqual(routingLine, "", "routing eilutė yra");
   assert.match(routingLine, /selected=none/, "nepriimtas pasirinkimas skelbiamas kaip none");
   assert.doesNotMatch(routingLine, /selected=(sonnet|opus|haiku)/, "joks konkretus modelis neprasimano");
+});
+
+// `selected=` neša DVI eilutes; eskalacijos šablonas atskiras ir per grandinę netikrintas
+// (vienintelis jo assert'as — vienetinis, su `selectedModel: "sonnet"`, t. y. ikipataisos
+// forma). Be sprendimo, bet su nesėkmingais bandymais, eskalacija turi kartoti tą patį
+// `none`, kitaip melas grįžta pro antrą kanalą.
+test("claudeDispatch: be decision + failed_attempts → MODEL ESCALATION eilutėje selected=none", async () => {
+  const h = makeHarness({
+    files: { [TASK_FILE.replace(/\\/g, "/")]: TASK_TEXT },
+    retryCounts: { "task:0042-demo": 2 },
+  });
+  assert.equal(await claudeDispatch(["AG/tasks/queue/0042-demo.md"], h.ports), 0);
+  const escalationLine = h.agLines.find((line) => line.startsWith("MODEL ESCALATION:")) ?? "";
+  assert.notEqual(escalationLine, "", "failed_attempts=2 su default defer_steps=1 kelia pakopą");
+  assert.match(escalationLine, /selected=none failed_attempts=2/, "eskalacija nepridengia tuščio pasirinkimo");
+  assert.doesNotMatch(escalationLine, /selected=(sonnet|opus|haiku)/);
 });
 
 test("prepareDispatchArtifacts: attempt kopija pirmi; legacy promotinamas; write klaidos — WARNING", async () => {

@@ -34,6 +34,11 @@ Draudžiama:
 - `dist/**`
 
 ## Veiksmas
+- KRITINĖ DARBO TAISYKLĖ (2026-08-25, ankstesnio bandymo pamoka): visą kodą rašyk TIESIOGIAI
+  Edit/Write įrankiais PAGRINDINĖJE sesijoje — NENAUDOK Agent/subagentų rašymui. Ankstesnis
+  bandymas darbą padarė teisingai (patikros praėjo), bet visi rašymai buvo subagento rankomis,
+  session-writes ledger'is jų nematė, stop hook'as pakeitimus palaikė svetimais ir commit'o
+  nepadarė — o orkestratorius necommit'intą darbą atsuko. Subagentai leidžiami tik SKAITYMUI.
 - `capture-baseline.ts`: į `BenchmarkIntegrity` pridėti unassigned usage matomumą (`unassigned_usage_records` ir `unassigned_total_tokens`, skaičiuojant iš `usageByTask` prieš `continue`) ir sugriežtinti `ok` taip, kad unassigned task'as su usage > 0 duotų `ok: false`; sprendimą pagrįsti ataskaitoje.
 - `baseline-report.ts`: naujus laukus atspausdinti integrity sekcijoje ir perskaityti parse'e taip, kad `parseBenchmarkReportMarkdown(render(x)) == x`, o senas baseline be naujų laukų toliau parsintųsi (default 0).
 - `src/tests/**`: testai — task'as be case atitikmens su usage > 0 duoda `integrity.ok=false` ir nenulinius naujus laukus; unassigned be usage nelaužo `ok`; round-trip su naujais laukais; senas markdown be jų perskaitomas.

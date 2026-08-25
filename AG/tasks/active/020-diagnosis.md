@@ -79,17 +79,32 @@ nesuveikia nė vienas saugiklis — o kaip tik ten prarandama daugiausia darbo.
   commit`.
 - `git log --oneline -- src/application/benchmark/capture-baseline.ts
   src/application/benchmark/baseline-report.ts` → naujausias commit'as yra senas `c5b8c3e`. 018
-  darbo repo istorijoje **nėra**: darbas sunaikintas.
+  darbo repo istorijoje **nėra**: darbas sunaikintas. (Komanda paleista 15:09,
+  `hooks.log:3089-3091`; reviewer sesijoje `git` blokuotas allowlist'o, tad hash'as neperverifikuotas
+  — laikyti provenance'u, ne pakartotinai patikrintu faktu.)
+- **Kas būtent sunaikino.** `ROLLBACK TASK-SCOPED` kelius ima iš ledger'io:
+  `rollback-stable.ts:220` → `rollback-scope.ts:130-147:readTaskScopePaths` →
+  `session-write-owners.ts:132:taskScopeRestorePaths(sessionWrites, owners, identity)`. Skaičius
+  „restored 2 task path(s)" todėl yra **tiesioginis įrodymas, kad tuo momentu ledger'yje gulėjo
+  lygiai tie 2 nuosavi produkto keliai**. Vadinasi 018 atveju ledger'is NEBUVO aklas — nesuveikė
+  tai, kad commit'as neįvyko prieš rollback'ą, o rollback'as ledger'io matomą, dar necommit'intą
+  darbą revertina turinio lygiu.
+- Tai atitinka šios užduoties spec source formuluotę („Stop hook commit'as nespėja iki dispatch
+  pabaigos"), o ne subagento matomumo hipotezę. Įrodymas A todėl **nepagrindžia** pasirinktos
+  krypties; ją pagrindžia tik įrodymas B.
 
-### B. 018-a-02 — išgelbėta tik atsitiktinai
+### B. 018-a-02 — išgelbėta tik atsitiktinai (režimas R1: TIKRAS ledger'io aklumas)
 
 - `vq/logs/orchestrator.log:1734` — `[14:12:42] task=018-a-02-... main=Agent,Read,ScheduleWakeup
   agent=Bash,Edit,Glob,Grep,Read`.
-- `src/domain/metrics/comparison.ts` buvo realiai pakeistas (`git diff` rodo 14:08:05), bet
-  `vq/logs/hooks.log` jam neturi **nei** `rašymas leidžiamas` (PreToolUse), **nei** `post-write:`
-  eilutės. `grep -n "comparison.ts" vq/logs/hooks.log` → 2542, 2543, 2548, 2560, 2561, 2568, 2569,
-  2596, 2597, 2600, 2628, 2945, 2946, 2965, 2966, 2970, 2971 — visos yra `bash:` / `post-bash:` /
-  `post-read:`, nė vienos rašymo.
+- `src/domain/metrics/comparison.ts` buvo realiai pakeistas (14:09:40 jis pateko į commit'ą,
+  `hooks.log:2597,2600`), bet `vq/logs/hooks.log` jam neturi **nei** `rašymas leidžiamas`
+  (PreToolUse), **nei** `post-write:` eilutės. `grep -n "comparison.ts" vq/logs/hooks.log` grąžina
+  1124, 1126, 1234-1237, 2493, 2502, 2510, 2540-2543, 2548, 2560, 2561, 2568, 2569, 2596, 2597,
+  2600, 2628, 2945, 2946, 2965, 2966, 2970, 2971. Iš jų nė viena nėra rašymo įvykis: tai `bash:` /
+  `post-bash:` / `post-read:` eilutės plius Stop hook'o pėdsakas (2596 `SESSION LEDGER MISS`, 2597
+  commit žinutė, 2600 `git commit`) ir 2628/2970/2971 `BLOCKED bash`. Tai patikrinamas
+  **neigimo** įrodymas: nulis `post-write:` eilučių šiam keliui per visą žurnalą.
 - `vq/logs/hooks.log:2596` — `[14:09:40] SESSION LEDGER MISS — švarus baseline
   (task=018-a-02-...), stage'inami ledger'yje TRŪKSTANTYS produkto failai:
   src/domain/metrics/comparison.ts`.
@@ -104,31 +119,39 @@ pats darbas ant purvino medžio būtų dingęs kaip A atveju.
 - Tos sesijos įrankių pjūvis: `orchestrator.log:1896` — `main=Agent,Bash,Grep,Read agent=Grep,Read`:
   nė vieno `Write`/`Edit` → `hook-post-write` nė karto nepaleistas → ledger'io failas apskritai
   nesukurtas.
-- Tas pats pasikartoja: `orchestrator.log:2042` (018-b-03, `main=Bash,Glob,Grep,Read agent=none`),
-  `:1090` (013), `:1458` (007), `:1625` (015).
+- Tas pats pasikartoja: `orchestrator.log:2042` (018-b-03; to dispatch'o įrankių pjūvis
+  `main=Bash,Glob,Grep,Read agent=none` yra atskiroje eilutėje `:1980`), `:1090` (013), `:1458`
+  (007), `:1625` (015). Visos penkios yra identiška `WARNING: session-writes.json missing` eilutė.
 - Kodas: `src/interfaces/cli/dispatch/claude-diagnose/diagnose-evidence.ts:86-90` — kai
   `!ledger.present`, out-of-scope attribution **tyliai** praleidžiama (tik WARNING eilutė žurnale,
   be lauko rezultate).
 
-Įrodymas C yra lemiamas krypčiai: **018-b-03 turėjo `agent=none`** ir vis tiek `session-writes.json
-missing` — defektas nėra subagentui specifinis.
+Įrodymas C yra lemiamas krypčiai: **018-b-03 turėjo `agent=none`** (`orchestrator.log:1980`) ir vis
+tiek `session-writes.json missing` — defektas nėra subagentui specifinis.
 
 ## Grandinės pjūvis
 
 Kur tiksliai prarandamas įvykis:
 
 ```text
-Write|Edit  → hook-post-write → post-write.ts:hookPostWrite → recordSessionWrite
-              → session-write-ledger.ts:appendSessionWrite → session-writes.json   [VEIKIA]
+Write|Edit  → hook-post-write → post-write.ts:hookPostWrite (248) → recordSessionWrite (273)
+              → post-write.ts:appendSessionWrite (49)
+              → session-write-ledger.ts:appendJsonArrayEntry (90) → session-writes.json   [VEIKIA]
 
-Bash|PowerShell → hook-post-bash → post-hooks.ts:hookPostBash
+Bash|PowerShell → hook-post-bash → post-hooks.ts:hookPostBash (81-88)
                   → log("post-bash: ...") + bash-digest-shadow.jsonl              [ĮVYKIS PRARANDAMAS]
 
-Stop        → on-stop.ts:hookOnStop → on-stop-context.ts:resolveStagePlan (~140-175)
+Stop        → on-stop.ts:hookOnStop → on-stop-context.ts:resolveStagePlan (135-161)
               → application/task-execution/session-stage-planning.ts:planSessionStaging
               → stage'inama TIK session-writes.json aibė (filtruota nuosavybe) + lifecycle keliai
               → `git add --all` NIEKADA                                            [ŽALA MATERIALIZUOJASI]
 ```
+
+Ledger'is turi ir daugiau vartotojų, ne vien Stop staging'ą — kiekvienas jų paveldi tą pačią
+įrankio kilmės prielaidą: `src/infrastructure/git/rollback-scope.ts:135` (task-scoped rollback),
+`src/interfaces/hooks/package-guard.ts:171`, `src/composition/quality/diagnose-adapters.ts:139`.
+Rollback'o vartotojas yra svarbiausias: jis ledger'į naudoja **revertinimui**, tad ledger'io įrašas
+be commit'o reiškia ne apsaugotą, o pasmerktą darbą (įrodymas A).
 
 `src/interfaces/hooks/stop-guards.ts` ledger'io neliečia — tai tik blokuojantys pre-commit
 guard'ai, ne šio defekto dalis.
@@ -150,6 +173,12 @@ bet tik kai **visos** sąlygos galioja vienu metu:
 Sąlyga 3 yra griežtai siaurinanti: **vienas** kelias už allowed paths ribų išjungia fallback'ą
 visiškai, o ne dalinai. Kiekvienas suveikimas palieka **garsią, grep'inamą** žymą žurnale (pvz.
 `STAGING LEDGER FALLBACK: task=<id> +N files: ...`) — fallback'as niekada nebūna tylus.
+
+**Ką ši kryptis uždaro ir ko ne.** Ji uždaro **R1** (įrodymas B: rašymas ne per `Write|Edit`, kelio
+ledger'yje nėra) ir tik tada, kai Stop hook'as apskritai pasiekia staging'o kodą. Ji **neuždaro
+R2** (įrodymas A): ten planas trūkstamų kelių neturėjo — ledger'yje kelias buvo, o Stop eiga iki
+staging'o nepriėjo. Todėl 020-a-02 regresinis testas įrodys R1 elgseną, bet 018 scenarijaus
+istorijos savaime neatkurs; R2 lieka atviras punktas apačioje.
 
 ## Atmestos kryptys
 
@@ -174,8 +203,12 @@ Failai, kuriuos lies 020-a-02:
   keliai telpa į allowed paths; kandidatų atranka). Čia jau gyvena `resolveLedgerGap` (eil.
   111-118), tad taisyklė turi būti **šalia jo**, o ne dubliuota.
 - `src/interfaces/hooks/on-stop-context.ts` — IO: allowed paths įvedimas į `planSessionStaging`
-  įvestį (skaitomas `vq/state/current-task-file`, parse'inama esamu parseriu
-  `src/application/context-pack/assemble/parse-task.ts`).
+  įvestį (skaitomas `vq/state/current-task-file` — realus state failas, rašomas
+  `src/infrastructure/state/task-state-store.ts:269`; parse'inama esamu parseriu
+  `src/application/context-pack/assemble/parse-task.ts:20`, kuris allowed paths ima iš
+  `src/domain/tasks/index.ts:allowedPaths`). Nei `parse-task.ts`, nei `domain/tasks` **nekeičiami**
+  — tik importuojami, tad į 020-a-02 „Leidžiama" sąrašą jiems patekti nereikia (ir `src/domain/**`
+  ten yra draudžiamas — importuoti tai netrukdo).
 - `src/interfaces/hooks/on-stop.ts` — garsi žyma `logStagingEvidence` funkcijoje (eil. 173-189,
   šalia esamų `SESSION LEDGER MISS` ir `STAGING LEDGER GAP` eilučių).
 
@@ -190,21 +223,31 @@ Testai:
   **už** allowed paths → fallback'as neįsijungia visai (siaurinantis, ne dalinis).
 - `src/tests/interfaces-hooks-on-stop.test.ts` — garsios žurnalo žymos įrodymas.
 
-**Svarbi pastaba 020-a-02 užduočiai.** Jos dabartinis „Leistini failai" sąrašas (tik 4 hook failai +
-3 testai) **neapima** `session-stage-planning.ts` ir `parse-task.ts`. Arba sąrašas praplečiamas,
+**Svarbi pastaba 020-a-02 užduočiai.** Jos dabartinis „Failai / Leidžiama" sąrašas yra
+`post-write.ts`, `session-write-ledger.ts`, `on-stop.ts`, `stop-guards.ts` plius trys
+`interfaces-hooks-*` testai. Jame **nėra dviejų realiai keistinų failų**:
+`src/application/task-execution/session-stage-planning.ts` ir
+`src/interfaces/hooks/on-stop-context.ts`; taip pat nėra testo
+`src/tests/application-session-stage-planning.test.ts`. Arba sąrašas praplečiamas šiais trimis,
 arba gryna taisyklė būtų priversta gyventi `interfaces` sluoksnyje — tai pažeistų esamą
 architektūrą: sprendimas „kieno darbas patenka į commit'ą" pagal `session-stage-planning.ts`
-antraštę privalo likti grynas ir `application` sluoksnyje. Taip pat pataisytinas testo vardas:
-tikrasis failas yra `src/tests/application-session-stage-planning.test.ts` (ne
-`application-task-execution-...`).
+antraštę privalo likti grynas ir `application` sluoksnyje. Atvirkščiai: du šiuo metu leidžiami
+failai (`session-write-ledger.ts`, `stop-guards.ts`) pagal šią diagnozę **neturėtų būti liečiami**.
 
 ## Ko ši diagnozė NEDARO
 
 - Nekeičia jokio produkto kodo. Vienintelis šios sesijos rašymas — šis `.md`.
-- Neliečia `templates/.claude/settings.json`. Pastaba: `write-policy.ts:210` turi `templates/`
-  carve-out, tad hook'as šio failo **neblokuotų** — ribą laiko tik užduoties scope, todėl ji
-  laikoma sąmoningai.
+- Neliečia `templates/.claude/settings.json`. Pastaba: `src/domain/policies/write-policy.ts:210`
+  turi prie šaknies prisegtą `/^templates\//` carve-out, tad hook'as šio failo **neblokuotų** —
+  ribą laiko tik užduoties scope, todėl ji laikoma sąmoningai.
 - Nesprendžia 015 matomumo dalies (`diagnose-evidence.ts:86-90` tyli, kai `!ledger.present`) — tai
-  atskiras 020-b-03 darbas.
+  atskiras 020-b-03 darbas. Pastaba tam task'ui: jo „Leidžiama" sąrašas šiuo metu yra
+  `src/domain/git/changes.ts` + jo testas, o tyli praleidimo eilutė gyvena
+  `src/interfaces/cli/dispatch/claude-diagnose/diagnose-evidence.ts` — sąrašas ir taikinys
+  nesutampa.
+- **Neuždaro R2** (įrodymas A): kad Stop hook'o commit'as nespėja iki dispatch pabaigos, o
+  task-scoped rollback po to revertina būtent ledger'yje matomą necommit'intą darbą
+  (`rollback-scope.ts:130-147`). Tai atskiras, dar nesuformuluotas task'as; jo be R1 sprendimo
+  nepakeičia ir jis nepakeičia R1.
 - Nesprendžia dėl `hook-post-bash` praplėtimo iki tikro darbo ledger'io: tai reikalauja operatoriaus
   patvirtinimo ir lieka atviru klausimu po 020-a-02.

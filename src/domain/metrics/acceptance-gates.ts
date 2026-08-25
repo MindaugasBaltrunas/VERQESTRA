@@ -60,7 +60,10 @@ export function evaluateAcceptance(input: {
     {
       name: "work_evidence",
       passed: input.dispatch_attempts >= 1,
-      detail: "no dispatch usage recorded",
+      detail:
+        input.dispatch_attempts >= 1
+          ? `${input.dispatch_attempts} dispatch attempt(s) recorded`
+          : "no dispatch usage recorded",
     },
   ];
 

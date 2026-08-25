@@ -2,6 +2,9 @@
 // Fail-closed kryptys (sugadintas decision → human-review, infrastruktūros exit → abort
 // deskriptorius, veto prieš vykdytoją → originalaus teksto atstatymas) yra kontraktas.
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { PolicyConfigError } from "../shared/errors.js";
 import { POLICY_CONFIG_INVALID_EXIT_CODE } from "../shared/exit-codes.js";
@@ -9,7 +12,20 @@ import { createTaskRunState } from "../application/task-execution/task-run-state
 import { dispatchTask, runPreDispatchGates } from "../application/task-execution/dispatch-task.js";
 import { verifyTask } from "../application/task-execution/verify-task.js";
 import { repairTask } from "../application/task-execution/repair-task.js";
+import { authorizeLlmCall } from "../application/token-governance/tool-budget-gates.js";
+import { coordinatorPolicyPort } from "../composition/loop/coordinator-execution-adapters.js";
+import { loadProjectProfile } from "../composition/agent/preflight-adapters.js";
+import { policyConfigFs, tokenBudgetPorts } from "../composition/runtime/node-adapters.js";
+import { resolveDispatchRoutingPlan } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-routing-plan.js";
+import {
+  loadModelsEnv,
+  modelTierOfRoutingTier,
+  resolveRoutedModel,
+  routingTierOfSelection,
+} from "../infrastructure/adapters/claude-model-env.js";
+import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { createFakeTaskRunEnv, fakeBucketPath, type FakeTaskRunEnv } from "./helpers/fake-task-run-ports.js";
+import type { CoordinatorAdapterInput } from "../composition/loop/coordinator-adapters.js";
 import type { TaskBucket } from "../domain/tasks/index.js";
 
 const TASK = "0042";
@@ -329,4 +345,94 @@ test("repairTask: veto prieš vykdytoją atstato originalų tekstą error bucket
   assert.equal(errorBody, "# Task\noriginalas", "originalus tekstas atstatytas peržiūrai");
   assert.ok(env.logs.some((line) => line.includes("TASK REPAIR PROMPT REVERTED")));
   assert.equal(env.cliCalls.filter((args) => args[0] === "claude-dispatch").length, 0);
+});
+
+// 017-A-02: vartų adapteris ir claude-dispatch routing'as yra DU kviečiai to paties
+// `routeModel`. Jei jų įėjimai išsiskirtų, `enforceBudget` vetuotų modelį, kurio niekas
+// nepaleis (arba praleistų tą, kurį paleis), tad sutapimas tikrinamas realiais adapteriais —
+// tikra runtime šaknimi, tikrais retry skaitikliais ir tuo pačiu task tekstu.
+const ROUTED_TASK = [
+  "# Task",
+  "## Tikslas",
+  "Surišti maršruto skaičiavimą su biudžeto vartais.",
+  "## Failai",
+  "Leidžiama:",
+  "- `src/composition/loop/coordinator-execution-adapters.ts`",
+  "- `src/tests/task-execution-run.test.ts`",
+  "## Veiksmas",
+  "- Realizuoti adapterį.",
+  "- Patikrinti determinizmą.",
+  "## Patikra",
+  "- `pnpm test`",
+].join("\n");
+
+function routingAdapterInput(projectRoot: string, runtimeRoot: string): CoordinatorAdapterInput {
+  const unusedCli = (): never => {
+    throw new Error("CLI portas šiame teste nekviečiamas");
+  };
+  return {
+    projectRoot,
+    runtimeRoot,
+    agRoot: path.join(projectRoot, "AG"),
+    resolution: noRuntimeAttemptResolution,
+    runCli: unusedCli,
+    runCliCaptured: unusedCli,
+  };
+}
+
+test("resolveDispatchModelClass: vartų modelis sutampa su dispatch'inamu, o klaida propaguojasi", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "vq-017-a-02-"));
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const gateRequest = { promptFile: "", taskId: TASK, phase: "implementation" as const, selectedModel: "sonnet" };
+  try {
+    await mkdir(path.join(runtimeRoot, "state"), { recursive: true });
+    await mkdir(path.join(runtimeRoot, "project"), { recursive: true });
+    gateRequest.promptFile = path.join(projectRoot, TASK_MD);
+    await writeFile(gateRequest.promptFile, ROUTED_TASK, "utf8");
+    await writeFile(
+      path.join(runtimeRoot, "project", "profile.json"),
+      JSON.stringify({ source_roots: ["src"] }),
+      "utf8",
+    );
+    // Dvi nesėkmės (default defer_steps=1) — eskalacijos šaka, kur nesutapimas skaudžiausias:
+    // vartai tikrintų bazinę pakopą, o dispatch'as paleistų pakeltą.
+    const retryCountsFile = path.join(runtimeRoot, "state", "retry-counts.json");
+    await writeFile(retryCountsFile, JSON.stringify({ [`task:${TASK}`]: 2 }), "utf8");
+    const policy = coordinatorPolicyPort(routingAdapterInput(projectRoot, runtimeRoot));
+
+    const gateModel = await policy.resolveDispatchModelClass(gateRequest);
+    const modelsEnv = await loadModelsEnv(runtimeRoot);
+    const plan = await resolveDispatchRoutingPlan({
+      runtimeRoot,
+      taskId: TASK,
+      taskText: ROUTED_TASK,
+      phase: "implementation",
+      decision: { selected_model: gateRequest.selectedModel },
+      selectedModel: gateRequest.selectedModel,
+      failedAttempts: 2,
+      authorization: await authorizeLlmCall(tokenBudgetPorts(runtimeRoot), runtimeRoot, {
+        taskId: TASK,
+        phase: "implementation",
+      }),
+      policyFs: policyConfigFs,
+      models: {
+        routingTierOfSelection,
+        modelTierOfRoutingTier,
+        resolveRoutedModel: (tier) => Promise.resolve(resolveRoutedModel(tier, modelsEnv)),
+      },
+      projectProfile: await loadProjectProfile(runtimeRoot),
+      logDispatch: async () => {},
+    });
+
+    assert.equal(gateModel, plan.effectiveTier, "vartai tikrina TĄ PATĮ modelį, kurį paleis dispatch'as");
+    assert.notEqual(plan.routing.tier, plan.routing.base_tier, "eskalacijos šaka realiai išbandyta");
+    assert.equal(await policy.resolveDispatchModelClass(gateRequest), gateModel, "tie patys įėjimai — tas pats modelis");
+
+    // Sugadinti retry skaitikliai: adapteris META. Tylus nusileidimas į 0 bandymų reikštų, kad
+    // vartai patikrino PRIEŠ eskalaciją buvusį modelį — kvietėjas apie tai nė nesužinotų.
+    await writeFile(retryCountsFile, "[]", "utf8");
+    await assert.rejects(() => policy.resolveDispatchModelClass(gateRequest), /retry counts file is corrupt/);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
 });

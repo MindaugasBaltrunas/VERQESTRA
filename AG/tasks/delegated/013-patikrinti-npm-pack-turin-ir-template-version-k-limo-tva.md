@@ -15,15 +15,14 @@ openspec/changes/verqestra-backlog-v1
 AG/openspec/changes/verqestra-backlog-v1/tasks.md
 
 ## Tikslas
-Automatizuoti project status ir converge perleidimą po kiekvieno commit'o su telemetry įrašu.
+Patikrinti npm pack turinį ir template version kėlimo tvarką prieš release.
 
 ## Agentai
 readme-guard -> coder -> reviewer
 
 ## Failai
 Leidžiama:
-- `src/application/release-readiness/**`
-- `src/tests/converge-readiness-backlog.test.ts`
+- `templates/**`
 
 Draudžiama:
 - `.env`
@@ -35,7 +34,7 @@ Draudžiama:
 depends_on: none
 
 ## Veiksmas
-- Įgyvendinti: Automatizuoti project status ir converge perleidimą po kiekvieno commit'o su telemetry įrašu.
+- Įgyvendinti: Patikrinti npm pack turinį ir template version kėlimo tvarką prieš release.
 
 ## Patikra
 - `pnpm build`

@@ -145,6 +145,8 @@ test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subk
     "perrašymas (--force) lieka žmogui — writeTextIfMissing be jo esamų failų neliečia",
   );
   assert.match(blocked("node dist/cli.js compound-init x"), /dist[\\/]cli\.js/, "aprašymas tik kabutėse");
+  assert.equal(evaluateBashCommandPolicy("node dist/cli.js requeue 012-task.md").blockedPattern, undefined, "requeue kaip ag formoje");
+  assert.match(blocked("node dist/cli.js requeue AG/tasks/done/x.md"), /dist[\\/]cli\.js/, "requeue tik failo vardu, be kelio");
   assert.match(blocked("node dist/cli.js task-move AG/tasks/done/005-x.md AG/tasks/queue"), /dist[\\/]cli\.js/, "atgal į eilę — ne");
   assert.match(blocked("node dist/cli.js task-move AG/tasks/queue/005-x.md AG/tasks/done"), /dist[\\/]cli\.js/, "iš queue — ne");
   assert.match(

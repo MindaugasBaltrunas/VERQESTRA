@@ -102,6 +102,10 @@ const allowedTaskMoveCliCommands = [
   // žodyną nepatenka: perrašymas yra kitas saugumo profilis ir lieka žmogui. Aprašymas tik
   // dvigubose kabutėse be jų pačių viduje — jokių flag'ų, jokio antro argumento.
   /^node\s+dist[\\/]cli\.js\s+compound-init\s+"[^"]*"$/i,
+  // `requeue` — ta pati forma kaip `ag requeue [\w.-]+\.md` allowlist'e: saugus, nes tik
+  // perkelia human-review → queue ir išvalo ledger/biudžeto įrašus; failo vardas be kelio
+  // separatorių, jokių flag'ų.
+  /^node\s+dist[\\/]cli\.js\s+requeue\s+[\w.-]+\.md$/i,
 ];
 
 const allowedGeneratedHookRuntimeCommands = [

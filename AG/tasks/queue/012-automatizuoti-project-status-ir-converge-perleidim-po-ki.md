@@ -34,6 +34,11 @@ Draudžiama:
 - `dist/**`
 
 ## Veiksmas
+- PASTABA (2026-08-25 09:45, operatoriui ir guard'ui): antras šio task'o kritimas buvo NE jo
+  kaltė — preflight'as pataikė į perplėštą `dist` (lygiagretus build'as vidury emit'o:
+  `build.js` nauja karta, `hash.js` sena) ir mirė modulio SyntaxError'u dar prieš skaitydamas
+  task'ą. `dist` perstatytas pilnai. Ši pastaba kartu pakeičia turinio hash'ą, kad pasenęs
+  preflight-failure memo neparkuotų task'o už aplinkos klaidą.
 - Parašyti `commit-convergence.ts`: `CommitConvergencePorts` (project status perleidimas, converge paleidimas, telemetry įrašo rašymas, laikrodis) ir `runCommitConvergence(ports, input)`, grąžinantis `{ status, converge, telemetry }`; jokių `node:` importų, ≤500 eilučių, `exactOptionalPropertyTypes` stiliumi (opcionalūs laukai per sąlyginius spread'us).
 - Prijungti eksportus prie `src/application/release-readiness/index.ts` šalia esamo `converge-check` eksporto.
 - Padengti `src/tests/converge-readiness-backlog.test.ts` fake portais: sėkmingas perleidimas, nesuartėjęs converge (telemetry vis tiek rašomas), telemetry įrašo formos patikra.

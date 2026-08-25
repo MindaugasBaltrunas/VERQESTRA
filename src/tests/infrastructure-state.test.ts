@@ -26,7 +26,12 @@ import {
   type AttemptResolutionPort,
 } from "../infrastructure/state/attempt-resolution.js";
 import { readSessionFileKinds, readSessionWrites, sessionFileEventsPath, sessionWritesPath } from "../infrastructure/state/session-activity.js";
-import { interactiveStopMayOverwrite, stopBridgeForProject, stopBridgePath } from "../infrastructure/state/stop-bridge.js";
+import {
+  interactiveStopMayOverwrite,
+  STOP_BRIDGE_STALE_STATUS,
+  stopBridgeForProject,
+  stopBridgePath,
+} from "../infrastructure/state/stop-bridge.js";
 import { logTokenUsage, tokenUsageLogPath } from "../infrastructure/state/token-usage-log.js";
 
 const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-state-"));
@@ -313,6 +318,55 @@ test("stop-bridge: dispatch stop rašo attempt įrodymą PIRMA ir globalų veidr
   assert.equal(interactiveStopMayOverwrite(""), true);
   assert.equal(interactiveStopMayOverwrite('{"dispatch_nonce":"  "}'), true);
   assert.equal(interactiveStopMayOverwrite("ne json"), true);
+});
+
+test("stop-bridge: aktyvus nonce rašo done, pasenęs (nebeaktyvus) nonce žymimas stale", async () => {
+  await nodeFsAdapter.removeIfExists(stopBridgePath(runtimeRoot));
+
+  // Aktyvus bandymas: tiltas tuščias, tad mano nonce tampa juo — rašoma "done".
+  const active = { AG_DISPATCH_NONCE: "nonce-active" } as NodeJS.ProcessEnv;
+  await stopBridgeForProject({
+    projectRoot,
+    runtimeRoot,
+    resolution: resolutionFor(REF),
+    status: "done",
+    reason: "user_stop",
+    taskId: "t1",
+    env: active,
+    now: () => "2026-08-25T09:00:00.000Z",
+  });
+  const activeBridge = JSON.parse(await nodeFsAdapter.readTextFile(stopBridgePath(runtimeRoot))) as Record<string, unknown>;
+  assert.equal(activeBridge["status"], "done");
+  assert.equal(activeBridge["dispatch_nonce"], "nonce-active");
+
+  // Vėluojantis rašytojas: tiltas jau turi KITĄ (aktyvų) nonce — mano įrašas nebėra "done".
+  const stale = { AG_DISPATCH_NONCE: "nonce-stale" } as NodeJS.ProcessEnv;
+  await stopBridgeForProject({
+    projectRoot,
+    runtimeRoot,
+    resolution: resolutionFor(REF),
+    status: "done",
+    reason: "user_stop",
+    taskId: "t1",
+    env: stale,
+    now: () => "2026-08-25T09:05:00.000Z",
+  });
+  const staleBridge = JSON.parse(await nodeFsAdapter.readTextFile(stopBridgePath(runtimeRoot))) as Record<string, unknown>;
+  assert.equal(staleBridge["status"], STOP_BRIDGE_STALE_STATUS);
+  assert.equal(staleBridge["dispatch_nonce"], "nonce-stale");
+
+  const staleAttempt = JSON.parse(
+    await nodeFsAdapter.readTextFile(
+      path.join(runtimeRoot, "runtime", "runs", "r1", "workers", "w1", "tasks", "t1", "attempts", "a1", "stop-state.json"),
+    ),
+  ) as Record<string, unknown>;
+  assert.equal(staleAttempt["status"], STOP_BRIDGE_STALE_STATUS);
+
+  const stopLog = await nodeFsAdapter.readTextFile(path.join(runtimeRoot, "logs", "claude-stop.log"));
+  assert.match(stopLog, new RegExp(`status=${STOP_BRIDGE_STALE_STATUS}`));
+
+  // Senas (7 laukų) įrašas be jokio stale žymėjimo lieka skaitomas: schema neprivalo naujų laukų.
+  assert.equal(Object.keys(staleBridge).length, 7);
 });
 
 test("session-activity: pirmas kind'as laimi, deleted perrašo, sugadinta eilutė kainuoja tik save", async () => {

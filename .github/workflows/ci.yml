@@ -59,3 +59,40 @@ jobs:
       - run: pnpm test:mobile-app
       - run: pnpm typecheck:mobile-native
       - run: pnpm test:mobile-native
+
+  # `release-check` yra ATSKIRAS vartas, o ne dar vienas `test` job'o žingsnis — dėl trijų
+  # priežasčių, ir visos trys yra apie įrodymą, ne apie patogumą:
+  #
+  # 1. Jis pats paleidžia `pnpm build` ir `pnpm test:compiled` (žr. `release-check-adapters.ts`).
+  #    Įdėtas į `test` job'ą, jis perstatytų `dist` PO to, kai tas pats medis jau buvo pastatytas
+  #    ir ištestuotas eilute aukščiau — antras build'as tame pačiame job'e nieko naujo neįrodo,
+  #    tik pailgina grandinę. Atskiras job'as tuos pačius du paleidimus daro LYGIAGREČIAI.
+  # 2. Jo klausimas kitas. `test` klausia „ar kodas veikia"; `release-check` klausia „ar galima
+  #    pakuoti" — build, testai, milestone, README nuorodos ir `package.json` forma viename
+  #    verdikte. Suplakti į vieną job'ą, raudonas paketo layout'as atrodytų kaip krentantis testas.
+  # 3. Verdiktas tikslesnis už exit kodą (`docs/release.md`: „Kai vartas raudonas"). Todėl
+  #    `vq/state/release-check-result.json` keliauja į artefaktus su `if: always()` — būtent
+  #    raudonu atveju jo ir reikia, o be `always()` jis nebūtų įkeltas.
+  #
+  # `pnpm build` prieš patį vartą yra privalomas: `release-check` paleidžiamas IŠ `dist/cli.js`,
+  # kurio švariame klone dar nėra. Exit kontraktas: 0 = ok, 1 = failed, 2 = klaida.
+  release-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: node dist/cli.js release-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-check-result
+          path: vq/state/release-check-result.json
+          if-no-files-found: warn

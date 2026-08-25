@@ -43,6 +43,30 @@ verta žinoti:
 - `source_state` yra viso šaltinio hash'as. Jis leidžia vėliau pasakyti, ar verdiktas vis dar
   aprašo TĄ medį, ar jau pasenęs.
 
+### release-check CI'uje
+
+`.github/workflows/ci.yml` turi ATSKIRĄ `release-check` job'ą, ne dar vieną `test` job'o žingsnį:
+
+```yaml
+- run: pnpm install --frozen-lockfile
+- run: pnpm build                      # dist/cli.js — vartas paleidžiamas iš jo
+- run: node dist/cli.js release-check  # 0 = ok, 1 = failed, 2 = klaida
+```
+
+Trys priežastys, kodėl atskirai:
+
+- `release-check` PATS paleidžia `pnpm build` ir `pnpm test:compiled`. `test` job'e jis
+  perstatytų medį, kuris ką tik buvo pastatytas ir ištestuotas — antras build'as toje pačioje
+  eilėje nieko naujo neįrodo. Atskiras job'as tuos pačius du paleidimus daro lygiagrečiai.
+- Klausimas kitas: `test` klausia „ar kodas veikia", `release-check` — „ar galima pakuoti".
+  Suplakti į vieną, raudonas `package_layout` atrodytų kaip krentantis testas.
+- Verdiktas tikslesnis už exit kodą, tad `vq/state/release-check-result.json` keliauja į
+  artefaktus su `if: always()`. Be `always()` jis nebūtų įkeltas būtent tada, kai reikalingas.
+
+Švariame klone `milestone` dalis lieka lengva savaime: `AG/spec/changes` ir `vq/` nėra
+versijuojami, tad `spec_alignment` ir `local_policy` gauna tuščią scope ir pažymimi `skipped`,
+o `quality` ateina iš to paties build'o ir testų exit kodų.
+
 ## readiness-audit
 
 Skirtingai nuo kitų, šis vartas matuoja produkto PILNUMĄ, ne pakeitimo kokybę: aplankai,

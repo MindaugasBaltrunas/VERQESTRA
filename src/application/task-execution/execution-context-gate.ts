@@ -251,11 +251,17 @@ export type CanonicalWorkerPromptInput = ExecutionContextGateInput & {
  * scope — t. y. tą patį tekstą antrą kartą. Čia ta antra kopija nukrenta; diske gulintis
  * artefaktas lieka NEPALIESTAS ir pilnas, nes jis skaitomas savarankiškai, be task failo šalia.
  *
- * FAIL-SAFE: dedup taikomas TIK kai pack'as įrodomai atkuria artefaktą baitas į baitą. Jei
- * pack'o nėra, jis neparsinamas arba jo renderis nesutampa su artefaktu, grąžinamas
- * NEPAKEISTAS artefaktas — prompt'as niekada neneša teksto, kurio nebuvo tame, ką patvirtino
- * vartai. `<!-- ag:execution-context ... -->` markeris išsaugomas: jis yra prompt'o audito
- * nuoroda į task_sha256/context_pack_sha256.
+ * DVI garantijos, ir abi būtinos:
+ *
+ * 1. POAIBIS. `excludeTaskDerived` keičia tik tai, kurie blokai patenka į kūną — metimo
+ *    sprendimas, elementų rinkinys ir fingerprint'as lieka artefakto. Prompt'as dėl to negali
+ *    įnešti turinio (ypač `untrusted` spec fragmentų), kurio artefakte nėra: `execution-context.md`
+ *    lieka pilnas įrašas apie tai, ką worker'is matė.
+ * 2. ĮRODYMAS. Dedup taikomas TIK kai pack'as pats atkuria artefaktą baitas į baitą. Nesant
+ *    pack'o, jo neparsinant arba renderiui nesutampant, grąžinamas NEPAKEISTAS artefaktas.
+ *
+ * `<!-- ag:execution-context ... -->` markeris išsaugomas: jis yra prompt'o audito nuoroda į
+ * task_sha256/context_pack_sha256.
  */
 function taskDedupedExecutionContext(contextPackText: string | undefined, artifact: string): string {
   if (!contextPackText) {
@@ -269,20 +275,30 @@ function taskDedupedExecutionContext(contextPackText: string | undefined, artifa
   if (!pack.success) {
     return artifact;
   }
+  // `maxChars` imamas iš PAČIO artefakto, o ne iš `pack.budget`: kešo hit'o kelyje senas pack'as
+  // renderinamas su dabartiniu tier'o biudžetu (`assemble.ts`), tad `pack.budget.max_context_chars`
+  // gali nebeatitikti to, su kuo artefaktas buvo sukurtas. Be šito dedup tyliai virstų no-op'u
+  // būtent pakartotiniuose bandymuose, kur tier'as ir keičiasi.
+  // Vartų lygybė yra normalizuota (`contextArtifactSha256` nuima CR), tad ir čia CRLF artefaktas
+  // privalo suveikti — kitaip dedup tyliai išsijungtų ten, kur vartai praleido. Repozitorija yra
+  // LF-only, tad normalizuotas rezultatas nieko nesugadina.
+  const normalized = artifact.replace(/\r\n/g, "\n");
+  const charLimit = /^- char_limit: (\d+)$/m.exec(normalized)?.[1];
+  const options = charLimit === undefined ? {} : { maxChars: Number(charLimit) };
   let full: string;
   let deduped: string;
   try {
-    full = renderExecutionContext(pack.data).markdown.trimEnd();
-    deduped = renderExecutionContext(pack.data, { excludeTaskDerived: true }).markdown.trimEnd();
+    full = renderExecutionContext(pack.data, options).markdown.trimEnd();
+    deduped = renderExecutionContext(pack.data, { ...options, excludeTaskDerived: true }).markdown.trimEnd();
   } catch {
     // Renderis meta tik tada, kai biudžetas nepasiekiamas. Prompt'o gamyba dėl to negali kristi:
     // vartai artefaktą jau patvirtino, tad teisingas elgesys yra jį atiduoti tokį, koks yra.
     return artifact;
   }
-  if (!artifact.endsWith(full)) {
+  if (!normalized.endsWith(full)) {
     return artifact;
   }
-  return `${artifact.slice(0, artifact.length - full.length)}${deduped}`;
+  return `${normalized.slice(0, normalized.length - full.length)}${deduped}`;
 }
 
 /**

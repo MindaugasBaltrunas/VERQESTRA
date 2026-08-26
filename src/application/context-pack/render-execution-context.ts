@@ -38,9 +38,13 @@ export type RenderExecutionContextOptions = {
    * be task failo šalia, ir privalo likti pilnas. Nenurodyta arba `false` — elgesys nesikeičia
    * baitas į baitą.
    *
-   * Kandidatai išmetami PRIEŠ biudžeto ciklą, tad atlaisvintus simbolius perima įrodymai
-   * (spec fragmentai, SRC pjūviai), kurie kitaip būtų iškritę. Dokumentas dėl to niekada
-   * neišauga virš `maxChars` ir, kai nieko nebuvo metama, yra griežtai trumpesnis.
+   * Vėliava keičia TIK tai, kurie blokai patenka į kūną. Biudžeto metimo ciklas, elementų
+   * rinkinys, `dropped`, antraštės skaičiai ir fingerprint'as lieka tokie patys kaip
+   * artefakto — tad rezultatas yra GRIEŽTAS artefakto poaibis: dedup gali tik atimti.
+   *
+   * Filtruoti PRIEŠ ciklą būtų klaida: atlaisvinti simboliai grąžintų anksčiau išmestus
+   * įrodymus, ir prompt'e atsirastų untrusted turinio, kurio artefakte NĖRA — o artefaktas
+   * yra vienintelis įrašas apie tai, ką worker'is matė.
    */
   excludeTaskDerived?: boolean;
 };
@@ -104,24 +108,19 @@ export function renderExecutionContext(
   options: RenderExecutionContextOptions = {},
 ): RenderedExecutionContext {
   const maxChars = resolveMaxChars(pack, options);
-  const all = buildCandidates(pack);
-  // Praleidimas skaičiuojamas iš PRAEITO sąrašo, ne iš vėliavos: `excludeTaskDerived` ties
-  // pack'u be nė vieno tokio bloko yra no-op ir antraštės eilutės neprideda.
-  const omittedTaskDerived = options.excludeTaskDerived === true ? all.filter(isTaskDerived).length : 0;
-  const candidates = omittedTaskDerived > 0 ? all.filter((candidate) => !isTaskDerived(candidate)) : all;
+  const candidates = buildCandidates(pack);
 
+  // Ciklas mato PILNĄ dokumentą net ir dedup vaizde: metimo sprendimas privalo likti toks pat
+  // kaip artefakto, kitaip prompt'as nustotų būti jo poaibis.
   const kept = [...candidates];
   const dropped: Candidate[] = [];
   for (const priority of DROP_ORDER) {
-    if (renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER, omittedTaskDerived).length <= maxChars) {
+    if (renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER, false).length <= maxChars) {
       break;
     }
     for (let index = lastIndexOfPriority(kept, priority); index >= 0; index = lastIndexOfPriority(kept, priority)) {
       dropped.push(...kept.splice(index, 1));
-      if (
-        renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER, omittedTaskDerived).length <=
-        maxChars
-      ) {
+      if (renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER, false).length <= maxChars) {
         break;
       }
     }
@@ -129,7 +128,14 @@ export function renderExecutionContext(
 
   const elements = kept.map(toElement);
   const fingerprint = computeFingerprint(pack, elements, maxChars);
-  const markdown = renderDocument(pack, kept, dropped.length, maxChars, fingerprint, omittedTaskDerived);
+  const markdown = renderDocument(
+    pack,
+    kept,
+    dropped.length,
+    maxChars,
+    fingerprint,
+    options.excludeTaskDerived === true,
+  );
   if (markdown.length > maxChars) {
     throw new Error(
       `execution context exceeds max_chars ${markdown.length} > ${maxChars} with only non-droppable elements left ` +
@@ -244,8 +250,13 @@ function renderDocument(
   droppedCount: number,
   maxChars: number,
   fingerprint: string,
-  omittedTaskDerived: number,
+  excludeTaskDerived: boolean,
 ): string {
+  // Kūnas siaurėja, antraštė — ne: `elements`, `dropped` ir `fingerprint` ir toliau aprašo TĄ
+  // PATĮ artefaktą, tad prompt'ą su `execution-context.md` lyginantis skaitytojas mato vieną
+  // atspaudą ir vieną eilutę, paaiškinančią, kurių blokų kūne nėra ir kodėl.
+  const rendered = excludeTaskDerived ? kept.filter((candidate) => !isTaskDerived(candidate)) : kept;
+  const omitted = kept.length - rendered.length;
   // Taisyklė yra NEIŠMETAMA ir stovi PRIEŠ bet kokį cituojamą turinį: vartas, kuris ateina po
   // duomenų, jau nebėra vartas. Ji renderinama net kai `untrusted` elementų nėra — tada ji
   // kainuoja kelis šimtus simbolių, bet dokumento reikšmė nepriklauso nuo to, kas į jį pateko.
@@ -262,17 +273,28 @@ function renderDocument(
     // atrodytų kaip artefaktas, kuriam tiesiog nepavyko surinkti goal/checks — o tai tiksliai
     // tas signalas, kurio skaitytojas neturi gauti. Eilutė atsiranda TIK dedup vaizde, tad
     // artefakto baitai nesikeičia.
-    ...(omittedTaskDerived > 0
+    //
+    // Kartu ji perneša tai, ką nešė nuimtų blokų `reason:` eilutės (ribos griežtumas, checks
+    // privalomumas) — jos NĖRA task failo tekstas, tad kitaip iš prompt'o dingtų visai.
+    ...(omitted > 0
       ? [
-          `- task_derived: ${omittedTaskDerived} element(s) omitted — the prompt carries the task itself; ` +
-            `this is the dispatch view, not the \`${EXECUTION_CONTEXT_FILENAME}\` audit artifact`,
+          `- task_derived: ${omitted} element(s) omitted here — ` +
+            `${keptTaskDerivedTitles(kept).join(", ")}. The task above carries them verbatim: its allowed paths ` +
+            `remain the hard edit boundary, its checks must all pass, and its non-goals stay out of scope. ` +
+            `The complete record of this context is \`${EXECUTION_CONTEXT_FILENAME}\`, fingerprint \`${fingerprint}\`.`,
         ]
       : []),
     "",
     ...TRUST_BOUNDARY_RULE.split("\n").map((line) => `> ${line}`),
   ].join("\n");
 
-  return [header, ...kept.map(renderBlock)].join("\n\n") + "\n";
+  return [header, ...rendered.map(renderBlock)].join("\n\n") + "\n";
+}
+
+// Nuimamų blokų antraštės, canonical tvarka — kad praleidimo eilutė įvardytų, KO trūksta, o ne
+// tik kiek jų buvo.
+function keptTaskDerivedTitles(kept: Candidate[]): string[] {
+  return kept.filter(isTaskDerived).map((candidate) => candidate.title);
 }
 
 function renderBlock(candidate: Candidate): string {

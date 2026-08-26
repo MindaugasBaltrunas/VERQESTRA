@@ -134,10 +134,77 @@ test("029: `excludeTaskDerived` nuima penkis blokus ir palieka įrodymus", () =>
 
   // Praleidimas skelbiamas, o ne daromas tyliai: kitaip vaizdas atrodytų kaip artefaktas,
   // kuriam nepavyko surinkti goal/checks.
-  assert.match(deduped, /- task_derived: 5 element\(s\) omitted/);
-  assert.match(deduped, /not the `execution-context\.md` audit artifact/);
+  assert.match(deduped, /- task_derived: 5 element\(s\) omitted here/);
+  assert.match(deduped, /Goal, Acceptance criteria, Allowed paths, Checks, Out of scope\./);
+  // Nuimtų blokų `reason:` eilutės NĖRA task failo tekstas, tad be šito iš prompt'o dingtų visai.
+  assert.match(deduped, /allowed paths remain the hard edit boundary, its checks must all pass/);
+  assert.match(deduped, /complete record of this context is `execution-context\.md`/);
 
-  assert.ok(deduped.length < renderExecutionContext(pack).markdown.length, "dedup vaizdas trumpesnis");
+  const full = renderExecutionContext(pack);
+  assert.ok(deduped.length < full.markdown.length, "dedup vaizdas trumpesnis");
+  // Antraštė ir toliau aprašo TĄ PATĮ artefaktą: vienas atspaudas, vieni skaičiai.
+  assert.ok(deduped.includes(`- fingerprint: \`${full.context.fingerprint}\``), "atspaudas artefakto");
+  assert.ok(deduped.includes(`- elements: ${full.context.elements.length} kept, 0 dropped`));
+});
+
+// HIGH klasė: filtruojant PRIEŠ biudžeto ciklą, atlaisvinti simboliai grąžintų anksčiau
+// išmestus įrodymus, ir prompt'e atsirastų untrusted turinio, kurio artefakte NĖRA. Artefaktas
+// yra vienintelis įrašas apie tai, ką worker'is matė, tad kryptis gali būti tik viena.
+test("029: prie ankšto biudžeto dedup vaizdas lieka GRIEŽTAS artefakto poaibis", () => {
+  const pack = contextPackSchema.parse({
+    ...realisticPack(),
+    spec_fragments: [
+      "doc/pirmas.md\n" + "PIRMAS ".repeat(120),
+      "doc/antras.md\n" + "ANTRAS ".repeat(120),
+      "doc/trecias.md\n" + "TRECIAS ".repeat(120),
+    ],
+  });
+  const maxChars = 4200;
+  const full = renderExecutionContext(pack, { maxChars });
+  const deduped = renderExecutionContext(pack, { maxChars, excludeTaskDerived: true });
+
+  assert.ok(full.context.dropped.length > 0, "fikstūra privalo REALIAI ką nors išmesti");
+  const droppedIds = full.context.dropped.map((entry) => entry.id);
+  assert.deepEqual(
+    deduped.context.dropped.map((entry) => entry.id),
+    droppedIds,
+    "metimo sprendimas identiškas artefakto — dedup jo neperskaičiuoja",
+  );
+  assert.equal(deduped.context.fingerprint, full.context.fingerprint, "tas pats artefaktas, tas pats atspaudas");
+
+  // Nė vieno bloko, kurio artefakte nėra — ir lygiai penkiais mažiau.
+  const blockTitles = (markdown: string) =>
+    markdown
+      .split("\n## ")
+      .slice(1)
+      .map((block) => block.split("\n")[0] ?? "");
+  const dedupedTitles = blockTitles(deduped.markdown);
+  const fullTitles = blockTitles(full.markdown);
+  for (const title of dedupedTitles) {
+    assert.ok(fullTitles.includes(title), `"${title}" privalo egzistuoti ir artefakte`);
+  }
+  assert.equal(
+    dedupedTitles.length,
+    fullTitles.length - fullTitles.filter((title) => TASK_DERIVED_HEADINGS.includes(`## ${title}`)).length,
+    "dedup atima tik task-derived blokus ir nieko negrąžina",
+  );
+  assert.ok(deduped.markdown.length < full.markdown.length, "poaibis niekada nėra ilgesnis");
+});
+
+test("029: praleidimo eilutė skaičiuoja tik REALIAI esančius task-derived blokus", () => {
+  // Pack'as be `out_of_scope`: `pushIfPresent` tokio kandidato net nesukuria.
+  const withoutOutOfScope = contextPackSchema.parse({
+    task_id: "029-be-out-of-scope",
+    phase: "implementation",
+    goal: "Tikslas.",
+    acceptance_criteria: ["Padaryti."],
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+  });
+  const deduped = renderExecutionContext(withoutOutOfScope, { excludeTaskDerived: true }).markdown;
+  assert.match(deduped, /- task_derived: 4 element\(s\) omitted here/);
+  assert.match(deduped, /Goal, Acceptance criteria, Allowed paths, Checks\./);
+  assert.ok(!deduped.includes("## Out of scope"));
 });
 
 test("029: prompt'as neša task'ą vieną kartą ir yra trumpesnis už pre-dedup prompt'ą", () => {

@@ -609,8 +609,8 @@ const lt: Record<string, string> = {
   "Do not enable": "Nejungti",
   "Not enough data": "Trūksta duomenų",
   "Not measured": "Nematuojama",
-  "Shadow comparison says the IR form is larger than raw on average — enabling would grow packs, not shrink them":
-    "Šešėlinis palyginimas rodo, kad IR forma vidutiniškai DIDESNĖ už neapdorotą — įjungus paketai augtų, o ne mažėtų",
+  "Shadow comparison says the IR form is larger than raw on average — the size guard would refuse every compiled body and dispatch the raw task anyway, so enabling buys nothing":
+    "Šešėlinis palyginimas rodo, kad IR forma vidutiniškai DIDESNĖ už neapdorotą — dydžio sargas kiekvieną sukompiliuotą formą atmestų ir vis tiek išsiųstų neapdorotą task'ą, tad įjungimas nieko neduoda",
   "The IR form is smaller on average and the budget is under pressure — enabling shrinks packs where it matters":
     "IR forma vidutiniškai mažesnė, o biudžetas spaudžiamas — įjungimas sumažintų paketus ten, kur to reikia",
   "The IR form is smaller on average, but the budget is not under pressure — enabling is safe yet buys nothing right now":

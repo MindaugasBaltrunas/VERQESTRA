@@ -84,7 +84,7 @@ const ACTION_TONES: Record<string, "good" | "error" | "neutral"> = {
 
 const REASON_SENTENCES: Record<string, string> = {
   "ir-larger-on-average":
-    "Shadow comparison says the IR form is larger than raw on average — enabling would grow packs, not shrink them",
+    "Shadow comparison says the IR form is larger than raw on average — the size guard would refuse every compiled body and dispatch the raw task anyway, so enabling buys nothing",
   "ir-smaller-under-pressure":
     "The IR form is smaller on average and the budget is under pressure — enabling shrinks packs where it matters",
   "ir-smaller-no-pressure":

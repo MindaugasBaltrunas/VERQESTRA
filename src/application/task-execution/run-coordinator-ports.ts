@@ -1,5 +1,6 @@
 /** Effect ports and data contracts consumed by the canonical task run coordinator. */
 import type { TaskBucket } from "../../domain/tasks/index.js";
+import type { ExecutorWriteActivity, NoCommitDoneInputs } from "../../domain/diagnosis/dispositions.js";
 import type { PreflightFailureMemoRecord } from "../quality-gates/preflight-memo-schema.js";
 import type { IntegrationEnforcementMode } from "../integration/wave-gates-schema.js";
 import { type EvaluateIntegrationRiskInput, type IntegrationRiskVerdict } from "../integration/evaluate-integration-risk.js";
@@ -223,11 +224,14 @@ export type ExecutionPolicyPort = {
 /** Grynos diagnozės taisyklės (`domain/diagnosis/dispositions.ts` + stream-log skaitytojas) per port'ą. */
 export type DiagnosisRulesPort = {
   hasAlreadyImplementedMarker(claudeLog: string): boolean;
-  resolveNoCommitDisposition(inputs: {
-    hasAlreadyImplementedMarker: boolean;
-    productDirtyCount: number;
-    hasWorkEvidence: boolean;
-  }): "done" | "rollback" | "human-review";
+  resolveNoCommitDisposition(inputs: NoCommitDoneInputs): "done" | "rollback" | "human-review";
+  /**
+   * Laikina stadija (task 032-b-03): neprivalomas, nes fake portams (testų helperiuose) dar
+   * nėra implementacijos. Sekantis task'as padarys privalomą, kai fake'ai bus atnaujinti.
+   */
+  readExecutorWriteActivity?(claudeLog: string): ExecutorWriteActivity;
+  /** Laikina stadija — žr. `readExecutorWriteActivity` komentarą. */
+  resolveNoCommitReviewReason?(inputs: NoCommitDoneInputs): string;
 };
 
 export type CompletionPort = {

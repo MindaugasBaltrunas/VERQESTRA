@@ -27,10 +27,11 @@ import {
   modelTierOfRoutingTier,
   routingTierOfSelection,
 } from "../../infrastructure/adapters/claude-model-env.js";
+import { classifyDispatchWriteOutcome, extractDispatchToolUsage } from "../../infrastructure/adapters/claude-tool-schema.js";
 import { loadProjectProfile } from "../agent/preflight-adapters.js";
 import { buildTaskUsageLedger, parseTaskUsageEntries } from "../../domain/tokens/usage-ledger.js";
 import { logHasAlreadyImplementedMarker } from "../../domain/diagnosis/stream-log.js";
-import { resolveNoCommitDisposition } from "../../domain/diagnosis/dispositions.js";
+import { resolveNoCommitDisposition, resolveNoCommitReviewReason } from "../../domain/diagnosis/dispositions.js";
 import { nonRuntimeDirtyEntriesFromStatus } from "../../domain/git/changes.js";
 import {
   mergeStopBridgeSources,
@@ -193,6 +194,8 @@ export function coordinatorPolicyPort(input: CoordinatorAdapterInput): Execution
 export const coordinatorRulesPort: DiagnosisRulesPort = {
   hasAlreadyImplementedMarker: (claudeLog) => logHasAlreadyImplementedMarker(claudeLog),
   resolveNoCommitDisposition: (inputs) => resolveNoCommitDisposition(inputs),
+  readExecutorWriteActivity: (claudeLog) => classifyDispatchWriteOutcome(extractDispatchToolUsage(claudeLog)),
+  resolveNoCommitReviewReason: (inputs) => resolveNoCommitReviewReason(inputs),
 };
 
 /** Užbaigimas: stable-ref, architektūros sinchronizacija, kaskada, archyvavimas, vaikai. */

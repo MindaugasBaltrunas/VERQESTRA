@@ -28,7 +28,7 @@ Draudžiama:
 - `.env`
 
 ## Dependencies
-depends_on: 029-prompt-nesa-taska-viena-karta-konteksto-dedup.md
+depends_on: 041-sprendimo-task-id-antspauduojamas-o-ne-patikimas-modeliu.md
 
 ## Veiksmas
 - FAKTAS: `persist.ts:91-92,115-116` shadow'as matuoja `workerTaskIrChars(ir)` vs

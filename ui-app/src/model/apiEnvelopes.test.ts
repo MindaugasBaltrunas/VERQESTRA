@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPolicyProposals, fetchWaves, resumeLoop, startLoopWithWorkers, stopLoop } from "./api";
+import {
+  fetchBenchmarkReport,
+  fetchCompression,
+  fetchPolicyProposals,
+  fetchWaves,
+  resumeLoop,
+  startLoopWithWorkers,
+  stopLoop,
+} from "./api";
 
 /**
  * ATSAKYMŲ VOKŲ testai (2026-08-23 UI audito antras ratas).
@@ -66,6 +74,79 @@ describe("politikų pasiūlymų vokas", () => {
   it("žalias sąrašas be voko meta klaidą vietoj amžino „Įkeliama…“", async () => {
     stubFetch([{ policy_file: "vq/architecture/coding-principles.json" }]);
     await expect(fetchPolicyProposals()).rejects.toThrow(/'proposals' sąrašo/);
+  });
+});
+
+/**
+ * Bendras struktūrinės patikros primityvas (task 029): `/api/compression` ir
+ * `/api/benchmark/report` iki šiol kirto HTTP ribą su `as`, be jokios runtime patikros.
+ */
+describe("kompresijos atsakymo struktūrinė patikra", () => {
+  const validCompression = {
+    version: 1,
+    canary: { percent: 10, salt: "abc" },
+    features: [],
+    telemetry: { sample_count: 0, exceeded_count: 0, ir_compared_count: 0, ir_smaller_count: 0 },
+    decision: { pressure: { level: "none" }, recommendations: [] },
+    degraded: [],
+  };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validCompression);
+    expect(await fetchCompression()).toEqual(validCompression);
+  });
+
+  it("trūkstamas laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { decision, ...withoutDecision } = validCompression;
+    void decision;
+    stubFetch(withoutDecision);
+    await expect(fetchCompression()).rejects.toThrow(/\/api\/compression.*decision/s);
+  });
+
+  it("giliai įdėtas trūkstamas laukas ('decision.pressure') irgi įvardijamas", async () => {
+    stubFetch({ ...validCompression, decision: { recommendations: [] } });
+    await expect(fetchCompression()).rejects.toThrow(/decision\.pressure/);
+  });
+
+  it("`null` vietoj objekto meta klaidą, o ne praslysta kaip `undefined`", async () => {
+    stubFetch(null);
+    await expect(fetchCompression()).rejects.toThrow(/\/api\/compression/);
+  });
+
+  it("masyvas vietoj objekto meta klaidą", async () => {
+    stubFetch([]);
+    await expect(fetchCompression()).rejects.toThrow(/\/api\/compression/);
+  });
+});
+
+describe("benchmark ataskaitos atsakymo struktūrinė patikra", () => {
+  const validReport = {
+    state: "missing",
+    reason: "nėra ataskaitos",
+    source: { path: "AG/benchmark/report.json", command: "pnpm report:benchmark" },
+    freshness: {},
+  };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validReport);
+    expect(await fetchBenchmarkReport()).toEqual(validReport);
+  });
+
+  it("trūkstamas 'source' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { source, ...withoutSource } = validReport;
+    void source;
+    stubFetch(withoutSource);
+    await expect(fetchBenchmarkReport()).rejects.toThrow(/\/api\/benchmark\/report.*source/s);
+  });
+
+  it("`null` vietoj objekto meta klaidą, o ne praslysta kaip `undefined`", async () => {
+    stubFetch(null);
+    await expect(fetchBenchmarkReport()).rejects.toThrow(/\/api\/benchmark\/report/);
+  });
+
+  it("masyvas vietoj objekto meta klaidą", async () => {
+    stubFetch([]);
+    await expect(fetchBenchmarkReport()).rejects.toThrow(/\/api\/benchmark\/report/);
   });
 });
 

@@ -18,7 +18,7 @@ import type {
   WorkflowBucket,
   UploadResult,
 } from "./types";
-import { parseDashboardData } from "./dashboardContract";
+import { parseDashboardData, requireContractFields, type ContractField } from "./dashboardContract";
 
 export function getUiToken(): string {
   return document.querySelector<HTMLMetaElement>('meta[name="vq-ui-token"]')?.content ?? "";
@@ -282,11 +282,21 @@ export async function fetchReliabilityAnalytics(fresh = false): Promise<Reliabil
   return data;
 }
 
+/**
+ * Laukai, be kurių `BenchmarkPage` griūva: `data.state`/`data.source.command` skaitomi be
+ * apsaugos, kai `state` yra `"missing"`/`"corrupt"`. `report` lieka neprivalomas — tipe jis
+ * `?:`, o puslapis jo laukia po `data && report &&` sąlyga.
+ */
+const BENCHMARK_REPORT_FIELDS: readonly ContractField[] = [
+  { path: "state", kind: "string" },
+  { path: "source", kind: "object" },
+];
+
 /** BENCH-11: the backend report is authoritative; this fetches it read-only, GET only. */
 export async function fetchBenchmarkReport(): Promise<BenchmarkReportView> {
   const response = await request("/api/benchmark/report");
   await assertOk(response);
-  return await (response.json() as Promise<BenchmarkReportView>);
+  return requireContractFields<BenchmarkReportView>(await response.json(), BENCHMARK_REPORT_FIELDS, "/api/benchmark/report");
 }
 
 /**
@@ -305,11 +315,22 @@ export async function decidePolicyProposal(
   return requireProposals(await r.json(), `/api/policies/proposals/${verb}`);
 }
 
+/** Laukai, kuriuos `CompressionPage` skaito be apsaugos (`data.decision.pressure.level` ir kt.). */
+const COMPRESSION_FIELDS: readonly ContractField[] = [
+  { path: "canary", kind: "object" },
+  { path: "features", kind: "array" },
+  { path: "telemetry", kind: "object" },
+  { path: "decision", kind: "object" },
+  { path: "decision.pressure", kind: "object" },
+  { path: "decision.recommendations", kind: "array" },
+  { path: "degraded", kind: "array" },
+];
+
 /** Kompresijos vėliavos ir jų shadow telemetrija. */
 export async function fetchCompression(): Promise<CompressionView> {
   const response = await request("/api/compression");
   await assertOk(response);
-  return await (response.json() as Promise<CompressionView>);
+  return requireContractFields<CompressionView>(await response.json(), COMPRESSION_FIELDS, "/api/compression");
 }
 
 /**

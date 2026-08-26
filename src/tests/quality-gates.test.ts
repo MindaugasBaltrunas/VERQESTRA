@@ -67,8 +67,10 @@ test("bash politika: --dir leidžia benchmark:smoke, bet ne mokamas ar rašanči
     "offline dūmų testas leidžiamas: jis pats tikrina, kad nė viena jo komanda neneša --allow-network/--live",
   );
 
-  // Rašantis script'as — kitas saugumo profilis, sąmoningai neleidžiamas.
-  assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:report").blockedPattern);
+  // `benchmark:report` (2026-08-26): rašytojas, bet be argumentų ir tik į fiksuotus reports/
+  // kelius — dashboard'o panelio šaltinis. Kiti rašantys script'ai lieka už ribos.
+  assert.equal(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:report").blockedPattern, undefined);
+  assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:report --force").blockedPattern, "argumentai nepraeina");
   // Šablonas leidžia TIK script'o vardą, tad mokamos formos nepraeina net su leistinu vardu.
   assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:smoke --allow-network").blockedPattern);
   assert.ok(evaluateBashCommandPolicy("pnpm --dir AG/benchmark benchmark:smoke --live").blockedPattern);

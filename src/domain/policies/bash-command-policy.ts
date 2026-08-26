@@ -194,10 +194,12 @@ const allowedCommandSegments = [
   // REIKALAUJA, kad tinklo režimas be leidimo būtų atmestas. Modelio jis nepasiekia, ir
   // regresija, kuri tai pakeistų, krenta pačiame smoke, o ne sąskaitoje.
   //
-  // `benchmark:report` čia NEĮRAŠYTAS: jis rašo raportą, o rašantis script'as yra kitas
-  // saugumo profilis nei patikra. `--allow-network` formos lieka neleistinos apskritai, nes
-  // šablonas leidžia TIK script'o vardą — argumentų jis nepriima.
-  /^pnpm\s+--dir\s+(?![A-Za-z]:)(?![\\/])(?!\.\.(?:[\\/]|$))(?!.*[\\/]\.\.(?:[\\/]|$))[\w.\\/-]+\s+(?:build(?::[\w-]+)?|typecheck|lint|test(?::[\w-]+)?|test:architecture|check|format:check|benchmark:smoke)$/i,
+  // `benchmark:report` (2026-08-26, operatoriaus sprendimas — dashboard'o „Etaloninis testas"
+  // panelis skaito jo generuojamą JSON): rašytojas, bet APRIBOTAS pagal konstrukciją — paketo
+  // entrypoint'as argumentų nepriima ir rašo tik į fiksuotus `reports/benchmark-report.{json,md}`
+  // kelius paketo viduje. `--allow-network` formos lieka neleistinos apskritai, nes šablonas
+  // leidžia TIK script'o vardą — argumentų jis nepraleidžia.
+  /^pnpm\s+--dir\s+(?![A-Za-z]:)(?![\\/])(?!\.\.(?:[\\/]|$))(?!.*[\\/]\.\.(?:[\\/]|$))[\w.\\/-]+\s+(?:build(?::[\w-]+)?|typecheck|lint|test(?::[\w-]+)?|test:architecture|check|format:check|benchmark:smoke|benchmark:report)$/i,
   // pnpm leidžia script'us kviesti be "run" — agentų doc (pvz. audit-director) naudoja šią formą.
   /^pnpm\s+(?:typecheck|lint|test:architecture|check|format:check)\b/i,
   /^node\s+--test(?!.*--(?:require|loader|import|env-file|experimental-loader)\b)/i,

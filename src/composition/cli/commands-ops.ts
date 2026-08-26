@@ -61,7 +61,7 @@ import { createRunCoordinator } from "../../application/task-execution/run-coord
 import { taskRunPorts } from "../loop/coordinator-execution-adapters.js";
 import { cliChildRunner } from "../loop/coordinator-adapters.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
-import { consumeLoopStopRequest } from "../../interfaces/http/loop-lifecycle.js";
+import { clearStaleLoopStopState, consumeLoopStopRequest } from "../../interfaces/http/loop-lifecycle.js";
 import { ensureUiRunning } from "../../interfaces/http/ui-lifecycle.js";
 import { uiPortPorts } from "../ui/command.js";
 import { appendLogLine } from "../loop/adapters.js";
@@ -276,6 +276,23 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
           runCommand: (args: string[]) => cliChildRunner(deps.roots.projectRoot).runCli(args),
           taskStore: createTaskStateStore({ runtimeRoot: deps.roots.runtimeRoot, agRoot: deps.roots.agRoot }),
         };
+        // Pasenusi stabdymo būsena valoma KIEKVIENAME ciklo starte, o ne viename maršrute.
+        //
+        // 2026-08-26: `startLoop` (`interfaces/http/loop-lifecycle`) `clearStaleLoopStopState`
+        // kviečia TIK `already-running` šakoje — t. y. tada, kai naujas ciklas net nepaleidžiamas.
+        // Šviežio starto kelias jos nekviečia iš viso, o `loop-control.json` `drain` yra LIPNUS:
+        // jis lieka diske po kiekvieno „Stop". Pasekmė operatoriui: „Paleisti" praneša `started`,
+        // vaikas tikrai pakyla, pamato `drain` ir miršta per sekundę — mygtukas atrodo neveikiantis
+        // (`LOOP DRAIN: slot=w1 mode=drain … not dispatched` + `LOOP STOP: no slot dispatched`).
+        // Terminalinis `verqestra loop` atsimušdavo į tą pačią sieną, nes irgi nėjo per `startLoop`.
+        //
+        // Čia valymas dengia ABU kelius vienu tašku: UI `spawnLoop` paleidžia būtent šią CLI komandą.
+        // Operacija idempotentinė, o `startLoop` savo kvietimą pasilieka — jo šakoje naujas procesas
+        // nepaleidžiamas, tad šis kodas ten nepasiekiamas.
+        await clearStaleLoopStopState({
+          ports: processLifecyclePorts({ projectRoot: deps.roots.projectRoot, runtimeRoot: deps.roots.runtimeRoot }),
+          runtimeRoot: deps.roots.runtimeRoot,
+        });
         return await runLoopCommand({
           roots: deps.roots,
           log: (message: string) => appendLogLine(deps.roots.runtimeRoot, "orchestrator.log", message),

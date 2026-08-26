@@ -9,6 +9,7 @@ import type {
   BenchmarkScenarioSection,
 } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
+import { BenchmarkInsights } from "../components/BenchmarkInsights";
 import { CompressionCohortPanel } from "../components/CompressionCohortPanel";
 import { Header, type Route } from "../components/Header";
 
@@ -187,6 +188,11 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                 )}
               </div>
             </section>
+
+            {/* Išvados + dvikovos diagrama + žodynėlis (2026-08-26): kas su kuo lyginama ir kas
+                laimi — PRIEŠ žalią lentelių sieną, nes skaitytojo pirmas klausimas yra verdiktas
+                žmogaus kalba, o ne 11 metrikų sąrašas. */}
+            <BenchmarkInsights modes={modes} />
 
             {modes.length > 0 && (
               <section className="panel">

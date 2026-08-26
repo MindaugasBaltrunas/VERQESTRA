@@ -190,6 +190,32 @@ test("ensureLoopRunning: pasenęs įrašas (miręs PID) nestabdo naujo starto", 
   assert.match(world.store.get(loopRuntimeRecordPath(loopPidFile(STATE))) ?? "", /"pid": 4242/);
 });
 
+test("ensureLoopRunning: ŠVIEŽIAS startas išvalo lipnų `drain` PRIEŠ spawn'ą", async () => {
+  // 2026-08-26 defektas: `clearStaleLoopStopState` buvo kviečiama TIK `already-running` šakoje,
+  // t. y. kai naujas ciklas net nepaleidžiamas. O `drain` lieka diske po kiekvieno „Stop", tad jį
+  // pamato būtent šviežias startas: UI grąžindavo `started`, vaikas pakildavo ir mirdavo per
+  // sekundę ties „no slot dispatched". Operatoriui mygtukas atrodė neveikiantis.
+  const world = lifecycleWorld({
+    [loopControlFile(STATE)]: JSON.stringify({
+      schema_version: 1,
+      updated_at: "2026-08-25T21:02:11.663Z",
+      slots: { w1: { mode: "drain", requested_at: "2026-08-25T21:02:11.662Z" } },
+    }),
+    [loopStopFile(STATE)]: "2026-08-25T21:02:11.663Z\n",
+  });
+
+  const result = await ensureLoopRunning(loopDeps(world));
+  assert.deepEqual(result, { status: "started", pid: 4242 });
+  assert.deepEqual(world.spawned, ["loop"], "vaikas paleistas");
+
+  assert.equal(world.store.has(loopStopFile(STATE)), false, "stop vėliava suvartota");
+  assert.match(
+    world.store.get(loopControlFile(STATE)) ?? "",
+    /"mode": "run"/,
+    "lipnus drain privalo būti atstatytas, kitaip vaikas mirs prieš pirmą dispatch'ą",
+  );
+});
+
 test("ensureLoopRunning: paleidimo gedimas virsta `failed`, ne išimtimi", async () => {
   const failing = lifecycleWorld();
   failing.spawnFails = true;

@@ -106,6 +106,15 @@ async function startLoop(deps: LoopLifecycleDeps): Promise<LoopStartResult> {
 
   await removeStaleRuntimeRecord(ports.runtime, pidFile);
 
+  // Valymas reikalingas LABIAUSIAI čia, o ne `already-running` šakoje: `drain` lieka diske po
+  // kiekvieno „Stop", tad būtent ŠVIEŽIAS startas jį ir pamato. Iki 2026-08-26 šioje šakoje jo
+  // nebuvo — mygtukas grąžindavo `started`, vaikas pakildavo, pamatydavo `drain` ir mirdavo per
+  // sekundę (`LOOP DRAIN: … not dispatched` + `LOOP STOP: no slot dispatched`). Operatoriui tai
+  // atrodė kaip neveikiantis mygtukas.
+  //
+  // Valoma PRIEŠ spawn'ą: vaikas savo pirmą dispatch'ą daro iškart, tad po jo būtų per vėlu.
+  await clearStaleLoopStopState(deps);
+
   let child;
   try {
     child = await ports.spawnLoop();

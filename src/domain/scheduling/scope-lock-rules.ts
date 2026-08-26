@@ -135,6 +135,88 @@ function wildcardPatternMatches(file: string, pattern: string): boolean {
   return new RegExp(`^${source}$`).test(file);
 }
 
+/**
+ * Šablono uodegos segmentai po bendro kieto prefikso, arba `null`, jei uodega netinka
+ * segmentų skaičiavimui. `null` grąžinamas trimis atvejais ir KIEKVIENAS yra soundness'o
+ * dalis, ne atsargumas:
+ *
+ * 1. Tuščia uodega. Šablonas be wildcard'ų krenta į `globMatches` be-`*` šaką, o ji reiškia
+ *    KATALOGĄ (`target === glob` arba `target.startsWith(glob + "/")`), tad atitinka bet kokį
+ *    gylį. Segmentų skaičius tokiam šablonui neapibrėžtas.
+ * 2. Dvigubos žvaigždutės seka bet kurioje segmento vietoje — ne tik kai visas segmentas yra
+ *    dviguba žvaigždutė. Pvz. `src/a__b.ts` (kur `__` yra dviguba žvaigždutė) virsta
+ *    `^src/a.*b\.ts$`, o `.*` KERTA pasvirąjį brūkšnį: segmentų skaičiavimas meluotų.
+ * 3. `?` bet kurioje vietoje — priežastis žemiau, prie paties patikrinimo.
+ *
+ * Mažosios raidės daromos VISAM šablonui vienu kartu prieš `split`, lygiai kaip `globMatches`
+ * daro `comparable(pattern)` prieš lyginimą. Segmentų normalizavimas atskirai duotų kitą
+ * rezultatą tik tada, jei skirtųsi nuo viso string'o normalizavimo — o skirtis reikštų, kad
+ * uodegos lyginamos ne ta pačia forma, kuria jas mato `globMatches`.
+ */
+function globTailSegments(pattern: string, prefixSegmentCount: number): string[] | null {
+  const segments = comparable(pattern).split("/").slice(prefixSegmentCount);
+  if (segments.length === 0) return null;
+  for (const segment of segments) {
+    // `?` be nė vienos `*` patenka į TĄ PAČIĄ be-`*` katalogo šaką (1 punktas), nors `solidPrefix`
+    // jį jau laiko wildcard'u. Kontrpavyzdys, kurį šis bail'as uždaro: `src/a?.ts` ir
+    // `src/<žvaigždutė>/y.log` abu atitinka kelią `src/a?.ts/y.log` (pirmasis — kaip katalogo
+    // prefiksas, antrasis — kaip vienas lygis), nors uodegų ilgiai skiriasi (1 vs 2).
+    // Pagrindimas yra „be-`*` šaka = katalogo semantika", NE escape'inimo nesutapimas.
+    if (!segment || segment.includes("**") || segment.includes("?")) return null;
+  }
+  return segments;
+}
+
+/**
+ * Ar du to paties lygio segmentai įrodomai negali sutapti nė viename kelyje.
+ *
+ * Pagrindas: bet kuri `wildcardPatternMatches` atitiktis privalo prasidėti literaliu prefiksu
+ * iki pirmos `*` ir baigtis literaliu sufiksu po paskutinės `*`. Jei abi pusės turi `*`, tas
+ * pats string'as privalėtų prasidėti abiem prefiksais ir baigtis abiem sufiksais — o to paties
+ * string'o prefiksai (sufiksai) visada palyginami tarpusavyje. Nepalyginami prefiksai (arba
+ * nepalyginami sufiksai) reiškia tuščią sankirtą.
+ *
+ * Taisyklė sąmoningai NEPILNA: `a*` ir `ab*` čia lieka „gali sutapti", nors jų sankirta ir
+ * netuščia. Nepilnumas visada krypsta į `true` — prarandamas lygiagretumas, ne saugumas.
+ */
+function segmentsProvablyDisjoint(left: string, right: string): boolean {
+  const leftHasStar = left.includes("*");
+  const rightHasStar = right.includes("*");
+  if (!leftHasStar && !rightHasStar) return left !== right;
+  if (!leftHasStar) return !wildcardPatternMatches(left, right);
+  if (!rightHasStar) return !wildcardPatternMatches(right, left);
+  const leftHead = left.slice(0, left.indexOf("*"));
+  const rightHead = right.slice(0, right.indexOf("*"));
+  if (!leftHead.startsWith(rightHead) && !rightHead.startsWith(leftHead)) return true;
+  const leftTail = left.slice(left.lastIndexOf("*") + 1);
+  const rightTail = right.slice(right.lastIndexOf("*") + 1);
+  return !leftTail.endsWith(rightTail) && !rightTail.endsWith(leftTail);
+}
+
+/**
+ * Ar dviejų šablonų uodegos po bendro kieto prefikso įrodomai nesikerta.
+ *
+ * `false` reiškia „NEĮRODYTA", niekada „persidengia". Fail-closed kryptis nesilpninama: kiekvienas
+ * kelias, kuriuo šis įrodymas nepasiekia išvados, grįžta į ankstesnį „gali persidengti" verdiktą.
+ *
+ * Segmentų skaičiaus taisyklė (`N !== M` reiškia nesikertančias aibes) yra sound'i, nes
+ * skaičiuojami pasvirieji brūkšniai: visos uodegos jau praėjo `globTailSegments`, tad jose nėra
+ * dvigubos žvaigždutės, o vieno lygio `[^/]*` brūkšnių NEPRIDEDA. Vadinasi N segmentų šablonas
+ * atitinka tik N segmentų kelius, o M segmentų — tik M segmentų kelius.
+ */
+function globTailsProvablyDisjoint(leftPattern: string, rightPattern: string, prefixSegmentCount: number): boolean {
+  const leftTail = globTailSegments(leftPattern, prefixSegmentCount);
+  const rightTail = globTailSegments(rightPattern, prefixSegmentCount);
+  if (!leftTail || !rightTail) return false;
+  if (leftTail.length !== rightTail.length) return true;
+  for (const [index, leftSegment] of leftTail.entries()) {
+    const rightSegment = rightTail[index];
+    if (rightSegment === undefined) return false;
+    if (segmentsProvablyDisjoint(leftSegment, rightSegment)) return true;
+  }
+  return false;
+}
+
 function pathContains(container: string, value: string): boolean {
   const left = comparable(container);
   const right = comparable(value);
@@ -179,6 +261,17 @@ export function scopesConflict(
     // Du glob'ai be bendro kieto prefikso vis tiek gali persidengti (pvz. `**/index.ts`
     // ir `src/**`), todėl tuščias prefiksas laikomas „gali persidengti" (fail-closed).
     if (!leftPrefix || !rightPrefix) return true;
+    // Įrodomo nepersidengimo šaka (task 035): kai kieti prefiksai LYGŪS, uodegų aibės gali būti
+    // įrodomai tuščios sankirtos — tada `src/tests/a-*.test.ts` ir `src/tests/b-*.test.ts` nebeatima
+    // vienas kito lygiagretumo. Nepilnumas sąmoningas: reikalaujama būtent LYGYBĖS, tad `src/*.ts`
+    // prieš `src/tests/*.ts` lieka `true`, nors uodegos ir ten nesikerta. Apibendrinimas skirtingo
+    // gylio prefiksams — atskira užduotis; čia svarbiau, kad kiekviena šakos sąlyga būtų sound'i.
+    if (
+      comparable(leftPrefix) === comparable(rightPrefix) &&
+      globTailsProvablyDisjoint(left.scope, right.scope, leftPrefix.split("/").length)
+    ) {
+      return false;
+    }
     return pathContains(leftPrefix, rightPrefix) || pathContains(rightPrefix, leftPrefix);
   }
 

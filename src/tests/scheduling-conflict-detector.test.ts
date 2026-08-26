@@ -162,12 +162,13 @@ test("evaluateWriteSetIndependence: bounded globs parallelize only against prove
   const siblingFile = evaluateWriteSetIndependence(boundedGlob, computeTaskWriteSet({ task_id: "0011", allowed_paths: ["src/tests/b.test.ts"] }));
   assert.equal(siblingFile.independent, true, "a sibling test file the pattern misses regains parallelism");
 
-  // Du RIBOTI glob'ai vis dar konfliktuoja per bendrą kietą prefiksą (`src/tests`). Tai A-01 riba —
-  // `scopesConflict` glob/glob įrodomo nepersidengimo šaka — o NE šios užduoties defektas: A-01
-  // neįgyvendinta, o domain liesti čia negalima. Padarius A-01, šis assert'as sąmoningai keisis.
+  // Du RIBOTI glob'ai su tuo pačiu kietu prefiksu (`src/tests`) nebekonfliktuoja: `scopesConflict`
+  // įrodo, kad `a-*` ir `b-*` uodegos negali sutapti nė viename kelyje (task 035). Anksčiau čia
+  // buvo `independent === false` su komentaru „padarius A-01, šis assert'as sąmoningai keisis".
   const twoGlobs = evaluateWriteSetIndependence(boundedGlob, computeTaskWriteSet({ task_id: "0012", allowed_paths: ["src/tests/b-*.test.ts"] }));
-  assert.equal(twoGlobs.independent, false);
-  assert.match(twoGlobs.reason, /persidengiantis glob\/glob/);
+  assert.equal(twoGlobs.independent, true);
+  assert.equal(twoGlobs.conflicts.length, 0);
+  assert.equal(twoGlobs.evidence_gaps.length, 0);
 
   const migrationGlob = evaluateWriteSetIndependence(
     computeTaskWriteSet({ task_id: "0013", allowed_paths: ["db/migrations/*.sql"] }),

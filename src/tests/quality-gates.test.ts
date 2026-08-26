@@ -130,6 +130,17 @@ test("bash politika: benchmark per dist/cli.js — tik viena celė, tik dvi subk
   // `report`/`verify` be `--out` skaito ir rašo į stdout; su `--out` tampa laisvo kelio rašymu.
   assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark report --format markdown").blockedPattern, undefined);
   assert.equal(evaluateBashCommandPolicy("node dist/cli.js benchmark verify --json").blockedPattern, undefined);
+  // `--baseline` yra kelio SKAITYMAS — leidžiamas report/compare; `compare` be jo neturi prasmės.
+  assert.equal(
+    evaluateBashCommandPolicy("node dist/cli.js benchmark compare --baseline baselines/2026-08-26.json").blockedPattern,
+    undefined,
+  );
+  assert.equal(
+    evaluateBashCommandPolicy("node dist/cli.js benchmark report --format markdown --baseline baselines/b.json").blockedPattern,
+    undefined,
+  );
+  assert.match(blocked("node dist/cli.js benchmark compare --baseline b.json --out r.md"), /dist[\\/]cli\.js/, "--out lieka uždraustas");
+  assert.match(blocked("node dist/cli.js benchmark compare"), /dist[\\/]cli\.js/, "compare be --baseline — ne");
 
   // task-move per dist/cli.js — TA PATI viena kryptis kaip `ag` formoje (2026-08-25).
   assert.equal(

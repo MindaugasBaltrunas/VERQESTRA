@@ -63,7 +63,13 @@ const allowedBenchmarkCliCommands = [
   // Riba čia yra `--out` nebuvimas, ne subkomandos vardas — būtent `--out` paverčia raportą
   // laisvo kelio rašymu. Įleista 2026-08-24: mokamas ratas be verdikto skaitymo yra
   // neperskaitytas matavimas, t. y. išleisti pinigai be atsakymo.
-  /^node\s+dist[\\/]cli\.js\s+benchmark\s+(?:report|verify)(?:\s+(?:--json|--format\s+[\w-]+))*$/i,
+  //
+  // `--baseline <kelias>` (2026-08-26, operatoriaus sprendimas) leidžiamas report/compare
+  // formose: tai kelio SKAITYMO flag'as (baseline dokumentas parse'inamas, niekur nerašoma) —
+  // priešingai nei `--out`, kuris lieka uždraustas. Kelias be tarpų ir be kabučių.
+  /^node\s+dist[\\/]cli\.js\s+benchmark\s+(?:report|verify)(?:\s+(?:--json|--format\s+[\w-]+|--baseline\s+[\w.\\/-]+))*$/i,
+  // `compare` — grynas skaitymas + verdiktas į stdout; `--baseline` privalomas (lookahead).
+  /^(?=.*\s--baseline\s+[\w.\\/-]+)node\s+dist[\\/]cli\.js\s+benchmark\s+compare(?:\s+(?:--json|--baseline\s+[\w.\\/-]+))*$/i,
   // Mokama forma — TIK vienas scenarijus, vienas režimas, ir tik BENCH-9 leidžiamas repeticijų
   // skaičius. Visi trys reikalaujami lookahead'ais, ne leidžiami: be `--mode` paleistų VISUS
   // režimus (du iš jų mokami), be `--scenario` — visą rinkinį.

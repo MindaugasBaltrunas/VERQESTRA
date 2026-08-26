@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { RUNTIME_SEGMENT_MAX_LENGTH } from "../scheduling/worker-limits.js";
 import { DEFAULT_TASK_SLUG_MAX_LENGTH, hasLeadingTaskHeading, taskSlug } from "../../domain/tasks/identity.js";
+import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
 import { taskBucketDir } from "./bucket-transition.js";
 import type { TaskDecision } from "./run-coordinator-ports.js";
 import type { ChildTaskDraft } from "./task-splitting.js";
@@ -163,6 +164,33 @@ export type InvalidChildTask = {
   missingSections: string[];
 };
 
+// Preflight LLM autorizuoja vaikus, tad šis vartas yra JO IŠVESTIES validacija: brolių, kurių
+// `## Failai / Leidžiama` aibė sutampa VISIŠKAI, tikslas nėra skaidymas — antrasis brolis
+// tiesiog neranda ką daryti tuose pačiuose failuose ir sudegina pilną dispatch'ą tuščiai
+// (2026-08-26 orchestrator.log radinys). Dalinis persidengimas yra normalus ir LEIDŽIAMAS —
+// tikrinamas tik pilnas sutapimas, kad taisyklė neatspėtų daugiau, nei duomenys rodo.
+function duplicateScopeChildren(prepared: { title: string; content: string }[]): InvalidChildTask[] {
+  const titlesBySignature = new Map<string, string[]>();
+  for (const child of prepared) {
+    const paths = allowedPaths(child.content);
+    if (paths.length === 0) continue;
+    const signature = Array.from(new Set(paths)).sort().join("\n");
+    const titles = titlesBySignature.get(signature) ?? [];
+    titles.push(child.title);
+    titlesBySignature.set(signature, titles);
+  }
+
+  const invalid: InvalidChildTask[] = [];
+  for (const titles of titlesBySignature.values()) {
+    if (titles.length < 2) continue;
+    titles.forEach((title, ownIndex) => {
+      const siblings = titles.filter((_, index) => index !== ownIndex);
+      invalid.push({ title, missingSections: [`duplicate_scope:${siblings.join(",")}`] });
+    });
+  }
+  return invalid;
+}
+
 export type SplitDepthExceeded = {
   parent_depth: number;
   max_depth: number;
@@ -286,8 +314,14 @@ export async function enqueueChildTasks(
   const invalid = prepared
     .map((child) => ({ title: child.title, missingSections: missingChildTaskSections(child.content) }))
     .filter((child) => child.missingSections.length > 0);
-  if (invalid.length > 0) {
-    return { ok: false, invalid };
+  const duplicateScope = duplicateScopeChildren(prepared);
+  if (invalid.length > 0 || duplicateScope.length > 0) {
+    if (duplicateScope.length > 0) {
+      await ports.log(
+        `TASK SPLIT BLOCKED: parent=${taskId} duplicate_scope=${duplicateScope.map((child) => child.title).join(",")}`,
+      );
+    }
+    return { ok: false, invalid: [...invalid, ...duplicateScope] };
   }
 
   const queueDir = taskBucketDir(agRoot, "queue");

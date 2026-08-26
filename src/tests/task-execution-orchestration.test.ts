@@ -178,6 +178,58 @@ test("enqueueChildTasks: gylio vartai PRIEŠ rašymą ir validacija PRIEŠ pirm�
   assert.equal(written.size, 0, "su nevalidžiu vaiku nerašomas nė vienas");
 });
 
+function childWithFailai(goal: string, allowed: string[]): string {
+  const allowedBlock = allowed.map((item) => `- \`${item}\``).join("\n");
+  return `# Task\n## Spec source\nopenspec/changes/demo\n## Tikslas\n${goal}\n## Failai\nLeidžiama:\n${allowedBlock}\n## Veiksmas\n- daryk\n## Stop\nStop.\n`;
+}
+
+test("enqueueChildTasks: pilnai sutampanti brolių ## Failai/Leidžiama aibė atmeta VISĄ planą", async () => {
+  const { ports, written, logs } = makeEnqueuePorts();
+
+  const result = await enqueueChildTasks(ports, "/ag", "0042", {
+    child_tasks: [
+      { title: "a", claude_task: childWithFailai("Dalis A.", ["src/x.ts", "src/y.ts"]) },
+      { title: "b", claude_task: childWithFailai("Dalis B (tęsinys).", ["src/y.ts", "src/x.ts"]) },
+    ],
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    (result as { invalid: { title: string; missingSections: string[] }[] }).invalid.map((c) => c.title).sort(),
+    ["a", "b"],
+  );
+  assert.equal(written.size, 0, "pilnas sutapimas — nė vienas vaikas neįrašomas");
+  assert.ok(logs.some((line) => line.includes("duplicate_scope")), "priežastis įvardyta žurnale");
+});
+
+test("enqueueChildTasks: dalinis brolių ## Failai persidengimas leidžiamas", async () => {
+  const { ports, written } = makeEnqueuePorts();
+
+  const result = await enqueueChildTasks(ports, "/ag", "0042", {
+    child_tasks: [
+      { title: "a", claude_task: childWithFailai("Dalis A.", ["src/x.ts", "src/y.ts"]) },
+      { title: "b", claude_task: childWithFailai("Dalis B.", ["src/y.ts", "src/z.ts"]) },
+    ],
+  });
+
+  assert.deepEqual(result, { ok: true, enqueued: 2 });
+  assert.equal(written.size, 2);
+});
+
+test("enqueueChildTasks: visiškai skirtingos ## Failai aibės leidžiamos", async () => {
+  const { ports, written } = makeEnqueuePorts();
+
+  const result = await enqueueChildTasks(ports, "/ag", "0042", {
+    child_tasks: [
+      { title: "a", claude_task: childWithFailai("Dalis A.", ["src/x.ts"]) },
+      { title: "b", claude_task: childWithFailai("Dalis B.", ["src/z.ts"]) },
+    ],
+  });
+
+  assert.deepEqual(result, { ok: true, enqueued: 2 });
+  assert.equal(written.size, 2);
+});
+
 test("enqueueChildTasks: idempotencija per turinio parašą, spec source paveldėjimas", async () => {
   const { ports, ledger, written, logs } = makeEnqueuePorts();
   const decision = {

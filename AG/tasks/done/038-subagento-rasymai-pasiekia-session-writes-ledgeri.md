@@ -10,6 +10,22 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 # Task
 
+> **REZULTATAS 2026-08-26: PRIELAIDA PANEIGTA — task'as uždaromas be įgyvendinimo.**
+>
+> Šio task'o `## Veiksmas` reikalavo pirma ištirti, ar PostToolUse hook'as subagento įrankių
+> kvietimams iškviečiamas. Atsakymas: **iškviečiamas.** Subagento `Write`/`Edit` rašymai pasiekia
+> `session-writes` ledger'į, Stop hook'as juos stage'ina, ir jie virsta commit'u.
+>
+> Kontrapavyzdys (task 030, 2026-08-26): `orchestrator.log:6369` rodo
+> `main=Agent,Bash,Grep,ListAgents,Read,ScheduleWakeup agent=Bash,Edit,Glob,Grep,Read` — pagrindinė
+> sesija nenaudojo nė vieno rašymo įrankio, rašė tik subagentas — o `hooks.log:1864-1909` turi 7
+> `post-write:` eilutes tiems failams; task'as baigė `done` su commit'u.
+>
+> Tikrosios trijų paskutinių nesėkmių priežastys (R3–R5) ir įrodymai:
+> `docs/audits/038-subagento-kanalo-premisa-paneigta-2026-08-26.md`.
+>
+> Žemiau esantis originalus kūnas paliktas nekeistas — kaip įrašas, ne kaip nurodymas.
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 docs/audits/020-session-writes-ledger-diagnosis-2026-08-25.md

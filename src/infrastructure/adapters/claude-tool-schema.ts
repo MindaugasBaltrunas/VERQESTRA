@@ -165,6 +165,21 @@ export function hasDispatchToolEvidence(usage: DispatchToolUsage): boolean {
   return usage.parsed && usage.events > 0;
 }
 
+/** Įrankiai, kurių panaudojimas reiškia, kad vykdytojas RAŠĖ į failų sistemą. */
+export const DISPATCH_WRITE_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit"] as const;
+
+/**
+ * Ar vykdytojas apskritai rašė. `"wrote"` — bent vienas rašymo įrankis (`mainUsed` arba
+ * `agentUsed`); `"no-writes"` — pjūvis yra {@link hasDispatchToolEvidence}, bet be rašymo
+ * įrankių; `"unknown"` — nėra tinkamo įrodymo (neparsinta ar tuščias log'as), tad negalima
+ * atskirti „nieko nerašė" nuo „atsukta".
+ */
+export function classifyDispatchWriteOutcome(usage: DispatchToolUsage): "wrote" | "no-writes" | "unknown" {
+  if (!hasDispatchToolEvidence(usage)) return "unknown";
+  const wroteSomething = usage.used.some((tool) => (DISPATCH_WRITE_TOOLS as readonly string[]).includes(tool));
+  return wroteSomething ? "wrote" : "no-writes";
+}
+
 /**
  * `tool-budget.json` profilio sprendimas apie įrankių šeimas. `false` = biudžetas šeimą
  * JAU draudžia; `true`/`undefined` = leidžia, ir tada schemos nešalinamos (šis modulis

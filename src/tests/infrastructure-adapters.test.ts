@@ -19,6 +19,7 @@ import {
 } from "../infrastructure/adapters/claude-usage.js";
 import {
   buildDispatchDisallowedTools,
+  classifyDispatchWriteOutcome,
   claudeDispatchDisallowedToolsArgs,
   claudeMaxTurnsArgs,
   dispatchDisallowedToolCandidates,
@@ -144,6 +145,24 @@ test("dispatch tool auditas: kohortos, id dedup, grindys ir unknown-flag fallbac
 
   assert.equal(isUnknownFlagFailure({ code: 2, stderr: "error: unknown option --disallowed-tools", stdout: "" }), true);
   assert.equal(isUnknownFlagFailure({ code: 1, stderr: "model refused", stdout: "" }), false);
+});
+
+test("classifyDispatchWriteOutcome: rašė, nerašė, nežinoma", () => {
+  const wroteLog = [
+    '{"type":"system","subtype":"init","tools":["Read","Write"]}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"w1","name":"Write"}]}}',
+  ].join("\n");
+  assert.equal(classifyDispatchWriteOutcome(extractDispatchToolUsage(wroteLog)), "wrote");
+
+  const readOnlyLog = [
+    '{"type":"system","subtype":"init","tools":["Read","Grep"]}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r1","name":"Read"}]}}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r2","name":"Grep"}]}}',
+  ].join("\n");
+  assert.equal(classifyDispatchWriteOutcome(extractDispatchToolUsage(readOnlyLog)), "no-writes");
+
+  assert.equal(classifyDispatchWriteOutcome(extractDispatchToolUsage("jokio json")), "unknown");
+  assert.equal(classifyDispatchWriteOutcome(extractDispatchToolUsage("")), "unknown");
 });
 
 test("adapteriai: dry-run completed, neįjungti claude/codex — not_implemented, fake runner — completed", async () => {

@@ -187,6 +187,12 @@ export function evaluateDeterministicDone(inputs: DeterministicDoneInputs): Dete
   return { fastPath: true, reason: `gates passed, stop done, ${evidence}` };
 }
 
+/**
+ * Vykdytojo rašymo-įrankio aktyvumas per bandymą. `"unknown"` reiškia, kad sesijos log'as
+ * neskaitytas ar neatpažintas — tyli sesija NĖRA įrodymas, kad rašymų nebuvo (task 032).
+ */
+export type ExecutorWriteActivity = "wrote" | "no-writes" | "unknown";
+
 export type NoCommitDoneInputs = {
   /** Vykdytojo log'as turi eilutę, prasidedančią ALREADY_IMPLEMENTED. */
   hasAlreadyImplementedMarker: boolean;
@@ -199,6 +205,12 @@ export type NoCommitDoneInputs = {
    * BE jokio realiai atlikto darbo — toks task'as turi keliauti į human-review, ne done.
    */
   hasWorkEvidence: boolean;
+  /**
+   * Skaitytojo (E3/E5) paduotas vykdytojo rašymo aktyvumas. Neprivalomas, kad esami
+   * kvietėjai liktų kompiliuojami; default `"unknown"`. Naudoja tik
+   * `resolveNoCommitReviewReason` — `resolveNoCommitDisposition` reikšmių nekeičia (task 032).
+   */
+  writeActivity?: ExecutorWriteActivity;
 };
 
 export type NoCommitDisposition = "done" | "rollback" | "human-review";
@@ -231,6 +243,21 @@ export function resolveNoCommitDisposition(inputs: NoCommitDoneInputs): NoCommit
   if (inputs.hasAlreadyImplementedMarker) return inputs.hasWorkEvidence ? "done" : "human-review";
   if (inputs.productDirtyCount > 0) return "rollback";
   return inputs.hasWorkEvidence ? "done" : "human-review";
+}
+
+/**
+ * Task 032: human-review priežasties eilutė iš tų pačių įėjimų kaip `resolveNoCommitDisposition`.
+ * Iki šiol „vykdytojas nieko nerašė" ir „darbas atsuktas" abu virsdavo ta pačia priežastimi
+ * (clean tree without work evidence), tad operatorius buvo siunčiamas ieškoti darbo, kurio
+ * nebuvo. `"no-writes"` — patikimas skaitytojo signalas, kad rašymo-įrankio kvietimų nebuvo —
+ * gauna savo, tikslesnę priežastį. `"unknown"` NIEKADA negamina naujos priežasties: tyli ar
+ * neatpažinta sesija nėra įrodymas, kad rašymų nebuvo, tad grąžinama esama priežastis.
+ */
+export function resolveNoCommitReviewReason(inputs: NoCommitDoneInputs): string {
+  if (inputs.writeActivity === "no-writes") {
+    return "executor made no write-tool calls";
+  }
+  return "clean tree without work evidence (deliverable missing — possibly rolled back)";
 }
 
 export function evaluateLocalDiagnosis(signals: LocalResultSignals): LocalDiagnosisResult {

@@ -87,6 +87,48 @@
       "expect": "human-review"
     },
     {
+      "id": "nocommit-no-writes-disposition-still-human-review",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "no-writes" },
+      "expect": "human-review"
+    },
+    {
+      "id": "nocommit-wrote-disposition-still-human-review",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "wrote" },
+      "expect": "human-review"
+    },
+    {
+      "id": "nocommit-unknown-disposition-still-human-review",
+      "fn": "resolveNoCommitDisposition",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "unknown" },
+      "expect": "human-review"
+    },
+    {
+      "id": "nocommit-review-reason-no-writes-gets-specific-reason",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "no-writes" },
+      "expect": "executor made no write-tool calls"
+    },
+    {
+      "id": "nocommit-review-reason-wrote-keeps-clean-tree-reason",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "wrote" },
+      "expect": "clean tree without work evidence (deliverable missing — possibly rolled back)"
+    },
+    {
+      "id": "nocommit-review-reason-unknown-keeps-clean-tree-reason",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "unknown" },
+      "expect": "clean tree without work evidence (deliverable missing — possibly rolled back)"
+    },
+    {
+      "id": "nocommit-review-reason-missing-activity-defaults-to-clean-tree-reason",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false },
+      "expect": "clean tree without work evidence (deliverable missing — possibly rolled back)"
+    },
+    {
       "id": "local-readonly-clean-checks-pass-done",
       "fn": "evaluateLocalDiagnosis",
       "input": { "taskId": "t", "checksPassed": true, "changedFiles": [], "allowedPaths": [] },

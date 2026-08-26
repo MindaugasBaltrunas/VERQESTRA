@@ -14,6 +14,7 @@ import {
   resolveDispatchSessionNonce,
   resolveEffectiveStopStatus,
   resolveNoCommitDisposition,
+  resolveNoCommitReviewReason,
   type DeterministicDoneInputs,
   type LocalResultSignals,
   type NoCommitDoneInputs,
@@ -45,6 +46,8 @@ function invoke(dispositionCase: DispositionCase): unknown {
       return evaluateDeterministicDone(input as DeterministicDoneInputs);
     case "resolveNoCommitDisposition":
       return resolveNoCommitDisposition(input as NoCommitDoneInputs);
+    case "resolveNoCommitReviewReason":
+      return resolveNoCommitReviewReason(input as NoCommitDoneInputs);
     case "evaluateLocalDiagnosis":
       return evaluateLocalDiagnosis(input as unknown as LocalResultSignals);
     case "resolveEffectiveStopStatus":

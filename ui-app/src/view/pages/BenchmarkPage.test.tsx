@@ -49,7 +49,9 @@ function report(overrides: Partial<BenchmarkReportDocument> = {}): BenchmarkRepo
         metrics: [
           { metric: "acceptedRate", kind: "rate", baseline: 0.8, current: 0.83, absoluteDelta: 0.03, relativeDelta: 0.0375 },
           { metric: "firstPassRate", kind: "rate", baseline: 0.6, current: 0.6, absoluteDelta: 0, relativeDelta: 0 },
-          { metric: "humanReviewRate", kind: "rate", baseline: 0.1, current: 0.1, absoluteDelta: 0, relativeDelta: 0 },
+          // BENCH-7 nulinis vardiklis: relativeDelta neegzistuoja, bet absoliutus IŠMATUOTAS —
+          // headline KPI privalo rodyti „+0 p.p.", ne n/a (2026-08-26 regresija).
+          { metric: "humanReviewRate", kind: "rate", baseline: 0, current: 0, absoluteDelta: 0, relativeDelta: undefined },
           { metric: "perVerifiedAcceptedChange.billableTokens", kind: "cost", baseline: 12_000, current: 11_500, absoluteDelta: -500, relativeDelta: -0.0417 },
           // BENCH-7 nulinis vardiklis: relativeDelta neegzistuoja, bet absoliutus IŠMATUOTAS —
           // puslapis privalo rodyti „0 p.p.", ne n/a (2026-08-26 regresija).

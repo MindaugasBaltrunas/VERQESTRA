@@ -288,8 +288,8 @@ const COMPACT_DSL_MARKER_LEGEND = [
   `${MARKER_OUT_OF_SCOPE}=nongoal`,
   `${MARKER_STOP}=stop`,
   `${MARKER_OMITTED}=omitted`,
-  `${MARKER_ELEMENT}#h.n=verbatim,h+n lines`,
-  "{F1}=alias(expands;{{=lit{)",
+  `${MARKER_ELEMENT}#h.n=verbatim(h+n)`,
+  "{F1}=alias({{=lit{)",
   "<M>#n=next n lines",
 ].join(" ");
 
@@ -306,7 +306,7 @@ function renderCompactWorkerDslPrompt(document: string): string {
   return [
     `${COMPACT_DSL_PROMPT_HEADING} ${firstLineOf(document)}`,
     "",
-    `One fact per line, first token is the marker. ${COMPACT_DSL_MARKER_LEGEND}`,
+    `Marker-first lines: ${COMPACT_DSL_MARKER_LEGEND}`,
     "",
     ...fenced(document.replace(/\n$/, ""), "text"),
     "",

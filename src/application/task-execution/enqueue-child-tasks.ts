@@ -34,6 +34,14 @@ import type { ChildTaskDraft } from "./task-splitting.js";
 //     commit'o. Eilė vienareikšmiškai koduota raidėmis, todėl žymuo lieka dviženklis ir tada,
 //     kai vaikų >99.
 //   * `<trumpas-slug>` — vaiko pavadinimas, apkirptas iki likusio biudžeto.
+//
+// `<šeimos-bazė>` priklauso nuo tėvo task numerio unikalumo. `taskGenerate`
+// (src/application/task-planning/generate.ts) dabar pertikrina numerio unikalumą prieš kiekvieną
+// `writeFileExclusive` bandymą ir bando kitą numerį ribotą kartų skaičių, kai jis jau užimtas —
+// tai sumažina, bet formaliai NEĮRODO, kad `parentTaskFamily` bazė lieka unikali per visus
+// `AG/tasks/*` bucket'us (pvz. maišyti rankinius ir generuotus failų vardus vis tiek gali
+// susikirsti). Platesnis šeimos-bazės unikalumo vartas (numeris → šeimų žemėlapis) šiuo metu
+// NEĮGYVENDINTAS — tai atskiro, dar nepriskirto task'o darbas.
 
 /** Vaiko id ilgio riba — importuojama iš runtime namespace kontrakto, o ne perrašoma vietine konstanta. */
 const CHILD_TASK_ID_MAX_LENGTH = RUNTIME_SEGMENT_MAX_LENGTH;

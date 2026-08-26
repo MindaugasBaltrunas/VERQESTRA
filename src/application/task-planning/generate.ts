@@ -31,6 +31,13 @@ export type TaskGenerateResult = {
   specId: string;
   tasksPath: string;
   created: string[];
+  /**
+   * Istoriškai žymėjo failus, praleistus dėl `writeFileExclusive` "exists" atsakymo — bet tai
+   * tyliai prarasdavo taskLine turinį (numeris likdavo svetimo task'o). Nuo pertikrinimo su
+   * ribotu retry (žr. `MAX_ASSIGNMENT_ATTEMPTS`) kolizija visada arba išsprendžiama pasirenkant
+   * kitą numerį, arba meta klaidą — šis laukas sėkmingame kelyje praktiškai visada `[]`. Laukas
+   * paliktas tipe, nes CLI jį spausdina, ne todėl, kad jis dar žymi prarastą turinį.
+   */
   skipped: string[];
 };
 
@@ -52,6 +59,29 @@ export async function nextAvailableTaskNumber(
     }
   }
   return max + 1;
+}
+
+/**
+ * Ribojam retry, kiek `taskGenerate` bando kitą numerį tai pačiai `taskLine`, kai pasirinktas
+ * numeris pasirodo užimtas. Riba absorbuoja tiek vidinę to paties run kaskadą (kai kelios šio
+ * run'o eilutės susikerta viena su kita), tiek 1-2 realius konkurentus, bet neleidžia begalinio
+ * skenavimo sugadintoje bucket būsenoje — tada geriau aiški klaida, nei begalinė kilpa.
+ */
+const MAX_ASSIGNMENT_ATTEMPTS = 10;
+
+/** Ar `candidate` jau užimtas KURIAME NORS `AG/tasks/*` bucket'e. */
+async function isTaskNumberInUse(
+  ports: TaskGeneratePorts,
+  projectRoot: string,
+  candidate: number,
+): Promise<boolean> {
+  for (const bucket of taskBuckets) {
+    const files = await ports.fs.listFiles(path.join(projectRoot, "AG", "tasks", bucket));
+    for (const file of files) {
+      if (taskNumberFromFilename(file) === candidate) return true;
+    }
+  }
+  return false;
 }
 
 export async function taskGenerate(
@@ -91,16 +121,44 @@ export async function taskGenerate(
 
   const startIndex = Math.max(options.startIndex, await nextAvailableTaskNumber(ports, root));
 
+  // Kiekviena taskLine turi SAVO augantį numerį, kuris juda tik pirmyn prieš savo paties
+  // rašymą — jau sėkmingai parašyti kitų taskLine failai niekada nekeičiami/nepervadinami.
   for (const taskLine of taskLines) {
-    const taskNumber = startIndex + taskLine.index - 1;
-    const fileName = `${String(taskNumber).padStart(3, "0")}-${taskSlug(taskLine.title)}.md`;
-    const filePath = path.join(queueDir, fileName);
-    const relativePath = path.relative(root, filePath).replace(/\\/g, "/");
-    const content = renderQueueTask(taskLine, activeSpec.relativeSpecPath, result.tasksPath, enforcement);
+    let taskNumber = startIndex + taskLine.index - 1;
+    let attempts = 0;
 
-    const written = await ports.fs.writeFileExclusive(filePath, content);
-    if (written === "created") result.created.push(relativePath);
-    else result.skipped.push(relativePath);
+    for (;;) {
+      attempts += 1;
+
+      // Pertikriname PRIEŠ kiekvieną writeFileExclusive bandymą: startIndex buvo parinktas
+      // vieną kartą prieš ciklą, tad lygiagretus taskGenerate kvietimas (arba šio paties run
+      // kaskada) galėjo tą numerį jau užimti.
+      const inUse = await isTaskNumberInUse(ports, root, taskNumber);
+      let written: "created" | "exists" = "exists";
+      if (!inUse) {
+        const fileName = `${String(taskNumber).padStart(3, "0")}-${taskSlug(taskLine.title)}.md`;
+        const filePath = path.join(queueDir, fileName);
+        const relativePath = path.relative(root, filePath).replace(/\\/g, "/");
+        const content = renderQueueTask(taskLine, activeSpec.relativeSpecPath, result.tasksPath, enforcement);
+
+        written = await ports.fs.writeFileExclusive(filePath, content);
+        if (written === "created") {
+          result.created.push(relativePath);
+          break;
+        }
+        // TOCTOU: pertikrinimas aukščiau numerį rodė laisvą, bet writeFileExclusive vis tiek
+        // rado failą — kitas procesas spėjo jį parašyti tarp patikros ir rašymo. Tai irgi
+        // kolizija, ne prarastas turinys: bandome kitą numerį, NEpridedame prie `skipped`.
+      }
+
+      // `taskNumber` čia yra kandidatas, kuris KĄ TIK buvo faktiškai patikrintas (inUse arba
+      // TOCTOU exists) ir pralaimėjo — pranešime jis lieka teisingas net paskutiniame bandyme,
+      // nes riba tikrinama PRIEŠ pereinant prie kito kandidato, o ne po jo parinkimo.
+      if (attempts >= MAX_ASSIGNMENT_ATTEMPTS) {
+        throw new Error(`Task number ${taskNumber} still colliding after ${attempts} attempts`);
+      }
+      taskNumber += 1;
+    }
   }
 
   return result;

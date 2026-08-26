@@ -324,3 +324,40 @@ test("worker-prompt-preparation: default konfigas → raw įrašas be fallback; 
   assert.match(broken.workerPromptRecord.compressionFallback ?? "", /raw/);
   assert.ok(brokenLogs.some((line) => line.startsWith("DISPATCH COMPRESSION FALLBACK: task=0042")));
 });
+
+test("stop-bridge-wait: 021-d-05 (022 audito Įvykis 4) regresija — vėlavęs svetimo nonce 'done' lieka matomas, ne 'none'", async () => {
+  // 2026-08-25 19:20:43: bandymas N_A realiai commit'ino @19:20:21, bet orkestratorius jau
+  // laukė KITO bandymo (N_B) baigties — darbo įrodymas neturi tyliai virsti "none".
+  const lateForeignBridge = '{"status":"done","dispatch_nonce":"N_A"}';
+  assert.equal(classifyStopBridgeDone(lateForeignBridge, "N_B"), "foreign-done");
+  // Attempt veidrodžio nebuvo (audito §0: "runtime attempt namespace unavailable ... fall
+  // back to global mirrors") — tik globalus tiltas turi vėlavusį svetimą įrašą.
+  assert.deepEqual(mergeStopBridgeSources(undefined, lateForeignBridge, "N_B"), {
+    classification: "foreign-done",
+    source: "global",
+  });
+
+  // Pilnas laukimo langas fake laikrodžiu: pirmi ~12 poll'ų (iki 22000ms, po sleep — 24000ms)
+  // tiltas dar "none" (N_A dar neparašytas), nuo 24000ms svetimas N_A "done" atsiranda ir
+  // išlieka iki lango pabaigos (pollMs = default STOP_BRIDGE_WAIT_POLL_MS = 2000ms).
+  const flipAtMs = 24_000;
+  let clock = 0;
+  const outcome = await waitForOwnStopBridgeDone({
+    probe: async () =>
+      clock < flipAtMs
+        ? { classification: "none", source: "none" }
+        : { classification: "foreign-done", source: "global" },
+    timeoutMs: 30_000,
+    pollMs: STOP_BRIDGE_WAIT_POLL_MS,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+    now: () => clock,
+  });
+  assert.equal(
+    outcome.classification,
+    "foreign-done",
+    "svetimo done įrodymas negali dingti kaip 'none' — laukimas turi baigtis su matomu foreign-done",
+  );
+  assert.equal(outcome.source, "global");
+});

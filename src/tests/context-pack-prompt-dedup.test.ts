@@ -172,9 +172,14 @@ test("029: prompt'as neša task'ą vieną kartą ir yra trumpesnis už pre-dedup
   // MATAVIMAS (`sent_prompt_chars` naudos pusė): pre-dedup prompt'as yra tas pats task kūnas
   // su NEPAKEISTU artefaktu.
   const before = buildWorkerPrompt({ taskText: TASK_TEXT, executionContext: artifact.trim() });
+  const saved = before.length - canonical.prompt.length;
+  // Riba, o ne `> 0`: dedup, tyliai virtęs beveik no-op'u (pvz. sugedus `taskDerived` žymai
+  // viename bloke), praeitų „mažiau nei buvo" patikrą ir nieko nepasakytų.
   assert.ok(
-    canonical.prompt.length < before.length,
-    `dedup privalo mažinti prompt'ą: ${canonical.prompt.length} vs ${before.length}`,
+    // Fikstūra šiandien duoda 4985 -> 3517 (1468, ~29%); riba palikta žemiau, kad ją laužytų
+    // dedup regresija, o ne fikstūros teksto redagavimas.
+    saved >= 1200,
+    `dedup privalo mažinti prompt'ą bent 1200 simbolių: ${before.length} -> ${canonical.prompt.length} (${saved})`,
   );
 });
 

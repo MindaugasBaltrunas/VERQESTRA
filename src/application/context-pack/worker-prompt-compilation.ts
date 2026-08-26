@@ -36,6 +36,20 @@ import type {
 import type { WorkerTaskIr } from "./worker-task-ir-schema.js";
 import { renderCompactWorkerDsl } from "./compact-dsl/render.js";
 import type { CompactWorkerDslStats } from "./compact-dsl/model.js";
+import {
+  MARKER_ACCEPTANCE,
+  MARKER_ALLOWED,
+  MARKER_CHECK,
+  MARKER_ELEMENT,
+  MARKER_FORBIDDEN,
+  MARKER_GOAL,
+  MARKER_OMITTED,
+  MARKER_OUT_OF_SCOPE,
+  MARKER_SOURCE_HASH,
+  MARKER_SPEC_REF,
+  MARKER_STOP,
+  MARKER_TASK_ID,
+} from "./compact-dsl/model.js";
 import { compileWorkerTaskIr, workerTaskIrChars } from "./worker-task-ir.js";
 
 /**
@@ -165,7 +179,7 @@ export function compileWorkerPromptTask(input: CompileWorkerPromptTaskInput): Wo
     // `renderCompactWorkerDsl` decodes its own output and throws unless it decodes back into
     // this exact IR, so reaching the next line already proves the document is lossless.
     const dsl = renderCompactWorkerDsl(ir);
-    const text = renderCompactWorkerDslPrompt(ir, dsl.text);
+    const text = renderCompactWorkerDslPrompt(dsl.text);
     return {
       kind: "compiled",
       task: {
@@ -247,41 +261,52 @@ export function workerPromptModeOf(compilation: WorkerPromptCompilation): Worker
 //
 // Both bodies open with a short, constant preamble. It is not decoration: the worker is being
 // handed a machine format instead of the Markdown it normally reads, and a field-by-field
-// reading key is what keeps "compressed" from meaning "ambiguous".
+// reading key is what keeps "compressed" from meaning "ambiguous" — but the key must PAY too
+// (task 0031): identity (`task_id`/`source_sha256`) is a field of the document one line below,
+// so restating it in prose here would be the exact duplication task 0029 closed on the other
+// side of this same prompt. The preamble's only job is the reading key.
 
 export const WORKER_TASK_IR_PROMPT_HEADING = "# Task — compiled WorkerTaskIR";
 export const COMPACT_DSL_PROMPT_HEADING = "# Task — compact worker DSL";
+
+const WORKER_TASK_IR_FIELD_LEGEND =
+  "Fields: allowed_paths=edit boundary; forbidden_paths=off-limits; " +
+  "acceptance_criteria+checks=done, run checks verbatim; elements=verbatim instructions; " +
+  "omitted_sections=orchestrator-owned, withheld.";
+
+// Built from the SAME marker constants `render.ts` emits, so the legend cannot silently drift
+// from what a document actually contains — a renamed or removed marker fails typecheck here.
+const COMPACT_DSL_MARKER_LEGEND = [
+  `${MARKER_TASK_ID}=id`,
+  `${MARKER_SOURCE_HASH}=sha256`,
+  `${MARKER_GOAL}=goal`,
+  `${MARKER_ALLOWED}=allowed(edit)`,
+  `${MARKER_FORBIDDEN}=forbidden`,
+  `${MARKER_ACCEPTANCE}=accept`,
+  `${MARKER_CHECK}=check(verbatim)`,
+  `${MARKER_SPEC_REF}=spec`,
+  `${MARKER_OUT_OF_SCOPE}=nongoal`,
+  `${MARKER_STOP}=stop`,
+  `${MARKER_OMITTED}=omitted`,
+  `${MARKER_ELEMENT}#h.n=verbatim,h+n lines`,
+  "{F1}=alias(expands;{{=lit{)",
+  "<M>#n=next n lines",
+].join(" ");
 
 function renderWorkerTaskIrPrompt(ir: WorkerTaskIr): string {
   // Compact JSON, not pretty-printed: indentation would spend the characters this path exists
   // to save, and the document has no newlines at all, so no fence can be broken from inside.
   const document = JSON.stringify(ir);
-  return [
-    `${WORKER_TASK_IR_PROMPT_HEADING} v${ir.version}`,
-    "",
-    `Task ${ir.task_id}, compiled losslessly from its task file (raw sha256 ${ir.source_sha256},`,
-    "kept as the attempt's `task.md`). This document binds you: `allowed_paths` is the hard edit",
-    "boundary, `forbidden_paths` must not be touched, `acceptance_criteria` + `checks` define done",
-    "(run every check verbatim), `elements` are verbatim instruction blocks to follow, and",
-    "`omitted_sections` are headings the orchestrator owns and deliberately did not send.",
-    "",
-    ...fenced(document, "json"),
-    "",
-  ].join("\n");
+  return [`${WORKER_TASK_IR_PROMPT_HEADING} v${ir.version}`, "", WORKER_TASK_IR_FIELD_LEGEND, "", ...fenced(document, "json"), ""].join(
+    "\n",
+  );
 }
 
-function renderCompactWorkerDslPrompt(ir: WorkerTaskIr, document: string): string {
+function renderCompactWorkerDslPrompt(document: string): string {
   return [
     `${COMPACT_DSL_PROMPT_HEADING} ${firstLineOf(document)}`,
     "",
-    `Task ${ir.task_id}, compiled losslessly from its task file (raw sha256 ${ir.source_sha256},`,
-    "kept as the attempt's `task.md`). One fact per line, first token is the marker:",
-    "T task id · H raw sha256 · G goal · E allowed path (hard edit boundary) · X forbidden path ·",
-    "A acceptance criterion · V check command (run verbatim) · S stop condition · R spec ref ·",
-    "N non-goal · O heading the orchestrator owns and did not send · `RAW#<h>.<n> <kind>` verbatim",
-    "block (next h lines = its heading, next n = its body; follow `directive` blocks) · `{F1}=text`",
-    "alias definition, a value starting `{F1}` expands to it, a literal leading `{` is written",
-    "`{{` · `<MARKER>#<n>` means the value is the next n lines instead of the rest of the line.",
+    `One fact per line, first token is the marker. ${COMPACT_DSL_MARKER_LEGEND}`,
     "",
     ...fenced(document.replace(/\n$/, ""), "text"),
     "",

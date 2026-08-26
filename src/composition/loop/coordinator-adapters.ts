@@ -47,7 +47,7 @@ import type { AttemptResolutionPort } from "../../infrastructure/state/attempt-r
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
 import { appendLogLine, readJsonSnapshot } from "./adapters.js";
 import { taskLedgerStore } from "../runtime/node-adapters.js";
-import { readOptionalFile } from "../quality/diagnose-adapters.js";
+import { readClaudeSessionLog, readOptionalFile } from "../quality/diagnose-adapters.js";
 import { run } from "../../infrastructure/process/run-process.js";
 import { cliEntryPath } from "../runtime/context.js";
 
@@ -323,7 +323,26 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
       }
       await nodeFsAdapter.writeTextFile(statePath("task-start-status.json"), toPrettyJson(payload));
     },
-    readClaudeLog: () => readOptionalFile(path.join(input.runtimeRoot, "logs", "claude-last.log")),
+    /**
+     * Vykdytojo sesijos žurnalas ATTEMPT-FIRST, per bendrą `readClaudeSessionLog`
+     * (`composition/quality/diagnose-adapters.ts`) — tą pačią logiką naudoja diagnozė ir UI
+     * (`dashboard-adapters.ts:160`). Iki 2026-08-26 čia buvo bepaduodamas globalus
+     * `claude-last.log` NEPRIKLAUSOMAI nuo `taskId`: kai jį jau būdavo perrašiusi kita sesija,
+     * `classifyDispatchWriteOutcome` matydavo svetimą žurnalą ir teisingai grąžindavo
+     * `"unknown"` — priežastis liko klaidinga ne todėl, kad taisyklė bloga, o todėl, kad
+     * skaitytojas rodė ne tą žurnalą (task 040).
+     */
+    readClaudeLog: async (taskId) => {
+      const { origin, text } = await readClaudeSessionLog(input.runtimeRoot, taskId, input.resolution);
+      if (origin !== "attempt") {
+        await appendLogLine(
+          input.runtimeRoot,
+          "orchestrator.log",
+          `WRITE ACTIVITY LOG FALLBACK: task=${taskId} origin=${origin} — no attempt-scoped claude-last.log, using legacy mirror`,
+        );
+      }
+      return text;
+    },
     logPath: (name) => path.join(input.runtimeRoot, "logs", name),
   };
 }

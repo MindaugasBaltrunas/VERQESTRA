@@ -4,7 +4,6 @@ import type {
   BenchmarkComparisonVerdict,
   BenchmarkMetricRow,
   BenchmarkModeSection,
-  BenchmarkReportRunFacts,
   BenchmarkReportView,
   BenchmarkScenarioSection,
 } from "../../model/types";
@@ -201,17 +200,9 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
               <BenchmarkKpi label={t("Human review rate")} row={findMetric(headlineMode, "humanReviewRate")} format={formatRate} delta={formatDelta} />
             </section>
 
-            {/* „Baseline / current runs" dviejų kortelių blokas PAŠALINTAS (2026-08-26,
-                operatoriaus sprendimas): identiteto palyginimo dienomis abi pusės identiškos, ir
-                dubliuotos kortelės vertės neneša. Kas lyginta su kuo — verdikto paantraštėje;
-                lieka VIENA proveniencijos kortelė: kuriam commit'ui, aplinkai ir rinkiniui šie
-                skaičiai galioja. */}
-            <section className="panel">
-              <div className="panel-header"><div><h2>{t("Measurement provenance")}</h2><p className="panel-subtitle">{t("Which commit, environment and suite these numbers describe.")}</p></div></div>
-              <div className="benchmark-run-facts">
-                <RunFactsCard title={t("Current run")} facts={report.current} t={t} />
-              </div>
-            </section>
+            {/* Proveniencijos/run-facts blokas PAŠALINTAS visas (2026-08-26, operatoriaus
+                sprendimas): kas lyginta su kuo — verdikto paantraštėje, o pilna proveniencija
+                lieka serverio JSON'e ir CLI raporte tiems, kam jos prireiks. */}
 
             {/* Išvados + dvikovos diagrama + žodynėlis (2026-08-26): kas su kuo lyginama ir kas
                 laimi — PRIEŠ žalią lentelių sieną, nes skaitytojo pirmas klausimas yra verdiktas
@@ -384,21 +375,3 @@ function BenchmarkKpi({
   );
 }
 
-function RunFactsCard({ title, facts, t }: { title: string; facts: BenchmarkReportRunFacts; t: (text: string) => string }) {
-  // A3 (2026-08-26 auditas): proveniencija — environment ir identity hash'ai — buvo JSON'e ir
-  // wire tipe, bet niekada nerodoma; CLI markdown ją rodo „Sources" lentelėje, o puslapis slėpė.
-  // Be suiteHash/configHash skaitytojas negali atsakyti „prieš kokį rinkinį ir konfigą matuota".
-  const { environment, identity } = facts;
-  return (
-    <div className="benchmark-run-fact-card">
-      <strong>{title}</strong>
-      <p><span>{t("AG commit")}</span><code>{abbreviateCommit(identity.agCommit)}</code></p>
-      <p><span>{t("Samples")}</span>{facts.sampleCount}</p>
-      <p><span>{t("Modes")}</span>{facts.modes.length > 0 ? facts.modes.join(", ") : "—"}</p>
-      <p><span>{t("Environment")}</span>{environment.platform}/{environment.arch} · node {environment.nodeVersion} · {environment.cpuCount} CPU</p>
-      <p><span>{t("Suite hash")}</span><code>{abbreviateCommit(identity.suiteHash.replace(/^sha256:/, ""))}</code></p>
-      <p><span>{t("Config / policy")}</span><code>{abbreviateCommit(identity.configHash.replace(/^sha256:/, ""))}</code> / <code>{abbreviateCommit(identity.policyHash.replace(/^sha256:/, ""))}</code></p>
-      <p><span>{t("Adapters")}</span>{identity.modeAdapterVersions.length > 0 ? identity.modeAdapterVersions.map((entry) => entry.version).join(", ") : "—"}</p>
-    </div>
-  );
-}

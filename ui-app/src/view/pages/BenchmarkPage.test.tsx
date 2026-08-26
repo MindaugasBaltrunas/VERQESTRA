@@ -122,9 +122,9 @@ describe("BenchmarkPage", () => {
     // atsakymas.
     expect(screen.queryByText(/Worth using/)).not.toBeInTheDocument();
 
-    // 2026-08-26: dviejų kortelių „Baseline / current runs" bloko NEBĖRA — liko viena
-    // proveniencijos kortelė (kuriam commit'ui skaičiai galioja).
-    expect(screen.getByRole("heading", { name: "Measurement provenance" })).toBeInTheDocument();
+    // 2026-08-26: run-facts/proveniencijos blokų puslapyje NEBĖRA (operatoriaus sprendimas) —
+    // kas lyginta su kuo pasako verdikto paantraštė, pilna proveniencija lieka serverio JSON'e.
+    expect(screen.queryByRole("heading", { name: "Measurement provenance" })).not.toBeInTheDocument();
     expect(screen.queryByText("Baseline run")).not.toBeInTheDocument();
 
     // Insights (2026-08-26): vertės kortelė (kokybė + kaina greta su verdiktu „kurį naudoti"),

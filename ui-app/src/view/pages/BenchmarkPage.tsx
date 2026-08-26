@@ -82,6 +82,16 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
 
   const formatRate = useCallback((value: number | undefined) => (value === undefined ? "n/a" : percent.format(value)), [percent]);
   const formatTokens = useCallback((value: number | undefined) => (value === undefined ? "n/a" : compact.format(value)), [compact]);
+  // VIENETAI pagal metriką (2026-08-26 auditas, L3): visi `cost` langeliai buvo formatuojami vienu
+  // compact skaičiumi — `durationMs` rodėsi „147.9K" be „ms", ir skaitytojas negalėjo atskirti
+  // tokenų nuo milisekundžių nuo kvietimų skaičiaus. Vienetas išvedamas iš metrikos VARDO, nes
+  // wire kontraktas kind'ų smulkiau neskiria — vardas yra vienintelis vieneto šaltinis.
+  const formatCost = useCallback((metric: string, value: number | undefined) => {
+    if (value === undefined) return "n/a";
+    if (metric.endsWith(".durationMs")) return `${decimal.format(value / 1000)} s`;
+    if (metric.endsWith(".llmCalls")) return decimal.format(value);
+    return `${compact.format(value)} tok.`;
+  }, [compact, decimal]);
   const formatDelta = useCallback((row: BenchmarkMetricRow | undefined) => {
     if (!row) return undefined;
     if (row.relativeDelta !== undefined) {
@@ -151,6 +161,9 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
             </section>
 
             <section className="benchmark-kpis" aria-label={t("Headline metrics")}>
+              {/* L5 (2026-08-26): KPI yra VIENO režimo pjūvis — be šios eilutės skaitytojas juos
+                  palaikytų viso rinkinio rodikliais. */}
+              {headlineMode && <p className="panel-subtitle benchmark-kpi-caption">{t("Headline mode")}: <strong>{headlineMode.mode}</strong></p>}
               <BenchmarkKpi label={t("Accepted rate")} row={findMetric(headlineMode, "acceptedRate")} format={formatRate} delta={formatDelta} />
               <BenchmarkKpi label={t("First-pass rate")} row={findMetric(headlineMode, "firstPassRate")} format={formatRate} delta={formatDelta} />
               {/* 2026-08-26: metrikos vardas suderintas su REALIU serverio raportu —
@@ -189,6 +202,10 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                 </div>
                 {activeModeSection && (
                   <>
+                    {/* A5: aprėptis prie tab'o — kiek celių kiekvienoje pusėje šis režimas turi. */}
+                    <p className="panel-subtitle">
+                      {t("Samples")}: {t("Baseline")} {activeModeSection.baselineSampleCount ?? "n/a"} · {t("Current")} {activeModeSection.currentSampleCount ?? "n/a"}
+                    </p>
                     {activeModeSection.differences.length > 0 && (
                       <ul className="benchmark-mode-differences">
                         {activeModeSection.differences.map((difference) => (
@@ -203,8 +220,8 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                           {activeModeSection.metrics.map((row) => (
                             <tr key={row.metric}>
                               <td>{row.metric}</td>
-                              <td>{row.kind === "rate" ? formatRate(row.baseline) : formatTokens(row.baseline)}</td>
-                              <td>{row.kind === "rate" ? formatRate(row.current) : formatTokens(row.current)}</td>
+                              <td>{row.kind === "rate" ? formatRate(row.baseline) : formatCost(row.metric, row.baseline)}</td>
+                              <td>{row.kind === "rate" ? formatRate(row.current) : formatCost(row.metric, row.current)}</td>
                               <td>{formatDelta(row) ?? "n/a"}</td>
                             </tr>
                           ))}
@@ -217,7 +234,9 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
             )}
 
             <section className="panel">
-              <div className="panel-header"><div><h2>{t("Scenario results")}</h2><p className="panel-subtitle">{t("Select a scenario to see its full distribution.")}</p></div></div>
+              {/* L4: distribucijos matas įvardytas — mediana/vidurkis yra billable TOKENAI vienai
+                  celei (paketo DEFAULT_SCENARIO_MEASURE), ne trukmė ir ne kvietimai. */}
+              <div className="panel-header"><div><h2>{t("Scenario results")}</h2><p className="panel-subtitle">{t("Select a scenario to see its full distribution.")} {t("Values are billable tokens per cell.")}</p></div></div>
               {scenarios.length === 0 ? (
                 <div className="inbox-zero"><span>○</span><strong>{t("No scenario results in this report")}</strong></div>
               ) : (
@@ -336,12 +355,20 @@ function BenchmarkKpi({
 }
 
 function RunFactsCard({ title, facts, t }: { title: string; facts: BenchmarkReportRunFacts; t: (text: string) => string }) {
+  // A3 (2026-08-26 auditas): proveniencija — environment ir identity hash'ai — buvo JSON'e ir
+  // wire tipe, bet niekada nerodoma; CLI markdown ją rodo „Sources" lentelėje, o puslapis slėpė.
+  // Be suiteHash/configHash skaitytojas negali atsakyti „prieš kokį rinkinį ir konfigą matuota".
+  const { environment, identity } = facts;
   return (
     <div className="benchmark-run-fact-card">
       <strong>{title}</strong>
-      <p><span>{t("AG commit")}</span><code>{abbreviateCommit(facts.identity.agCommit)}</code></p>
+      <p><span>{t("AG commit")}</span><code>{abbreviateCommit(identity.agCommit)}</code></p>
       <p><span>{t("Samples")}</span>{facts.sampleCount}</p>
       <p><span>{t("Modes")}</span>{facts.modes.length > 0 ? facts.modes.join(", ") : "—"}</p>
+      <p><span>{t("Environment")}</span>{environment.platform}/{environment.arch} · node {environment.nodeVersion} · {environment.cpuCount} CPU</p>
+      <p><span>{t("Suite hash")}</span><code>{abbreviateCommit(identity.suiteHash.replace(/^sha256:/, ""))}</code></p>
+      <p><span>{t("Config / policy")}</span><code>{abbreviateCommit(identity.configHash.replace(/^sha256:/, ""))}</code> / <code>{abbreviateCommit(identity.policyHash.replace(/^sha256:/, ""))}</code></p>
+      <p><span>{t("Adapters")}</span>{identity.modeAdapterVersions.length > 0 ? identity.modeAdapterVersions.map((entry) => entry.version).join(", ") : "—"}</p>
     </div>
   );
 }

@@ -81,10 +81,8 @@ export type EvidenceGapCode =
    * Kelių šeimoje spraga nebeuždedama RIBOTAM šablonui — ≥2 segmentai, literalus katalogo
    * prefiksas, wildcard tik paskutiniame segmente, fiksuotas plėtinys ir ne migracijų kelias
    * (žr. `isBoundedGlobPattern`). Tokio šablono aprėptį `scopesConflict` apskaičiuoja, tad
-   * įrodymas yra, ir spraga tik tyliai atimtų lygiagretumą.
-   *
-   * Tapatybių šeimoje (`pushIdentityEntries`) spraga LIEKA bet kokiam wildcard'ui: tapatybės
-   * lyginamos tiksliai, tad wildcard tapatybė niekada nesutampa su konkrečia.
+   * įrodymas yra, ir spraga tik tyliai atimtų lygiagretumą. Tapatybių šeimoje
+   * (`pushIdentityEntries`) spraga LIEKA bet kokiam wildcard'ui: jos lyginamos tiksliai.
    */
   | "wildcard-scope"
   /** Kelias neišsprendžiamas (absoliutus, už repo ribų, `..`). */
@@ -167,8 +165,8 @@ const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
  *      šablonas įrodymu nelaikomas;
  *   3. nėra `**` niekur stringe (ne per segmentus: `src/a**b.ts` irgi turi kristi) — neribotas gylis;
  *   4. bent 2 segmentai. Vieno segmento šablono `solidPrefix` yra tuščias, o `pathContains(x, "")`
- *      visada `false`, tad `scope-lock-rules.ts:185` atsarginė šaka dingsta ir repo šaknį valdantis
- *      scope (`.`) nebesikirstų su `*.ts`;
+ *      visada `false`, tad `scope-lock-rules.ts:185` atsarginė šaka dingsta VISIEMS konteineriams
+ *      ir lieka tik `globMatches` — per siaura, kad būtų įrodymas;
  *   5. nė vienas segmentas, IŠSKYRUS paskutinį, neturi `*` — katalogo prefiksas privalo būti literalus;
  *   6. paskutinis segmentas turi fiksuotą plėtinį (`FILE_EXTENSION`);
  *   7. tai ne migracijų kelias. `classifyWriteScopePath` wildcard'ą sprendžia PRIEŠ migraciją, tad
@@ -180,6 +178,11 @@ const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
  * be gylio, o `scopesConflict` glob-vs-kelias šaka papildomai tikrina
  * `pathContains(kelias, solidPrefix(glob))` — tad sankirtą duoda ir katalogas-konteineris
  * (`src` vs `src/tests/a-*.test.ts`), ir bet koks šabloną atitinkantis failas.
+ *
+ * ŽINOMA RIBA, kurios šis predikatas NEUŽDARO: repo šaknis, deklaruota kaip `.`, nesikerta su
+ * NIEKUO — `pathContains(".", x)` yra `false` bet kokiam `x` (`scope-lock-rules.ts:138-142`), tad
+ * `.` jau iki šio pakeitimo praleisdavo ir paprastus failus. Ribotas glob'as tą pačią skylę tik
+ * praplečia vienu atveju (`.` vs `src/*.ts`). Šaknis taisoma domain sluoksnyje — atskira užduotis.
  *
  * ĮSPĖJIMAS: šio predikato saugumas remiasi `solidPrefix`/`globMatches` elgesiu. Keičiant juos,
  * šis predikatas privalo būti to paties keitimo dalis.
@@ -266,13 +269,12 @@ function pushIdentityEntries(
   for (const raw of values ?? []) {
     const scope = normalizeIdentity(raw);
     if (!scope) continue;
-    // Ribotumo predikatas (`isBoundedGlobPattern`) čia SĄMONINGAI netaikomas. `entriesConflict`
-    // tapatybes lygina TIKSLIAI (`comparable(a) === comparable(b)`), tad wildcard tapatybė niekada
-    // nesutaps su konkrečia: panaikinus spragą ji virstų nemokamu leidimu — `write_symbols:
-    // ["src/shared/*.ts"]` prieš `["src/shared/util.ts"]` duotų `independent: true`. Spraga čia yra
-    // vienintelis apsaugos mechanizmas ir galios tol, kol tapatybėms atsiras jas suprantantis
-    // lygintuvas. Tai sąmoningas nukrypimas nuo užduoties 035-a-02 `## Veiksmas` teksto, kuris
-    // predikatą taikė abiem šeimoms.
+    // Ribotumo predikatas (`isBoundedGlobPattern`) čia SĄMONINGAI netaikomas: `entriesConflict`
+    // tapatybes lygina TIKSLIAI, tad wildcard tapatybė nesutaps su konkrečia niekada, o panaikinus
+    // spragą ji virstų nemokamu leidimu — `write_symbols: ["src/shared/*.ts"]` prieš
+    // `["src/shared/util.ts"]` duotų `independent: true`. Spraga čia yra vienintelis apsaugos
+    // mechanizmas; predikatas galios tik tada, kai tapatybėms atsiras jas suprantantis lygintuvas.
+    // Sąmoningas nukrypimas nuo užduoties 035-a-02 `## Veiksmas`, taikiusio predikatą abiem šeimoms.
     if (hasWildcard(scope)) {
       gaps.push({ code: "wildcard-scope", detail: `${source}: '${scope}' aprėptis neapibrėžta` });
     }

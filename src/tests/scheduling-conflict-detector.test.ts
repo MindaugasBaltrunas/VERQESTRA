@@ -68,7 +68,9 @@ test("computeTaskWriteSet: wildcard-scope gap only for unbounded patterns", () =
   }
 
   const unbounded: readonly (readonly [string, string])[] = [
+    ["src/a?.ts", "1: be `*` — `?` klasifikuoja kaip glob'ą, bet ribotumo neįrodo"],
     ["src/tests/**", "3: `**` — neribotas gylis"],
+    ["src/a**b.ts", "3: `**` ne segmento riboje"],
     ["**/x.ts", "3: `**` — neribotas gylis"],
     ["**", "3: `**` — neribotas gylis"],
     ["*", "4: vienas segmentas"],

@@ -1,9 +1,20 @@
 import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WavesPanel } from "../components/WavesPanel";
+import * as api from "../../model/api";
 import type { UiWaveSlot, UiWavesView } from "../../controller/useWavesController";
 
+/**
+ * Mock'inama `fetchWaves`, o NE globalus `fetch`.
+ *
+ * Iki 2026-08-26 šie testai stub'ino `globalThis.fetch`, nes kontroleris pats kalbėjosi su tinklu.
+ * Task 028 jį perkėlė į bendrą klientą (`model/api`), tad tinklo sluoksnis — timeout'as, token'as
+ * ir `assertOk` klaidų paaiškinimai — nebėra šio komponento reikalas. Testas, kuris ir toliau
+ * stub'intų `fetch`, tikrintų kelią, kurio komponentas nebeturi: mock'as perima `fetchWaves`,
+ * tikrasis `fetch` niekada nekviečiamas, o panelė lieka be duomenų.
+ */
 vi.mock("../../model/api", () => ({
+  fetchWaves: vi.fn(),
   getUiToken: () => "test-token",
 }));
 

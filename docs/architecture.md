@@ -37,7 +37,7 @@ Tai vienintelė kryptis, kurią lengviausia pažeisti ir sunkiausia pastebėti. 
 nebegali būti ištestuotas be disko, o jo elgesys nebeaprašomas portu. Todėl efektai ateina per
 portus, o surišimas gyvena `composition`.
 
-Praktinė pasekmė matoma `composition/ui-server.ts`: HTTP kiautas yra KOMPOZICIJA, ne
+Praktinė pasekmė matoma `composition/ui/server.ts`: HTTP kiautas yra KOMPOZICIJA, ne
 infrastructure, nes jis jungia GRYNĄ `interfaces/http/ui-router` su `node:http`. Pirmas
 bandymas dėti jį į `infrastructure/http` krito ties vartu — teisingai.
 

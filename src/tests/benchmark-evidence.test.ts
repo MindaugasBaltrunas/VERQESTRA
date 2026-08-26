@@ -149,6 +149,23 @@ test("suite-report-view: staleness — tuščias commit, kito commit'o raportas,
   );
   assert.equal(mismatch.state, "stale");
   assert.match(mismatch.reason ?? "", /was measured on AG commit/);
+
+  // 2026-08-26: SHA nelygybė ≠ staleness. Banner'is degė po KIEKVIENO commit'o (docs, task
+  // failai, ui-app), nors matuojama sistema (src/, AG/benchmark/) nepajudėjo. Trys šakos:
+  // tik nereikšmingi keliai → available; reikšmingas → stale; nepavyko sužinoti → fail-closed.
+  const viewWith = (changed: string[] | undefined) =>
+    readBenchmarkReportView(
+      fakeFs(packageWith({ [abs(BENCHMARK_REPORT_RELATIVE_PATH)]: { kind: "file", content: reportDoc() } })),
+      { projectRoot: ROOT, currentAgCommit: async () => "ffffffffffff", changedPathsSince: async () => changed },
+    );
+  const irrelevantOnly = await viewWith(["docs/product-spec.md", "AG/tasks/done/012.md", "ui-app/src/x.tsx"]);
+  assert.equal(irrelevantOnly.state, "available", "bookkeeping commit'ai matavimo neinvaliduoja");
+  assert.equal(irrelevantOnly.reason, undefined);
+  assert.ok(irrelevantOnly.report, "raportas serviruojamas pilnas");
+  const relevantChange = await viewWith(["docs/x.md", "src/application/scheduling/wave-scheduler.ts"]);
+  assert.equal(relevantChange.state, "stale", "src/ pakeitimas — matuojama sistema pajudėjo");
+  assert.match(relevantChange.reason ?? "", /measured system .* has changed/);
+  assert.equal((await viewWith(undefined)).state, "stale", "nežinomi keliai — fail-closed į stale");
   // 2026-08-26: commit-mismatch vaistas yra NAUJAS MATAVIMAS, ne raporto persigeneravimas —
   // `benchmark:report` įrašyto agCommit pakeisti negali, tad jo siūlymas čia buvo neveiksmingas
   // patarimas (operatorius jį paleisdavo, banner'is likdavo).

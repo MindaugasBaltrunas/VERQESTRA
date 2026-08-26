@@ -29,6 +29,7 @@ import {
 import { readBenchmarkReportView } from "../../application/benchmark/suite-report-view.js";
 import { tokenUsageQueryFrom } from "../../interfaces/http/ui-router.js";
 import { currentCommitResolver, gitLogNumstat, gitStatusPorcelain } from "../../infrastructure/git/git-client.js";
+import { run } from "../../infrastructure/process/run-process.js";
 import { readSessionFileKinds, readSessionWrites } from "../../infrastructure/state/session-activity.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { learningFs } from "../runtime/node-adapters.js";
@@ -118,6 +119,18 @@ export function benchmarkReport(input: AnalyticsAdapterInput): Promise<unknown> 
       readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
       listDirectory: (absoluteDir) => nodeFsAdapter.listDirectory(absoluteDir),
     },
-    { projectRoot: input.projectRoot, currentAgCommit: currentCommitResolver },
+    {
+      projectRoot: input.projectRoot,
+      currentAgCommit: currentCommitResolver,
+      // Staleness tik matavimui reikšmingais keliais (2026-08-26): klaida ar timeout'as
+      // grąžina `undefined`, ir view fail-closed lieka prie senos „SHA nesutampa = stale".
+      changedPathsSince: async (projectRoot, sinceCommit) => {
+        const result = await run("git", ["-C", projectRoot, "diff", "--name-only", `${sinceCommit}..HEAD`], {
+          cwd: projectRoot,
+        });
+        if (result.code !== 0) return undefined;
+        return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+      },
+    },
   );
 }

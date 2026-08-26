@@ -115,6 +115,27 @@ export interface ReadBenchmarkReportOptions {
    * staleness įrodymas — ta pati taisyklė kaip `checkReleaseProofFreshness`.
    */
   readonly currentAgCommit?: (projectRoot: string) => Promise<string | undefined>;
+  /**
+   * Keliai, pasikeitę tarp išmatuoto commit'o ir HEAD (`git diff --name-only <sha>..HEAD`).
+   * `undefined` = nepavyko sužinoti — tada mismatch'as lieka stale, kaip iki šiol (fail-closed).
+   */
+  readonly changedPathsSince?: (projectRoot: string, sinceCommit: string) => Promise<string[] | undefined>;
+}
+
+/**
+ * Keliai, kurių pakeitimas INVALIDUOJA matavimą (2026-08-26, operatoriaus radinys: banner'is
+ * degdavo po KIEKVIENO commit'o, nes staleness žiūrėjo tik į SHA lygybę — UI pakeitimas, task
+ * failo perkėlimas ar docs commit'as paversdavo raportą „pasenusiu", nors matuojama sistema
+ * nepajudėjo). Benchmark'as matuoja orkestratorių (`src/`) per harness'ą (`AG/benchmark/`);
+ * visa kita — bookkeeping, kuris matavimo teisingumui įtakos neturi.
+ */
+const MEASUREMENT_RELEVANT_PREFIXES = ["src/", "AG/benchmark/"] as const;
+
+function touchesMeasuredSystem(changedPaths: readonly string[]): boolean {
+  return changedPaths.some((changed) => {
+    const normalized = changed.replace(/\\/g, "/");
+    return MEASUREMENT_RELEVANT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  });
 }
 
 const source: BenchmarkReportSource = Object.freeze({
@@ -288,12 +309,20 @@ export async function readBenchmarkReportView(
   // paleisdavo, o banner'is likdavo. `report` komanda lieka teisingas vaistas tik `missing`
   // atvejui, kur trūksta paties failo.
   if (currentAgCommit !== undefined && !sameCommit(recordedCommit, currentAgCommit)) {
+    // SHA nelygybė pati savaime dar ne staleness: jei visi pokyčiai nuo matavimo guli už
+    // matuojamos sistemos ribų (docs, task failai, ui-app), raportas tebeaprašo tą pačią
+    // sistemą. Nepavykus sužinoti pakeistų kelių — fail-closed į stale, kaip iki šiol.
+    const changedPaths = await options.changedPathsSince?.(projectRoot, recordedCommit);
+    if (changedPaths !== undefined && !touchesMeasuredSystem(changedPaths)) {
+      return { state: "available", reason: undefined, source, freshness, report };
+    }
     return {
       state: "stale",
       reason:
         `the report was measured on AG commit ${abbreviate(recordedCommit)}, but HEAD is ` +
-        `${abbreviate(currentAgCommit)}. The verdict below still describes that commit; a new ` +
-        `paid measurement is needed to describe HEAD: ${BENCHMARK_RUN_COMMAND}`,
+        `${abbreviate(currentAgCommit)} and the measured system (src/, AG/benchmark/) has ` +
+        `changed since. The verdict below still describes that commit; a new paid measurement ` +
+        `is needed to describe HEAD: ${BENCHMARK_RUN_COMMAND}`,
       source,
       freshness,
       report,

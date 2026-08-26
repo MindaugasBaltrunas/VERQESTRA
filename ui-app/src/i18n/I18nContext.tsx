@@ -788,6 +788,12 @@ const lt: Record<string, string> = {
   "Requesting 2 workers does not grant them — every wave re-checks isolation and may reject the second slot.":
     "2 workerių prašymas jų nesuteikia — kiekviena banga iš naujo tikrina izoliaciją ir antrą slot'ą gali atmesti.",
   "Requested worker slots": "Prašomi workerių slot'ai",
+  "The base stream — always on while the loop runs. Click to keep only W1.":
+    "Bazinis srautas — visada veikia, kol loop'as bėga. Paspaudus lieka tik W1.",
+  "Click to release W2 — it stops after its current task.":
+    "Paspaudus W2 atleidžiamas — sustos baigęs dabartinį task'ą.",
+  "Click to start W2 — the loop picks it up on the next wave.":
+    "Paspaudus W2 paleidžiamas — loop'as jį pakels kitoje bangoje.",
   "Controlled by the AG_MAX_WORKERS environment variable in this UI process; the on-screen control is disabled.":
     "Reikšmę valdo šio UI proceso AG_MAX_WORKERS aplinkos kintamasis; ekrano valdiklis išjungtas.",
   "No wave has planned a worker pool yet.": "Nė viena banga dar nesuplanavo workerių pool'o.",

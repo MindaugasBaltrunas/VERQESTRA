@@ -11,6 +11,12 @@ import {
 import { useI18n } from "../../i18n/I18nContext";
 import { ConfirmButton } from "./ConfirmButton";
 
+/**
+ * Du AIŠKŪS mygtukai vietoje skaičių jungiklio (operatoriaus 2026-08-26 prašymas: „1|2" atrodė
+ * kaip kiekis, o ne kaip W1/W2 paleidimas — w2 slot'o `run` niekur nevedė, nes prašymas liko 1).
+ * W1 yra bazinis srautas: jis „paspaustas" visada, o jo paspaudimas reiškia „palikti tik W1".
+ * W2 yra perjungiklis: paspaudimas įjungia antrą srautą (requested=2) arba jį atleidžia (1).
+ */
 const WORKER_CHOICES = [1, 2] as const;
 
 /** Tuščias rinkinys yra pastovus: naujas `Set` kiekvienam renderiui griautų `memo` prasmę. */
@@ -82,19 +88,32 @@ export const LoopControls = memo(function LoopControls({
         </div>
         {workerControl && (
           <div className="segmented-control" aria-label={t("Requested worker slots")}>
-            {WORKER_CHOICES.map((count) => (
-              <button
-                key={count}
-                type="button"
-                className={workerControl.requested === count ? "active" : ""}
-                aria-pressed={workerControl.requested === count}
-                aria-busy={pendingActions.has(workersActionId(count)) || undefined}
-                disabled={!workerControl.canEdit || !onSetWorkers || workersPending}
-                onClick={() => onSetWorkers?.(count)}
-              >
-                {count}
-              </button>
-            ))}
+            <button
+              type="button"
+              className="active"
+              aria-pressed="true"
+              title={t("The base stream — always on while the loop runs. Click to keep only W1.")}
+              aria-busy={pendingActions.has(workersActionId(1)) || undefined}
+              disabled={!workerControl.canEdit || !onSetWorkers || workersPending || workerControl.requested === 1}
+              onClick={() => onSetWorkers?.(1)}
+            >
+              W1
+            </button>
+            <button
+              type="button"
+              className={workerControl.requested >= 2 ? "active" : ""}
+              aria-pressed={workerControl.requested >= 2}
+              title={
+                workerControl.requested >= 2
+                  ? t("Click to release W2 — it stops after its current task.")
+                  : t("Click to start W2 — the loop picks it up on the next wave.")
+              }
+              aria-busy={pendingActions.has(workersActionId(workerControl.requested >= 2 ? 1 : 2)) || undefined}
+              disabled={!workerControl.canEdit || !onSetWorkers || workersPending}
+              onClick={() => onSetWorkers?.(workerControl.requested >= 2 ? 1 : 2)}
+            >
+              W2
+            </button>
           </div>
         )}
       </div>

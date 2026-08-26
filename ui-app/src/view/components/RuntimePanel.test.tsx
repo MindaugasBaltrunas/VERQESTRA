@@ -177,10 +177,11 @@ describe("RuntimePanel worker slots", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Worker slots" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "1" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "false");
+    // W1 yra bazinis srautas — „paspaustas" visada; W2 perjungiklis rodo, kad antras srautas nepra­šytas.
+    expect(screen.getByRole("button", { name: "W1" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "W2" })).toHaveAttribute("aria-pressed", "false");
 
-    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    fireEvent.click(screen.getByRole("button", { name: "W2" }));
     expect(onSetWorkers).toHaveBeenCalledWith(2);
 
     // Sakinys „prašymas ≠ leidimas" yra pati valdiklio esmė: be jo operatorius manytų, kad
@@ -205,9 +206,9 @@ describe("RuntimePanel worker slots", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "1" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "2" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "1" }));
+    expect(screen.getByRole("button", { name: "W1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "W2" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "W1" }));
     expect(onSetWorkers).not.toHaveBeenCalled();
     expect(
       screen.getByText(
@@ -219,8 +220,8 @@ describe("RuntimePanel worker slots", () => {
   it("stays read-only without a handler instead of rendering dead buttons", () => {
     render(<RuntimePanel processes={processes} root="D:/project" workerControl={workerControl()} />);
 
-    expect(screen.getByRole("button", { name: "1" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "2" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "W1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "W2" })).toBeDisabled();
   });
 
   // Task 1235: valdiklis persikėlė ten, kur priimami ciklo sprendimai, o „Workerių slot'ai" liko
@@ -238,8 +239,8 @@ describe("RuntimePanel worker slots", () => {
     const loopControls = within(screen.getByRole("region", { name: "Loop controls" }));
     const workerSlots = within(screen.getByRole("region", { name: "Worker slots" }));
 
-    expect(loopControls.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "true");
-    expect(workerSlots.queryByRole("button", { name: "2" })).toBeNull();
+    expect(loopControls.getByRole("button", { name: "W2" })).toHaveAttribute("aria-pressed", "true");
+    expect(workerSlots.queryByRole("button", { name: "W2" })).toBeNull();
     expect(workerSlots.getByText("What the last wave actually granted, and why any slot was rejected.")).toBeInTheDocument();
     expect(workerSlots.getByText("Last wave: granted 1 of 2 requested (limit 2).")).toBeInTheDocument();
   });

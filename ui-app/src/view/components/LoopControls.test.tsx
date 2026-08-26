@@ -96,10 +96,11 @@ describe("LoopControls", () => {
     const onSetWorkers = vi.fn();
     render(<LoopControls loopStatus="running" workerControl={workerControl()} onSetWorkers={onSetWorkers} />);
 
-    expect(screen.getByRole("button", { name: "1" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "false");
+    // W1 — bazinis srautas, visada „paspaustas"; W2 — perjungiklis antram srautui.
+    expect(screen.getByRole("button", { name: "W1" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "W2" })).toHaveAttribute("aria-pressed", "false");
 
-    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    fireEvent.click(screen.getByRole("button", { name: "W2" }));
     expect(onSetWorkers).toHaveBeenCalledWith(2);
 
     // Sakinys „prašymas ≠ leidimas" keliauja kartu su valdikliu, kurį jis paaiškina.
@@ -120,9 +121,9 @@ describe("LoopControls", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "1" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "2" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "1" }));
+    expect(screen.getByRole("button", { name: "W1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "W2" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "W1" }));
     expect(onSetWorkers).not.toHaveBeenCalled();
     expect(
       screen.getByText(
@@ -134,8 +135,8 @@ describe("LoopControls", () => {
   it("hides the worker block when the server does not report it, without losing the loop actions", () => {
     render(<LoopControls loopStatus="running" onStartLoop={vi.fn()} onStopLoop={vi.fn()} onRestartLoop={vi.fn()} />);
 
-    expect(screen.queryByRole("button", { name: "1" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "2" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "W1" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "W2" })).toBeNull();
     expect(screen.getByRole("button", { name: "Start loop (1 stream(s))" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop loop" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restart loop" })).toBeInTheDocument();

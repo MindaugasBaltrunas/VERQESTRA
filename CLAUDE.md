@@ -99,6 +99,37 @@ grep -rcaP '\x00|\r' src | grep -v ':0$' # NUL ir CRLF
 `AG/tasks`, `AG/openspec`, `AG/spec/changes` ir `AG/benchmark` lieka `AG/…` (eilės ir paketo
 kontraktai).
 
+## Užduočių `## Failai` konvencija
+
+`## Failai / Leidžiama` yra ne tik rašymo riba — tai vienintelis įėjimas, iš kurio
+planuoklė sprendžia, ar dvi užduotys gali suktis lygiagrečiai. Todėl:
+
+**Deklaruok konkrečius kelius, įskaitant testus.** Ne `src/tests/**`, o
+`src/tests/task-execution-orchestration.test.ts`. Jei tikslus vardas dar nežinomas —
+įrašyk numatomą: klaidingas konkretus kelias yra pastebimas ir taisomas, o wildcard'as
+atima lygiagretumą tyliai.
+
+`**` leidžiamas TIK kai apimtis tikrai neribota (pvz. viso paketo migracija). Tada
+užduotis sąmoningai atsisako lygiagretumo — tai sprendimas, ne numatytoji reikšmė.
+
+### Kaina
+
+Matavimas (tikras `evaluateWriteSetIndependence`, 2026-08-26): dvi užduotys su
+konkrečiais keliais gauna verdiktą „write set'ai nesikerta nė vienoje dimensijoje" —
+lygiagretumas veikia. Tos pačios užduotys su `src/tests/**` gauna
+`1 įrodymo spraga: wildcard-scope`, ir spraga **vienoje** pusėje daro porą nuoseklia
+net be jokios sankirtos.
+
+Realus pavyzdys: `032-baigties-priezastis-…` × `033-skaidymas-negimdo-…` blokavosi dviem
+priežastimis vienu metu — `persidengiantis glob/glob scope: 'src/tests/**' vs
+'src/tests/**'` PLIUS dvi `wildcard-scope` spragos. Abi kilo iš tos pačios `## Failai`
+eilutės, nors užduotys lietė visiškai skirtingus modulius (`domain/diagnosis` ir
+`application/task-execution`) ir skirtingus testų failus.
+
+Kaina yra būtent tokia: `src/tests/**` parašyti trumpiau vienam autoriui, o sumoka visa
+eilė — kiekviena tokia pora praranda slot'ą ir sukasi nuoseklai. Dvi papildomos eilutės
+su tikrais keliais atperka save jau pirmoje bangoje.
+
 ## Nukrypimai nuo etalono
 
 Perkeliant leidžiama uždaryti etalono spragą, bet **niekada tyliai**. Nukrypimas rašomas į

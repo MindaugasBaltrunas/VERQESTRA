@@ -26,7 +26,7 @@ readme-guard -> architect -> coder -> reviewer -> tester
 Leidžiama:
 - `src/application/task-execution/enqueue-child-tasks.ts`
 - `src/application/task-execution/task-splitting.ts`
-- `src/tests/**`
+- `src/tests/task-execution-orchestration.test.ts`
 
 Draudžiama:
 - `.env`

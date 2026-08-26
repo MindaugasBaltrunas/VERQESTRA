@@ -23,7 +23,9 @@ readme-guard -> architect -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `src/domain/diagnosis/dispositions.ts`
-- `src/tests/**`
+- `src/tests/characterization-diagnosis.test.ts`
+- `src/tests/domain-vq204.test.ts`
+- `src/tests/fixtures/characterization/diagnosis-dispositions.json`
 
 Draudžiama:
 - `src/application/**`

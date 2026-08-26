@@ -141,6 +141,8 @@ async function handleGet(deps: UiRouterDeps, pathname: string, url: URL): Promis
       return await guarded(() => ports.reliabilityAnalytics(url.searchParams.get("fresh") === "1"));
     case "/api/benchmark/report":
       return await guarded(() => ports.benchmarkReport());
+    case "/api/compression":
+      return await guarded(() => ports.compressionView());
     case "/api/tasks": {
       // Etalono (ir ui-app `fetchWorkflowTasks`) kontraktas: `?bucket=<b>` grąžina VIENO bucket'o
       // pilną sąrašą, nežinomas bucket'as — 400. Iki 2026-08-23 parametras buvo IGNORUOJAMAS ir

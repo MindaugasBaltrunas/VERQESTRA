@@ -7,7 +7,7 @@ import type {
   BenchmarkReportView,
   BenchmarkScenarioSection,
 } from "../../model/types";
-import { useI18n } from "../../i18n/I18nContext";
+import { tProse, useI18n } from "../../i18n/I18nContext";
 import { BenchmarkInsights } from "../components/BenchmarkInsights";
 import { CompressionCohortPanel } from "../components/CompressionCohortPanel";
 import { Header, type Route } from "../components/Header";
@@ -229,8 +229,10 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                     </p>
                     {activeModeSection.differences.length > 0 && (
                       <ul className="benchmark-mode-differences">
+                        {/* Serverio proza verčiama per tProse (2026-08-26): detail sakiniai
+                            ateina raporto duomenyse, ne per statinius i18n raktus. */}
                         {activeModeSection.differences.map((difference) => (
-                          <li key={`${difference.aspect}/${difference.code}`}><strong>{difference.aspect}</strong>: {difference.detail}</li>
+                          <li key={`${difference.aspect}/${difference.code}`}><strong>{t(difference.aspect)}</strong>: {tProse(t, difference.detail)}</li>
                         ))}
                       </ul>
                     )}
@@ -344,7 +346,7 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
 
             <section className="panel">
               <div className="panel-header"><div><h2>{t("Methodology and limitations")}</h2></div></div>
-              <ul className="benchmark-reasons">{report.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
+              <ul className="benchmark-reasons">{report.limitations.map((limitation) => <li key={limitation}>{tProse(t, limitation)}</li>)}</ul>
               <p className="benchmark-reproduction"><span>{t("Reproduction")}</span><code>{report.reproduction.command}</code></p>
             </section>
           </div>

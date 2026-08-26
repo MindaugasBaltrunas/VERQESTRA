@@ -58,6 +58,8 @@ function world(): World {
     tokenAnalytics: () => record("token-analytics", null, { groups: [], candidates: [], history: [] }),
     reliabilityAnalytics: (fresh) => record("reliability", { fresh }, {}),
     benchmarkReport: () => record("benchmark", null, {}),
+    compressionView: () => record("compression-view", null, {}),
+    setCompressionFeature: (feature, value) => record("compression-set", { feature, value }, {}),
     workflowBuckets: () => record("buckets", null, []),
     workflowBucketTasks: (bucket) => record("bucket", bucket, { name: bucket, tasks: [], totalCount: 0 }),
     wavesView: (limit) => record("waves", limit, {}),

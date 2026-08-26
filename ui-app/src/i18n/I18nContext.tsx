@@ -14,6 +14,7 @@ const lt: Record<string, string> = {
   "System": "Sistema",
   "Reliability": "Patikimumas",
   "Benchmark": "Etaloninis testas",
+  "Compression": "Kompresija",
   "Primary navigation": "Pagrindinė navigacija",
   "Start VERQESTRA": "Paleisti VERQESTRA",
   "Stop VERQESTRA": "Sustabdyti VERQESTRA",
@@ -564,6 +565,44 @@ const lt: Record<string, string> = {
   "Could not load benchmark report": "Nepavyko įkelti etaloninio testo ataskaitos",
   "No benchmark report available": "Etaloninio testo ataskaitos nėra",
   "Benchmark verdict": "Etaloninio testo verdiktas",
+
+  // Kompresijos puslapis (2026-08-26).
+  "Context compression flags and the shadow measurements behind them.":
+    "Konteksto kompresijos vėliavos ir šešėliniai matavimai, kuriais remiantis jos keliamos.",
+  "Could not load compression settings": "Nepavyko įkelti kompresijos nustatymų",
+  "Feature flags": "Funkcijų vėliavos",
+  "Changing a flag changes what reaches the executor. The context pack cache keys on this config, so a switch invalidates it automatically.":
+    "Vėliavos pakeitimas keičia tai, kas pasiekia vykdytoją. Konteksto paketo kešas remiasi šiuo konfigu, tad perjungimas jį anuliuoja automatiškai.",
+  "Flag": "Vėliava",
+  "Set to": "Nustatyti",
+  "Canary cohort": "Canary kohorta",
+  "no salt set": "žetonas nenustatytas",
+  "canary": "canary",
+  "Shadow telemetry": "Šešėlinė telemetrija",
+  "Measured from context-size.jsonl even while every flag is off — that is what makes deciding possible before enabling.":
+    "Matuojama iš context-size.jsonl net kai visos vėliavos išjungtos — būtent tai leidžia spręsti prieš įjungiant.",
+  "Samples": "Pavyzdžiai",
+  "Avg budget used": "Vidutinis biudžeto užpildymas",
+  "Peak budget used": "Didžiausias biudžeto užpildymas",
+  "Budget exceeded": "Biudžetas viršytas",
+  "IR smaller": "IR mažesnis",
+  "Avg IR delta": "Vidutinė IR delta",
+  "Latest sample": "Naujausias pavyzdys",
+  "Some sources could not be read": "Kai kurių šaltinių perskaityti nepavyko",
+  "No shadow samples yet — enable nothing on a guess":
+    "Šešėlinių pavyzdžių dar nėra — nieko neįjunk spėdamas",
+  "IR is larger on average — enabling worker_task_ir would grow the pack":
+    "IR vidutiniškai DIDESNIS — įjungus worker_task_ir paketas išaugtų",
+  "IR is smaller in every sample": "IR mažesnis kiekviename pavyzdyje",
+  "IR helps only some tasks — check before enabling":
+    "IR padeda tik daliai užduočių — patikrink prieš įjungdamas",
+  "Canonical WorkerTaskIR instead of raw task Markdown":
+    "Kanoninis WorkerTaskIR vietoj neapdoroto task Markdown",
+  "Compact worker DSL renderer": "Kompaktiškas worker DSL rendereris",
+  "REF/SIG/SRC tiers in code context": "REF/SIG/SRC pakopos kodo kontekste",
+  "Bash/PowerShell output digest in the PostToolUse path":
+    "Bash/PowerShell išvesties santrauka PostToolUse kelyje",
+  "Smaller dispatch tool schemas": "Mažesnės dispatch įrankių schemos",
   "Verdict": "Verdiktas",
   "No baseline comparison was supplied.": "Palyginimo su baseline nėra.",
   "Compared against the stored baseline.": "Palyginta su išsaugotu baseline.",
@@ -580,6 +619,22 @@ const lt: Record<string, string> = {
   "Modes": "Režimai",
   "Headline mode": "Antraštės režimas",
   "Conclusions": "Išvados",
+  // --- Serverio prozos vertimai (benchmark raporto duomenys, žr. tProse) ---
+  "model": "modelis",
+  "prompt": "prompt'as",
+  "limits": "limitai",
+  "telemetry": "telemetrija",
+  "The loop delivers the scenario task text unchanged, but inside its own task-file envelope and alongside its supervisor instructions, so the tokens the model sees are a superset of the prompt.": "Loop'as scenarijaus task tekstą perduoda nepakeistą, bet savo task-failo voke ir kartu su supervizoriaus instrukcijomis — modelio matomi tokenai yra prompt'o superaibė.",
+  "One sample can cover several dispatches: tokens, LLM calls, attempts, repairs and human-review events are the sum over everything the loop did for this scenario.": "Vienas mėginys gali apimti kelis dispatch'us: tokenai, LLM kvietimai, bandymai, remontai ir human-review įvykiai yra suma per viską, ką loop'as padarė šiam scenarijui.",
+  "The mode has no retry, repair or review layer to count, so attempts is 1 and repairs and human-review events are 0 — a zero that means absent, not achieved.": "Šis režimas neturi retry, remonto ar peržiūros sluoksnio, tad bandymų yra 1, o remontų ir human-review įvykių — 0. Šis nulis reiškia „nėra mechanizmo“, ne „pasiekta“.",
+  "No LLM call is made, so this mode measures what the harness itself costs rather than what solving the scenario costs.": "LLM kvietimų nėra, tad šis režimas matuoja, kiek kainuoja pats harness'as, o ne scenarijaus sprendimas.",
+  "The scenario task text is never sent anywhere; the control reacts only to the scenario declaration, which is what makes it a floor rather than a competitor.": "Scenarijaus task tekstas niekur nesiunčiamas; kontrolė reaguoja tik į scenarijaus deklaraciją — būtent tai ją daro grindimis, o ne konkurentu.",
+  "no compression sample has been recorded, so every variant verdict is not_measured and no compression claim may be made from this package": "neįrašytas nė vienas kompresijos mėginys, tad kiekvieno varianto verdiktas yra not_measured ir joks kompresijos teiginys iš šio paketo negalimas",
+  "a contribution is attributable to a feature only from that feature's own single-feature variant, and contributions are not additive: the interaction residual is a fact about the combination and belongs to no individual feature": "indėlis feature'ui priskiriamas tik iš jo paties single-feature varianto, o indėliai nėra adityvūs: sąveikos liekana yra kombinacijos faktas ir nepriklauso jokiam atskiram feature'ui",
+  "a feature that was never run on its own is reported as not measured; it is never derived by subtracting the other features from the combination": "feature'as, niekada nebėgęs atskirai, raportuojamas kaip nematuotas — jis niekada neišvedamas atimant kitus feature'us iš kombinacijos",
+  "the character counters in this section are diagnostics: they say how much text a path removed, not how many tokens it saved, and no verdict here is computed from them": "simbolių skaitikliai šioje sekcijoje yra diagnostika: jie sako, kiek teksto kelias pašalino, o ne kiek tokenų sutaupė — joks verdiktas iš jų neskaičiuojamas",
+  "the raw token stream is reported as a safety bound, not as the objective: it gates the verdict on its own threshold and is never the number a saving is claimed from": "žalias tokenų srautas raportuojamas kaip saugos riba, ne kaip tikslas: jis riboja verdiktą savo slenksčiu ir niekada nėra skaičius, iš kurio deklaruojamas sutaupymas",
+  "every number in this report is rounded to 4 decimal place(s); the unrounded values are the stored samples and the comparison this report was rendered from": "kiekvienas šio raporto skaičius suapvalintas iki 4 skaitmenų po kablelio; neapvalintos reikšmės — saugomi mėginiai ir palyginimas, iš kurio raportas atvaizduotas",
   "Which mode is worth using?": "Kurį režimą verta naudoti?",
   "Quality and token price side by side. Price per verified accepted change already includes every failed attempt — it is the honest cost of one successful change.": "Kokybė ir tokenų kaina greta. Kaina už patikrintą priimtą pakeitimą jau įskaičiuoja kiekvieną nepavykusį bandymą — tai sąžininga vieno PAVYKUSIO pakeitimo kaina.",
   "Difference": "Skirtumas",
@@ -914,6 +969,22 @@ const fallbackValue: I18nValue = {
 };
 
 const I18nContext = createContext<I18nValue>(fallbackValue);
+
+/**
+ * Serverio generuotos PROZOS vertimas (2026-08-26): benchmark raportas neša angliškus sakinius
+ * duomenyse (režimų skirtumai, kompresijos „negali teigti" eilutės), tad `t()` jų nemato per
+ * statinius raktus. Taisyklė: tikslus žodyno hit'as per `t(line)` (nesant vertimo — lieka
+ * originalas, niekas neblogėja), o žinomos PARAMETRIZUOTOS eilutės verčiamos šablonu.
+ */
+export function tProse(t: (text: string) => string, line: string): string {
+  const exact = t(line);
+  if (exact !== line) return exact;
+  const unattributed = /^(\d+) recorded sample\(s\) carry no declared compression variant; they entered no compression aggregate and were not folded into the baseline$/.exec(line);
+  if (unattributed) {
+    return `${unattributed[1]} įrašytas(-i) mėginys(-iai) neturi deklaruoto kompresijos varianto; į kompresijos agregatus jie nepateko ir į baseline nebuvo įskaičiuoti`;
+  }
+  return line;
+}
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {

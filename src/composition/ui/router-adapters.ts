@@ -24,6 +24,13 @@ import { listWorkerLeases } from "../../application/scheduling/worker-lease-stor
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
 import { readWaveSnapshot, waveSnapshotExists } from "../../infrastructure/state/wave-snapshot-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
+import { buildCompressionView } from "../../interfaces/http/ui-compression-view.js";
+import { setCompressionFeature } from "../../interfaces/http/ui-compression-mutation.js";
+import {
+  contextCompressionConfigPath,
+  loadContextCompressionConfig,
+} from "../../application/context-pack/effective-compression-policy.js";
+
 import { runIgnoredProcess } from "../../infrastructure/process/process-tree.js";
 import { clearTaskLedgerEntry } from "../../application/task-execution/task-ledger-service.js";
 import { authorizeWorkerRuntimeMutation } from "../../application/scheduling/worker-lease-runtime.js";
@@ -98,6 +105,27 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
     tokenAnalytics: () => tokenAnalytics(input),
     reliabilityAnalytics: (fresh) => reliabilityAnalytics(input, fresh),
     benchmarkReport: () => benchmarkReport(input),
+
+    // Skaitymas ir rašymas dalijasi TUO PAČIU `loadConfig`: kitaip ekranas galėtų rodyti vieną
+    // šaltinį, o mutacija remtis kitu, ir perjungimas atrodytų „neišsisaugojęs". FS adapteris —
+    // esamas `contextPackFs`, o ne siaura kopija: dvi realizacijos tam pačiam failui prasilenktų,
+    // vos viena jų pasikeistų.
+    compressionView: () =>
+      buildCompressionView({
+        loadConfig: () => loadContextCompressionConfig(contextPackFs, input.runtimeRoot),
+        readContextSizeLog: () =>
+          nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "logs", "context-size.jsonl")),
+      }),
+    setCompressionFeature: (feature, value) =>
+      setCompressionFeature(
+        {
+          loadConfig: () => loadContextCompressionConfig(contextPackFs, input.runtimeRoot),
+          writeConfig: (serialized) =>
+            nodeFsAdapter.writeTextFile(contextCompressionConfigPath(input.runtimeRoot), serialized),
+        },
+        feature,
+        value,
+      ),
 
     workflowBuckets: () => loadWorkflowBuckets(workflowBucketPorts, input.agRoot),
     workflowBucketTasks: (bucket) => loadWorkflowBucketTasks(workflowBucketPorts, input.agRoot, bucket),

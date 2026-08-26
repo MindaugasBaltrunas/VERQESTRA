@@ -4,6 +4,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { TokenUsagePage } from "./pages/TokenUsagePage";
 import { ReliabilityPage } from "./pages/ReliabilityPage";
 import { BenchmarkPage } from "./pages/BenchmarkPage";
+import { CompressionPage } from "./pages/CompressionPage";
 import { I18nProvider, useI18n } from "../i18n/I18nContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SkipToContent } from "./components/SkipToContent";
@@ -42,6 +43,7 @@ function RoutedApp() {
   }
   if (route === "reliability") return <ReliabilityPage activeRoute={route} onNavigate={navigate} />;
   if (route === "benchmark") return <BenchmarkPage activeRoute={route} onNavigate={navigate} />;
+  if (route === "compression") return <CompressionPage activeRoute={route} onNavigate={navigate} />;
 
   return <DashboardPage activeRoute={route} onNavigate={navigate} />;
 }

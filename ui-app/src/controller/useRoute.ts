@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Route = "overview" | "tasks" | "reviews" | "learning" | "analytics" | "optimization" | "reliability" | "benchmark" | "system";
+export type Route = "overview" | "tasks" | "reviews" | "learning" | "analytics" | "optimization" | "reliability" | "benchmark" | "compression" | "system";
 
 /**
  * Maršruto pavadinimas žmogui (vertimų raktų kalba — anglų; `t()` verčia).
@@ -17,12 +17,13 @@ export const ROUTE_LABELS: Record<Route, string> = {
   optimization: "Optimization",
   reliability: "Reliability",
   benchmark: "Benchmark",
+  compression: "Compression",
   system: "System",
 };
 
 function readRoute(): Route {
   const route = window.location.hash.replace(/^#\//, "");
-  if (route === "tasks" || route === "reviews" || route === "learning" || route === "analytics" || route === "optimization" || route === "reliability" || route === "benchmark" || route === "system") {
+  if (route === "tasks" || route === "reviews" || route === "learning" || route === "analytics" || route === "optimization" || route === "reliability" || route === "benchmark" || route === "compression" || route === "system") {
     return route;
   }
   return "overview";

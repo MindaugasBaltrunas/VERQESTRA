@@ -314,6 +314,7 @@ function pageMeta(route: Route) {
     optimization: { eyebrow: "Optimization", title: "Optimization", description: "" },
     reliability: { eyebrow: "Engineering intelligence", title: "Reliability", description: "File activity, failures, repairs, unresolved work, and deterministic token cost in one view." },
     benchmark: { eyebrow: "Engineering intelligence", title: "Benchmark", description: "Authoritative benchmark verdict, reliability, and baseline comparison for VERQESTRA." },
+    compression: { eyebrow: "Engineering intelligence", title: "Compression", description: "Context compression flags and the shadow measurements behind them." },
   };
   return pages[route];
 }

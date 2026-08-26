@@ -27,12 +27,14 @@ import {
   type UiRouteResponse,
   type UiRouterDeps,
 } from "./ui-router-model.js";
+import { InvalidCompressionRequestError } from "./ui-compression-mutation.js";
 import type { PolicyProposalGroup } from "../../application/policy-governance/policy-file-registry.js";
 import type { TaskTriageAction } from "./ui-task-actions.js";
 
 const POLICY_GROUP_ROUTE = /^\/api\/policies\/(architecture-style|coding-principles|enforcement)\/set$/;
 const PROPOSAL_DECISION_ROUTE = /^\/api\/policies\/proposals\/(approve|reject|apply)$/;
 const SLOT_MODE_ROUTE = /^\/api\/runtime\/loop\/slots\/([^/]+)$/;
+const COMPRESSION_FEATURE_ROUTE = /^\/api\/compression\/features\/([^/]+)$/;
 const TASK_TRIAGE_ROUTE = /^\/api\/tasks\/(requeue|complete)\/(.+)$/;
 const LEARNING_DECISION_ROUTE = /^\/learning\/(approve|reject)\/(.+)$/;
 const FOLDER_OPEN_ROUTE = /^\/folders\/open\/(.+)$/;
@@ -148,6 +150,28 @@ export async function handlePost(
         return json(await ports.setSlotMode(workerId, body));
       } catch (error) {
         return mapped(deps, error, mapRuntimeControlError);
+      }
+    });
+  }
+
+  const compressionFeature = COMPRESSION_FEATURE_ROUTE.exec(pathname);
+  if (compressionFeature?.[1]) {
+    const feature = decodeSegment(compressionFeature[1]);
+    return await withJsonBody(async (body) => {
+      try {
+        return json({ config: await ports.setCompressionFeature(feature, (body as { value?: unknown }).value) });
+      } catch (error) {
+        // Nežinomas raktas ir neleistina reikšmė yra KLIENTO klaidos: 400 su domeno paaiškinimu.
+        // 500 čia reikštų „serveris sugedo", ir operatorius ieškotų gedimo ten, kur jo nėra.
+        if (error instanceof InvalidCompressionRequestError) {
+          return { kind: "json", status: 400, data: { error: error.message } };
+        }
+        // Domeno validatorius meta paprastą `Error` su `… validation failed: …` — irgi kliento klaida.
+        if (error instanceof Error && /validation failed:/.test(error.message)) {
+          return { kind: "json", status: 400, data: { error: error.message } };
+        }
+        ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
+        return toResponse(INTERNAL_ERROR_RESPONSE);
       }
     });
   }

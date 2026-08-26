@@ -61,6 +61,8 @@ function routerWorld(): RouterWorld {
     tokenAnalytics: () => record("token-analytics", {}),
     reliabilityAnalytics: (fresh) => record(`reliability:${fresh ? "fresh" : "cached"}`, {}),
     benchmarkReport: () => record("benchmark", {}),
+    compressionView: () => record("compression-view", {}),
+    setCompressionFeature: (feature: string, value: unknown) => record("compression-set", { feature, value }),
     workflowBuckets: () => record("tasks", []),
     workflowBucketTasks: (bucket) =>
       bucket === "queue"

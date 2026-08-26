@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { BenchmarkCompressionSection, BenchmarkCompressionVariant } from "../../model/types";
-import { useI18n } from "../../i18n/I18nContext";
+import { tProse, useI18n } from "../../i18n/I18nContext";
 
 /**
  * Kompresijos kohorta: canary vs control (2026-08-24).
@@ -196,7 +196,8 @@ export function CompressionCohortPanel({ section }: { section: BenchmarkCompress
       {section.limitations.length > 0 && (
         <div className="budget-reasons">
           <strong>{t("This section cannot claim")}</strong>
-          <ul>{section.limitations.map((line) => <li key={line}>{line}</li>)}</ul>
+          {/* Serverio proza verčiama per tProse (2026-08-26) — eilutės ateina duomenyse. */}
+          <ul>{section.limitations.map((line) => <li key={line}>{tProse(t, line)}</li>)}</ul>
         </div>
       )}
     </section>

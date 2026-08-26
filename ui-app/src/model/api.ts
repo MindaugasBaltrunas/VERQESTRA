@@ -1,5 +1,8 @@
 import type {
   BenchmarkReportView,
+  CompressionFeatureKey,
+  CompressionFeatureValue,
+  CompressionView,
   DashboardData,
   LoopResult,
   LoopSlotMode,
@@ -293,4 +296,30 @@ export async function decidePolicyProposal(
   });
   await assertOk(r);
   return requireProposals(await r.json(), `/api/policies/proposals/${verb}`);
+}
+
+/** Kompresijos vėliavos ir jų shadow telemetrija. */
+export async function fetchCompression(): Promise<CompressionView> {
+  const response = await request("/api/compression");
+  await assertOk(response);
+  return await (response.json() as Promise<CompressionView>);
+}
+
+/**
+ * Perjungia VIENĄ vėliavą.
+ *
+ * Atsakymo kūnas neskaitomas: naują būseną kontroleris pasiima pakartotiniu `fetchCompression`,
+ * kad ekranas rodytų TĄ PATĮ šaltinį, kurį matys kitas dispatch'as — o ne mutacijos atsakymą,
+ * liudijantį tik apie įrašytą norą. Neleistiną reikšmę serveris atmeta 400-uku, ir `assertOk`
+ * perduoda jo paaiškinimą nepakeistą.
+ */
+export async function setCompressionFeature(
+  feature: CompressionFeatureKey,
+  value: CompressionFeatureValue,
+): Promise<void> {
+  const r = await post(`/api/compression/features/${encodeURIComponent(feature)}`, {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  await assertOk(r);
 }

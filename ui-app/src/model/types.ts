@@ -658,6 +658,49 @@ export type BenchmarkReportView = {
   report?: BenchmarkReportDocument;
 };
 
+/* ---- `GET /api/compression` (`interfaces/http/ui-compression-view.ts#UiCompressionView`) -----
+ * Kompresijos vėliavos ir jų shadow telemetrija. `canarySupported` ateina IŠ SERVERIO, o ne iš
+ * čia perrašyto sąrašo: `bash_output_digest` canary nepalaiko, ir dropdown, siūlantis reikšmę,
+ * kurią serveris atmes, yra blogesnis už jos nebuvimą.
+ */
+export type CompressionFeatureKey =
+  | "worker_task_ir"
+  | "compact_dsl"
+  | "symbol_slices"
+  | "bash_output_digest"
+  | "dispatch_tool_schema";
+
+/** `true` = visiems, `false` = niekam, `"canary"` = tik kohortai. */
+export type CompressionFeatureValue = boolean | "canary";
+
+export type CompressionFeature = {
+  key: CompressionFeatureKey;
+  value: CompressionFeatureValue;
+  canary_supported: boolean;
+};
+
+export type CompressionTelemetry = {
+  sample_count: number;
+  latest_ts?: string;
+  avg_budget_percent?: number;
+  max_budget_percent?: number;
+  exceeded_count: number;
+  /** Kiek pavyzdžių turėjo ir `raw`, ir `compiled` dydį — tik jie palyginami. */
+  ir_compared_count: number;
+  /** Kiek jų IR forma buvo MAŽESNĖ. `ir_smaller_count < ir_compared_count` = nauda nevienoda. */
+  ir_smaller_count: number;
+  /** Vidutinė delta procentais: neigiama = IR mažesnis (nauda), teigiama = didesnis (žala). */
+  avg_ir_delta_percent?: number;
+};
+
+export type CompressionView = {
+  version: number;
+  canary: { percent: number; salt: string };
+  features: CompressionFeature[];
+  telemetry: CompressionTelemetry;
+  degraded: string[];
+};
+
 /* ---- `GET /api/waves` (`interfaces/http/ui-waves-view.ts#UiWavesView`) -----------------------
  * DTO gyvena čia, o ne kontroleryje: bangų duomenis dabar skaito ir model sluoksnis
  * (`slotProgressViewModel`, `queuePipelineViewModel`), o modelis kontrolerio importuoti negali —

@@ -83,6 +83,7 @@ export function Header({
             ["optimization", "△"],
             ["reliability", "◫"],
             ["benchmark", "⏱"],
+            ["compression", "⇲"],
             ["system", "⚙"],
           ] as const).map(([route, icon]) => (
             <button

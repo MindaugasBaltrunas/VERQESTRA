@@ -72,6 +72,13 @@ export type UiRouterPorts = {
   /** `fresh` apeina 10 s kešą — tai operatoriaus „Atnaujinti" mygtuko prasmė. */
   reliabilityAnalytics(fresh: boolean): Promise<unknown>;
   benchmarkReport(): Promise<unknown>;
+  /** Kompresijos vėliavos + jų shadow telemetrija (`ui-compression-view`). */
+  compressionView(): Promise<unknown>;
+  /**
+   * Vienos vėliavos perjungimas. META `InvalidCompressionRequestError` nežinomam raktui ar
+   * neleistinai reikšmei — maršrutas tai verčia į 400 su domeno paaiškinimu, ne į 500.
+   */
+  setCompressionFeature(feature: string, value: unknown): Promise<unknown>;
   workflowBuckets(): Promise<unknown>;
   /** Vieno bucket'o PILNAS sąrašas; nežinomas bucket'as META `UnknownTaskBucketError`. */
   workflowBucketTasks(bucket: string): Promise<unknown>;

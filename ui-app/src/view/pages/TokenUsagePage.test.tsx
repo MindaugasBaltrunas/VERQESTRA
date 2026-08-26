@@ -41,9 +41,8 @@ describe("TokenUsagePage", () => {
 
     render(<TokenUsagePage activeRoute="analytics" onNavigate={noop} />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Error:")).toBeInTheDocument();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("boom");
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
@@ -90,6 +89,17 @@ describe("TokenUsagePage", () => {
     expect(overviewGrid).not.toContainElement(taskPanel);
     expect(within(taskTable).getByText("task-alpha")).toBeInTheDocument();
     expect(within(taskTable).getByText("task-beta")).toBeInTheDocument();
+  });
+
+  it("renders the optimization error state as an alert when the analytics fetch is rejected", async () => {
+    vi.mocked(api.fetchTokenUsage).mockResolvedValue(emptyResponse);
+    vi.mocked(api.fetchTokenAnalytics).mockRejectedValue(new Error("analytics down"));
+
+    render(<TokenUsagePage activeRoute="optimization" onNavigate={noop} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("analytics down");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("renders similar-task groups and optimization candidates from the analytics endpoint", async () => {

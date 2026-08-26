@@ -87,7 +87,7 @@ export function TokenUsagePage({ activeRoute, onNavigate }: Props) {
         />}
 
         {!isOptimization && (error ? (
-          <div className="notice" style={{ color: "var(--error)" }}>
+          <div className="notice notice-error" role="alert">
             <strong>{t("Error")}:</strong> {error}
             <br />
             <button
@@ -144,7 +144,7 @@ export function TokenUsagePage({ activeRoute, onNavigate }: Props) {
         </section>}
 
         {isOptimization && (analytics.error ? (
-          <div className="notice" style={{ color: "var(--error)" }}>
+          <div className="notice notice-error" role="alert">
             <strong>{t("Error")}:</strong> {analytics.error}
             <br />
             <button

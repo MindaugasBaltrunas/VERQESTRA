@@ -9,7 +9,7 @@ import type {
   BenchmarkScenarioSection,
 } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
-import { BenchmarkInsights } from "../components/BenchmarkInsights";
+import { BenchmarkInsights, BenchmarkWorthLine } from "../components/BenchmarkInsights";
 import { CompressionCohortPanel } from "../components/CompressionCohortPanel";
 import { Header, type Route } from "../components/Header";
 
@@ -184,23 +184,9 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                   {report.reasons.map((reason) => <li key={reason}>{humanizeVerdictReason(reason, t)}</li>)}
                 </ul>
               )}
-              {(() => {
-                const loopCost = findMetric(modes.find((mode) => mode.mode === "ag-loop"), "perVerifiedAcceptedChange.billableTokens");
-                const soloCost = findMetric(modes.find((mode) => mode.mode === "agent-solo"), "perVerifiedAcceptedChange.billableTokens");
-                if (loopCost?.current === undefined && soloCost?.current === undefined) return null;
-                return (
-                  <p className="benchmark-verdict-tokens">
-                    <strong>{t("Token bottom line")}:</strong>{" "}
-                    {loopCost?.current !== undefined && <>ag-loop {compact.format(loopCost.current)} tok.</>}
-                    {loopCost?.current !== undefined && soloCost?.current !== undefined && <> · </>}
-                    {soloCost?.current !== undefined && <>agent-solo {compact.format(soloCost.current)} tok.</>}{" "}
-                    {t("per verified accepted change")}
-                    {loopCost?.current !== undefined && loopCost.baseline !== undefined && (
-                      <> ({t("baseline")}: {compact.format(loopCost.baseline)} tok.)</>
-                    )}
-                  </p>
-                );
-              })()}
+              {/* „Kurį naudoti" atsakymas PIRMAME ekrane (2026-08-26): kokybė ir kaina vienoje
+                  eilutėje su rekomendacija; ta pati logika kaip vertės kortelėje žemiau. */}
+              <BenchmarkWorthLine modes={modes} />
             </section>
 
             <section className="benchmark-kpis" aria-label={t("Headline metrics")}>

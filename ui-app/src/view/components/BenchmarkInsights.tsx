@@ -63,6 +63,48 @@ function winnerOf(
   return loopWins ? "ag-loop" : "agent-solo";
 }
 
+/**
+ * Kompaktiška „kurį naudoti" eilutė VERDIKTO paneliui (2026-08-26 operatoriaus pastaba:
+ * atsakymas „kas naudingiau" privalo matytis pirmame ekrane, ne tik kortelėje žemiau).
+ * Ta pati trijų šakų logika kaip vertės kortelės verdiktas — vienas sprendimas, dvi vietos.
+ */
+export function BenchmarkWorthLine({ modes }: { modes: BenchmarkModeSection[] }) {
+  const { t, locale } = useI18n();
+  const percent = useMemo(() => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }), [locale]);
+  const compact = useMemo(() => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }), [locale]);
+  const decimal = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }), [locale]);
+
+  const loop = modes.find((mode) => mode.mode === "ag-loop");
+  const solo = modes.find((mode) => mode.mode === "agent-solo");
+  const accLoop = rowOf(loop, "acceptedRate")?.current;
+  const accSolo = rowOf(solo, "acceptedRate")?.current;
+  const costLoop = rowOf(loop, "perVerifiedAcceptedChange.billableTokens")?.current;
+  const costSolo = rowOf(solo, "perVerifiedAcceptedChange.billableTokens")?.current;
+  if (accLoop === undefined || accSolo === undefined || costLoop === undefined || costSolo === undefined || costSolo <= 0) {
+    return null;
+  }
+
+  const quality = `${percent.format(accLoop)} ${t("vs")} ${percent.format(accSolo)}`;
+  const price = `${compact.format(costLoop)} ${t("vs")} ${compact.format(costSolo)} tok. ${t("per verified accepted change")}`;
+
+  return (
+    <p className="benchmark-verdict-tokens">
+      <strong>{t("Worth using")}:</strong>{" "}
+      {accLoop > accSolo && costLoop >= costSolo ? (
+        <>
+          <strong>ag-loop</strong> — +{decimal.format((accLoop - accSolo) * 100)} p.p. {t("quality")} ({quality}){" "}
+          {t("for")} +{percent.format(costLoop / costSolo - 1)} {t("price")} ({price}).{" "}
+          {t("Cheaper per attempt does not mean cheaper per result once quality is counted.")}
+        </>
+      ) : accLoop >= accSolo && costLoop < costSolo ? (
+        <><strong>ag-loop</strong> — {t("both better and cheaper")} ({quality}; {price}).</>
+      ) : (
+        <><strong>agent-solo</strong> — {t("cheaper per successful change")} ({price}), {t("quality")}: {quality}.</>
+      )}
+    </p>
+  );
+}
+
 export function BenchmarkInsights({ modes }: { modes: BenchmarkModeSection[] }) {
   const { t, locale } = useI18n();
   const percent = useMemo(() => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }), [locale]);

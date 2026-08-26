@@ -116,8 +116,10 @@ describe("BenchmarkPage", () => {
     // paantraštė sako KAS lyginta, o tokenų rezultatas rodomas pačiame verdikto panelyje.
     expect(screen.getByText(/Every compared metric stayed inside its allowed threshold/)).toBeInTheDocument();
     expect(screen.queryByText("within-thresholds")).not.toBeInTheDocument();
-    expect(screen.getByText(/Token bottom line/)).toBeInTheDocument();
     expect(screen.getByText(/scenario comparisons/)).toBeInTheDocument();
+    // „Verta naudoti" — rekomendacija su kokybe IR kaina pačiame verdikto panelyje.
+    expect(screen.getByText(/Worth using/)).toBeInTheDocument();
+    expect(screen.getByText(/Cheaper per attempt does not mean cheaper per result/)).toBeInTheDocument();
 
     // Insights (2026-08-26): vertės kortelė (kokybė + kaina greta su verdiktu „kurį naudoti"),
     // dvikova su nugalėtoju ir žodynėlis.

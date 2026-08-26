@@ -160,7 +160,6 @@ export async function runUiCommand(deps: CliRegistryDeps, io: UiCommandIo): Prom
   });
 
   io.out(`ui listening: http://127.0.0.1:${listening.port}`);
-  io.out(`ui token: ${uiToken}`);
   if (staticDir === undefined) io.out("ui: static assets not found — API only");
 
   // Serveris laiko proceso event loop'ą gyvą; komanda baigiasi, kai jis užsidaro.

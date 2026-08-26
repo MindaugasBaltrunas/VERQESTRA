@@ -62,8 +62,20 @@ pnpm typecheck:watch  # tik tipai, be emit — greičiausias signalas
 
 ### Lint yra vartų dalis
 
-`pnpm test` bėga tokia tvarka: **lint → build → testai**. Lint pirmas, nes jis pigiausias ir
-gaudo tai, ko `tsc` nemato (pakibę Promise'ai, `any`, `@ts-ignore`, nepanaudoti kintamieji).
+`pnpm test` bėga tokia tvarka: **lint → build → testai → `typecheck:ui` → `test:ui`**. Lint pirmas,
+nes jis pigiausias ir gaudo tai, ko `tsc` nemato (pakibę Promise'ai, `any`, `@ts-ignore`,
+nepanaudoti kintamieji).
+
+`ui-app` pakopa pridėta 2026-08-26 po incidento: task 028 pakeitė `WavesPanel` duomenų kelią, jo
+testas liko stub'inantis globalų `fetch`, ir septyni raudoni testai išgyveno kelis ciklo
+dispatch'us — šaknies `pnpm test` jų nematė, tad ciklas laikė medį žaliu. CI juos gaudė visą laiką,
+bet **ciklas CI nepaleidžia: jam `pnpm test` yra vartas**. Invariantą saugo
+`src/tests/gate-covers-ui-app.test.ts`.
+
+`mobile-*` ir `AG/benchmark` į `pnpm test` NEĮTRAUKTI sąmoningai — jų `node_modules` čia nėra, tad
+įtraukti reikštų padaryti vartus raudonus visiems, kas nepaleido tų paketų diegimo. Keisdamas tuos
+paketus, patikras paleisk vardu (`pnpm test:mobile`, `pnpm test:benchmark`) ir įrašyk į task'o
+`## Patikra`.
 
 Iš to plaukia taisyklė: **nauja lint taisyklė įjungiama tik ją paleidus ant viso `src` ir
 ištaisius radinius**. Taisyklė, įjungta „pažiūrėti, ką ras", sustabdo visą migraciją, o ne

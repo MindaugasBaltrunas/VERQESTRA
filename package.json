@@ -25,7 +25,7 @@
     "build:watch": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch --preserveWatchOutput",
-    "test": "pnpm run lint && pnpm run build && node --test \"dist/tests/**/*.test.js\"",
+    "test": "pnpm run lint && pnpm run build && node --test \"dist/tests/**/*.test.js\" && pnpm run typecheck:ui && pnpm run test:ui",
     "test:only": "pnpm run build && node --test \"dist/tests/**/*.test.js\"",
     "test:compiled": "node --test \"dist/tests/**/*.test.js\"",
     "test:watch": "node --test --watch \"dist/tests/**/*.test.js\"",

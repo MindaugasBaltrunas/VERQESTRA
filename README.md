@@ -47,7 +47,7 @@ src/
 ```bash
 pnpm install          # šaknies paketas + AG/benchmark + ui-app darbo sritys
 pnpm typecheck        # tik tipai, be emit
-pnpm test             # lint -> build -> testai (vartai bega pirmi)
+pnpm test             # lint -> build -> testai -> ui-app tipai ir testai
 pnpm build            # dist/ + .buildstamp
 pnpm build:ui         # dashboard'as i ui-app/dist
 node dist/cli.js help # visos komandos

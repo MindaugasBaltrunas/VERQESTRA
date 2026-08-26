@@ -50,7 +50,10 @@ function report(overrides: Partial<BenchmarkReportDocument> = {}): BenchmarkRepo
           { metric: "acceptedRate", kind: "rate", baseline: 0.8, current: 0.83, absoluteDelta: 0.03, relativeDelta: 0.0375 },
           { metric: "firstPassRate", kind: "rate", baseline: 0.6, current: 0.6, absoluteDelta: 0, relativeDelta: 0 },
           { metric: "humanReviewRate", kind: "rate", baseline: 0.1, current: 0.1, absoluteDelta: 0, relativeDelta: 0 },
-          { metric: "perVerifiedAcceptedChange.tokens", kind: "cost", baseline: 12_000, current: 11_500, absoluteDelta: -500, relativeDelta: -0.0417 },
+          { metric: "perVerifiedAcceptedChange.billableTokens", kind: "cost", baseline: 12_000, current: 11_500, absoluteDelta: -500, relativeDelta: -0.0417 },
+          // BENCH-7 nulinis vardiklis: relativeDelta neegzistuoja, bet absoliutus IŠMATUOTAS —
+          // puslapis privalo rodyti „0 p.p.", ne n/a (2026-08-26 regresija).
+          { metric: "securityFailureRate", kind: "rate", baseline: 0, current: 0, absoluteDelta: 0, relativeDelta: undefined },
         ],
         differences: [{ aspect: "telemetry", code: "loop-only", detail: "only ag-loop can report a repair" }],
       },
@@ -91,6 +94,8 @@ describe("BenchmarkPage", () => {
       expect(stableBadge).toHaveTextContent("stable");
     });
     expect(screen.getByText("code-change-01")).toBeInTheDocument();
+    // Nulinio baseline delta rodomas procentiniais punktais, ne paliekamas kaip n/a.
+    expect(screen.getByText(/0 p\.p\./)).toBeInTheDocument();
   });
 
   it("shows the empty state when no report has been generated", async () => {

@@ -193,7 +193,7 @@ export type ReportMetricKind = "rate" | "cost";
  * the metric it is computed from.
  */
 export interface ReportMetricRow {
-  /** `acceptedRate`, or `perVerifiedAcceptedChange.tokens` for a cost. */
+  /** `acceptedRate`, or `perVerifiedAcceptedChange.billableTokens` for a cost. */
   readonly metric: string;
   readonly kind: ReportMetricKind;
   readonly baseline: number | undefined;

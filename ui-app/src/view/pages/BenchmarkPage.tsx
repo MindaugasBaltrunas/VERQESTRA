@@ -83,9 +83,19 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
   const formatRate = useCallback((value: number | undefined) => (value === undefined ? "n/a" : percent.format(value)), [percent]);
   const formatTokens = useCallback((value: number | undefined) => (value === undefined ? "n/a" : compact.format(value)), [compact]);
   const formatDelta = useCallback((row: BenchmarkMetricRow | undefined) => {
-    if (!row || row.relativeDelta === undefined) return undefined;
-    const formatted = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1, signDisplay: "always" }).format(row.relativeDelta);
-    return formatted;
+    if (!row) return undefined;
+    if (row.relativeDelta !== undefined) {
+      return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1, signDisplay: "always" }).format(row.relativeDelta);
+    }
+    // BENCH-7: santykinis delta neegzistuoja, kai baseline nulis — bet absoliutus tada VIS TIEK
+    // išmatuotas (pvz. securityFailureRate 0 → 0). Rodyti n/a čia reikštų „nepalyginta", nors
+    // palyginta ir nepasikeitė; rate rodomas procentiniais punktais, cost — skaičiumi.
+    if (row.absoluteDelta === undefined) return undefined;
+    if (row.kind === "rate") {
+      const points = new Intl.NumberFormat(locale, { maximumFractionDigits: 1, signDisplay: "always" }).format(row.absoluteDelta * 100);
+      return `${points} p.p.`;
+    }
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 1, signDisplay: "always" }).format(row.absoluteDelta);
   }, [locale]);
 
   return (
@@ -143,7 +153,10 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
             <section className="benchmark-kpis" aria-label={t("Headline metrics")}>
               <BenchmarkKpi label={t("Accepted rate")} row={findMetric(headlineMode, "acceptedRate")} format={formatRate} delta={formatDelta} />
               <BenchmarkKpi label={t("First-pass rate")} row={findMetric(headlineMode, "firstPassRate")} format={formatRate} delta={formatDelta} />
-              <BenchmarkKpi label={t("Tokens per verified accepted change")} row={findMetric(headlineMode, "perVerifiedAcceptedChange.tokens")} format={formatTokens} delta={formatDelta} />
+              {/* 2026-08-26: metrikos vardas suderintas su REALIU serverio raportu —
+                  `.billableTokens`, ne `.tokens` (pastarasis buvo nusirašytas nuo pasenusio
+                  modelio doc pavyzdžio ir niekada neegzistavo emituojamame JSON). */}
+              <BenchmarkKpi label={t("Tokens per verified accepted change")} row={findMetric(headlineMode, "perVerifiedAcceptedChange.billableTokens")} format={formatTokens} delta={formatDelta} />
               <BenchmarkKpi label={t("Human review rate")} row={findMetric(headlineMode, "humanReviewRate")} format={formatRate} delta={formatDelta} />
             </section>
 

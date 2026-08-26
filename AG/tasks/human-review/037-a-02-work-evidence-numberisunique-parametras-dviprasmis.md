@@ -1,7 +1,11 @@
 # Task
 
 ## Spec source
-- `openspec/changes/auto-037-task-numeris-vienareiksmis-per-visa-gyvavimo-c/` (spec.md p. 4–5, design.md)
+- `openspec/changes/verqestra-backlog-v1`
+- Originalus turinys (spec.md p. 4–5, design.md) gyvas archyve, slug'as
+  `auto-037-task-numeris-vienareiksmis-per-visa-gyvavimo-c`. Pilnas kelias čia NERAŠOMAS
+  sąmoningai: archyvinė nuoroda bet kurioje task'o eilutėje yra automatinis preflight atmetimas
+  (`openspec-context.ts:61,84`). Kodėl nuoroda pasikeitė — `docs/audits/038-subagento-kanalo-premisa-paneigta-2026-08-26.md`, skyrius R4.
 - `src/infrastructure/git/work-evidence.ts:48-62`
 
 ## Tikslas

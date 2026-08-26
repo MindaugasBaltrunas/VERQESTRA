@@ -44,12 +44,18 @@ function isSplitChildTaskId(taskId: string): boolean {
  *
  * Vaiko id ieškoma TIK pilna forma: `[^0-9-]`, o ne `[^0-9]`, nes `task 1210-x-02-y` yra SPLIT
  * VAIKO žyma, ne šio task'o — kitaip tėvas pasisavintų vaiko darbą.
+ *
+ * `numberIsUnique` — tik iškviečiantis sluoksnis žino, ar numeris eilėje unikalus (šis modulis
+ * to neskaičiuoja); kai `false`, skaičiumi grįsti šablonai praleidžiami, lieka tik pilnas id.
  */
-export function taskWorkEvidenceGrepArgs(taskId: string): string[] | undefined {
+export function taskWorkEvidenceGrepArgs(
+  taskId: string,
+  numberIsUnique?: boolean,
+): string[] | undefined {
   const number = /^(\d+)/.exec(taskId)?.[1];
   if (number === undefined) return undefined;
   const fullId = `--grep=${escapeExtendedRegExp(taskId)}`;
-  if (isSplitChildTaskId(taskId)) {
+  if (isSplitChildTaskId(taskId) || numberIsUnique === false) {
     return ["--extended-regexp", "--regexp-ignore-case", fullId];
   }
   return [
@@ -69,6 +75,8 @@ export type WorkEvidenceInput = {
   resolution: AttemptResolutionPort;
   /** Neblokuojantis įspėjimas, kai bazė nepasiekiama dėl REALIOS degradacijos. */
   warn?: (line: string) => Promise<void>;
+  /** Kai false — praleidžiami skaičiumi grįsti grep šablonai (numeris kartojasi eilėje). */
+  numberIsUnique?: boolean;
 };
 
 /**
@@ -157,14 +165,14 @@ export async function windowProductWorkSha(input: WorkEvidenceInput): Promise<st
 
 /** Griežtesnis įrodymas: commit'as, kuris ir pažymėtas šiuo task'u, ir turi produkto kelią. */
 export async function taskCommittedProductWorkSha(input: WorkEvidenceInput): Promise<string | undefined> {
-  const grepArgs = taskWorkEvidenceGrepArgs(input.taskId);
+  const grepArgs = taskWorkEvidenceGrepArgs(input.taskId, input.numberIsUnique);
   if (grepArgs === undefined) return undefined;
   return firstProductWorkSha(input.projectRoot, [...grepArgs, ...(await taskEvidenceRangeArgs(input))]);
 }
 
 /** Laisvesnis įrodymas: šiuo task'u pažymėtas ne-WIP commit'as, produkto kelių nereikalaujant. */
 export async function taskCommittedWorkSha(input: WorkEvidenceInput): Promise<string | undefined> {
-  const grepArgs = taskWorkEvidenceGrepArgs(input.taskId);
+  const grepArgs = taskWorkEvidenceGrepArgs(input.taskId, input.numberIsUnique);
   if (grepArgs === undefined) return undefined;
   const candidates = await evidenceCandidates(
     input.projectRoot,

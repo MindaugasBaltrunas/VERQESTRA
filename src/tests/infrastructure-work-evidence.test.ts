@@ -62,6 +62,31 @@ test("grep argumentai: id be numerio neturi jokio šablono", () => {
   assert.equal(taskWorkEvidenceGrepArgs("be-numerio"), undefined);
 });
 
+test("grep argumentai: numberIsUnique=true nekeičia elgesio (regresija)", () => {
+  assert.deepEqual(taskWorkEvidenceGrepArgs("1210", true), taskWorkEvidenceGrepArgs("1210"));
+  assert.deepEqual(taskWorkEvidenceGrepArgs("0042", true), taskWorkEvidenceGrepArgs("0042"));
+});
+
+test("grep argumentai: numberIsUnique=false palieka tik pilną id (numeris kartojasi eilėje)", () => {
+  assert.deepEqual(taskWorkEvidenceGrepArgs("1210", false), [
+    "--extended-regexp",
+    "--regexp-ignore-case",
+    "--grep=1210",
+  ]);
+});
+
+test("grep argumentai: split vaikas nepriklauso nuo numberIsUnique — visada tik pilnas id", () => {
+  const expected = ["--extended-regexp", "--regexp-ignore-case", "--grep=1210-02-slug"];
+  assert.deepEqual(taskWorkEvidenceGrepArgs("1210-02-slug"), expected);
+  assert.deepEqual(taskWorkEvidenceGrepArgs("1210-02-slug", true), expected);
+  assert.deepEqual(taskWorkEvidenceGrepArgs("1210-02-slug", false), expected);
+});
+
+test("grep argumentai: id be numerio lieka undefined nepriklausomai nuo numberIsUnique", () => {
+  assert.equal(taskWorkEvidenceGrepArgs("be-numerio", false), undefined);
+  assert.equal(taskWorkEvidenceGrepArgs("be-numerio", true), undefined);
+});
+
 test("grep argumentai: ERE metasimboliai escape'inami pažodžiui", () => {
   const args = taskWorkEvidenceGrepArgs("0042");
   assert.ok(args?.includes("--grep=0042"));

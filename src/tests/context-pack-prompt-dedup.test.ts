@@ -250,6 +250,77 @@ test("029: prompt'as neša task'ą vieną kartą ir yra trumpesnis už pre-dedup
   );
 });
 
+// Realus dispatch'as su `worker_task_ir=true` neša KOMPILIUOTĄ kūną, ne raw Markdown'ą. Dedup
+// nuo to nepriklauso: task'ą neša kūnas, kad ir kuria forma.
+test("029: dedup galioja ir kompiliuoto kūno kelyje", () => {
+  const pack = realisticPack();
+  const contextPackText = JSON.stringify(pack);
+  const artifact = artifactFor(pack, contextPackText);
+  const compiledTask = '{"task":"029","goal":"neša vieną kartą"}';
+
+  const canonical = resolveCanonicalWorkerPrompt({
+    ...attachInput(contextPackText, artifact),
+    compiledTask,
+  });
+  assert.equal(canonical.kind, "prompt");
+  if (canonical.kind !== "prompt") {
+    return;
+  }
+  assert.ok(canonical.prompt.startsWith(compiledTask), "kompiliuotas kūnas PAKEIČIA raw tekstą");
+  assert.ok(!canonical.prompt.includes("## Tikslas"), "raw kūno prompt'e nebėra");
+  for (const heading of TASK_DERIVED_HEADINGS) {
+    assert.ok(!canonical.prompt.includes(heading), `${heading} ir kompiliuotame kelyje yra antra kopija`);
+  }
+  assert.ok(canonical.prompt.includes("## Spec fragment:"), "spec įrodymas lieka");
+});
+
+// Kešo hit'o kelyje senas pack'as renderinamas su DABARTINIU tier'o biudžetu, tad
+// `pack.budget.max_context_chars` gali nebeatitikti artefakto `- char_limit:`. Jei dedup remtųsi
+// pack'o biudžetu, jis tyliai virstų no-op'u būtent pakartotiniuose bandymuose.
+test("029: `maxChars` imamas iš artefakto, ne iš pack'o biudžeto", () => {
+  const artifactLimit = 4200;
+  const pack = contextPackSchema.parse({
+    ...realisticPack(),
+    // Pack'o biudžetas SĄMONINGAI nesutampa su tuo, su kuriuo artefaktas buvo sukurtas.
+    budget: { max_context_chars: 9000 },
+    spec_fragments: [
+      "doc/pirmas.md\n" + "PIRMAS ".repeat(120),
+      "doc/antras.md\n" + "ANTRAS ".repeat(120),
+      "doc/trecias.md\n" + "TRECIAS ".repeat(120),
+    ],
+  });
+  const contextPackText = JSON.stringify(pack);
+  const marker = buildExecutionContextMarker({ taskId: pack.task_id, taskText: TASK_TEXT, contextPackText });
+  const artifact = `${marker}\n${renderExecutionContext(pack, { maxChars: artifactLimit }).markdown}`;
+  assert.notEqual(
+    renderExecutionContext(pack).markdown,
+    renderExecutionContext(pack, { maxChars: artifactLimit }).markdown,
+    "fikstūra privalo REALIAI skirtis, kitaip testas nieko netikrina",
+  );
+
+  const canonical = resolveCanonicalWorkerPrompt(attachInput(contextPackText, artifact));
+  assert.equal(canonical.kind, "prompt");
+  if (canonical.kind === "prompt") {
+    assert.match(canonical.prompt, /- task_derived: \d+ element\(s\) omitted here/, "dedup suveikė");
+    assert.ok(canonical.prompt.includes(`- char_limit: ${artifactLimit}`), "lieka artefakto biudžetas");
+  }
+});
+
+// Vartų lygybė normalizuota (`contextArtifactSha256` nuima CR); dedup lygybė privalo būti tokia
+// pat, kitaip ji tyliai išsijungtų ten, kur vartai praleido.
+test("029: CRLF artefaktas dedup'o neišjungia", () => {
+  const pack = realisticPack();
+  const contextPackText = JSON.stringify(pack);
+  const artifact = artifactFor(pack, contextPackText).replace(/\n/g, "\r\n");
+
+  const canonical = resolveCanonicalWorkerPrompt(attachInput(contextPackText, artifact));
+  assert.equal(canonical.kind, "prompt");
+  if (canonical.kind === "prompt") {
+    assert.equal(canonical.gate.kind, "attach");
+    assert.match(canonical.prompt, /- task_derived: 5 element\(s\) omitted here/);
+  }
+});
+
 test("029: be ĮRODYMO, kad pack'as atkuria artefaktą, dedup neįvyksta", () => {
   const pack = realisticPack();
   const contextPackText = JSON.stringify(pack);

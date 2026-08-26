@@ -28,8 +28,11 @@ Draudžiama:
 depends_on: none
 
 ## Veiksmas
-- FAKTAI (2026-08-26): `AG/openspec/changes/archive/auto-037-task-numeris-vienareiksmis-per-visa-gyvavimo-c`
-  egzistuoja, o to paties vardo aktyvaus katalogo nėra. Du vaikai, `037-a-02-…` ir `037-b-03-…`,
+- FAKTAI (2026-08-26): slug'as `auto-037-task-numeris-vienareiksmis-per-visa-gyvavimo-c` guli
+  changes ARCHYVO pakatalogyje, o to paties vardo aktyvaus katalogo nėra. (Pilnas archyvo kelias
+  čia nerašomas: `openspec-context.ts:61,84` skenuoja VISĄ task'o tekstą, tad tokia eilutė bet
+  kurioje vietoje būtų automatinis preflight atmetimas — šis task'as pats į tai ir įkrito
+  19:28:51.) Du vaikai, `037-a-02-…` ir `037-b-03-…`,
   savo `## Spec source` cituoja nearchyvinį kelią, todėl `orchestrator.log:6264,6270` abiem grąžino
   `Invalid OpenSpec reference: … does not exist` ir `preflight_failed=1`. Nė vienas nebuvo
   dispatch'intas.

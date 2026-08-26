@@ -587,6 +587,7 @@ const lt: Record<string, string> = {
   "Modes": "Režimai",
   "Headline mode": "Antraštės režimas",
   "Conclusions": "Išvados",
+  "The baseline was sealed from this very run, so both sides are identical. They will diverge after the next paid measurement.": "Baseline'as užantspauduotas iš šio paties bėgimo, tad abi pusės identiškos. Jos išsiskirs po kito mokamo matavimo.",
   "Which mode is worth using?": "Kurį režimą verta naudoti?",
   "Quality and token price side by side. Price per verified accepted change already includes every failed attempt — it is the honest cost of one successful change.": "Kokybė ir tokenų kaina greta. Kaina už patikrintą priimtą pakeitimą jau įskaičiuoja kiekvieną nepavykusį bandymą — tai sąžininga vieno PAVYKUSIO pakeitimo kaina.",
   "Difference": "Skirtumas",

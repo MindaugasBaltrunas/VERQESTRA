@@ -42,6 +42,20 @@ function abbreviateCommit(commit: string): string {
 }
 
 /**
+ * Ar abi palyginimo pusės yra TAS PATS bėgimas (baseline užantspauduotas iš dabartinio).
+ * Lyginami identiteto hash'ai ir mėginių skaičius — jei visi sutampa, dvi kortelės rodytų
+ * vienodą turinį, o tai skaitytojui atrodo kaip dubliavimo klaida.
+ */
+function sameRunFacts(current: BenchmarkReportRunFacts, baseline: BenchmarkReportRunFacts): boolean {
+  return (
+    current.identity.agCommit === baseline.identity.agCommit &&
+    current.identity.suiteHash === baseline.identity.suiteHash &&
+    current.identity.configHash === baseline.identity.configHash &&
+    current.sampleCount === baseline.sampleCount
+  );
+}
+
+/**
  * Žinomi palyginimo priežasčių kodai → sakiniai operatoriui. Nepažįstamas kodas grąžinamas
  * žalias: techninis faktas geriau nei nutylėjimas, o naujo kodo atsiradimas serveryje
  * neturi tyliai virsti tuščiu sąrašu.
@@ -155,9 +169,10 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
 
         {data && report && (
           <div className="benchmark-page">
-            {data.state === "stale" && (
-              <div className="notice notice-warning" role="alert">{t("This report is stale")}: {data.reason}</div>
-            )}
+            {/* Stale banner'is PAŠALINTAS (2026-08-26, operatoriaus sprendimas): aktyviame repo
+                jis degė beveik visada ir tapo triukšmu. Šviežumo tiesa lieka matoma be jo —
+                proveniencijos kortelė rodo, kuriam commit'ui verdiktas galioja, o serveris
+                (`/api/benchmark/report`, CLI) `state: "stale"` toliau deklaruoja pilnai. */}
 
             {/* Verdikto panelis atsako TRIS klausimus žmogaus kalba (2026-08-26 operatoriaus
                 pastaba: „within-thresholds yra nesąmonė"): 1) KAS su kuo lyginta, 2) koks
@@ -200,17 +215,12 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
             </section>
 
             <section className="panel">
-              <div className="panel-header"><div><h2>{t("Baseline / current runs")}</h2><p className="panel-subtitle">{t("What the report compares, and what it does not have.")}</p></div></div>
+              {/* „Baseline / current runs" kortelių blokas PAŠALINTAS (2026-08-26, operatoriaus
+                  sprendimas): identiteto palyginimo dienomis abi pusės identiškos, ir dvi vienodos
+                  kortelės vertės neneša. Kas lyginta su kuo — verdikto paantraštėje; matavimo
+                  aplinka rodoma žemiau vienoje CURRENT kortelėje. */}
               <div className="benchmark-run-facts">
                 <RunFactsCard title={t("Current run")} facts={report.current} t={t} />
-                {report.baseline ? (
-                  <RunFactsCard title={t("Baseline run")} facts={report.baseline} t={t} />
-                ) : (
-                  <div className="benchmark-run-fact-card benchmark-run-fact-missing">
-                    <strong>{t("Baseline run")}</strong>
-                    <p>{t("No baseline recorded")}</p>
-                  </div>
-                )}
               </div>
             </section>
 

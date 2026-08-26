@@ -122,6 +122,9 @@ describe("BenchmarkPage", () => {
     // atsakymas.
     expect(screen.queryByText(/Worth using/)).not.toBeInTheDocument();
 
+    // Fixture baseline'as turi KITĄ agCommit ("e".repeat) → abi kortelės rodomos atskirai.
+    expect(screen.getByText("Baseline run")).toBeInTheDocument();
+
     // Insights (2026-08-26): vertės kortelė (kokybė + kaina greta su verdiktu „kurį naudoti"),
     // dvikova su nugalėtoju ir žodynėlis.
     expect(screen.getByRole("heading", { name: "Which mode is worth using?" })).toBeInTheDocument();
@@ -195,6 +198,20 @@ describe("BenchmarkPage", () => {
     await waitFor(() => expect(screen.getByText("inconclusive")).toBeInTheDocument());
     expect(screen.getByText("No baseline comparison was supplied.")).toBeInTheDocument();
     expect(screen.getByText("No baseline recorded")).toBeInTheDocument();
+  });
+
+  it("collapses the run-facts cards into one when the baseline was sealed from this run", async () => {
+    vi.mocked(api.fetchBenchmarkReport).mockResolvedValue(view({
+      report: report({
+        // Identiškos pusės: tas pats agCommit/suiteHash/configHash/sampleCount kaip current.
+        baseline: report().current,
+      }),
+    }));
+    render(<BenchmarkPage activeRoute="benchmark" onNavigate={noop} />);
+
+    await waitFor(() => expect(screen.getByText(/The baseline was sealed from this very run/)).toBeInTheDocument());
+    expect(screen.getByText("Current run = Baseline run")).toBeInTheDocument();
+    expect(screen.queryByText(/^Baseline run$/)).not.toBeInTheDocument();
   });
 
   it("shows regression reasons and lets a scenario be selected for drill-down", async () => {

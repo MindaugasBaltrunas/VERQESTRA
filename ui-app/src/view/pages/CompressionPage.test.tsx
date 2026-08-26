@@ -38,6 +38,17 @@ function view(overrides: Partial<CompressionView> = {}): CompressionView {
       ir_smaller_count: 4,
       avg_ir_delta_percent: 12.5,
     },
+    // Verdiktą taria serveris; fixture atitinka telemetriją aukščiau (delta +12.5% → „hold").
+    decision: {
+      pressure: { level: "high" },
+      recommendations: [
+        { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average" },
+        { key: "compact_dsl", action: "unmeasured", reason: "no-shadow-measurement" },
+        { key: "symbol_slices", action: "unmeasured", reason: "no-shadow-measurement" },
+        { key: "bash_output_digest", action: "unmeasured", reason: "no-shadow-measurement" },
+        { key: "dispatch_tool_schema", action: "unmeasured", reason: "no-shadow-measurement" },
+      ],
+    },
     degraded: [],
     ...overrides,
   };
@@ -101,24 +112,42 @@ describe("CompressionPage", () => {
     expect((screen.getByLabelText("worker_task_ir") as HTMLSelectElement).value).toBe("false");
   });
 
-  it("rodo shadow telemetriją ir įspėja, kai IR vidutiniškai DIDESNIS", async () => {
+  it("rodo shadow telemetriją ir SERVERIO verdiktą, kai IR vidutiniškai DIDESNIS", async () => {
     vi.mocked(api.fetchCompression).mockResolvedValue(view());
     render(<CompressionPage activeRoute="compression" onNavigate={noop} />);
 
     await waitFor(() => expect(screen.getByText("58.7%")).toBeTruthy());
     expect(screen.getByText("4/12")).toBeTruthy();
     expect(screen.getByText("+12.5%")).toBeTruthy();
-    expect(screen.getByText(/IR is larger on average/)).toBeTruthy();
+    // Sprendimo panelis: rekomendacija ateina iš serverio `decision`, puslapis jos NESKAIČIUOJA.
+    expect(screen.getByText("Do not enable")).toBeTruthy();
+    expect(screen.getByText(/IR form is larger than raw on average/)).toBeTruthy();
+    expect(screen.getByText(/Real pressure/)).toBeTruthy();
   });
 
   it("telemetrijos lūžis nepaslepia vėliavų", async () => {
     vi.mocked(api.fetchCompression).mockResolvedValue(
-      view({ degraded: ["context-size.jsonl: not found"], telemetry: { sample_count: 0, exceeded_count: 0, ir_compared_count: 0, ir_smaller_count: 0 } }),
+      view({
+        degraded: ["context-size.jsonl: not found"],
+        telemetry: { sample_count: 0, exceeded_count: 0, ir_compared_count: 0, ir_smaller_count: 0 },
+        // Be telemetrijos serveris verdiktą ATSISAKO — puslapis tai ištaria, ne nutyli.
+        decision: {
+          pressure: { level: "insufficient" },
+          recommendations: [
+            { key: "worker_task_ir", action: "insufficient", reason: "too-few-ir-comparisons" },
+            { key: "compact_dsl", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "symbol_slices", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "bash_output_digest", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "dispatch_tool_schema", action: "unmeasured", reason: "no-shadow-measurement" },
+          ],
+        },
+      }),
     );
     render(<CompressionPage activeRoute="compression" onNavigate={noop} />);
 
     await waitFor(() => expect(screen.getByLabelText("worker_task_ir")).toBeTruthy());
     expect(screen.getByText(/context-size\.jsonl: not found/)).toBeTruthy();
-    expect(screen.getByText(/No shadow samples yet/)).toBeTruthy();
+    expect(screen.getByText(/Too few samples to judge data pressure/)).toBeTruthy();
+    expect(screen.getByText("Not enough data")).toBeTruthy();
   });
 });

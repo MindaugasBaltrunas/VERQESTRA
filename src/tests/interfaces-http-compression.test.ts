@@ -11,8 +11,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildCompressionView,
+  decideCompression,
+  MIN_DECISION_SAMPLES,
   parseContextSizeSamples,
   summarizeContextSizeSamples,
+  type UiCompressionTelemetry,
 } from "../interfaces/http/ui-compression-view.js";
 import {
   InvalidCompressionRequestError,
@@ -106,6 +109,67 @@ test("summarizeContextSizeSamples: biudžetas, viršijimai ir SHADOW IR palygini
   assert.equal(summary.ir_compared_count, 2);
   assert.equal(summary.ir_smaller_count, 1, "įjungti be šito skaičiaus būtų spėjimas");
   assert.equal(summary.avg_ir_delta_percent, 12.5, "vidurkis tarp +74.9% ir −50%");
+});
+
+/** Bazinė telemetrija verdiktų testams: pakankamai mėginių, jokio spaudimo, IR mažesnis. */
+function telemetry(overrides: Partial<UiCompressionTelemetry> = {}): UiCompressionTelemetry {
+  return {
+    sample_count: 56,
+    avg_budget_percent: 48,
+    max_budget_percent: 58,
+    exceeded_count: 0,
+    ir_compared_count: 56,
+    ir_smaller_count: 56,
+    avg_ir_delta_percent: -20,
+    ...overrides,
+  };
+}
+
+test("decideCompression: verdiktas atsako į operatoriaus klausimą, ne beria skaičius", () => {
+  // IR VIDUTINIŠKAI didesnis (reali 2026-08-26 būsena: +22%) → „nejungti", kad ir koks spaudimas.
+  const grows = decideCompression(telemetry({ ir_smaller_count: 0, avg_ir_delta_percent: 22.2 }));
+  assert.equal(grows.pressure.level, "none");
+  const ir = grows.recommendations.find((r) => r.key === "worker_task_ir");
+  assert.deepEqual(ir, { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average" });
+
+  // IR mažesnis, bet biudžetas nespaudžia → „galima, bet nebūtina", NE „junk".
+  const idle = decideCompression(telemetry());
+  assert.equal(idle.recommendations[0]?.action, "optional");
+
+  // IR mažesnis IR yra spaudimas → vienintelis atvejis, kai sakoma „verta įjungti".
+  const pressured = decideCompression(telemetry({ exceeded_count: 3 }));
+  assert.equal(pressured.pressure.level, "high");
+  assert.equal(pressured.recommendations[0]?.action, "enable");
+
+  // Procentinis spaudimas be viršijimų — įspėjimas anksčiau, nei paketai realiai lūžta.
+  assert.equal(decideCompression(telemetry({ avg_budget_percent: 65 })).pressure.level, "moderate");
+  assert.equal(decideCompression(telemetry({ max_budget_percent: 92 })).pressure.level, "high");
+});
+
+test("decideCompression: be duomenų verdiktas ATSISAKOMAS, o nematuojamos vėliavos įvardijamos", () => {
+  const thin = decideCompression(telemetry({ sample_count: MIN_DECISION_SAMPLES - 1, ir_compared_count: 3 }));
+  assert.equal(thin.pressure.level, "insufficient", "9 mėginių verdiktui nepakanka abiem kryptim");
+  assert.equal(thin.recommendations[0]?.action, "insufficient");
+
+  // Keturios vėliavos be shadow matavimo gauna „unmeasured" EILUTĘ, ne tylą: eilutės nebuvimas
+  // skaitytojui atrodytų kaip „viskas gerai".
+  const decision = decideCompression(telemetry());
+  const unmeasured = decision.recommendations.filter((r) => r.action === "unmeasured");
+  assert.deepEqual(
+    unmeasured.map((r) => r.key),
+    ["compact_dsl", "symbol_slices", "bash_output_digest", "dispatch_tool_schema"],
+  );
+  assert.ok(unmeasured.every((r) => r.reason === "no-shadow-measurement"));
+});
+
+test("buildCompressionView: verdiktas keliauja kartu su vaizdu ir gniūžta kartu su telemetrija", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config(),
+    readContextSizeLog: async () => undefined,
+  });
+  // Telemetrijos nėra → verdiktas yra „insufficient", ne išgalvotas „none".
+  assert.equal(view.decision.pressure.level, "insufficient");
+  assert.equal(view.decision.recommendations.length, 5);
 });
 
 test("setCompressionFeature: reikšmė įrašoma, o VISAS objektas pervaromas per validatorių", async () => {

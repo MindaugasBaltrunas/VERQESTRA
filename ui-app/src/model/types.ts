@@ -693,11 +693,32 @@ export type CompressionTelemetry = {
   avg_ir_delta_percent?: number;
 };
 
+/**
+ * Serverio ištartas verdiktas (`decideCompression`). Puslapis jo NESKAIČIUOJA — tik verčia
+ * kodus į sakinius: spaudimo lygis + rekomendacija kiekvienai vėliavai, įskaitant sąžiningą
+ * „unmeasured" toms, kurioms shadow matavimo apskritai nėra.
+ */
+export type CompressionPressureLevel = "insufficient" | "none" | "moderate" | "high";
+
+export type CompressionAction = "enable" | "optional" | "hold" | "insufficient" | "unmeasured";
+
+export type CompressionRecommendation = {
+  key: CompressionFeatureKey;
+  action: CompressionAction;
+  reason: string;
+};
+
+export type CompressionDecision = {
+  pressure: { level: CompressionPressureLevel };
+  recommendations: CompressionRecommendation[];
+};
+
 export type CompressionView = {
   version: number;
   canary: { percent: number; salt: string };
   features: CompressionFeature[];
   telemetry: CompressionTelemetry;
+  decision: CompressionDecision;
   degraded: string[];
 };
 

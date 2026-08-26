@@ -589,13 +589,37 @@ const lt: Record<string, string> = {
   "Avg IR delta": "Vidutinė IR delta",
   "Latest sample": "Naujausias pavyzdys",
   "Some sources could not be read": "Kai kurių šaltinių perskaityti nepavyko",
-  "No shadow samples yet — enable nothing on a guess":
-    "Šešėlinių pavyzdžių dar nėra — nieko neįjunk spėdamas",
-  "IR is larger on average — enabling worker_task_ir would grow the pack":
-    "IR vidutiniškai DIDESNIS — įjungus worker_task_ir paketas išaugtų",
-  "IR is smaller in every sample": "IR mažesnis kiekviename pavyzdyje",
-  "IR helps only some tasks — check before enabling":
-    "IR padeda tik daliai užduočių — patikrink prieš įjungdamas",
+  // Sprendimo panelis — verdiktą taria serveris (`decideCompression`), čia tik kodų sakiniai.
+  "Is compression worth enabling?": "Ar kompresiją verta jungti?",
+  "Too few samples to judge data pressure — let the loop run and come back":
+    "Per mažai mėginių spaudimui įvertinti — leisk loop'ui pabėgti ir grįžk",
+  "No data pressure — packs fit the budget with room to spare":
+    "Duomenų spaudimo nėra — paketai telpa į biudžetą su atsarga",
+  "Moderate pressure — the budget is filling up but not yet exceeded":
+    "Vidutinis spaudimas — biudžetas pildosi, bet dar neviršytas",
+  "Real pressure — the budget is exceeded or nearly full":
+    "Realus spaudimas — biudžetas viršijamas arba beveik pilnas",
+  "avg": "vidurkis",
+  "peak": "pikas",
+  "exceeded": "viršyta",
+  "Recommendation": "Rekomendacija",
+  // „Why" jau yra žemiau — dublikatas tyliai laimėtų.
+  "Worth enabling": "Verta įjungti",
+  "Safe but unnecessary now": "Saugu, bet dabar nebūtina",
+  "Do not enable": "Nejungti",
+  "Not enough data": "Trūksta duomenų",
+  "Not measured": "Nematuojama",
+  "Shadow comparison says the IR form is larger than raw on average — enabling would grow packs, not shrink them":
+    "Šešėlinis palyginimas rodo, kad IR forma vidutiniškai DIDESNĖ už neapdorotą — įjungus paketai augtų, o ne mažėtų",
+  "The IR form is smaller on average and the budget is under pressure — enabling shrinks packs where it matters":
+    "IR forma vidutiniškai mažesnė, o biudžetas spaudžiamas — įjungimas sumažintų paketus ten, kur to reikia",
+  "The IR form is smaller on average, but the budget is not under pressure — enabling is safe yet buys nothing right now":
+    "IR forma vidutiniškai mažesnė, bet biudžetas nespaudžiamas — įjungti saugu, tačiau dabar tai nieko neduoda",
+  "Too few shadow comparisons to decide": "Per mažai šešėlinių palyginimų sprendimui",
+  "No shadow measurement exists for this flag yet — there is no data to decide with":
+    "Šiai vėliavai šešėlinio matavimo dar nėra — sprendimui duomenų nėra",
+  "IR smaller in": "IR mažesnis",
+  "avg delta": "vid. delta",
   "Canonical WorkerTaskIR instead of raw task Markdown":
     "Kanoninis WorkerTaskIR vietoj neapdoroto task Markdown",
   "Compact worker DSL renderer": "Kompaktiškas worker DSL rendereris",

@@ -56,20 +56,42 @@ function formatPercent(value: number | undefined): string {
 }
 
 /**
- * Shadow IR verdiktas viena eilute.
- *
- * Neigiama delta = IR mažesnis už raw (kompresija duotų naudos). Teigiama = didesnis (žala). Be
- * šito sakinio operatorius matytų du skaičius ir turėtų juos interpretuoti pats.
+ * Verdiktą taria SERVERIS (`decideCompression`) — čia tik kodų vertimo žemėlapiai.
+ * Puslapyje skaičiuoti verdiktą reikštų du galimai nesutariančius atsakymus tam pačiam klausimui.
  */
-function irVerdict(view: CompressionView): { key: string; warn: boolean } {
-  const { ir_compared_count: compared, ir_smaller_count: smaller, avg_ir_delta_percent: delta } = view.telemetry;
-  if (compared === 0) return { key: "No shadow samples yet — enable nothing on a guess", warn: false };
-  if (delta !== undefined && delta > 0) {
-    return { key: "IR is larger on average — enabling worker_task_ir would grow the pack", warn: true };
-  }
-  if (smaller === compared) return { key: "IR is smaller in every sample", warn: false };
-  return { key: "IR helps only some tasks — check before enabling", warn: true };
-}
+const PRESSURE_SENTENCES: Record<string, string> = {
+  insufficient: "Too few samples to judge data pressure — let the loop run and come back",
+  none: "No data pressure — packs fit the budget with room to spare",
+  moderate: "Moderate pressure — the budget is filling up but not yet exceeded",
+  high: "Real pressure — the budget is exceeded or nearly full",
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  enable: "Worth enabling",
+  optional: "Safe but unnecessary now",
+  hold: "Do not enable",
+  insufficient: "Not enough data",
+  unmeasured: "Not measured",
+};
+
+const ACTION_TONES: Record<string, "good" | "error" | "neutral"> = {
+  enable: "good",
+  hold: "error",
+  optional: "neutral",
+  insufficient: "neutral",
+  unmeasured: "neutral",
+};
+
+const REASON_SENTENCES: Record<string, string> = {
+  "ir-larger-on-average":
+    "Shadow comparison says the IR form is larger than raw on average — enabling would grow packs, not shrink them",
+  "ir-smaller-under-pressure":
+    "The IR form is smaller on average and the budget is under pressure — enabling shrinks packs where it matters",
+  "ir-smaller-no-pressure":
+    "The IR form is smaller on average, but the budget is not under pressure — enabling is safe yet buys nothing right now",
+  "too-few-ir-comparisons": "Too few shadow comparisons to decide",
+  "no-shadow-measurement": "No shadow measurement exists for this flag yet — there is no data to decide with",
+};
 
 export function CompressionPage({ activeRoute, onNavigate }: Props) {
   const { t } = useI18n();
@@ -137,6 +159,58 @@ export function CompressionPage({ activeRoute, onNavigate }: Props) {
                 {t("Some sources could not be read")}: {data.degraded.join("; ")}
               </div>
             )}
+
+            <section className="panel" aria-labelledby="compression-decision-heading">
+              <h3 id="compression-decision-heading" className="panel-header">{t("Is compression worth enabling?")}</h3>
+              <p
+                className={data.decision.pressure.level === "high" ? "notice notice-warning" : "notice"}
+                role="status"
+              >
+                {t(PRESSURE_SENTENCES[data.decision.pressure.level] ?? data.decision.pressure.level)}
+                {" — "}
+                {t("avg")} {formatPercent(data.telemetry.avg_budget_percent)}, {t("peak")}{" "}
+                {formatPercent(data.telemetry.max_budget_percent)}, {t("exceeded")}{" "}
+                {data.telemetry.exceeded_count}/{data.telemetry.sample_count}
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">{t("Flag")}</th>
+                    <th scope="col">{t("Recommendation")}</th>
+                    <th scope="col">{t("Why")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.decision.recommendations.map((rec) => (
+                    <tr key={rec.key}>
+                      <td>
+                        <strong>{rec.key}</strong>
+                      </td>
+                      <td>
+                        <span className={`badge status-${ACTION_TONES[rec.action] ?? "neutral"}`}>
+                          {t(ACTION_LABELS[rec.action] ?? rec.action)}
+                        </span>
+                      </td>
+                      <td>
+                        {t(REASON_SENTENCES[rec.reason] ?? rec.reason)}
+                        {rec.key === "worker_task_ir" && data.telemetry.ir_compared_count > 0 && (
+                          <>
+                            {" "}
+                            <span className="muted">
+                              ({t("IR smaller in")} {data.telemetry.ir_smaller_count}/{data.telemetry.ir_compared_count}
+                              {data.telemetry.avg_ir_delta_percent === undefined
+                                ? ""
+                                : `, ${t("avg delta")} ${data.telemetry.avg_ir_delta_percent > 0 ? "+" : ""}${data.telemetry.avg_ir_delta_percent}%`}
+                              )
+                            </span>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
 
             <section className="panel" aria-labelledby="compression-flags-heading">
               <h3 id="compression-flags-heading" className="panel-header">{t("Feature flags")}</h3>
@@ -233,14 +307,6 @@ export function CompressionPage({ activeRoute, onNavigate }: Props) {
                   </tr>
                 </tbody>
               </table>
-              {(() => {
-                const verdict = irVerdict(data);
-                return (
-                  <p className={verdict.warn ? "notice notice-warning" : "notice"} role="status">
-                    {t(verdict.key)}
-                  </p>
-                );
-              })()}
               {data.telemetry.latest_ts && (
                 <p className="panel-subtitle">
                   {t("Latest sample")}: {data.telemetry.latest_ts}

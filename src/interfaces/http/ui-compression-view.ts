@@ -68,11 +68,41 @@ export type UiCompressionTelemetry = {
   avg_ir_delta_percent?: number;
 };
 
+/**
+ * Sprendimo verdiktas, suskaičiuotas ČIA, ne kliente.
+ *
+ * Kodėl: telemetrijos lentelė („56 mėginiai, vidurkis 48%, IR delta +22%") atsako į klausimą
+ * „kas išmatuota", bet operatoriaus klausimas yra kitas — „ar VERTA jungti bent vieną vėliavą".
+ * Puslapio taisyklė Nr. 1 draudžia jam skaičiuoti pačiam, tad verdiktą taria serveris, o UI tik
+ * verčia kodus į sakinius.
+ */
+export type UiCompressionPressureLevel = "insufficient" | "none" | "moderate" | "high";
+
+export type UiCompressionAction = "enable" | "optional" | "hold" | "insufficient" | "unmeasured";
+
+export type UiCompressionRecommendation = {
+  key: ContextCompressionFeature;
+  action: UiCompressionAction;
+  /** Stabilus priežasties kodas — UI jį verčia; laisvo teksto čia NĖRA, kad vertimas negestų. */
+  reason:
+    | "ir-larger-on-average"
+    | "ir-smaller-under-pressure"
+    | "ir-smaller-no-pressure"
+    | "too-few-ir-comparisons"
+    | "no-shadow-measurement";
+};
+
+export type UiCompressionDecision = {
+  pressure: { level: UiCompressionPressureLevel };
+  recommendations: UiCompressionRecommendation[];
+};
+
 export type UiCompressionView = {
   version: number;
   canary: { percent: number; salt: string };
   features: UiCompressionFeature[];
   telemetry: UiCompressionTelemetry;
+  decision: UiCompressionDecision;
   /** Šaltiniai, kurių perskaityti nepavyko. Tuščias sąrašas = pilnas vaizdas. */
   degraded: string[];
 };
@@ -156,6 +186,58 @@ export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCom
   };
 }
 
+/**
+ * Sprendimo slenksčiai. Skaičiai yra POLITIKA, ne matavimas, todėl jie čia įvardyti, o ne
+ * išbarstyti sąlygose: žemiau `MIN_DECISION_SAMPLES` verdiktas atsisakomas (per mažai įrodymų
+ * abiem kryptim), o spaudimo lygiai kalibruoti pagal tai, kad `exceeded` yra vienintelis
+ * nekvestionuojamas signalas — procentai tik įspėja anksčiau.
+ */
+export const MIN_DECISION_SAMPLES = 10;
+export const PRESSURE_HIGH_MAX_PERCENT = 90;
+export const PRESSURE_MODERATE_AVG_PERCENT = 60;
+export const PRESSURE_MODERATE_MAX_PERCENT = 75;
+
+export function decidePressure(telemetry: UiCompressionTelemetry): UiCompressionPressureLevel {
+  if (telemetry.sample_count < MIN_DECISION_SAMPLES) return "insufficient";
+  if (telemetry.exceeded_count > 0) return "high";
+  const max = telemetry.max_budget_percent ?? 0;
+  const avg = telemetry.avg_budget_percent ?? 0;
+  if (max >= PRESSURE_HIGH_MAX_PERCENT) return "high";
+  if (avg >= PRESSURE_MODERATE_AVG_PERCENT || max >= PRESSURE_MODERATE_MAX_PERCENT) return "moderate";
+  return "none";
+}
+
+/**
+ * Rekomendacija KIEKVIENAI vėliavai — įskaitant tas, kurioms matavimo nėra.
+ *
+ * Shadow matavimą šiandien turi tik `worker_task_ir` (`raw_task_chars` vs `compiled_task_chars`).
+ * Likusioms keturioms sąžiningas atsakymas yra „nematuojama", o ne tyla: eilutės nebuvimas
+ * skaitytojui atrodytų kaip „viskas gerai", nors iš tiesų sprendimui duomenų nėra.
+ */
+export function decideCompression(telemetry: UiCompressionTelemetry): UiCompressionDecision {
+  const pressure = decidePressure(telemetry);
+
+  const irAction = ((): UiCompressionRecommendation => {
+    if (telemetry.ir_compared_count < MIN_DECISION_SAMPLES) {
+      return { key: "worker_task_ir", action: "insufficient", reason: "too-few-ir-comparisons" };
+    }
+    const delta = telemetry.avg_ir_delta_percent ?? 0;
+    // Teigiama delta = IR VIDUTINIŠKAI didesnis už raw — įjungimas paketą augintų, ne mažintų.
+    if (delta > 0) return { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average" };
+    if (pressure === "high" || pressure === "moderate") {
+      return { key: "worker_task_ir", action: "enable", reason: "ir-smaller-under-pressure" };
+    }
+    return { key: "worker_task_ir", action: "optional", reason: "ir-smaller-no-pressure" };
+  })();
+
+  return {
+    pressure: { level: pressure },
+    recommendations: CONTEXT_COMPRESSION_FEATURES.map((key) =>
+      key === "worker_task_ir" ? irAction : { key, action: "unmeasured" as const, reason: "no-shadow-measurement" as const },
+    ),
+  };
+}
+
 export type CompressionViewPorts = {
   /** Dabartinis konfigas; klaida verčiama į numatytąjį PRIE `degraded` įrašo kvietėjo pusėje. */
   loadConfig(): Promise<ContextCompressionConfig>;
@@ -194,6 +276,7 @@ export async function buildCompressionView(ports: CompressionViewPorts): Promise
       canary_supported: !CONTEXT_COMPRESSION_CANARY_UNSUPPORTED.includes(key),
     })),
     telemetry,
+    decision: decideCompression(telemetry),
     degraded,
   };
 }

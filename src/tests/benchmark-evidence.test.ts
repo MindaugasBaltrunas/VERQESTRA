@@ -149,6 +149,11 @@ test("suite-report-view: staleness — tuščias commit, kito commit'o raportas,
   );
   assert.equal(mismatch.state, "stale");
   assert.match(mismatch.reason ?? "", /was measured on AG commit/);
+  // 2026-08-26: commit-mismatch vaistas yra NAUJAS MATAVIMAS, ne raporto persigeneravimas —
+  // `benchmark:report` įrašyto agCommit pakeisti negali, tad jo siūlymas čia buvo neveiksmingas
+  // patarimas (operatorius jį paleisdavo, banner'is likdavo).
+  assert.match(mismatch.reason ?? "", /benchmark run --allow-network/);
+  assert.doesNotMatch(mismatch.reason ?? "", /benchmark:report/, "report komanda lieka vaistu tik missing atvejui");
 
   // Sutrumpintas SHA (>=7) atitinka pilną — prefix taisyklė.
   const prefix = await readBenchmarkReportView(

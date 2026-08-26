@@ -27,6 +27,12 @@ export const SUPPORTED_BENCHMARK_REPORT_SCHEMA_VERSION = 1;
 /** The command that writes the report file (paketo `benchmark:report` script'as). */
 export const BENCHMARK_REPORT_COMMAND = "pnpm --dir AG/benchmark benchmark:report";
 
+/**
+ * Vaistas commit-mismatch staleness'ui: NAUJAS matavimas, ne raporto persigeneravimas —
+ * `benchmark:report` įrašyto `agCommit` pakeisti negali, jį nustato pats bėgimas.
+ */
+export const BENCHMARK_RUN_COMMAND = "verqestra benchmark run --allow-network";
+
 /** Mirrors `COMPARISON_VERDICTS` of the benchmark package (BENCH-9). */
 export const BENCHMARK_REPORT_VERDICTS = ["improved", "stable", "regressed", "inconclusive"] as const;
 
@@ -263,7 +269,7 @@ export async function readBenchmarkReportView(
       state: "stale",
       reason:
         "the report records no AG commit, so it cannot be shown to describe the current tree. " +
-        `Re-run the benchmark before relying on it: ${BENCHMARK_REPORT_COMMAND}`,
+        `Re-run the benchmark before relying on it: ${BENCHMARK_RUN_COMMAND}`,
       source,
       freshness: { reportedAgCommit: undefined, currentAgCommit: await resolveCurrentCommit(projectRoot) },
       report,
@@ -275,12 +281,19 @@ export async function readBenchmarkReportView(
 
   // Nežinomas HEAD nėra staleness įrodymas, tad jo ir negamina: raportas serviruojamas koks
   // yra, o `freshness.currentAgCommit === undefined` pasako, kad patikra praleista.
+  //
+  // Vaistas čia — MATAVIMAS, ne raporto persigeneravimas (2026-08-26, operatoriaus radinys):
+  // `benchmark:report` tik iš naujo atvaizduoja tą patį run ledger'į su tuo pačiu įrašytu
+  // commit'u, tad jo siūlymas šioje šakoje buvo neveiksmingas patarimas — operatorius jį
+  // paleisdavo, o banner'is likdavo. `report` komanda lieka teisingas vaistas tik `missing`
+  // atvejui, kur trūksta paties failo.
   if (currentAgCommit !== undefined && !sameCommit(recordedCommit, currentAgCommit)) {
     return {
       state: "stale",
       reason:
         `the report was measured on AG commit ${abbreviate(recordedCommit)}, but HEAD is ` +
-        `${abbreviate(currentAgCommit)}. Re-run the benchmark before relying on it: ${BENCHMARK_REPORT_COMMAND}`,
+        `${abbreviate(currentAgCommit)}. The verdict below still describes that commit; a new ` +
+        `paid measurement is needed to describe HEAD: ${BENCHMARK_RUN_COMMAND}`,
       source,
       freshness,
       report,

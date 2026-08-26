@@ -108,10 +108,16 @@ export async function fetchWaves(): Promise<UiWavesView> {
   return (await response.json()) as UiWavesView;
 }
 
+const WORKFLOW_BUCKET_FIELDS: readonly ContractField[] = [
+  { path: "name", kind: "string" },
+  { path: "tasks", kind: "array" },
+];
+
 export async function fetchWorkflowTasks(bucket: string): Promise<WorkflowBucket> {
-  const response = await request(`/api/tasks?bucket=${encodeURIComponent(bucket)}`);
+  const route = `/api/tasks?bucket=${encodeURIComponent(bucket)}`;
+  const response = await request(route);
   await assertOk(response);
-  return await (response.json() as Promise<WorkflowBucket>);
+  return requireContractFields<WorkflowBucket>(await response.json(), WORKFLOW_BUCKET_FIELDS, route);
 }
 
 /**
@@ -152,6 +158,11 @@ export async function rejectLearningRecommendation(id: string): Promise<void> {
   await assertOk(r);
 }
 
+const UPLOAD_RESULT_FIELDS: readonly ContractField[] = [
+  { path: "saved", kind: "array" },
+  { path: "loop", kind: "object" },
+];
+
 export async function uploadTaskFiles(files: File[]): Promise<UploadResult> {
   const payload = await Promise.all(files.map(async (f) => ({ name: f.name, content: await f.text() })));
   const r = await post("/tasks/queue/upload", {
@@ -159,7 +170,7 @@ export async function uploadTaskFiles(files: File[]): Promise<UploadResult> {
     body: JSON.stringify({ files: payload }),
   });
   await assertOk(r);
-  return await (r.json() as Promise<UploadResult>);
+  return requireContractFields<UploadResult>(await r.json(), UPLOAD_RESULT_FIELDS, "/tasks/queue/upload");
 }
 
 export async function openFolder(bucket: string): Promise<void> {
@@ -183,13 +194,23 @@ export async function proposePolicy(
  * `AG_MAX_WORKERS` aplinkos kintamasis turi pirmenybę prieš failą, tad prašymas ir rezultatas gali
  * nesutapti.
  */
+const WORKER_REQUEST_FIELDS: readonly ContractField[] = [
+  { path: "worker_request", kind: "object" },
+  { path: "worker_request.requested", kind: "number" },
+  { path: "worker_request.source", kind: "string" },
+];
+
 export async function setRequestedWorkers(requested: number): Promise<{ worker_request: WorkerRequestState }> {
   const r = await post("/api/runtime/workers", {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ requested }),
   });
   await assertOk(r);
-  return await (r.json() as Promise<{ worker_request: WorkerRequestState }>);
+  return requireContractFields<{ worker_request: WorkerRequestState }>(
+    await r.json(),
+    WORKER_REQUEST_FIELDS,
+    "/api/runtime/workers",
+  );
 }
 
 /**
@@ -251,6 +272,9 @@ export async function fetchPolicyProposals(): Promise<{ proposals: ResolvedPropo
   return requireProposals(await response.json(), "/api/policies/proposals");
 }
 
+/** `pagination` liktų neprivalomas net kontrakte — kontroleris jį skaito tik per `?.`. */
+const TOKEN_USAGE_FIELDS: readonly ContractField[] = [{ path: "records", kind: "array" }];
+
 export async function fetchTokenUsage(filter: TokenUsageServerFilter): Promise<TokenUsageQueryResponse> {
   const params = new URLSearchParams();
   if (filter.model) params.set("model", filter.model);
@@ -261,13 +285,19 @@ export async function fetchTokenUsage(filter: TokenUsageServerFilter): Promise<T
   if (filter.offset !== undefined) params.set("offset", String(filter.offset));
   const response = await request(`/api/token-usage?${params.toString()}`);
   await assertOk(response);
-  return await (response.json() as Promise<TokenUsageQueryResponse>);
+  return requireContractFields<TokenUsageQueryResponse>(await response.json(), TOKEN_USAGE_FIELDS, "/api/token-usage");
 }
+
+const TOKEN_ANALYTICS_FIELDS: readonly ContractField[] = [
+  { path: "groups", kind: "array" },
+  { path: "candidates", kind: "array" },
+  { path: "history", kind: "array" },
+];
 
 export async function fetchTokenAnalytics(): Promise<TokenAnalyticsResponse> {
   const response = await request("/api/token-analytics");
   await assertOk(response);
-  return await (response.json() as Promise<TokenAnalyticsResponse>);
+  return requireContractFields<TokenAnalyticsResponse>(await response.json(), TOKEN_ANALYTICS_FIELDS, "/api/token-analytics");
 }
 
 export async function fetchReliabilityAnalytics(fresh = false): Promise<ReliabilityAnalyticsResponse> {

@@ -1,12 +1,20 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchBenchmarkReport,
   fetchCompression,
   fetchPolicyProposals,
+  fetchTokenAnalytics,
+  fetchTokenUsage,
   fetchWaves,
+  fetchWorkflowTasks,
   resumeLoop,
+  setRequestedWorkers,
   startLoopWithWorkers,
   stopLoop,
+  uploadTaskFiles,
 } from "./api";
 
 /**
@@ -181,5 +189,107 @@ describe("assertOk klaidos žinutė", () => {
     const longError = "x".repeat(400);
     stubFetch({ error: longError }, 500);
     await expect(fetchWaves()).rejects.toThrow(`HTTP 500: ${"x".repeat(300)}`);
+  });
+});
+
+/**
+ * Vartas (task 030): `as` per HTTP ribą nėra kontraktas. `fetchDashboard` išimtis leidžiama, nes
+ * jos `as Promise<unknown>` tik nuima tipą prieš `parseDashboardData` — pati patikra vyksta
+ * runtime'e, ne kompiliavimo metu.
+ */
+describe("HTTP ribos vartas: joks klientas nepažymi konkretaus tipo be runtime patikros", () => {
+  it("`api.ts` neturi `response.json() as <konkretus tipas>` arba `r.json() as <konkretus tipas>`", () => {
+    const apiPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "api.ts");
+    const source = readFileSync(apiPath, "utf8");
+    const offendingLines = source
+      .split("\n")
+      .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+      .filter(({ line }) => /\b(?:response|r)\.json\(\)\s*as\s+(?!Promise<unknown>)/.test(line))
+      .map(({ line, number }) => `${number}: ${line}`);
+    expect(offendingLines).toEqual([]);
+  });
+});
+
+describe("workflow bucket atsakymo struktūrinė patikra", () => {
+  const validBucket = { name: "queue", tasks: ["001-a.md"] };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validBucket);
+    expect(await fetchWorkflowTasks("queue")).toEqual(validBucket);
+  });
+
+  it("trūkstamas 'tasks' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { tasks, ...withoutTasks } = validBucket;
+    void tasks;
+    stubFetch(withoutTasks);
+    await expect(fetchWorkflowTasks("queue")).rejects.toThrow(/\/api\/tasks.*tasks/s);
+  });
+});
+
+describe("failų įkėlimo atsakymo struktūrinė patikra", () => {
+  // `uploadTaskFiles` skaito tik `f.name`/`f.text()` — šis minimalus stub'as jais apsiriboja, kad
+  // testas nepriklausytų nuo jsdom `File`/`Blob` implementacijos smulkmenų.
+  function fakeTaskFile(name: string, content: string): File {
+    return { name, text: () => Promise.resolve(content) } as unknown as File;
+  }
+
+  const validUpload = { saved: ["001-a.md"], loop: { status: "started", pid: 7 } };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validUpload);
+    expect(await uploadTaskFiles([fakeTaskFile("task.md", "turinys")])).toEqual(validUpload);
+  });
+
+  it("trūkstamas 'loop' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { loop, ...withoutLoop } = validUpload;
+    void loop;
+    stubFetch(withoutLoop);
+    await expect(uploadTaskFiles([fakeTaskFile("task.md", "turinys")])).rejects.toThrow(
+      /\/tasks\/queue\/upload.*loop/s,
+    );
+  });
+});
+
+describe("worker request atsakymo struktūrinė patikra", () => {
+  const validWorkerRequest = { worker_request: { requested: 2, source: "state" } };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validWorkerRequest);
+    expect(await setRequestedWorkers(2)).toEqual(validWorkerRequest);
+  });
+
+  it("giliai įdėtas trūkstamas laukas ('worker_request.requested') irgi įvardijamas", async () => {
+    stubFetch({ worker_request: { source: "state" } });
+    await expect(setRequestedWorkers(2)).rejects.toThrow(/\/api\/runtime\/workers.*worker_request\.requested/s);
+  });
+});
+
+describe("token usage atsakymo struktūrinė patikra", () => {
+  const validTokenUsage = { records: [] };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validTokenUsage);
+    expect(await fetchTokenUsage({})).toEqual(validTokenUsage);
+  });
+
+  it("trūkstamas 'records' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    stubFetch({});
+    await expect(fetchTokenUsage({})).rejects.toThrow(/\/api\/token-usage.*records/s);
+  });
+});
+
+describe("token analytics atsakymo struktūrinė patikra", () => {
+  const validTokenAnalytics = { groups: [], candidates: [], history: [] };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validTokenAnalytics);
+    expect(await fetchTokenAnalytics()).toEqual(validTokenAnalytics);
+  });
+
+  it("trūkstamas 'history' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { history, ...withoutHistory } = validTokenAnalytics;
+    void history;
+    stubFetch(withoutHistory);
+    await expect(fetchTokenAnalytics()).rejects.toThrow(/\/api\/token-analytics.*history/s);
   });
 });

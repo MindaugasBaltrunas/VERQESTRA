@@ -1,11 +1,15 @@
+import { readdir, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
+import { readBaseline } from "../../application/baseline/baseline-document.js";
+import type { BenchmarkBaseline, BenchmarkComparison } from "../../application/benchmark-api.js";
 import type { RecordedCompressionConfig } from "../../application/ports/compression-config-port.js";
 import { summarizeCompressionCohort } from "../../application/report/compression-report-section.js";
 import {
   summarizeStoredSamples,
   type BenchmarkIdentity,
 } from "../../application/report/benchmark-report-model.js";
+import { resolveInsideBenchmarkWorkspace } from "../../infrastructure/benchmark-workspace-paths.js";
 import { AG_LOOP_ADAPTER_VERSION } from "../../infrastructure/adapters/ag-loop-execution-adapter.js";
 import { AGENT_SOLO_ADAPTER_VERSION } from "../../infrastructure/adapters/agent-solo-execution-adapter.js";
 import { DETERMINISTIC_CONTROL_ADAPTER_VERSION } from "../../infrastructure/adapters/deterministic-control-adapter.js";
@@ -87,7 +91,31 @@ export const REPORT_LIMITATIONS = {
   compressionConfigUnrecorded: (config: RecordedCompressionConfig): string =>
     `the compression configuration (\`${config.source}\`) was ${config.state} when this run was ` +
     "measured, so these numbers cannot be attributed to a compression configuration",
+
+  /** A baseline was found but could not be used; the report proceeds without a comparison. */
+  baselineNotComparable: (baselinePath: string, cause: string): string =>
+    `a stored baseline was found (${baselinePath}) but the comparison could not be produced ` +
+    `(${cause}); this report states the current run only`,
 } as const;
+
+/** Package-relative directory the sealed baselines live in (`benchmark baseline create` target). */
+const BASELINE_DIRECTORY = "baselines";
+
+/**
+ * Naujausias užantspauduotas baseline'as pagal VARDĄ, ne mtime: failai vardijami datos prefiksu
+ * (`2026-08-26-...`), tad leksikografinė tvarka yra chronologinė ir nepriklauso nuo failų
+ * sistemos laikrodžio. Nerasta → `undefined`, ir raportas lieka be palyginimo — kaip iki šiol.
+ */
+async function discoverLatestBaselinePath(packageRoot?: string): Promise<string | undefined> {
+  try {
+    const absolute = resolveInsideBenchmarkWorkspace(BASELINE_DIRECTORY, packageRoot);
+    const names = (await readdir(absolute)).filter((name) => name.endsWith(".json")).sort();
+    const last = names.at(-1);
+    return last === undefined ? undefined : `${BASELINE_DIRECTORY}/${last}`;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface BenchmarkReportGenerationOptions extends BenchmarkCliCompositionOptions {
   /** Package-relative output directory; defaults to the reports directory. */
@@ -169,9 +197,44 @@ export async function generateBenchmarkReport(
     }
   }
 
+  const summary = summarizeStoredSamples({ identity, environment, samples });
+
+  // Palyginimas su naujausiu užantspauduotu baseline'u (2026-08-26, operatoriaus radinys:
+  // dashboard'o panelis palyginimo stulpelius moka, bet generatorius jų niekada nepaduodavo,
+  // tad „palyginimas su baseline" likdavo tuščias). Tai NĖRA vartai — exit kodo verdiktas
+  // nekeičia (gate lieka `verqestra benchmark compare`); nepavykęs palyginimas virsta
+  // limitation eilute, ne generavimo klaida. Bandoma tik su įrašyta tapatybe ir netuščiu
+  // ledger'iu: be jų `api.compare` teisėtai atsisako (BENCH-8), ir tas atsisakymas jau
+  // deklaruotas atskiromis limitation eilutėmis aukščiau.
+  let comparison: BenchmarkComparison | undefined;
+  let baselineDocument: BenchmarkBaseline | undefined;
+  const baselinePath = record === undefined || samples.length === 0 ? undefined : await discoverLatestBaselinePath(options.packageRoot);
+  if (baselinePath !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(
+        await readFile(resolveInsideBenchmarkWorkspace(baselinePath, options.packageRoot), "utf8"),
+      );
+      const baseline = readBaseline(parsed);
+      if (!baseline.ok) {
+        throw new Error(`baseline document is not readable (${baseline.problems.length} problem(s))`);
+      }
+      comparison = await api.compare({ baseline: baseline.value, current: summary });
+      // Dokumentas paduodamas KARTU su palyginimu: modelio `baseline` faktų kortelė (identity,
+      // aplinka, agregatai) gimsta iš dokumento, o deltas — iš palyginimo; vienas be kito
+      // paliktų raportą su verdiktu, bet be „prieš ką" faktų.
+      baselineDocument = baseline.value;
+    } catch (error: unknown) {
+      limitations.push(
+        REPORT_LIMITATIONS.baselineNotComparable(baselinePath, error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
   return writeBenchmarkReports(
     {
-      summary: summarizeStoredSamples({ identity, environment, samples }),
+      summary,
+      ...(comparison === undefined ? {} : { comparison }),
+      ...(baselineDocument === undefined ? {} : { baseline: baselineDocument }),
       // Always summarised, including over an empty ledger: the cohort's job is
       // to say what is not measured, and omitting the section when nothing was
       // recorded would leave the report silent exactly when a reader is most

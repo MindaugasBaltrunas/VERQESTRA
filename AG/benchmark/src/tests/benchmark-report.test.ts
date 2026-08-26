@@ -548,5 +548,18 @@ test("`benchmark:report` runs against this package's own suite and ledger", asyn
       model.limitations.some((limitation) => limitation.includes("suiteHash")),
     "a report without a suite hash must disclose that it has none",
   );
-  assert.equal(model.verdictBasis, "no-baseline");
+  // 2026-08-26: generatorius pats atranda naujausią užantspauduotą baseline'ą (`baselines/`)
+  // ir įdeda palyginimą — iki tol dashboard'o „palyginimas su baseline" likdavo amžinai
+  // tuščias. Testas bėga prieš REALŲ repo, tad baseline'o buvimas yra aplinkos faktas —
+  // pin'inamas ne konkretus basis, o invariantas: kad ir kuris basis, raportas jį pagrindžia.
+  if (model.verdictBasis === "comparison") {
+    assert.ok(model.baseline !== undefined, "comparison basis privalo atsinešti baseline faktus");
+  } else {
+    assert.equal(model.verdictBasis, "no-baseline");
+    assert.ok(
+      model.reasons.includes("no-baseline-comparison") ||
+        model.limitations.some((limitation) => limitation.includes("baseline")),
+      "no-baseline basis privalo būti deklaruotas priežastimi arba limitation eilute",
+    );
+  }
 });

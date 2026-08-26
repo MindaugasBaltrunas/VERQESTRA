@@ -61,7 +61,12 @@ import { isGitRepository } from "../../infrastructure/git/git-client.js";
 import { stopBridgePath, stopStateSchema } from "../../infrastructure/state/stop-bridge.js";
 import { toPrettyJson } from "../../shared/json.js";
 import { assembleContextPackDeps } from "../quality/architecture-adapters.js";
-import { blockedTaskRoutingPorts, policyConfigFs, tokenBudgetPorts } from "../runtime/node-adapters.js";
+import {
+  blockedTaskRoutingPorts,
+  openSpecReconcileFs,
+  policyConfigFs,
+  tokenBudgetPorts,
+} from "../runtime/node-adapters.js";
 import { architectureWavePorts } from "../quality/architecture-adapters.js";
 import { changedProductPathsSince, readOptionalFile } from "../quality/diagnose-adapters.js";
 import { appendLogLine, retryCountsStore } from "./adapters.js";
@@ -232,13 +237,7 @@ export function coordinatorCompletionPort(input: CoordinatorAdapterInput): Compl
     },
     archiveAutoOpenSpecChange: async (taskId, doneTaskFile) => {
       const outcome = await archiveAutoOpenSpecChangeOnDone(
-        {
-          exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
-          readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
-          writeTextFileAtomic: (absolutePath, content) => nodeFsAdapter.writeTextFileAtomic(absolutePath, content),
-          makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
-          rename: (fromPath, toPath) => nodeFsAdapter.renamePath(fromPath, toPath),
-        },
+        openSpecReconcileFs,
         input.agRoot,
         taskId,
         doneTaskFile,

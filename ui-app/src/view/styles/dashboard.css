@@ -1373,6 +1373,16 @@ tbody tr:hover {
   color: var(--faint);
 }
 
+.benchmark-verdict-tokens {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- Benchmark insights: išvados, dvikovos diagrama, žodynėlis (2026-08-26) ---- */
 .benchmark-kpi-caption {
   grid-column: 1 / -1;

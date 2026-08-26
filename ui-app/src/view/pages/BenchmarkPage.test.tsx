@@ -20,7 +20,7 @@ function report(overrides: Partial<BenchmarkReportDocument> = {}): BenchmarkRepo
     schemaVersion: 1,
     verdict: "stable",
     verdictBasis: "comparison",
-    reasons: ["nothing material moved"],
+    reasons: ["within-thresholds"],
     current: {
       identity: {
         suiteHash: "sha256:aaa", configHash: "sha256:bbb", policyHash: "sha256:ccc",
@@ -111,6 +111,13 @@ describe("BenchmarkPage", () => {
     expect(screen.getByText("code-change-01")).toBeInTheDocument();
     // Nulinio baseline delta rodomas procentiniais punktais, ne paliekamas kaip n/a.
     expect(screen.getByText(/0 p\.p\./)).toBeInTheDocument();
+
+    // Verdiktas žmogaus kalba (2026-08-26): kodas „within-thresholds" verčiamas sakiniu,
+    // paantraštė sako KAS lyginta, o tokenų rezultatas rodomas pačiame verdikto panelyje.
+    expect(screen.getByText(/Every compared metric stayed inside its allowed threshold/)).toBeInTheDocument();
+    expect(screen.queryByText("within-thresholds")).not.toBeInTheDocument();
+    expect(screen.getByText(/Token bottom line/)).toBeInTheDocument();
+    expect(screen.getByText(/scenario comparisons/)).toBeInTheDocument();
 
     // Insights (2026-08-26): išvados, dvikova su nugalėtoju ir žodynėlis.
     expect(screen.getByRole("heading", { name: "Conclusions" })).toBeInTheDocument();

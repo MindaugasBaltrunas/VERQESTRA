@@ -41,6 +41,21 @@ function abbreviateCommit(commit: string): string {
   return commit === "" ? "—" : commit.slice(0, 12);
 }
 
+/**
+ * Žinomi palyginimo priežasčių kodai → sakiniai operatoriui. Nepažįstamas kodas grąžinamas
+ * žalias: techninis faktas geriau nei nutylėjimas, o naujo kodo atsiradimas serveryje
+ * neturi tyliai virsti tuščiu sąrašu.
+ */
+function humanizeVerdictReason(reason: string, t: (text: string) => string): string {
+  if (reason === "within-thresholds") {
+    return t("Every compared metric stayed inside its allowed threshold — nothing got worse versus the baseline.");
+  }
+  if (reason === "no-baseline-comparison") {
+    return t("There was no baseline to compare against, so no verdict about change can be drawn.");
+  }
+  return reason;
+}
+
 export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
   const { t, locale } = useI18n();
   const percent = useMemo(() => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }), [locale]);
@@ -144,21 +159,48 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
               <div className="notice notice-warning" role="alert">{t("This report is stale")}: {data.reason}</div>
             )}
 
+            {/* Verdikto panelis atsako TRIS klausimus žmogaus kalba (2026-08-26 operatoriaus
+                pastaba: „within-thresholds yra nesąmonė"): 1) KAS su kuo lyginta, 2) koks
+                NUOSPRENDIS ir ką jis reiškia, 3) koks TOKENŲ rezultatas. Vidiniai priežasčių
+                kodai verčiami sakiniais; nepažįstamas kodas rodomas žalias — geriau techninis
+                faktas nei nutylėjimas. Visi skaičiai — jau esami raporto laukai, jokių
+                perskaičiavimų. */}
             <section className="panel benchmark-verdict-panel" aria-label={t("Benchmark verdict")}>
               <div className="panel-header">
                 <div>
                   <h2>{t("Verdict")}</h2>
                   <p className="panel-subtitle">
-                    {report.verdictBasis === "no-baseline" ? t("No baseline comparison was supplied.") : t("Compared against the stored baseline.")}
+                    {report.verdictBasis === "no-baseline"
+                      ? t("No baseline comparison was supplied.")
+                      : report.baseline
+                        ? `${t("Compared")}: ${t("current run")} (${abbreviateCommit(report.current.identity.agCommit)}, ${report.current.sampleCount} ${t("samples")}) ${t("vs")} baseline (${abbreviateCommit(report.baseline.identity.agCommit)}, ${report.baseline.sampleCount} ${t("samples")}) · ${report.scenarios.length} ${t("scenario comparisons")}`
+                        : t("Compared against the stored baseline.")}
                   </p>
                 </div>
                 <span className={`badge status-${verdictTone(report.verdict)}`}>{t(report.verdict)}</span>
               </div>
               {report.reasons.length > 0 && (
                 <ul className="benchmark-reasons">
-                  {report.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  {report.reasons.map((reason) => <li key={reason}>{humanizeVerdictReason(reason, t)}</li>)}
                 </ul>
               )}
+              {(() => {
+                const loopCost = findMetric(modes.find((mode) => mode.mode === "ag-loop"), "perVerifiedAcceptedChange.billableTokens");
+                const soloCost = findMetric(modes.find((mode) => mode.mode === "agent-solo"), "perVerifiedAcceptedChange.billableTokens");
+                if (loopCost?.current === undefined && soloCost?.current === undefined) return null;
+                return (
+                  <p className="benchmark-verdict-tokens">
+                    <strong>{t("Token bottom line")}:</strong>{" "}
+                    {loopCost?.current !== undefined && <>ag-loop {compact.format(loopCost.current)} tok.</>}
+                    {loopCost?.current !== undefined && soloCost?.current !== undefined && <> · </>}
+                    {soloCost?.current !== undefined && <>agent-solo {compact.format(soloCost.current)} tok.</>}{" "}
+                    {t("per verified accepted change")}
+                    {loopCost?.current !== undefined && loopCost.baseline !== undefined && (
+                      <> ({t("baseline")}: {compact.format(loopCost.baseline)} tok.)</>
+                    )}
+                  </p>
+                );
+              })()}
             </section>
 
             <section className="benchmark-kpis" aria-label={t("Headline metrics")}>

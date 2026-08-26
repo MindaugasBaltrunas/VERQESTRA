@@ -9,7 +9,7 @@ import type {
   BenchmarkScenarioSection,
 } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
-import { BenchmarkInsights, BenchmarkWorthLine } from "../components/BenchmarkInsights";
+import { BenchmarkInsights } from "../components/BenchmarkInsights";
 import { CompressionCohortPanel } from "../components/CompressionCohortPanel";
 import { Header, type Route } from "../components/Header";
 
@@ -184,9 +184,6 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                   {report.reasons.map((reason) => <li key={reason}>{humanizeVerdictReason(reason, t)}</li>)}
                 </ul>
               )}
-              {/* „Kurį naudoti" atsakymas PIRMAME ekrane (2026-08-26): kokybė ir kaina vienoje
-                  eilutėje su rekomendacija; ta pati logika kaip vertės kortelėje žemiau. */}
-              <BenchmarkWorthLine modes={modes} />
             </section>
 
             <section className="benchmark-kpis" aria-label={t("Headline metrics")}>

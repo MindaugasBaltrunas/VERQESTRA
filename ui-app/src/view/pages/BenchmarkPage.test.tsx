@@ -117,9 +117,10 @@ describe("BenchmarkPage", () => {
     expect(screen.getByText(/Every compared metric stayed inside its allowed threshold/)).toBeInTheDocument();
     expect(screen.queryByText("within-thresholds")).not.toBeInTheDocument();
     expect(screen.getByText(/scenario comparisons/)).toBeInTheDocument();
-    // „Verta naudoti" — rekomendacija su kokybe IR kaina pačiame verdikto panelyje.
-    expect(screen.getByText(/Worth using/)).toBeInTheDocument();
-    expect(screen.getByText(/Cheaper per attempt does not mean cheaper per result/)).toBeInTheDocument();
+    // 2026-08-26 operatoriaus sprendimas: „Verta naudoti" eilutės verdikto panelyje NĖRA —
+    // rekomendacija gyvena tik vertės kortelėje žemiau, verdiktas lieka grynas regresijos vartų
+    // atsakymas.
+    expect(screen.queryByText(/Worth using/)).not.toBeInTheDocument();
 
     // Insights (2026-08-26): vertės kortelė (kokybė + kaina greta su verdiktu „kurį naudoti"),
     // dvikova su nugalėtoju ir žodynėlis.

@@ -256,6 +256,34 @@ test("verifyTask: done su produkto commit'ais → done; be jų — marker/clean-
   assert.match((dirty as { reason: string }).reason, /Claude did not create a new commit/);
 });
 
+test("verifyTask: rašymo aktyvumo signalas patikslina human-review priežastį (task 032)", async () => {
+  const { env } = verifyEnv();
+  const { state } = await makeState(env, "active");
+  env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
+  env.behavior.git.hasNewHeadSince = false;
+  env.behavior.git.changedProductPaths = [];
+  env.behavior.git.committedProductWorkSha = undefined;
+
+  // Vykdytojas nė karto nekvietė rašymo įrankio (tik Read) → tiksli priežastis, ne
+  // bendra "possibly rolled back" spėlionė.
+  env.behavior.claudeLog = [
+    '{"type":"system","subtype":"init","tools":["Read","Grep"]}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r1","name":"Read"}]}}',
+  ].join("\n");
+  const noWrites = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
+  assert.equal(noWrites.kind, "human-review");
+  assert.match((noWrites as { reason: string }).reason, /executor made no write-tool calls/);
+
+  // Vykdytojas rašė, bet vis tiek nėra darbo įrodymo istorijoje → sena priežastis lieka.
+  env.behavior.claudeLog = [
+    '{"type":"system","subtype":"init","tools":["Read","Write"]}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"w1","name":"Write"}]}}',
+  ].join("\n");
+  const wrote = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
+  assert.equal(wrote.kind, "human-review");
+  assert.match((wrote as { reason: string }).reason, /clean tree without work evidence/);
+});
+
 test("verifyTask: 018 seka — rollback išsaugo necommit'intą darbą, priežastyje matoma vieta", async () => {
   const { env } = verifyEnv();
   const { state } = await makeState(env, "active");

@@ -225,13 +225,10 @@ export type ExecutionPolicyPort = {
 export type DiagnosisRulesPort = {
   hasAlreadyImplementedMarker(claudeLog: string): boolean;
   resolveNoCommitDisposition(inputs: NoCommitDoneInputs): "done" | "rollback" | "human-review";
-  /**
-   * Laikina stadija (task 032-b-03): neprivalomas, nes fake portams (testų helperiuose) dar
-   * nėra implementacijos. Sekantis task'as padarys privalomą, kai fake'ai bus atnaujinti.
-   */
-  readExecutorWriteActivity?(claudeLog: string): ExecutorWriteActivity;
-  /** Laikina stadija — žr. `readExecutorWriteActivity` komentarą. */
-  resolveNoCommitReviewReason?(inputs: NoCommitDoneInputs): string;
+  /** Vykdytojo rašymo-įrankio aktyvumas iš sesijos log'o (task 032). */
+  readExecutorWriteActivity(claudeLog: string): ExecutorWriteActivity;
+  /** Human-review priežasties eilutė, kai „done" verdiktas be commit'o (task 032). */
+  resolveNoCommitReviewReason(inputs: NoCommitDoneInputs): string;
 };
 
 export type CompletionPort = {

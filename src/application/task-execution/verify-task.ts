@@ -146,8 +146,9 @@ async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Pr
   // `logs/changes.log` pagrindu surinkti pakeitimai, o work evidence netaikoma.
   const claudeLog = await ports.state.readClaudeLog(state.taskId);
   const hasMarker = ports.rules.hasAlreadyImplementedMarker(claudeLog);
+  const writeActivity = ports.rules.readExecutorWriteActivity(claudeLog);
   const productDirtyCount = isRepo ? await ports.git.productDirtyCount() : await ports.git.recordedChangeCount();
-  const disposition = ports.rules.resolveNoCommitDisposition({
+  const noCommitInputs = {
     hasAlreadyImplementedMarker: hasMarker,
     productDirtyCount,
     // Etalono task 890: švarus medis uždaro task'ą kaip done tik su įrodymu, kad deliverable
@@ -160,7 +161,12 @@ async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Pr
     // taisyklė kaip pre-dispatch skip vartuose, etalono task 1187): bookkeeping commit'ai
     // praleidžiami, ne sertifikuojami.
     hasWorkEvidence: isRepo ? Boolean(await ports.git.committedProductWorkShaFor(state.taskId)) : true,
-  });
+    // Task 032: rašymo-įrankio aktyvumas naudojamas TIK human-review priežasties eilutei
+    // (`resolveNoCommitReviewReason`) — disposition (done/rollback/human-review) šio lauko
+    // nekeičia.
+    writeActivity,
+  };
+  const disposition = ports.rules.resolveNoCommitDisposition(noCommitInputs);
   if (disposition === "done") {
     return { kind: "done-already-implemented", via: hasMarker ? "marker" : "clean-tree" };
   }
@@ -180,7 +186,7 @@ async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Pr
 
   const noCompletionSignalReason =
     disposition === "human-review"
-      ? "clean tree without work evidence (deliverable missing — possibly rolled back)"
+      ? ports.rules.resolveNoCommitReviewReason(noCommitInputs)
       : isRepo
         ? "Claude did not create a new commit"
         : "no verified product changes (non-git project)";

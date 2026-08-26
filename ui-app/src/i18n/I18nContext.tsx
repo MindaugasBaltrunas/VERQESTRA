@@ -581,7 +581,7 @@ const lt: Record<string, string> = {
   "Shadow telemetry": "Šešėlinė telemetrija",
   "Measured from context-size.jsonl even while every flag is off — that is what makes deciding possible before enabling.":
     "Matuojama iš context-size.jsonl net kai visos vėliavos išjungtos — būtent tai leidžia spręsti prieš įjungiant.",
-  "Samples": "Pavyzdžiai",
+  // „Samples" jau yra žemiau (`Mėginiai`) — dublikatas tyliai laimėtų ir pakeistų kito ekrano tekstą.
   "Avg budget used": "Vidutinis biudžeto užpildymas",
   "Peak budget used": "Didžiausias biudžeto užpildymas",
   "Budget exceeded": "Biudžetas viršytas",

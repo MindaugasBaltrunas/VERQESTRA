@@ -46,7 +46,14 @@ depends_on: none
   grąžina `executor made no write-tool calls`, kai `writeActivity === "no-writes"`. Ji buvo gyva —
   `032-b-03` uždarytas 14:29Z, o visi trys gedimai įvyko vėliau. Vadinasi į ją atkeliavo
   `"unknown"`, nors tos pačios sesijos pjūvis buvo `parsed=true events=23`.
-- ĮTARIAMASIS (patvirtinti pirma, prieš taisant): portas deklaruoja
+- ĮTARIAMASIS ir jį RIBOJANTIS faktas (abu patvirtinti prieš taisant). Pirma — šio task'o PATIES
+  dispatch'as baigėsi `main=Agent,ScheduleWakeup agent=Glob,Grep,Read` (`orchestrator.log:6795`)
+  ir gavo **teisingą** eilutę — `TASK NOT DONE: … executor made no write-tool calls` (`:6861`).
+  Vadinasi mechanizmas veikia NE „niekada", o NEPATIKIMAI: tie patys įėjimai 17:02 davė bendrinę
+  priežastį, o 19:39 — tikslią. Tai lenktynių, ne pilnos gedimo požymis, ir jis derinasi su
+  bendrinamu globaliu veidrodžiu: kai `claude-last.log` priklauso TAI PAČIAI sesijai, klasifikacija
+  pataiko; kai jį jau perrašė kita — ne. Sprendimas nesikeičia, bet įrodymas privalo tai apimti.
+  Antra, pats įtariamasis: portas deklaruoja
   `readClaudeLog(taskId: string)` (`application/task-execution/run-coordinator-ports.ts:160`), o
   adapteris `coordinator-adapters.ts:326` yra `readClaudeLog: () => readOptionalFile(…/claude-last.log)`
   — argumentas ignoruojamas ir skaitomas GLOBALUS paskutinės bet kurios sesijos žurnalas.

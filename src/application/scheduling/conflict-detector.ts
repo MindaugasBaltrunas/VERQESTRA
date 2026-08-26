@@ -10,10 +10,12 @@
 //
 // Trys taisyklės, kurios yra kontraktas, o ne įgyvendinimo detalė:
 //
-//   1. **Įrodymo nebuvimas niekada nevirsta leidimu.** Nedeklaruotas scope, wildcard šablonas,
-//      neišsprendžiamas kelias ar nepatikrintas kontraktas yra `evidence gap`, ir bet kuris gap'as
-//      vienoje pusėje reiškia nuoseklų vykdymą — lygiai taip pat, kaip reali sankirta. Tai
-//      tiesioginis spec PAR-2 reikalavimas.
+//   1. **Įrodymo nebuvimas niekada nevirsta leidimu.** Nedeklaruotas scope, **neribotos apimties**
+//      wildcard šablonas, neišsprendžiamas kelias ar nepatikrintas kontraktas yra `evidence gap`, ir
+//      bet kuris gap'as vienoje pusėje reiškia nuoseklų vykdymą — lygiai taip pat, kaip reali
+//      sankirta. Tai tiesioginis spec PAR-2 reikalavimas. Ribotos apimties šablonas
+//      (`isBoundedGlobPattern`) spragos nebeuždeda: jo aprėptis yra apskaičiuojama, tad įrodymas
+//      YRA — o klaidingas įrodymo trūkumas kainuoja lygiagretumą lygiai taip pat tyliai.
 //   2. **Scope semantika viena visai sistemai.** Kelių persidengimas skaičiuojamas per
 //      domain `scope-lock-rules.ts#scopesConflict`, o „ar tai migracija / generuotas artefaktas" —
 //      per `integration/contract-paths.ts`. Antra tų taisyklių kopija reikštų, kad detektorius
@@ -32,7 +34,8 @@ import { canonicalJsonStringify } from "../../shared/json.js";
 import { isGeneratedPath, isMigrationPath } from "../integration/contract-paths.js";
 
 /** Detektoriaus TAISYKLIŲ versija. Įeina į atspaudus, tad pakeitus taisykles seni verdiktai tampa stale. */
-export const CONFLICT_DETECTOR_VERSION = 1;
+// v2 (035-a-02): ribotos apimties glob'as (`isBoundedGlobPattern`) nebeuždeda `wildcard-scope` spragos.
+export const CONFLICT_DETECTOR_VERSION = 2;
 
 /**
  * Write scope rūšys. Pirmosios penkios yra KELIŲ šeima (jų persidengimą sprendžia scope lock
@@ -72,7 +75,17 @@ export type WriteScopeEntry = {
 export type EvidenceGapCode =
   /** Task'as nedeklaruoja nė vieno rašomo kelio — nėra ko lyginti. */
   | "no-declared-scope"
-  /** Wildcard arba `**` scope: aprėptis neapibrėžta (spec PAR-2). */
+  /**
+   * NERIBOTOS apimties wildcard scope: aprėptis neapibrėžta (spec PAR-2).
+   *
+   * Kelių šeimoje spraga nebeuždedama RIBOTAM šablonui — ≥2 segmentai, literalus katalogo
+   * prefiksas, wildcard tik paskutiniame segmente, fiksuotas plėtinys ir ne migracijų kelias
+   * (žr. `isBoundedGlobPattern`). Tokio šablono aprėptį `scopesConflict` apskaičiuoja, tad
+   * įrodymas yra, ir spraga tik tyliai atimtų lygiagretumą.
+   *
+   * Tapatybių šeimoje (`pushIdentityEntries`) spraga LIEKA bet kokiam wildcard'ui: tapatybės
+   * lyginamos tiksliai, tad wildcard tapatybė niekada nesutampa su konkrečia.
+   */
   | "wildcard-scope"
   /** Kelias neišsprendžiamas (absoliutus, už repo ribų, `..`). */
   | "unresolvable-scope"
@@ -136,9 +149,67 @@ function hasWildcard(value: string): boolean {
 const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
 
 /**
+ * Ar glob'o šablono APIMTIS yra ribota, t. y. ar jį apskritai verta laikyti įrodytu.
+ *
+ * Predikatas tikrina TIK ŠABLONO FORMĄ ir NIEKADA neatsakinėja į klausimą „ar du glob'ai
+ * kertasi" — tas klausimas lieka domain `scope-lock-rules.ts#scopesConflict` (failo antraštės
+ * 2 taisyklė: scope semantika viena visai sistemai).
+ *
+ * Įėjimas privalo būti `normalizeScopeValue` apdorota reikšmė (`classified.scope`), niekada
+ * `raw`: normalizacija nuima `./`, dubliuotus ir galinius `/`, be kurių segmentų skaičiavimas
+ * meluotų.
+ *
+ * Ribotas yra tik šablonas, tenkinantis VISUS punktus:
+ *
+ *   1. yra bent vienas `*` (be jo tai apskritai ne glob'as);
+ *   2. nėra `?`. `globMatches` be-`*` šakoje lygina prefiksu, o `wildcardPatternMatches` `?`
+ *      escape'ina kaip RAIDĘ — deklaruota ir apskaičiuota aprėptis prasilenkia, tad `?` turintis
+ *      šablonas įrodymu nelaikomas;
+ *   3. nėra `**` niekur stringe (ne per segmentus: `src/a**b.ts` irgi turi kristi) — neribotas gylis;
+ *   4. bent 2 segmentai. Vieno segmento šablono `solidPrefix` yra tuščias, o `pathContains(x, "")`
+ *      visada `false`, tad `scope-lock-rules.ts:185` atsarginė šaka dingsta ir repo šaknį valdantis
+ *      scope (`.`) nebesikirstų su `*.ts`;
+ *   5. nė vienas segmentas, IŠSKYRUS paskutinį, neturi `*` — katalogo prefiksas privalo būti literalus;
+ *   6. paskutinis segmentas turi fiksuotą plėtinį (`FILE_EXTENSION`);
+ *   7. tai ne migracijų kelias. `classifyWriteScopePath` wildcard'ą sprendžia PRIEŠ migraciją, tad
+ *      `db/migrations/*.sql` yra kind `glob`, o globalios serializacijos taisyklė
+ *      (`scope-lock-rules.ts:173`) reikalauja `migration-chain` ABIEJOSE pusėse. Panaikinus spragą
+ *      tokia migracija taptų lygiagrečia su kita grandine — būtent to taisyklė ir neleidžia.
+ *
+ * Kodėl tai saugu keliams: tokiam šablonui `globMatches` patenka į `wildcardPatternMatches` šaką
+ * be gylio, o `scopesConflict` glob-vs-kelias šaka papildomai tikrina
+ * `pathContains(kelias, solidPrefix(glob))` — tad sankirtą duoda ir katalogas-konteineris
+ * (`src` vs `src/tests/a-*.test.ts`), ir bet koks šabloną atitinkantis failas.
+ *
+ * ĮSPĖJIMAS: šio predikato saugumas remiasi `solidPrefix`/`globMatches` elgesiu. Keičiant juos,
+ * šis predikatas privalo būti to paties keitimo dalis.
+ */
+function isBoundedGlobPattern(normalizedScope: string): boolean {
+  if (!normalizedScope.includes("*")) return false;
+  if (normalizedScope.includes("?")) return false;
+  if (normalizedScope.includes("**")) return false;
+
+  const segments = normalizedScope.split("/");
+  if (segments.length < 2) return false;
+
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  for (const segment of segments.slice(0, -1)) {
+    if (segment.includes("*")) return false;
+  }
+  if (!FILE_EXTENSION.test(last)) return false;
+
+  return !isMigrationPath(normalizedScope);
+}
+
+/**
  * Kelio rūšis. Tvarka yra taisyklė, nes kelias gali atitikti kelis šablonus vienu metu:
  *
- *   1. wildcard — neapibrėžta aprėptis nusveria viską (spec PAR-2);
+ *   1. wildcard — neapibrėžta aprėptis nusveria viską (spec PAR-2). Su viena išlyga: rūšį `glob`
+ *      wildcard nusveria besąlygiškai, bet ĮRODYMO SPRAGOS jis nebeuždeda, jei šablono apimtis
+ *      ribota (`isBoundedGlobPattern`). Kadangi ši rūšis aplenkia ir migracijų grandinę, ribotumo
+ *      predikatas migracijų kelius atmeta atskirai — kitaip `db/migrations/*.sql` prasprūstų pro
+ *      globalią serializaciją;
  *   2. migracijų grandinė — serializuojama globaliai, tad rūšis privalo išlikti net generated kelyje;
  *   3. generuotas artefaktas — jo turinys išvestinis, o rašytojų gali būti keli;
  *   4. katalogas — baigiasi `/` arba neturi plėtinio;
@@ -178,7 +249,7 @@ function pushPathEntries(
       continue;
     }
     const kind = forcedKind ?? classified.kind;
-    if (kind === "glob") {
+    if (kind === "glob" && !isBoundedGlobPattern(classified.scope)) {
       gaps.push({ code: "wildcard-scope", detail: `${source}: '${classified.scope}' aprėptis neapibrėžta` });
     }
     entries.push({ kind, scope: classified.scope, source });
@@ -195,6 +266,13 @@ function pushIdentityEntries(
   for (const raw of values ?? []) {
     const scope = normalizeIdentity(raw);
     if (!scope) continue;
+    // Ribotumo predikatas (`isBoundedGlobPattern`) čia SĄMONINGAI netaikomas. `entriesConflict`
+    // tapatybes lygina TIKSLIAI (`comparable(a) === comparable(b)`), tad wildcard tapatybė niekada
+    // nesutaps su konkrečia: panaikinus spragą ji virstų nemokamu leidimu — `write_symbols:
+    // ["src/shared/*.ts"]` prieš `["src/shared/util.ts"]` duotų `independent: true`. Spraga čia yra
+    // vienintelis apsaugos mechanizmas ir galios tol, kol tapatybėms atsiras jas suprantantis
+    // lygintuvas. Tai sąmoningas nukrypimas nuo užduoties 035-a-02 `## Veiksmas` teksto, kuris
+    // predikatą taikė abiem šeimoms.
     if (hasWildcard(scope)) {
       gaps.push({ code: "wildcard-scope", detail: `${source}: '${scope}' aprėptis neapibrėžta` });
     }

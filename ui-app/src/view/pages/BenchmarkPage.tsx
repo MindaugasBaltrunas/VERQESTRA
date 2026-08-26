@@ -41,19 +41,6 @@ function abbreviateCommit(commit: string): string {
   return commit === "" ? "—" : commit.slice(0, 12);
 }
 
-/**
- * Ar abi palyginimo pusės yra TAS PATS bėgimas (baseline užantspauduotas iš dabartinio).
- * Lyginami identiteto hash'ai ir mėginių skaičius — jei visi sutampa, dvi kortelės rodytų
- * vienodą turinį, o tai skaitytojui atrodo kaip dubliavimo klaida.
- */
-function sameRunFacts(current: BenchmarkReportRunFacts, baseline: BenchmarkReportRunFacts): boolean {
-  return (
-    current.identity.agCommit === baseline.identity.agCommit &&
-    current.identity.suiteHash === baseline.identity.suiteHash &&
-    current.identity.configHash === baseline.identity.configHash &&
-    current.sampleCount === baseline.sampleCount
-  );
-}
 
 /**
  * Žinomi palyginimo priežasčių kodai → sakiniai operatoriui. Nepažįstamas kodas grąžinamas
@@ -214,11 +201,13 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
               <BenchmarkKpi label={t("Human review rate")} row={findMetric(headlineMode, "humanReviewRate")} format={formatRate} delta={formatDelta} />
             </section>
 
+            {/* „Baseline / current runs" dviejų kortelių blokas PAŠALINTAS (2026-08-26,
+                operatoriaus sprendimas): identiteto palyginimo dienomis abi pusės identiškos, ir
+                dubliuotos kortelės vertės neneša. Kas lyginta su kuo — verdikto paantraštėje;
+                lieka VIENA proveniencijos kortelė: kuriam commit'ui, aplinkai ir rinkiniui šie
+                skaičiai galioja. */}
             <section className="panel">
-              {/* „Baseline / current runs" kortelių blokas PAŠALINTAS (2026-08-26, operatoriaus
-                  sprendimas): identiteto palyginimo dienomis abi pusės identiškos, ir dvi vienodos
-                  kortelės vertės neneša. Kas lyginta su kuo — verdikto paantraštėje; matavimo
-                  aplinka rodoma žemiau vienoje CURRENT kortelėje. */}
+              <div className="panel-header"><div><h2>{t("Measurement provenance")}</h2><p className="panel-subtitle">{t("Which commit, environment and suite these numbers describe.")}</p></div></div>
               <div className="benchmark-run-facts">
                 <RunFactsCard title={t("Current run")} facts={report.current} t={t} />
               </div>

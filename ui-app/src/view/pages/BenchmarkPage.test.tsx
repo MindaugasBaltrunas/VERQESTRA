@@ -122,8 +122,10 @@ describe("BenchmarkPage", () => {
     // atsakymas.
     expect(screen.queryByText(/Worth using/)).not.toBeInTheDocument();
 
-    // Fixture baseline'as turi KITĄ agCommit ("e".repeat) → abi kortelės rodomos atskirai.
-    expect(screen.getByText("Baseline run")).toBeInTheDocument();
+    // 2026-08-26: dviejų kortelių „Baseline / current runs" bloko NEBĖRA — liko viena
+    // proveniencijos kortelė (kuriam commit'ui skaičiai galioja).
+    expect(screen.getByRole("heading", { name: "Measurement provenance" })).toBeInTheDocument();
+    expect(screen.queryByText("Baseline run")).not.toBeInTheDocument();
 
     // Insights (2026-08-26): vertės kortelė (kokybė + kaina greta su verdiktu „kurį naudoti"),
     // dvikova su nugalėtoju ir žodynėlis.
@@ -164,17 +166,20 @@ describe("BenchmarkPage", () => {
     });
   });
 
-  it("shows a stale warning while still rendering the underlying report", async () => {
+  it("renders a stale report without any warning banner (operator decision 2026-08-26)", async () => {
     vi.mocked(api.fetchBenchmarkReport).mockResolvedValue(view({
       state: "stale",
       reason: "the report was measured on AG commit deadbeefcafe, but HEAD is 000000000000.",
     }));
     render(<BenchmarkPage activeRoute="benchmark" onNavigate={noop} />);
 
-    await waitFor(() => expect(screen.getByText(/This report is stale/)).toBeInTheDocument());
-    const verdictHeading = screen.getByRole("heading", { name: "Verdict" });
-    const stableBadge = verdictHeading.closest("section")!.querySelector(".badge.status-good");
-    expect(stableBadge).toHaveTextContent("stable");
+    // Banner'io NĖRA — šviežumo tiesą neša proveniencijos kortelė ir serverio `state` laukas.
+    await waitFor(() => {
+      const verdictHeading = screen.getByRole("heading", { name: "Verdict" });
+      const stableBadge = verdictHeading.closest("section")!.querySelector(".badge.status-good");
+      expect(stableBadge).toHaveTextContent("stable");
+    });
+    expect(screen.queryByText(/This report is stale/)).not.toBeInTheDocument();
   });
 
   it("shows the no-baseline note for an inconclusive verdict", async () => {
@@ -197,21 +202,6 @@ describe("BenchmarkPage", () => {
 
     await waitFor(() => expect(screen.getByText("inconclusive")).toBeInTheDocument());
     expect(screen.getByText("No baseline comparison was supplied.")).toBeInTheDocument();
-    expect(screen.getByText("No baseline recorded")).toBeInTheDocument();
-  });
-
-  it("collapses the run-facts cards into one when the baseline was sealed from this run", async () => {
-    vi.mocked(api.fetchBenchmarkReport).mockResolvedValue(view({
-      report: report({
-        // Identiškos pusės: tas pats agCommit/suiteHash/configHash/sampleCount kaip current.
-        baseline: report().current,
-      }),
-    }));
-    render(<BenchmarkPage activeRoute="benchmark" onNavigate={noop} />);
-
-    await waitFor(() => expect(screen.getByText(/The baseline was sealed from this very run/)).toBeInTheDocument());
-    expect(screen.getByText("Current run = Baseline run")).toBeInTheDocument();
-    expect(screen.queryByText(/^Baseline run$/)).not.toBeInTheDocument();
   });
 
   it("shows regression reasons and lets a scenario be selected for drill-down", async () => {

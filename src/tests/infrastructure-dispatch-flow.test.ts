@@ -25,6 +25,13 @@ import {
 import { finalizeDispatch } from "../infrastructure/adapters/claude-dispatch-finalize.js";
 import type { MidDispatchBudgetWatchdog, MidDispatchBudgetVerdict } from "../infrastructure/adapters/mid-dispatch-budget.js";
 
+// The adapter path resolves the execution-context mode from `process.env` (see
+// `execution-context-gate.resolveExecutionContextMode`), and these cases assert the default
+// `preferred` behaviour. Run inside a dispatch, `AG_EXECUTION_CONTEXT_MODE=required` leaks in
+// from the orchestrator and turns the passthrough case into a refusal. Pin the baseline so the
+// assertion depends on the harness, not on the shell that launched the suite.
+process.env["AG_EXECUTION_CONTEXT_MODE"] = "preferred";
+
 const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-dflow-"));
 const runtimeRoot = path.join(projectRoot, "vq");
 after(async () => {

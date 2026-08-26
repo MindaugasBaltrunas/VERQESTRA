@@ -30,7 +30,6 @@ import {
   forbiddenPaths,
   isScopeMarkerLine,
   parseAllowedPaths,
-  taskBulletItems,
   type TaskSection,
 } from "../../domain/tasks/index.js";
 import { splitLines, stripBulletPrefix } from "../../shared/markdown.js";
@@ -86,6 +85,13 @@ const ORCHESTRATOR_SECTIONS: ReadonlySet<string> = new Set([
  * A miss here is harmless: the section still survives verbatim, just labelled `raw`.
  */
 const DIRECTIVE_HEADING_PREFIXES: readonly string[] = ["zingsnis 0", "sandbox taisykles"];
+
+/**
+ * A bullet list item line. Mirrors `domain/tasks/sections.ts`'s private `BULLET_ITEM` — kept
+ * as its own copy here (not exported from `sections.ts`) because this task's edit boundary is
+ * `worker-task-ir.ts` only; the two must still agree on what a bullet line looks like.
+ */
+const BULLET_ITEM_LINE = /^\s*[-*]\s+\S/;
 
 export type WorkerTaskIrErrorCode =
   | "missing_task_id"
@@ -148,18 +154,26 @@ export function compileWorkerTaskIr(input: CompileWorkerTaskIrInput): Result<Wor
 
   const allowed = allowedPaths(taskMarkdown);
   const forbidden = forbiddenPaths(taskMarkdown);
-  const acceptanceCriteria = taskBulletItems(bodyOf(sections, SECTION_ACTIONS));
-  const outOfScope = taskBulletItems(bodyOf(sections, SECTION_OUT_OF_SCOPE));
+  const actionsSection = parseBulletSection(bodyOf(sections, SECTION_ACTIONS));
+  const outOfScopeSection = parseBulletSection(bodyOf(sections, SECTION_OUT_OF_SCOPE));
+  const acceptanceCriteria = actionsSection.items;
+  const outOfScope = outOfScopeSection.items;
   const specRefs = nonEmptyLines(bodyOf(sections, SECTION_SPEC_SOURCE));
 
   // What each mapped section's structured parse actually consumed. Anything a section
-  // still holds beyond this is re-attached verbatim below.
+  // still holds beyond this is re-attached verbatim below. `## Veiksmas` / `## Neįtraukta`
+  // are checked separately (`bulletSectionResidue`): their residue is "a line with no bullet
+  // above it", not "a captured item's text is missing from the line" — a multi-line bullet's
+  // continuation line never contains any single item's full text, so the substring check
+  // below would flag it even once it is genuinely folded into `acceptanceCriteria`.
   const consumed = new Map<string, readonly string[]>([
     [SECTION_FILES, [...allowed, ...forbidden]],
-    [SECTION_ACTIONS, acceptanceCriteria],
     [SECTION_CHECKS, checks],
-    [SECTION_OUT_OF_SCOPE, outOfScope],
     [SECTION_SPEC_SOURCE, specRefs],
+  ]);
+  const bulletSectionResidue = new Map<string, boolean>([
+    [SECTION_ACTIONS, actionsSection.hasResidue],
+    [SECTION_OUT_OF_SCOPE, outOfScopeSection.hasResidue],
   ]);
 
   const elements: WorkerTaskIrElement[] = [];
@@ -173,8 +187,11 @@ export function compileWorkerTaskIr(input: CompileWorkerTaskIrInput): Result<Wor
     if (MAPPED_SECTIONS.has(section.key)) {
       // The goal and the stop condition are carried whole, so only the list-shaped
       // sections can leave anything behind.
+      const bulletResidue = bulletSectionResidue.get(section.key);
       const captured = consumed.get(section.key);
-      if (captured && hasUnconsumedContent(section.body, captured)) {
+      const hasResidue =
+        bulletResidue !== undefined ? bulletResidue : captured !== undefined && hasUnconsumedContent(section.body, captured);
+      if (hasResidue) {
         elements.push({ heading: section.heading, kind: "raw", body: section.body });
       }
       continue;
@@ -209,9 +226,45 @@ export function compileWorkerTaskIr(input: CompileWorkerTaskIrInput): Result<Wor
   );
 }
 
-/** Encoded size of an IR, for A/B measurement against the raw task it was compiled from. */
+/**
+ * Encoded size of an IR — the JSON envelope included. This is the transport cost telemetry
+ * reports (`ir_chars`, `irJsonChars`), NOT a duplication measure: it also pays for the field
+ * names, the quoting, the `\n` escapes and the identity metadata (`source_sha256`, `version`,
+ * `task_id`) that no task file contains. Over the real corpus that envelope is ~200 chars per
+ * task, so a lossless IR still encodes ~9% larger than the Markdown it came from. Compare
+ * {@link workerTaskIrContentChars} against the raw task when the question is duplication.
+ */
 export function workerTaskIrChars(ir: WorkerTaskIr): number {
   return JSON.stringify(ir).length;
+}
+
+/**
+ * How many characters of TASK TEXT this IR carries — every typed field, every element heading
+ * and body, joined the way the lines stood in the source. Deliberately excludes JSON syntax
+ * and the derived identity fields, because those are content-independent overhead: counting
+ * them makes a duplication metric report ~9% on a corpus that duplicates nothing, which hides
+ * the real signal it exists to catch.
+ *
+ * A section carried twice — folded into `acceptance_criteria` AND kept verbatim in `elements` —
+ * shows up here as its body counted twice, so the ratio against the raw task rises above 1.0.
+ * That is the regression `worker-task-ir-corpus-duplication.test.ts` fails closed on.
+ */
+export function workerTaskIrContentChars(ir: WorkerTaskIr): number {
+  const pieces: string[] = [
+    ir.goal,
+    ...ir.allowed_paths,
+    ...ir.forbidden_paths,
+    ...ir.acceptance_criteria,
+    ...ir.checks,
+    ir.stop,
+    ...ir.spec_refs,
+    ...ir.out_of_scope,
+    ...ir.elements.flatMap((element) => [element.heading, element.body]),
+    ...ir.omitted_sections,
+  ];
+  // Joined, not summed: each piece occupied its own line in the source, so the separator is
+  // part of the honest comparison against the raw file's length.
+  return pieces.filter((piece) => piece.length > 0).join("\n").length;
 }
 
 function bodyOf(sections: readonly TaskSection[], key: string): string {
@@ -244,7 +297,15 @@ function firstDuplicateMappedSection(sections: readonly TaskSection[]): string |
  * substring match as proof the whole line was accounted for, which is fail-open).
  */
 function hasUnconsumedContent(body: string, captured: readonly string[]): boolean {
-  const items = captured.map((item) => item.trim()).filter(Boolean);
+  // Longest first: a shorter captured item that is itself a substring of a longer one
+  // (`.env` inside `.env.*`, an ancestor spec path inside a deeper one) must never strip
+  // before the longer item gets its turn — doing so mangles the line into a residue that
+  // was never actually there, which is exactly what drove the IR/raw duplication regression
+  // this fix closes (corpus test: `worker-task-ir-corpus-duplication.test.ts`).
+  const items = captured
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
   return splitLines(body).some((line) => lineHasResidue(line, items));
 }
 
@@ -256,6 +317,61 @@ function lineHasResidue(line: string, items: readonly string[]): boolean {
     residual = residual.split(`\`${item}\``).join("").split(item).join("");
   }
   return residual.replace(/[`,]/g, "").trim().length > 0;
+}
+
+/** Result of folding a bullet-list section's continuation lines into their owning item. */
+type BulletSectionParse = {
+  /** Each bullet's full text, continuation lines joined by "\n", in document order. */
+  items: string[];
+  /** True when a line held no bullet above it to fold into — the verbatim fallback must fire. */
+  hasResidue: boolean;
+};
+
+/**
+ * Parses a `## Veiksmas` / `## Neįtraukta`-shaped body: a flat bullet list whose items
+ * routinely wrap onto the following line(s) without a marker of their own — the standard task
+ * template does this on nearly every real task file. A continuation line is folded into the
+ * bullet directly above it (the whole line, verbatim, never a guessed substring), so it survives
+ * inside `items` instead of being duplicated as a `raw` element.
+ *
+ * `hasResidue` is true only for a line that had no bullet above it to fold into: the section
+ * opens with prose before its first bullet, or a blank line ends a bullet's run and prose
+ * follows. That is exactly the "genuinely unrecognized content" NO SILENT LOSS exists for, so
+ * the caller keeps the ENTIRE section verbatim rather than guess which half is safe to drop.
+ */
+function parseBulletSection(body: string): BulletSectionParse {
+  const items: string[] = [];
+  let current: string[] | undefined;
+  let hasResidue = false;
+
+  const flush = (): void => {
+    if (current !== undefined) {
+      const joined = current.join("\n").trim();
+      if (joined) items.push(joined);
+    }
+    current = undefined;
+  };
+
+  for (const line of splitLines(body ?? "")) {
+    if (BULLET_ITEM_LINE.test(line)) {
+      flush();
+      current = [stripBulletPrefix(line)];
+      continue;
+    }
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flush();
+      continue;
+    }
+    if (current !== undefined) {
+      current.push(trimmed);
+    } else {
+      hasResidue = true;
+    }
+  }
+  flush();
+
+  return { items, hasResidue };
 }
 
 function isDirectiveHeading(key: string): boolean {

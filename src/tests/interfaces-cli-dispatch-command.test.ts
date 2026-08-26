@@ -19,6 +19,16 @@ import type {
 import { buildExecutionContextMarker } from "../application/context-pack/execution-context-fingerprint.js";
 import { USAGE_ERROR_EXIT_CODE } from "../shared/exit-codes.js";
 
+// `claudeDispatch` resolves the execution-context mode from `process.env` itself
+// (`command.ts` → `resolveExecutionContextMode()`), so there is no port to fake it through.
+// Every harness below builds a source-change task with NO execution-context artifact — the
+// `preferred` path. Run inside a dispatch, where the orchestrator exports
+// `AG_EXECUTION_CONTEXT_MODE=required`, the ambient value made the gate refuse first and five
+// tests failed on an exit code they never intended to assert. Pinning the baseline here makes
+// the suite say which mode it means instead of inheriting the shell's; the one test that needs
+// `required` still sets it explicitly and restores THIS value.
+process.env["AG_EXECUTION_CONTEXT_MODE"] = "preferred";
+
 const ROOT = path.resolve("/repo");
 const RUNTIME = path.join(ROOT, "vq");
 const TASK_FILE = path.join(ROOT, "AG", "tasks", "queue", "0042-demo.md");

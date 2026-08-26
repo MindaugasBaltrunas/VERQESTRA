@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPolicyProposals, resumeLoop, startLoopWithWorkers, stopLoop } from "./api";
+import { fetchPolicyProposals, fetchWaves, resumeLoop, startLoopWithWorkers, stopLoop } from "./api";
 
 /**
  * ATSAKYMŲ VOKŲ testai (2026-08-23 UI audito antras ratas).
@@ -17,6 +17,13 @@ function stubFetch(body: unknown, status = 200): void {
     vi.fn(() =>
       Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })),
     ),
+  );
+}
+
+function stubFetchWithText(body: string, status = 200): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(new Response(body, { status, headers: { "content-type": "text/plain" } }))),
   );
 }
 
@@ -59,5 +66,39 @@ describe("politikų pasiūlymų vokas", () => {
   it("žalias sąrašas be voko meta klaidą vietoj amžino „Įkeliama…“", async () => {
     stubFetch([{ policy_file: "vq/architecture/coding-principles.json" }]);
     await expect(fetchPolicyProposals()).rejects.toThrow(/'proposals' sąrašo/);
+  });
+});
+
+/**
+ * `assertOk` keturios šakos (žr. `./api.ts`): JSON su `error`, JSON be `error`, ne-JSON kūnas ir
+ * tuščias kūnas. Dengiama per `fetchWaves()`, nes tai vienintelis GET kelias be papildomo voko
+ * patikros (kitaip `assertOk` klaida būtų maskuojama vėlesnės `require*` patikros).
+ */
+describe("assertOk klaidos žinutė", () => {
+  it("JSON kūnas su `error` lauku: žinutėje statusas ir paaiškinimas", async () => {
+    stubFetch({ error: "waves snapshot unreadable" }, 503);
+    await expect(fetchWaves()).rejects.toThrow("HTTP 503: waves snapshot unreadable");
+  });
+
+  it("JSON kūnas be `error` lauko: žinutėje statusas ir visas JSON kūnas kaip tekstas", async () => {
+    stubFetch({ foo: "bar" }, 500);
+    await expect(fetchWaves()).rejects.toThrow(`HTTP 500: ${JSON.stringify({ foo: "bar" })}`);
+  });
+
+  it("ne-JSON kūnas: žinutėje statusas ir tas tekstas", async () => {
+    stubFetchWithText("internal server error", 500);
+    await expect(fetchWaves()).rejects.toThrow("HTTP 500: internal server error");
+  });
+
+  it("tuščias kūnas: žinutėje TIK statusas, be dvitaškio", async () => {
+    stubFetchWithText("", 500);
+    await expect(fetchWaves()).rejects.toThrow("HTTP 500");
+    await expect(fetchWaves()).rejects.toThrow(/^HTTP 500$/);
+  });
+
+  it("labai ilgas error tekstas apkertamas ties 300 simbolių", async () => {
+    const longError = "x".repeat(400);
+    stubFetch({ error: longError }, 500);
+    await expect(fetchWaves()).rejects.toThrow(`HTTP 500: ${"x".repeat(300)}`);
   });
 });

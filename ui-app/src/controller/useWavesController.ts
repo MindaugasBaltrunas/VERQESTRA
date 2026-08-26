@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getUiToken } from "../model/api";
+import { fetchWaves } from "../model/api";
 import type { UiWavesView } from "../model/types";
 
 // `GET /api/waves` DTO persikėlė į `model/types.ts`: tuos pačius laukus dabar skaito ir model
@@ -17,23 +17,6 @@ export type {
 } from "../model/types";
 
 const WAVES_POLL_MS = 30_000;
-
-async function fetchWaves(): Promise<UiWavesView> {
-  const response = await fetch("/api/waves", {
-    headers: { "x-vq-ui-token": getUiToken() },
-  });
-  if (!response.ok) {
-    let detail = "";
-    try {
-      const body = (await response.json()) as { error?: unknown };
-      detail = typeof body.error === "string" ? body.error : "";
-    } catch {
-      // Kūno perskaityti nepavyko — lieka pats statusas.
-    }
-    throw new Error(detail || `HTTP ${response.status}`);
-  }
-  return (await response.json()) as UiWavesView;
-}
 
 /**
  * `#/system` bangų vaizdas: slot'ų lease'ai, atmetimų priežastys ir įvykių uodega.

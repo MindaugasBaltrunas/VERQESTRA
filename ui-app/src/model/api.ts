@@ -13,6 +13,7 @@ import type {
   TokenAnalyticsResponse,
   TokenUsageQueryResponse,
   TokenUsageServerFilter,
+  UiWavesView,
   WorkerRequestState,
   WorkflowBucket,
   UploadResult,
@@ -99,6 +100,12 @@ export async function fetchDashboard(): Promise<DashboardData> {
   const response = await request("/api/dashboard");
   await assertOk(response);
   return parseDashboardData(await (response.json() as Promise<unknown>));
+}
+
+export async function fetchWaves(): Promise<UiWavesView> {
+  const response = await request("/api/waves");
+  await assertOk(response);
+  return (await response.json()) as UiWavesView;
 }
 
 export async function fetchWorkflowTasks(bucket: string): Promise<WorkflowBucket> {

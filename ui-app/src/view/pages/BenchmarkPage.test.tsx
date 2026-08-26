@@ -231,4 +231,45 @@ describe("BenchmarkPage", () => {
     fireEvent.click(screen.getByText("code-change-01"));
     await waitFor(() => expect(screen.getByRole("heading", { level: 3, name: /code-change-01 · ag-loop/ })).toBeInTheDocument());
   });
+
+  it("opens a scenario's detail via Enter or Space on its row trigger, reachable by keyboard and announced via aria-pressed", async () => {
+    vi.mocked(api.fetchBenchmarkReport).mockResolvedValue(view({
+      report: report({
+        scenarios: [
+          {
+            scenarioId: "code-change-01", mode: "ag-loop", verdict: "stable", reasons: [],
+            baseline: { count: 3, median: 4000, mean: 4100, min: 3900, max: 4400, standardDeviation: 200, successCount: 3 },
+            current: { count: 3, median: 3900, mean: 3950, min: 3800, max: 4200, standardDeviation: 180, successCount: 3 },
+          },
+          {
+            scenarioId: "code-change-02", mode: "ag-loop", verdict: "stable", reasons: [],
+            baseline: { count: 3, median: 5000, mean: 5100, min: 4900, max: 5400, standardDeviation: 200, successCount: 3 },
+            current: { count: 3, median: 4900, mean: 4950, min: 4800, max: 5200, standardDeviation: 180, successCount: 3 },
+          },
+        ],
+      }),
+    }));
+    render(<BenchmarkPage activeRoute="benchmark" onNavigate={noop} />);
+
+    const firstTrigger = await screen.findByRole("button", { name: "code-change-01" });
+    const secondTrigger = screen.getByRole("button", { name: "code-change-02" });
+
+    // A real <button> is a native Tab stop — no tabIndex/role synthesis needed for keyboard reach.
+    expect(firstTrigger.tagName).toBe("BUTTON");
+    expect(firstTrigger).not.toHaveAttribute("tabindex", "-1");
+
+    // The first scenario auto-selects on load; selection is announced via aria-pressed, not a CSS class alone.
+    await waitFor(() => expect(firstTrigger).toHaveAttribute("aria-pressed", "true"));
+    expect(secondTrigger).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.keyDown(secondTrigger, { key: "Enter" });
+    await waitFor(() => expect(secondTrigger).toHaveAttribute("aria-pressed", "true"));
+    expect(firstTrigger).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("heading", { level: 3, name: /code-change-02 · ag-loop/ })).toBeInTheDocument();
+
+    fireEvent.keyDown(firstTrigger, { key: " " });
+    await waitFor(() => expect(firstTrigger).toHaveAttribute("aria-pressed", "true"));
+    expect(secondTrigger).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("heading", { level: 3, name: /code-change-01 · ag-loop/ })).toBeInTheDocument();
+  });
 });

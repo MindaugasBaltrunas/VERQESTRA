@@ -270,9 +270,24 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                       <tbody>
                         {scenarios.map((scenario) => {
                           const key = `${scenario.scenarioId}/${scenario.mode}`;
+                          const isSelected = selectedScenarioKey === key;
                           return (
-                            <tr key={key} className={`benchmark-scenario-row${selectedScenarioKey === key ? " selected" : ""}`} onClick={() => setSelectedScenarioKey(key)}>
-                              <td><strong>{scenario.scenarioId}</strong></td>
+                            <tr key={key} className={`benchmark-scenario-row${isSelected ? " selected" : ""}`}>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="benchmark-scenario-row-trigger"
+                                  aria-pressed={isSelected}
+                                  onClick={() => setSelectedScenarioKey(key)}
+                                  onKeyDown={(event) => {
+                                    if (event.key !== "Enter" && event.key !== " ") return;
+                                    event.preventDefault();
+                                    setSelectedScenarioKey(key);
+                                  }}
+                                >
+                                  {scenario.scenarioId}
+                                </button>
+                              </td>
                               <td>{scenario.mode}</td>
                               <td><span className={`badge status-${verdictTone(scenario.verdict)}`}>{t(scenario.verdict)}</span></td>
                               <td>{decimal.format(scenario.baseline.median)}</td>

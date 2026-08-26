@@ -31,6 +31,11 @@ export type Candidate = {
   notice?: string;
   // Atskirai nuo `notice`, kad mašininė žyma nepriklausytų nuo to, ar kas nors parašė tekstą.
   truncated?: true;
+  // Kūnas yra 1:1 to paties task failo lauko atspindys. Kai prompt'as PATS neša task'ą (raw
+  // arba kompiliuotą kūną), toks blokas yra antra to paties teksto kopija — tada
+  // `renderExecutionContext({ excludeTaskDerived: true })` jį praleidžia. `execution-context.md`
+  // artefaktui diske žyma įtakos neturi: jis skaitomas savarankiškai, be task failo šalia.
+  taskDerived?: true;
 };
 
 // Canonical element order. Every section is derived from exactly one pack field, so two
@@ -45,6 +50,7 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     priority: "critical",
     reason: "the single outcome this dispatch must achieve",
     body: pack.goal,
+    taskDerived: true,
   });
 
   const acceptance = [
@@ -58,6 +64,7 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     priority: "critical",
     reason: "the task's own definition of done; the work is not complete until every item holds",
     body: acceptance.join("\n"),
+    taskDerived: true,
   });
 
   pushIfPresent(candidates, {
@@ -67,6 +74,7 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     priority: "critical",
     reason: "hard edit boundary: no file outside this list may be created, changed or deleted",
     body: pack.allowed_paths.map((entry) => `- \`${entry}\``).join("\n"),
+    taskDerived: true,
   });
 
   pushIfPresent(candidates, {
@@ -76,6 +84,7 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     priority: "critical",
     reason: "deterministic verification commands that must pass before the task is reported done",
     body: pack.checks.map((check) => `- \`${check}\``).join("\n"),
+    taskDerived: true,
   });
 
   // PRARADIMO įspėjimai stovi PRIEŠ fragmentus ir yra `high` (2026-08-24, RAG auditas 5).
@@ -264,6 +273,7 @@ export function buildCandidates(pack: ContextPack): Candidate[] {
     priority: "low",
     reason: "explicit non-goals declared by the task",
     body: pack.out_of_scope.map((entry) => `- ${entry}`).join("\n"),
+    taskDerived: true,
   });
 
   return candidates;

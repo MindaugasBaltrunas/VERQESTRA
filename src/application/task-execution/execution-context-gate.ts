@@ -3,10 +3,18 @@
 // Application sluoksnyje, nes tą pačią gate politiką ir prompt turinį vartoja ir CLI
 // dispatch'as, ir adapterio kelias — jie negali išsiskirti tarp execution paviršių.
 // Pristatymo (delivery) pusė su CLI argumentais — infrastructure/adapters.
+//
+// NUKRYPIMAS NUO ETALONO (operatoriaus užsakymas, 2026-08-26, task 029). Etalonas prompt'e neša
+// task'ą DU kartus: pilną kūną plius execution kontekstą, kuris iš to paties task failo
+// perrenderina goal/acceptance/allowed-paths/checks/out-of-scope. `resolveCanonicalWorkerPrompt`
+// tą antrą kopiją nuima PROMPT'O surinkimo metu (`taskDedupedExecutionContext`). Kryptis
+// griežtinanti: worker'is mato tą patį turinį, tik vieną kartą, o `execution-context.md` diske
+// lieka pilnas ir baitas į baitą nepakitęs — jis skaitomas savarankiškai auditui.
 
 import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
 import { contextPackSchema, TRUST_BOUNDARY_RULE } from "../context-pack/context-pack-schema.js";
 import { sourceSliceOrigins } from "../context-pack/source-slice-freshness.js";
+import { renderExecutionContext } from "../context-pack/render-execution-context.js";
 import { tryParseJson } from "../../shared/json.js";
 import {
   EXECUTION_CONTEXT_FILENAME,
@@ -236,8 +244,53 @@ export type CanonicalWorkerPromptInput = ExecutionContextGateInput & {
 };
 
 /**
+ * Task 029: prompt'ui skirtas artefakto vaizdas be task-derived blokų.
+ *
+ * Prompt'as PATS neša visą task'ą (raw arba kompiliuotą kūną), o `execution-context.md` iš to
+ * paties task failo perrenderina goal, acceptance criteria, allowed paths, checks ir out of
+ * scope — t. y. tą patį tekstą antrą kartą. Čia ta antra kopija nukrenta; diske gulintis
+ * artefaktas lieka NEPALIESTAS ir pilnas, nes jis skaitomas savarankiškai, be task failo šalia.
+ *
+ * FAIL-SAFE: dedup taikomas TIK kai pack'as įrodomai atkuria artefaktą baitas į baitą. Jei
+ * pack'o nėra, jis neparsinamas arba jo renderis nesutampa su artefaktu, grąžinamas
+ * NEPAKEISTAS artefaktas — prompt'as niekada neneša teksto, kurio nebuvo tame, ką patvirtino
+ * vartai. `<!-- ag:execution-context ... -->` markeris išsaugomas: jis yra prompt'o audito
+ * nuoroda į task_sha256/context_pack_sha256.
+ */
+function taskDedupedExecutionContext(contextPackText: string | undefined, artifact: string): string {
+  if (!contextPackText) {
+    return artifact;
+  }
+  const parsed = tryParseJson<unknown>(contextPackText);
+  if (!parsed.ok) {
+    return artifact;
+  }
+  const pack = contextPackSchema.safeParse(parsed.value);
+  if (!pack.success) {
+    return artifact;
+  }
+  let full: string;
+  let deduped: string;
+  try {
+    full = renderExecutionContext(pack.data).markdown.trimEnd();
+    deduped = renderExecutionContext(pack.data, { excludeTaskDerived: true }).markdown.trimEnd();
+  } catch {
+    // Renderis meta tik tada, kai biudžetas nepasiekiamas. Prompt'o gamyba dėl to negali kristi:
+    // vartai artefaktą jau patvirtino, tad teisingas elgesys yra jį atiduoti tokį, koks yra.
+    return artifact;
+  }
+  if (!artifact.endsWith(full)) {
+    return artifact;
+  }
+  return `${artifact.slice(0, artifact.length - full.length)}${deduped}`;
+}
+
+/**
  * CTX-2: VIENINTELĖ vieta, kuri iš task teksto + execution context artefakto pagamina
  * workeriui skirtą prompt'ą — gate politika ir turinys negali išsiskirti tarp paviršių.
+ *
+ * Task 029: vartų SPRENDIMAS (`attach`/`skip`/`refuse`) ir jo fingerprint'ai skaičiuojami nuo
+ * RAW `taskText` ir nuo disko artefakto — dedup vyksta PO jų ir jų nepasiekia.
  */
 export function resolveCanonicalWorkerPrompt(input: CanonicalWorkerPromptInput): CanonicalWorkerPromptResult {
   const gate = evaluateExecutionContextGate(input);
@@ -249,7 +302,9 @@ export function resolveCanonicalWorkerPrompt(input: CanonicalWorkerPromptInput):
     prompt: buildWorkerPrompt({
       taskText: input.taskText,
       ...(input.compiledTask === undefined ? {} : { compiledTask: input.compiledTask }),
-      ...(gate.kind === "attach" ? { executionContext: gate.executionContext } : {}),
+      ...(gate.kind === "attach"
+        ? { executionContext: taskDedupedExecutionContext(input.contextPackText, gate.executionContext) }
+        : {}),
     }),
     gate,
   };

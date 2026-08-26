@@ -6,6 +6,15 @@
 // the task compiled once, in exactly one representation — and decides, from the compression
 // feature flags alone, which representation a dispatch may use:
 //
+// Task 029 closed the OTHER half of that "same task twice", which this module never touched:
+// compiling the body only ever replaced the body, while the execution context kept re-rendering
+// goal, acceptance criteria, allowed paths, checks and out-of-scope from the same task file.
+// Those blocks now fall out at prompt assembly time (`task-execution/execution-context-gate`,
+// `taskDedupedExecutionContext`); `execution-context.md` on disk stays complete. Deviation from
+// the etalon, operator's order 2026-08-26. Telemetry stays separated on purpose: `rawChars` /
+// `compiledChars` and `guardCompiledWorkerPromptSize` below measure the BODY only, so a saving
+// that belongs to the dedup can never be credited to compression.
+//
 //   worker_task_ir=false                   -> `disabled`: the caller keeps the raw task.
 //   worker_task_ir=true, compact_dsl=false -> the WorkerTaskIR (task 0021) as JSON.
 //   worker_task_ir=true, compact_dsl=true  -> the compact worker DSL (task 0024).

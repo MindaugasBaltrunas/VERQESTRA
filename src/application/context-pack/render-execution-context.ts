@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 import { parseWithSchema } from "../../shared/schema.js";
 import { buildCandidates, type Candidate } from "./render-candidates.js";
+import { EXECUTION_CONTEXT_FILENAME } from "./execution-context-fingerprint.js";
 import {
   EXECUTION_CONTEXT_VERSION,
   executionContextSchema,
@@ -27,6 +28,21 @@ export type RenderExecutionContextOptions = {
   // Hard upper bound for the rendered markdown, in characters. Defaults to the pack's
   // own `budget.max_context_chars`, falling back to DEFAULT_EXECUTION_CONTEXT_MAX_CHARS.
   maxChars?: number;
+  /**
+   * Praleisti kandidatus, kurių kūnas yra to paties task failo lauko atspindys (`taskDerived`:
+   * goal, acceptance criteria, allowed paths, checks, out of scope). Skirta VIENINTELIAM
+   * skaitytojui — worker prompt'ui, kuris patį task'ą jau neša pilną, tad tie blokai jame būtų
+   * antra to paties teksto kopija (task 029).
+   *
+   * Diske gulinčiam `execution-context.md` NENAUDOJAMA: artefaktas skaitomas savarankiškai,
+   * be task failo šalia, ir privalo likti pilnas. Nenurodyta arba `false` — elgesys nesikeičia
+   * baitas į baitą.
+   *
+   * Kandidatai išmetami PRIEŠ biudžeto ciklą, tad atlaisvintus simbolius perima įrodymai
+   * (spec fragmentai, SRC pjūviai), kurie kitaip būtų iškritę. Dokumentas dėl to niekada
+   * neišauga virš `maxChars` ir, kai nieko nebuvo metama, yra griežtai trumpesnis.
+   */
+  excludeTaskDerived?: boolean;
 };
 
 export type RenderedExecutionContext = {
@@ -76,6 +92,9 @@ function attributeValue(value: string): string {
  * first and, within one priority, from the end of the canonical order. Dropping is reported
  * both in the document header and, with per-element reasons, in `context.dropped`.
  *
+ * `options.excludeTaskDerived` gamina SIAURESNĮ, prompt'ui skirtą to paties pack'o vaizdą
+ * (task 029); be jos — nepakitęs, artefaktui skirtas dokumentas.
+ *
  * @throws Error when the limit cannot be met even with every droppable element removed.
  * Failing loudly is deliberate: silently truncating the goal, the allowed-path edit
  * boundary or the checks would hand the worker an unsafe context.
@@ -85,17 +104,24 @@ export function renderExecutionContext(
   options: RenderExecutionContextOptions = {},
 ): RenderedExecutionContext {
   const maxChars = resolveMaxChars(pack, options);
-  const candidates = buildCandidates(pack);
+  const all = buildCandidates(pack);
+  // Praleidimas skaičiuojamas iš PRAEITO sąrašo, ne iš vėliavos: `excludeTaskDerived` ties
+  // pack'u be nė vieno tokio bloko yra no-op ir antraštės eilutės neprideda.
+  const omittedTaskDerived = options.excludeTaskDerived === true ? all.filter(isTaskDerived).length : 0;
+  const candidates = omittedTaskDerived > 0 ? all.filter((candidate) => !isTaskDerived(candidate)) : all;
 
   const kept = [...candidates];
   const dropped: Candidate[] = [];
   for (const priority of DROP_ORDER) {
-    if (renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER).length <= maxChars) {
+    if (renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER, omittedTaskDerived).length <= maxChars) {
       break;
     }
     for (let index = lastIndexOfPriority(kept, priority); index >= 0; index = lastIndexOfPriority(kept, priority)) {
       dropped.push(...kept.splice(index, 1));
-      if (renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER).length <= maxChars) {
+      if (
+        renderDocument(pack, kept, dropped.length, maxChars, FINGERPRINT_PLACEHOLDER, omittedTaskDerived).length <=
+        maxChars
+      ) {
         break;
       }
     }
@@ -103,7 +129,7 @@ export function renderExecutionContext(
 
   const elements = kept.map(toElement);
   const fingerprint = computeFingerprint(pack, elements, maxChars);
-  const markdown = renderDocument(pack, kept, dropped.length, maxChars, fingerprint);
+  const markdown = renderDocument(pack, kept, dropped.length, maxChars, fingerprint, omittedTaskDerived);
   if (markdown.length > maxChars) {
     throw new Error(
       `execution context exceeds max_chars ${markdown.length} > ${maxChars} with only non-droppable elements left ` +
@@ -142,6 +168,10 @@ function resolveMaxChars(pack: ContextPack, options: RenderExecutionContextOptio
     throw new Error(`execution context max_chars must be a positive integer, received ${String(requested)}`);
   }
   return requested;
+}
+
+function isTaskDerived(candidate: Candidate): boolean {
+  return candidate.taskDerived === true;
 }
 
 function lastIndexOfPriority(candidates: Candidate[], priority: ExecutionContextPriority): number {
@@ -214,6 +244,7 @@ function renderDocument(
   droppedCount: number,
   maxChars: number,
   fingerprint: string,
+  omittedTaskDerived: number,
 ): string {
   // Taisyklė yra NEIŠMETAMA ir stovi PRIEŠ bet kokį cituojamą turinį: vartas, kuris ateina po
   // duomenų, jau nebėra vartas. Ji renderinama net kai `untrusted` elementų nėra — tada ji
@@ -227,6 +258,16 @@ function renderDocument(
     `- fingerprint: \`${fingerprint}\``,
     `- char_limit: ${maxChars}`,
     `- elements: ${kept.length} kept, ${droppedCount} dropped (lowest priority first)`,
+    // Praleidimas skelbiamas, o ne daromas tyliai: be šios eilutės deduplikuotas vaizdas
+    // atrodytų kaip artefaktas, kuriam tiesiog nepavyko surinkti goal/checks — o tai tiksliai
+    // tas signalas, kurio skaitytojas neturi gauti. Eilutė atsiranda TIK dedup vaizde, tad
+    // artefakto baitai nesikeičia.
+    ...(omittedTaskDerived > 0
+      ? [
+          `- task_derived: ${omittedTaskDerived} element(s) omitted — the prompt carries the task itself; ` +
+            `this is the dispatch view, not the \`${EXECUTION_CONTEXT_FILENAME}\` audit artifact`,
+        ]
+      : []),
     "",
     ...TRUST_BOUNDARY_RULE.split("\n").map((line) => `> ${line}`),
   ].join("\n");

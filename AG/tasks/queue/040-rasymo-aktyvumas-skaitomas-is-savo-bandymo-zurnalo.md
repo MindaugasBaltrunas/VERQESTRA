@@ -73,6 +73,12 @@ depends_on: none
 - `pnpm typecheck`
 - `pnpm test`
 
+## Vykdymo pastaba (po 1-o bandymo, 2026-08-26)
+Pirmas šio task'o dispatch'as baigėsi VIEN skaitymo sesija (`main=Agent,ScheduleWakeup`,
+nė vieno Edit) → `executor made no write-tool calls`. NEdeleguok analizės subagentams ir
+NEnaudok ScheduleWakeup — pakeitimas mažas ir aiškiai aprašytas Veiksme: redaguok
+`coordinator-adapters.ts` ir testą TIESIOGIAI Edit įrankiu, paleisk patikras, commit'ink.
+
 ## Stop
 Commit'ink, kai patikros žalios. Sustok, jei paaiškėtų, kad attempt žurnalo šiame taške apskritai
 dar nėra — tada tai ne adapterio, o dispatch'o rašymo tvarkos klausimas, ir sprendimas kitoks.

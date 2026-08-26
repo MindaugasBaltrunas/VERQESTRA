@@ -1,0 +1,33 @@
+# Spec Delta
+
+## Added
+
+- `ContextCompressionMetricsInput.rawPromptChars?: number` (`metrics.ts`) — raw task body chars plus the rendered execution-context chars for the same assembled pack, i.e. what an uncompressed dispatch's prompt would be. Present only when an execution context was rendered for this pack.
+- `ContextCompressionMetricsInput.compiledPromptChars?: number` (`metrics.ts`) — shadow-compiled WorkerTaskIR chars plus the SAME rendered execution-context chars used for `rawPromptChars`. Present only when both the IR shadow-compile succeeded (existing `shadowCompileWorkerTaskIr`) and an execution context was rendered.
+- Record-side counterparts `raw_prompt_chars?: number` / `compiled_prompt_chars?: number` on `ContextCompressionMetrics`, following the exact optional-field, absent-means-unmeasured convention of every existing field in that type (see `raw_task_chars`, `ir_json_chars`).
+- Entry `["rawPromptChars", "raw_prompt_chars"]` and `["compiledPromptChars", "compiled_prompt_chars"]` in the single `COMPRESSION_METRIC_FIELDS` table (`metrics.ts`), so the field is written by `selectCompressionMetrics` and read back by `readCompressionMetrics` from exactly one table, per the file's existing "exactly one place" discipline.
+- `persist.ts`: computation of `rawPromptChars`/`compiledPromptChars` from `input.taskText`, `workerTaskIr` (already shadow-compiled at the existing call site), and `rendered.markdown` (already produced by the existing `renderExecutionContext(pack, ...)` call) — no second render, no new render call.
+- `ContextSizeSample` fields `raw_prompt_chars?: unknown` / `compiled_prompt_chars?: unknown` in `ui-compression-view.ts`, parsed defensively like every other sample field (`finiteNumber` guard).
+- A per-sample pair-selection step inside `summarizeContextSizeSamples`: use `raw_prompt_chars`/`compiled_prompt_chars` when both are finite numbers on a given sample; otherwise fall back to the existing `raw_task_chars`/`compiled_task_chars` for that sample. The resulting `ir_compared_count`/`ir_smaller_count`/`avg_ir_delta_percent` triad in `UiCompressionTelemetry` is unchanged in shape.
+- `ui-app/src/model/types.ts`: mirrors the new optional `ContextSizeSample`/telemetry-adjacent fields actually surfaced to the view (only what `CompressionPage.tsx` consumes — verdict/telemetry fields, not the full record).
+- `ui-app` copy: a short label near the IR comparison (`CompressionPage.tsx`) stating whether the shown delta is prompt-level or body-only, plus its translation string(s).
+
+## Changed
+
+- `persist.ts`: the `appendContextSizeMetrics(... buildContextSizeMetrics({...}))` call gains the two new optional fields, spread in with the same `... === undefined ? {} : {...}` conditional pattern already used for `compiledTaskChars`/`irJsonChars` (lines 116) and `symbolSourceChars`/`symbolSignatureChars` (lines 117-118). All existing fields (`rawTaskChars`, `compiledTaskChars`, `irJsonChars`, etc.) keep being written, unchanged — no removal, no renaming.
+- `ui-compression-view.ts`: `summarizeContextSizeSamples` selects its comparison pair per-sample as described above instead of always using `raw_task_chars`/`compiled_task_chars`. `decideCompression`'s thresholds, reason codes, and `UiCompressionDecision` shape are NOT changed — only the input telemetry it's fed shifts toward the more accurate pair when available.
+- `ui-app` `CompressionPage.tsx`: verdict/telemetry sentences around the IR delta are reworded to name what's compared, without changing the decision/action vocabulary (`enable`/`optional`/`hold`/`insufficient`/`unmeasured`) or its reason codes.
+
+## Acceptance Criteria
+
+1. A freshly assembled context pack (cache miss) with a non-empty rendered execution context and a successful IR shadow-compile writes a `context-size.jsonl` record containing both `raw_prompt_chars` and `compiled_prompt_chars`, and `compiled_prompt_chars < raw_prompt_chars` whenever the shadow-compiled IR is smaller than the raw task body (i.e. the execution-context term, being identical on both sides, does not change which side is smaller).
+2. `raw_prompt_chars` equals `taskText.length + rendered.markdown.length` and `compiled_prompt_chars` equals `workerTaskIrChars(ir) + rendered.markdown.length` for the SAME `rendered` value already used to write `execution-context.md` in the same call — verified by a test asserting no second call to the execution-context renderer occurs (e.g. a renderer-call-counting stub/spy in the port used by the test).
+3. When the IR shadow-compile fails (fail-closed `shadowCompileWorkerTaskIr` returns `undefined`), `compiled_prompt_chars` is ABSENT from the written record — never `0` — and `raw_prompt_chars` is still written if the execution context rendered successfully.
+4. Existing fields `raw_task_chars`, `ir_json_chars`, `compiled_task_chars` continue to be written exactly as before this change (byte-for-byte identical values on an unchanged pack) — a snapshot/regression test on an existing fixture pack proves no existing field's value or presence changed.
+5. `readContextSizeMetrics` parses old JSONL lines (no `raw_prompt_chars`/`compiled_prompt_chars` keys) without throwing and without synthesizing a `0` for either field.
+6. `decideCompression`, given a telemetry sample set where every record has the new prompt-level pair, produces its `worker_task_ir` recommendation and `avg_ir_delta_percent` from that pair (not from `raw_task_chars`/`compiled_task_chars`), verified by a test where the two pairs are seeded with different deltas and the decision reflects the prompt-level one.
+7. `decideCompression`, given a telemetry sample set where records have ONLY the legacy pair, produces identical output to current (pre-change) behavior — no regression for logs that predate this change.
+8. `decideCompression`, given a MIXED sample set (some records with the new pair, some without), does not crash, does not silently zero-fill the missing side, and each sample's delta is computed from a single consistent pair (never numerator from one pair and denominator from the other).
+9. `MIN_DECISION_SAMPLES` and the pressure-level thresholds (`PRESSURE_HIGH_MAX_PERCENT`, `PRESSURE_MODERATE_AVG_PERCENT`, `PRESSURE_MODERATE_MAX_PERCENT`) are unchanged in value and in the code paths that consume them.
+10. `ui-app` `CompressionPage` renders without runtime error against both a legacy-shaped and a new-shaped telemetry payload, and the rendered copy for the IR comparison names which pair (prompt-level vs body-only) produced the shown numbers.
+11. `pnpm typecheck`, `pnpm test`, and `pnpm --dir ui-app test` are green.

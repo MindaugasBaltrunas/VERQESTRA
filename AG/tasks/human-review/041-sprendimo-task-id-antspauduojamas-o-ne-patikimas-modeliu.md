@@ -39,7 +39,7 @@ depends_on: none
   Tikrasis id — 52 simboliai. Vartotojas `composition/loop/coordinator-adapters.ts:243` lygina
   `decision.task_id !== taskId` griežtai, tad nuosavas sprendimas paskelbiamas svetimu.
 - Kilmė: sprendimą parašė modelis (`"was_reformulated": true`), ir jis `task_id` nukopijavo iš to
-  paties 50 simbolių slug'o, kurį naudojo `openspec/changes/auto-…` keliui. Riba slug'ui teisinga;
+  paties 50 simbolių slug'o, kurį naudojo auto-change katalogo keliui. Riba slug'ui teisinga;
   klaida ta, kad ID FAKTAS imamas iš modelio, nors sistema jį jau žino.
 - SPRENDIMO KRYPTIS: `claude-preflight/index.ts:98-103` `writeDecision` yra VIENINTELIS piltuvas,
   per kurį eina kiekvienas sprendimas (jis jau prideda `token_budget_tier` tuo pačiu spread'u).
@@ -65,7 +65,11 @@ Commit'ink, kai patikros žalios. Sustok, jei sprendimas imtų reikšti nuosavyb
 `invalid`, o taisomas yra ID kilmės, ne palyginimo, klausimas.
 
 ## Neįtraukta
-- `slugFromTask` 50 simbolių riba ir `openspec/changes/auto-…` kelių forma.
+- `slugFromTask` 50 simbolių riba ir auto-change katalogų kelių forma.
+- PASTABA AUTORIUI: task'o tekste `openspec/changes/` prefiksas leidžiamas TIK tikrai, aktyviai
+  nuorodai. Nuorodos su daugtaškiu ar archyvo keliu preflight'as neatskiria nuo tikrų: šis
+  task'as dėl to krito 21:42:55 (`openspec/changes/auto- does not exist`), o `039` — dėl
+  archyvinio kelio 19:28:51.
 - Retry vartų (`retryGuardAdapters.readDecision`) kelias — jis skaito tą patį failą, bet
   nuosavybės netikrina, tad šio defekto nemato.
 - `032` grąžinimas į eilę (operatoriaus veiksmas po pataisos).

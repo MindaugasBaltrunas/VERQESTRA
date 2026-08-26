@@ -21,6 +21,8 @@ būsena pasikeis ar bus išvalyta.
 | [E8-benchmark-audit.md](E8-benchmark-audit.md) | E8 — benchmark auditas prieš mokamą bėgimą (VQ-802) | 2026-08-22 |
 | [E8-final-audit.md](E8-final-audit.md) | E8 — galutinis auditas ir cutover (VQ-80A) | 2026-08-22 |
 | [ui-app-runtime-audit-2026-08-23.md](ui-app-runtime-audit-2026-08-23.md) | Operator UI paleidimas — 3 × P0, visi uždaryti tą pačią dieną | 2026-08-23 |
+| [020-session-writes-ledger-diagnosis-2026-08-25.md](020-session-writes-ledger-diagnosis-2026-08-25.md) | Prarandamas dispatch darbas — R1 uždarytas, R2 liko atviras | 2026-08-25 |
+| [038-subagento-kanalo-premisa-paneigta-2026-08-26.md](038-subagento-kanalo-premisa-paneigta-2026-08-26.md) | Task 038 prielaida paneigta kontrapavyzdžiu; įvardyti R3–R5 | 2026-08-26 |
 
 Paskutinis įrašas nėra epiko verdiktas, o PALEIDIMO auditas: jis rašomas tada, kai produktas
 tikrinamas taip, kaip jį paleidžia operatorius. Toks auditas pagavo tai, ko 1473 + 393 žali

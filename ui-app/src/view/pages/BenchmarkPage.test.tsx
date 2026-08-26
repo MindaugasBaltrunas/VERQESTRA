@@ -119,8 +119,12 @@ describe("BenchmarkPage", () => {
     expect(screen.getByText(/Token bottom line/)).toBeInTheDocument();
     expect(screen.getByText(/scenario comparisons/)).toBeInTheDocument();
 
-    // Insights (2026-08-26): išvados, dvikova su nugalėtoju ir žodynėlis.
-    expect(screen.getByRole("heading", { name: "Conclusions" })).toBeInTheDocument();
+    // Insights (2026-08-26): vertės kortelė (kokybė + kaina greta su verdiktu „kurį naudoti"),
+    // dvikova su nugalėtoju ir žodynėlis.
+    expect(screen.getByRole("heading", { name: "Which mode is worth using?" })).toBeInTheDocument();
+    expect(screen.getByText("Price per successful change")).toBeInTheDocument();
+    // acceptedRate 0.83 > 0.7, kaina 11.5K > 9.5K → priemokos sakinys su rekomendacija.
+    expect(screen.getByText(/For unattended work the orchestrator is worth the price/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Who is better, metric by metric" })).toBeInTheDocument();
     // acceptedRate 0.83 (ag-loop) > 0.7 (agent-solo) → taurė prie ag-loop.
     expect(screen.getAllByText(/ag-loop 🏆/).length).toBeGreaterThan(0);

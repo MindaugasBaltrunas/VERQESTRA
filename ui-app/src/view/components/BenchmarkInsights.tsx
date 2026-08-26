@@ -120,38 +120,75 @@ export function BenchmarkInsights({ modes }: { modes: BenchmarkModeSection[] }) 
         <section className="panel benchmark-conclusions" aria-label={t("Conclusions")}>
           <div className="panel-header">
             <div>
-              <h2>{t("Conclusions")}</h2>
-              <p className="panel-subtitle">{t("Head-to-head: ag-loop (full orchestrator) vs agent-solo (same agent, no orchestration).")}</p>
+              <h2>{t("Which mode is worth using?")}</h2>
+              <p className="panel-subtitle">{t("Quality and token price side by side. Price per verified accepted change already includes every failed attempt — it is the honest cost of one successful change.")}</p>
             </div>
             <span className="benchmark-score">
               ag-loop <strong>{wins["ag-loop"]}</strong> : <strong>{wins["agent-solo"]}</strong> agent-solo
               {wins.tie > 0 ? ` (${t("ties")}: ${wins.tie})` : ""}
             </span>
           </div>
-          <ul className="benchmark-conclusion-list">
-            {accLoop !== undefined && accSolo !== undefined && (
-              <li>
-                <strong>{t("Quality")}:</strong>{" "}
-                {t("verifier acceptance")} {percent.format(accLoop)} {t("vs")} {percent.format(accSolo)}{" "}
-                ({accLoop >= accSolo ? "ag-loop" : "agent-solo"} +{decimal.format(Math.abs(accLoop - accSolo) * 100)} p.p.)
-              </li>
-            )}
-            {scopeLoop !== undefined && scopeSolo !== undefined && (
-              <li>
-                <strong>{t("Discipline")}:</strong>{" "}
-                {t("out-of-scope changes")} {percent.format(scopeLoop)} {t("vs")} {percent.format(scopeSolo)}{" "}
-                — {t("the orchestrator's gates hold the boundary the solo agent crosses.")}
-              </li>
-            )}
-            {costLoop !== undefined && costSolo !== undefined && costSolo > 0 && (
-              <li>
-                <strong>{t("Price of the orchestrator")}:</strong>{" "}
-                {compact.format(costLoop)} {t("vs")} {compact.format(costSolo)}{" "}
-                {t("billable tokens per verified accepted change")}{" "}
-                ({costLoop >= costSolo ? "+" : "−"}{percent.format(Math.abs(costLoop / costSolo - 1))})
-              </li>
-            )}
-          </ul>
+
+          {/* Vertės kortelė: kokybė + drausmė + kaina už PAVYKUSĮ pakeitimą, greta, su 🏆 prie
+              geresnės pusės kiekvienoje eilutėje. */}
+          <div className="table-scroll">
+            <table className="benchmark-value-table">
+              <thead>
+                <tr>
+                  <th />
+                  <th>ag-loop</th>
+                  <th>agent-solo</th>
+                  <th>{t("Difference")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accLoop !== undefined && accSolo !== undefined && (
+                  <tr>
+                    <td>{t("Quality")} <small>({t("verifier acceptance")})</small></td>
+                    <td className={accLoop > accSolo ? "value-winner" : ""}>{percent.format(accLoop)}{accLoop > accSolo ? " 🏆" : ""}</td>
+                    <td className={accSolo > accLoop ? "value-winner" : ""}>{percent.format(accSolo)}{accSolo > accLoop ? " 🏆" : ""}</td>
+                    <td>+{decimal.format(Math.abs(accLoop - accSolo) * 100)} p.p.</td>
+                  </tr>
+                )}
+                {scopeLoop !== undefined && scopeSolo !== undefined && (
+                  <tr>
+                    <td>{t("Discipline")} <small>({t("out-of-scope changes")})</small></td>
+                    <td className={scopeLoop < scopeSolo ? "value-winner" : ""}>{percent.format(scopeLoop)}{scopeLoop < scopeSolo ? " 🏆" : ""}</td>
+                    <td className={scopeSolo < scopeLoop ? "value-winner" : ""}>{percent.format(scopeSolo)}{scopeSolo < scopeLoop ? " 🏆" : ""}</td>
+                    <td>{scopeLoop > 0 && scopeSolo > 0 ? `${decimal.format(Math.max(scopeLoop, scopeSolo) / Math.min(scopeLoop, scopeSolo))}×` : `+${decimal.format(Math.abs(scopeLoop - scopeSolo) * 100)} p.p.`}</td>
+                  </tr>
+                )}
+                {costLoop !== undefined && costSolo !== undefined && (
+                  <tr>
+                    <td>{t("Price per successful change")} <small>(billable tok.)</small></td>
+                    <td className={costLoop < costSolo ? "value-winner" : ""}>{compact.format(costLoop)}{costLoop < costSolo ? " 🏆" : ""}</td>
+                    <td className={costSolo < costLoop ? "value-winner" : ""}>{compact.format(costSolo)}{costSolo < costLoop ? " 🏆" : ""}</td>
+                    <td>{costSolo > 0 ? `${costLoop >= costSolo ? "+" : "−"}${percent.format(Math.abs(costLoop / costSolo - 1))}` : "n/a"}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {accLoop !== undefined && accSolo !== undefined && costLoop !== undefined && costSolo !== undefined && costSolo > 0 && (
+            <p className="benchmark-value-verdict">
+              {accLoop > accSolo && costLoop >= costSolo ? (
+                <>
+                  <strong>ag-loop</strong> {t("charges")} +{percent.format(costLoop / costSolo - 1)}{" "}
+                  {t("more per successful change, and that premium buys")}{" "}
+                  +{decimal.format((accLoop - accSolo) * 100)} p.p. {t("quality")}
+                  {scopeLoop !== undefined && scopeSolo !== undefined && scopeLoop < scopeSolo && (
+                    <> {t("and")} {scopeLoop > 0 ? `${decimal.format(scopeSolo / scopeLoop)}×` : ""} {t("fewer scope violations")}</>
+                  )}
+                  . {t("For unattended work the orchestrator is worth the price; for cheap supervised experiments the solo agent is.")}
+                </>
+              ) : accLoop >= accSolo && costLoop < costSolo ? (
+                <><strong>ag-loop</strong> {t("is both better and cheaper per successful change — there is no trade-off in this run.")}</>
+              ) : (
+                <><strong>agent-solo</strong> {t("delivers a successful change cheaper in this run — check the discipline row before trusting it unattended.")}</>
+              )}
+            </p>
+          )}
         </section>
       )}
 

@@ -24,6 +24,8 @@ export type OpenSpecArchiveFsPort = {
   /** Rekursinis katalogo sukūrimas (`mkdir -p` semantika). */
   makeDirectory(absoluteDir: string): Promise<void>;
   rename(fromPath: string, toPath: string): Promise<void>;
+  /** Failų vardai kataloge; `[]` kai katalogo nėra. */
+  listFiles(absoluteDir: string): Promise<string[]>;
 };
 
 /**
@@ -34,6 +36,7 @@ export type OpenSpecArchiveFsPort = {
 export type OpenSpecArchiveOutcome =
   | { action: "archived"; changeDir: string; markedTaskLines: number }
   | { action: "already-archived"; changeDir: string }
+  | { action: "deferred-children"; changeDir: string; citedBy: string[] }
   | { action: "no-change"; reason: "missing" | "ambiguous"; candidates?: string[] }
   | { action: "error"; changeDir?: string; reason: string };
 
@@ -98,6 +101,37 @@ export function markTasksComplete(tasksMarkdown: string): { text: string; marked
     return replaced;
   });
   return { text: next.join(eol), marked };
+}
+
+/** Bucket'ai, kuriuose task'as vis dar laikomas nebaigtu darbu (terminaliniai — `done`, `error` — čia neįeina). */
+const NON_TERMINAL_TASK_BUCKETS = ["queue", "active", "delegated", "human-review"] as const;
+
+/**
+ * Ar kuris nors NEBAIGTAS task'as (queue/active/delegated/human-review) cituoja šį `auto-<slug>`
+ * change'ą per `## Spec source` (ar bet kurią kitą nuorodą, kurią atpažįsta `extractAutoChangeSlugs`).
+ *
+ * Egzistuoja tam, kad archyvavimas negalėtų uždaryti tėvo change'o, kol skaidymo vaikai (kurių
+ * `## Spec source` cituoja tą patį `auto-<slug>`) dar nepasiekė terminalinio bucket'o — archyvinė
+ * nuoroda preflight'e taptų nedispatch'inama.
+ */
+export async function findNonTerminalCitationsOfAutoChange(
+  fs: OpenSpecArchiveFsPort,
+  agRoot: string,
+  slug: string,
+): Promise<string[]> {
+  const citedBy: string[] = [];
+  for (const bucket of NON_TERMINAL_TASK_BUCKETS) {
+    const bucketDir = path.join(agRoot, "tasks", bucket);
+    const names = (await fs.listFiles(bucketDir)).filter((name) => name.toLowerCase().endsWith(".md")).sort();
+    for (const fileName of names) {
+      const filePath = path.join(bucketDir, fileName);
+      const text = (await fs.readTextFileIfExists(filePath).catch(() => undefined)) ?? "";
+      if (extractAutoChangeSlugs(text).includes(slug)) {
+        citedBy.push(`tasks/${bucket}/${fileName}`);
+      }
+    }
+  }
+  return citedBy;
 }
 
 /**
@@ -180,6 +214,11 @@ export async function archiveAutoOpenSpecChangeOnDone(
       // Susidūrimas: tas pats slug'as jau archyve. Sujungimas ar perrašymas čia būtų duomenų
       // praradimas, tad nedaroma NIEKO — sprendžia operatorius.
       return { action: "error", changeDir: ref, reason: "archive-target-exists" };
+    }
+
+    const citedBy = await findNonTerminalCitationsOfAutoChange(fs, agRoot, match.slug);
+    if (citedBy.length > 0) {
+      return { action: "deferred-children", changeDir: ref, citedBy };
     }
 
     // `tasks.md` nebuvimas nėra klaida — kai kurie change'ai jo tiesiog neturi.

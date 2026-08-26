@@ -14,6 +14,10 @@ import {
   resolveAutoChangeForTask,
   type OpenSpecArchiveFsPort,
 } from "../application/task-execution/openspec-archive.js";
+import {
+  reconcileAutoOpenSpecBacklog,
+  type OpenSpecReconcileFsPort,
+} from "../application/task-execution/openspec-reconcile.js";
 import { analyzeHumanReviewGates } from "../domain/tasks/index.js";
 import { createFakeTaskRunEnv, fakeBucketPath } from "./helpers/fake-task-run-ports.js";
 
@@ -209,6 +213,12 @@ function fakeArchiveFs(initial: Record<string, string>, dirs: Set<string>): {
       dirs.delete(norm(from));
       dirs.add(norm(to));
     },
+    listFiles: async (dir) => {
+      const prefix = `${norm(dir)}/`;
+      return [...files.keys()]
+        .filter((p) => p.startsWith(prefix) && !p.slice(prefix.length).includes("/"))
+        .map((p) => p.slice(prefix.length));
+    },
   };
   return { fs, files, dirs, renames };
 }
@@ -267,8 +277,98 @@ test("archiveAutoOpenSpecChangeOnDone: niekada nemeta — FS klaida virsta error
     writeTextFileAtomic: async () => {},
     makeDirectory: async () => {},
     rename: async () => {},
+    listFiles: async () => [],
   };
   const outcome = await archiveAutoOpenSpecChangeOnDone(fs, "/ag", TASK, "/done/0042.md");
   assert.equal(outcome.action, "error");
   assert.match((outcome as { reason: string }).reason, /disk on fire/);
+});
+
+test("archiveAutoOpenSpecChangeOnDone: vaiko task'as queue bucket'e cituoja slug'ą → archyvavimas atidedamas", async () => {
+  // 039: skaidymo vaikai cituoja tėvo `auto-<slug>` per `## Spec source`. Kol jie negrįžo į
+  // terminalinį bucket'ą, tėvo change'as negali dingti iš `openspec/changes/` — priešingu
+  // atveju preflight'as archyvinę nuorodą atmestų kaip nedispatch'inamą.
+  const dirs = new Set(["/ag/openspec/changes/auto-0042"]);
+  const { fs, renames, files } = fakeArchiveFs(
+    {
+      "/ag/tasks/done/0042.md": "žr. openspec/changes/auto-0042",
+      "/ag/tasks/queue/0099-vaikas.md": "## Spec source\nopenspec/changes/auto-0042/spec.md\n",
+    },
+    dirs,
+  );
+  const outcome = await archiveAutoOpenSpecChangeOnDone(fs, "/ag", TASK, "/ag/tasks/done/0042.md");
+  assert.deepEqual(outcome, {
+    action: "deferred-children",
+    changeDir: "openspec/changes/auto-0042",
+    citedBy: ["tasks/queue/0099-vaikas.md"],
+  });
+  assert.deepEqual(renames, [], "atidėjus archyvavimą, rename nevyksta");
+  assert.ok(dirs.has("/ag/openspec/changes/auto-0042"), "aktyvus change'as niekur nedingsta");
+  assert.equal(files.has("/ag/openspec/changes/auto-0042/tasks.md"), false, "tasks.md nekuriamas — jokio žymėjimo");
+});
+
+test("archiveAutoOpenSpecChangeOnDone: joks nebaigtas task'as necituoja — archyvavimas vyksta kaip anksčiau", async () => {
+  const dirs = new Set(["/ag/openspec/changes/auto-0043"]);
+  const { fs, renames } = fakeArchiveFs(
+    { "/ag/tasks/done/0042.md": "žr. openspec/changes/auto-0043" },
+    dirs,
+  );
+  const outcome = await archiveAutoOpenSpecChangeOnDone(fs, "/ag", TASK, "/ag/tasks/done/0042.md");
+  assert.deepEqual(outcome, { action: "archived", changeDir: "openspec/changes/auto-0043", markedTaskLines: 0 });
+  assert.deepEqual(renames, [["/ag/openspec/changes/auto-0043", "/ag/openspec/changes/archive/auto-0043"]]);
+});
+
+/** Reconcile fake: archyvavimo fake'as + `listSubdirectories`, kuris skaito iš to paties `dirs` set'o. */
+function fakeReconcileFs(initial: Record<string, string>, dirs: Set<string>): {
+  fs: OpenSpecReconcileFsPort;
+  files: Map<string, string>;
+  dirs: Set<string>;
+  renames: [string, string][];
+} {
+  const { fs: archiveFs, files, renames } = fakeArchiveFs(initial, dirs);
+  const norm = (p: string) => p.replace(/\\/g, "/");
+  const fs: OpenSpecReconcileFsPort = {
+    ...archiveFs,
+    listSubdirectories: async (dir) => {
+      const prefix = `${norm(dir)}/`;
+      return [...dirs]
+        .filter((p) => p.startsWith(prefix) && !p.slice(prefix.length).includes("/"))
+        .map((p) => p.slice(prefix.length));
+    },
+  };
+  return { fs, files, dirs, renames };
+}
+
+test("reconcileAutoOpenSpecBacklog: queue citavimas atideda archyvavimą (batch ir dry-run)", async () => {
+  const dirs = new Set(["/ag/openspec/changes/auto-0042"]);
+  const { fs, renames } = fakeReconcileFs(
+    {
+      "/ag/tasks/done/0042.md": "žr. openspec/changes/auto-0042",
+      "/ag/tasks/queue/0099-vaikas.md": "## Spec source\nopenspec/changes/auto-0042/spec.md\n",
+    },
+    dirs,
+  );
+
+  const report = await reconcileAutoOpenSpecBacklog(fs, "/ag");
+  assert.deepEqual(report.deferred_children, [
+    { change: "openspec/changes/auto-0042", task: "0042", cited_by: ["tasks/queue/0099-vaikas.md"] },
+  ]);
+  assert.deepEqual(report.archived, []);
+  assert.deepEqual(report.unmatched_auto_changes, ["openspec/changes/auto-0042"]);
+  assert.equal(renames.length, 0, "atidėjus, batch kelias irgi nerašo");
+
+  const dryRunDirs = new Set(["/ag/openspec/changes/auto-0042"]);
+  const { fs: dryFs, renames: dryRenames } = fakeReconcileFs(
+    {
+      "/ag/tasks/done/0042.md": "žr. openspec/changes/auto-0042",
+      "/ag/tasks/queue/0099-vaikas.md": "## Spec source\nopenspec/changes/auto-0042/spec.md\n",
+    },
+    dryRunDirs,
+  );
+  const dryReport = await reconcileAutoOpenSpecBacklog(dryFs, "/ag", { dryRun: true });
+  assert.deepEqual(dryReport.deferred_children, [
+    { change: "openspec/changes/auto-0042", task: "0042", cited_by: ["tasks/queue/0099-vaikas.md"] },
+  ]);
+  assert.deepEqual(dryReport.archived, []);
+  assert.equal(dryRenames.length, 0, "dry-run niekada nerašo");
 });

@@ -17,6 +17,7 @@ import path from "node:path";
 import { taskFileStem } from "../../domain/tasks/identity.js";
 import {
   archiveAutoOpenSpecChangeOnDone,
+  findNonTerminalCitationsOfAutoChange,
   markTasksComplete,
   resolveAutoChangeForTask,
   type OpenSpecArchiveFsPort,
@@ -26,8 +27,6 @@ import {
 export type OpenSpecReconcileFsPort = OpenSpecArchiveFsPort & {
   /** Poaplankių vardai; `[]` kai katalogo nėra. */
   listSubdirectories(absoluteDir: string): Promise<string[]>;
-  /** Failų vardai kataloge; `[]` kai katalogo nėra. */
-  listFiles(absoluteDir: string): Promise<string[]>;
 };
 
 /** Kanoninė change nuoroda — ta pati forma, kurią grąžina autogen'as ir 0029 archyvavimas. */
@@ -49,6 +48,8 @@ export type OpenSpecReconcileReport = {
   already_archived: string[];
   /** Aktyvūs `auto-*` change'ai, kuriems neatsirado done atitikmens — lieka žmogui. */
   unmatched_auto_changes: string[];
+  /** Change'ai, kurių archyvavimas atidėtas — juos dar cituoja nebaigti (queue/active/delegated/human-review) task'ai. */
+  deferred_children: { change: string; task: string; cited_by: string[] }[];
   /** Nieko nerašančios baigtys, kurioms reikia operatoriaus (`ambiguous`, susidūrimas archyve). */
   errors: { task: string; reason: string; change?: string; candidates?: string[] }[];
   /** Vardiniai change'ai su atvirais punktais — TIK informacija, niekada neuždaroma. */
@@ -109,6 +110,7 @@ export async function reconcileAutoOpenSpecBacklog(
     archived: [],
     already_archived: [],
     unmatched_auto_changes: [],
+    deferred_children: [],
     errors: [],
     named_changes_open: [],
   };
@@ -127,6 +129,11 @@ export async function reconcileAutoOpenSpecBacklog(
         continue;
       }
       if (match.kind === "none" || !activeAuto.has(match.slug)) continue;
+      const citedBy = await findNonTerminalCitationsOfAutoChange(fs, agRootDir, match.slug);
+      if (citedBy.length > 0) {
+        report.deferred_children.push({ change: changeRef(match.slug), task: taskId, cited_by: citedBy });
+        continue;
+      }
       activeAuto.delete(match.slug);
       report.archived.push({ change: changeRef(match.slug), task: taskId });
       continue;
@@ -144,6 +151,9 @@ export async function reconcileAutoOpenSpecBacklog(
         break;
       case "already-archived":
         report.already_archived.push(outcome.changeDir);
+        break;
+      case "deferred-children":
+        report.deferred_children.push({ change: outcome.changeDir, task: taskId, cited_by: outcome.citedBy });
         break;
       case "error":
         report.errors.push(

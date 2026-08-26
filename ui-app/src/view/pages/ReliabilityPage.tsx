@@ -163,7 +163,7 @@ export function ReliabilityPage({ activeRoute, onNavigate }: Props) {
               <Kpi label={t("Incident tokens")} value={compact.format(periodSummary.incidentTokens)} detail={`${t("All tokens between failure and recovery")} · ${selectedPeriodLabel}`} />
             </section>
 
-            <section className="panel reliability-token-panel">
+            <section className="panel">
               <div className="panel-header"><div><h2>{t("Incident token structure")}</h2><p className="panel-subtitle">{t("Non-overlapping diagnostic and retry attribution, with cache shown separately")}</p></div><span className="badge status-neutral">{selectedPeriodLabel}</span></div>
               <div className="reliability-token-grid">
                 <Kpi label={t("Diagnostic tokens")} value={compact.format(periodSummary.diagnosticTokens)} detail={t("Diagnosis phases")} />
@@ -220,7 +220,7 @@ export function ReliabilityPage({ activeRoute, onNavigate }: Props) {
                   <p>{t("Showing records for")} <strong>{selectedFailureDate ? `${selectedFailureDate} UTC` : selectedPeriodLabel}</strong></p>
                 </div>
                 <div className="failure-query-toolbar">
-                  <label className="failure-search"><span>{t("Search failures")}</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Task, type, phase, or reason...")} /></label>
+                  <label><span>{t("Search failures")}</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Task, type, phase, or reason...")} /></label>
                   <label><span>{t("Sort by")}</span><select value={sort} onChange={(event) => setSort(event.target.value as FailureSort)}><option value="failed-desc">{t("Newest failure")}</option><option value="tokens-desc">{t("Most incident tokens")}</option><option value="duration-desc">{t("Longest repair time")}</option></select></label>
                   <label><span>{t("Rows per page")}</span><select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                   <button type="button" className="button ghost small-button" onClick={exportCsv} disabled={records.length === 0}>↓ {t("Export CSV")}</button>

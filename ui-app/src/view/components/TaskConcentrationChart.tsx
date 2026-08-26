@@ -28,7 +28,7 @@ export const TaskConcentrationChart = memo(function TaskConcentrationChart({ row
 
   const topShare = visible.reduce((sum, row) => sum + row.totalTokens, 0) / total;
   return (
-    <section className="chart-panel task-concentration-panel" aria-labelledby="task-concentration-title">
+    <section className="chart-panel" aria-labelledby="task-concentration-title">
       <div className="chart-heading">
         <div>
           <h3 id="task-concentration-title">{t("Task token concentration")}</h3>

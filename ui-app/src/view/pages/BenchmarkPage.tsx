@@ -166,7 +166,7 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
                 kodai verčiami sakiniais; nepažįstamas kodas rodomas žalias — geriau techninis
                 faktas nei nutylėjimas. Visi skaičiai — jau esami raporto laukai, jokių
                 perskaičiavimų. */}
-            <section className="panel benchmark-verdict-panel" aria-label={t("Benchmark verdict")}>
+            <section className="panel" aria-label={t("Benchmark verdict")}>
               <div className="panel-header">
                 <div>
                   <h2>{t("Verdict")}</h2>

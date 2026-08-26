@@ -56,7 +56,7 @@ export const TokenTrendChart = memo(function TokenTrendChart({ byDay: allDays }:
   const ticks = [maxValue, maxValue / 2, 0];
 
   return (
-    <div className="chart-panel cost-trend-panel">
+    <div className="chart-panel">
       <div className="chart-heading">
         <div>
           <h3>{t("Token usage over time")}</h3>

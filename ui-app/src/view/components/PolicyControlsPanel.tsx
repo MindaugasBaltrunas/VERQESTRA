@@ -217,13 +217,16 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                   <Badge text={control.editable ? t("Editable") : t("Read-only")} variant="neutral" />
                 </div>
                 <div className="policy-value-guide">
-                  <div className="current"><span>{t("Current value")}</span><strong>{formatValue(control.value)}</strong></div>
+                  {/* Vardo neturi sąmoningai: išvaizdą duoda `.policy-value-guide > div`, o vietą
+                      — tinklelio stulpelis. Klasė `current` čia buvo be taisyklės ir be
+                      skaitytojo, o tokiu bendriniu vardu globaliame lape ji laukia susidūrimo. */}
+                  <div><span>{t("Current value")}</span><strong>{formatValue(control.value)}</strong></div>
                   <div className="recommended">
                     <span>{t("Recommended")}</span>
                     <strong>{formatValue(recommendedValue(control))}</strong>
                     <small>{t(RECOMMENDED_VALUES[control.id] === undefined ? "Keep the current value unless a planned architecture change requires otherwise." : "Balanced best-practice default for quality and safe delivery.")}</small>
                   </div>
-                  <div className="available">
+                  <div>
                     <span>{t("Available values")}</span>
                     {availableValues(control).length > 0 ? (
                       <div className="policy-value-options">
@@ -321,7 +324,7 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                       <strong>{formatValue(control.value)} → {formValue || "—"}</strong>
                     </p>
                     {formError ? (
-                      <p className="policy-form-error" style={{ color: "var(--error)" }} role="alert">
+                      <p className="policy-form-error" role="alert">
                         {formError}
                       </p>
                     ) : null}

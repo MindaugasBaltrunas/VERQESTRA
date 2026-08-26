@@ -49,7 +49,7 @@ export const CacheEfficiencyTrendChart = memo(function CacheEfficiencyTrendChart
   const areaPath = `${linePath} L ${geometry.points.at(-1)!.x},${baselineY} L ${geometry.points[0].x},${baselineY} Z`;
 
   return (
-    <div className="chart-panel cost-trend-panel">
+    <div className="chart-panel">
       <div className="chart-heading">
         <div>
           <h3>{t("Cache efficiency over time")}</h3>

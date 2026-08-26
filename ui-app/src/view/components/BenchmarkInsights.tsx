@@ -117,7 +117,7 @@ export function BenchmarkInsights({ modes }: { modes: BenchmarkModeSection[] }) 
   return (
     <>
       {haveDuel && (
-        <section className="panel benchmark-conclusions" aria-label={t("Conclusions")}>
+        <section className="panel" aria-label={t("Conclusions")}>
           <div className="panel-header">
             <div>
               <h2>{t("Which mode is worth using?")}</h2>
@@ -192,7 +192,7 @@ export function BenchmarkInsights({ modes }: { modes: BenchmarkModeSection[] }) 
         </section>
       )}
 
-      <section className="panel benchmark-duel" aria-label={t("Mode duel")}>
+      <section className="panel" aria-label={t("Mode duel")}>
         <div className="panel-header">
           <div>
             <h2>{t("Who is better, metric by metric")}</h2>

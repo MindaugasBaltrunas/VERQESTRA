@@ -154,7 +154,7 @@ export const RuntimePanel = memo(function RuntimePanel({
         </div>
       </section>
 
-      <section className="panel system-signals" aria-labelledby="system-signals-title">
+      <section className="panel" aria-labelledby="system-signals-title">
         <div className="panel-header">
           <div>
             <h2 id="system-signals-title">{t("Attention signals")}</h2>

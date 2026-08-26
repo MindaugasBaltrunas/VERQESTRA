@@ -59,6 +59,19 @@ function report(overrides: Partial<BenchmarkReportDocument> = {}): BenchmarkRepo
         ],
         differences: [{ aspect: "telemetry", code: "loop-only", detail: "only ag-loop can report a repair" }],
       },
+      {
+        // Dvikovos/išvadų sekcijoms (2026-08-26): be antro mokamo režimo BenchmarkInsights
+        // neturi su kuo lyginti ir Conclusions nerenderina.
+        mode: "agent-solo",
+        baselineSampleCount: 6,
+        currentSampleCount: 6,
+        metrics: [
+          { metric: "acceptedRate", kind: "rate", baseline: 0.7, current: 0.7, absoluteDelta: 0, relativeDelta: 0 },
+          { metric: "outOfScopeRate", kind: "rate", baseline: 0.3, current: 0.3, absoluteDelta: 0, relativeDelta: 0 },
+          { metric: "perVerifiedAcceptedChange.billableTokens", kind: "cost", baseline: 9_000, current: 9_500, absoluteDelta: 500, relativeDelta: 0.0556 },
+        ],
+        differences: [],
+      },
     ],
     scenarios: [
       {
@@ -98,6 +111,13 @@ describe("BenchmarkPage", () => {
     expect(screen.getByText("code-change-01")).toBeInTheDocument();
     // Nulinio baseline delta rodomas procentiniais punktais, ne paliekamas kaip n/a.
     expect(screen.getByText(/0 p\.p\./)).toBeInTheDocument();
+
+    // Insights (2026-08-26): išvados, dvikova su nugalėtoju ir žodynėlis.
+    expect(screen.getByRole("heading", { name: "Conclusions" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Who is better, metric by metric" })).toBeInTheDocument();
+    // acceptedRate 0.83 (ag-loop) > 0.7 (agent-solo) → taurė prie ag-loop.
+    expect(screen.getAllByText(/ag-loop 🏆/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "What is being compared, and why" })).toBeInTheDocument();
   });
 
   it("shows the empty state when no report has been generated", async () => {

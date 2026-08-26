@@ -1373,6 +1373,144 @@ tbody tr:hover {
   color: var(--faint);
 }
 
+/* ---- Benchmark insights: išvados, dvikovos diagrama, žodynėlis (2026-08-26) ---- */
+.benchmark-kpi-caption {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+}
+.benchmark-score {
+  font-size: 14px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.benchmark-score strong {
+  font-size: 18px;
+  color: var(--text);
+}
+.benchmark-conclusion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.benchmark-conclusion-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.benchmark-duel-grid {
+  display: grid;
+  gap: 14px;
+}
+.benchmark-duel-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.benchmark-duel-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.benchmark-duel-label span {
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+.benchmark-duel-label small {
+  color: var(--faint);
+  font-size: 11px;
+}
+.benchmark-duel-bars {
+  display: grid;
+  gap: 4px;
+}
+.benchmark-duel-bar {
+  display: grid;
+  grid-template-columns: 150px 1fr 90px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.benchmark-duel-bar.floor {
+  opacity: 0.55;
+}
+.benchmark-duel-bar.winner .benchmark-duel-mode {
+  font-weight: 700;
+}
+.benchmark-duel-mode {
+  color: var(--faint);
+  white-space: nowrap;
+}
+.benchmark-duel-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.benchmark-duel-fill {
+  height: 100%;
+  border-radius: 5px;
+}
+.benchmark-duel-fill.mode-ag-loop {
+  background: var(--accent, #4f8cff);
+}
+.benchmark-duel-fill.mode-agent-solo {
+  background: var(--warning, #d9a13b);
+}
+.benchmark-duel-fill.mode-deterministic-control {
+  background: var(--faint, #8a8f98);
+}
+.benchmark-duel-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.benchmark-glossary details {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  padding: 8px 12px;
+  margin: 0 0 8px;
+}
+.benchmark-glossary summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.benchmark-glossary-list {
+  margin: 8px 0 4px;
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) 1fr;
+  gap: 6px 14px;
+  font-size: 12px;
+}
+.benchmark-glossary-list dt {
+  font-weight: 600;
+  word-break: break-all;
+}
+.benchmark-glossary-list dd {
+  margin: 0;
+  color: var(--muted, var(--faint));
+}
+@media (max-width: 720px) {
+  .benchmark-duel-row,
+  .benchmark-glossary-list {
+    grid-template-columns: 1fr;
+  }
+  .benchmark-duel-bar {
+    grid-template-columns: 110px 1fr 80px;
+  }
+}
+
 /* ---- Workflow (kanban) cards ----------------------------------------- */
 .workflow-card {
   position: relative;

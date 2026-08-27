@@ -191,6 +191,28 @@ describe("CompressionPage", () => {
     expect(screen.getAllByText(/an older fallback used when no prompt-level pair was recorded/).length).toBeGreaterThan(0);
   });
 
+  it("rodo išverstą sakinį likusioms keturioms vėliavoms, ne raw reason kodą", async () => {
+    vi.mocked(api.fetchCompression).mockResolvedValue(
+      view({
+        decision: {
+          pressure: { level: "high" },
+          recommendations: [
+            { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average" },
+            { key: "compact_dsl", action: "enable", reason: "smaller-under-pressure" },
+            { key: "symbol_slices", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "bash_output_digest", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "dispatch_tool_schema", action: "unmeasured", reason: "no-shadow-measurement" },
+          ],
+        },
+      }),
+    );
+    render(<CompressionPage activeRoute="compression" onNavigate={noop} />);
+
+    await waitFor(() => expect(screen.getByLabelText("compact_dsl")).toBeTruthy());
+    expect(screen.getByText(/compiled form is smaller on average and the budget is under pressure/)).toBeTruthy();
+    expect(screen.queryByText("smaller-under-pressure")).toBeNull();
+  });
+
   it("telemetrijos lūžis nepaslepia vėliavų", async () => {
     vi.mocked(api.fetchCompression).mockResolvedValue(
       view({

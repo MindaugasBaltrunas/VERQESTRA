@@ -101,6 +101,13 @@ const REASON_SENTENCES: Record<string, string> = {
     "The IR form is smaller on average, but the budget is not under pressure — enabling is safe yet buys nothing right now",
   "too-few-ir-comparisons": "Too few shadow comparisons to decide",
   "no-shadow-measurement": "No shadow measurement exists for this flag yet — there is no data to decide with",
+  "larger-on-average":
+    "Shadow comparison says the compiled form is larger than raw on average — enabling buys nothing",
+  "smaller-under-pressure":
+    "The compiled form is smaller on average and the budget is under pressure — enabling shrinks packs where it matters",
+  "smaller-no-pressure":
+    "The compiled form is smaller on average, but the budget is not under pressure — enabling is safe yet buys nothing right now",
+  "too-few-comparisons": "Too few shadow comparisons to decide",
 };
 
 export function CompressionPage({ activeRoute, onNavigate }: Props) {

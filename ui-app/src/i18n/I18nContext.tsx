@@ -618,6 +618,13 @@ const lt: Record<string, string> = {
   "Too few shadow comparisons to decide": "Per mažai šešėlinių palyginimų sprendimui",
   "No shadow measurement exists for this flag yet — there is no data to decide with":
     "Šiai vėliavai šešėlinio matavimo dar nėra — sprendimui duomenų nėra",
+  // 036-f-07: likusioms keturioms vėliavoms (be worker_task_ir prompt/task konteksto) tie patys keturi kodai.
+  "Shadow comparison says the compiled form is larger than raw on average — enabling buys nothing":
+    "Šešėlinis palyginimas rodo, kad sukompiliuota forma vidutiniškai DIDESNĖ už neapdorotą — įjungimas nieko neduoda",
+  "The compiled form is smaller on average and the budget is under pressure — enabling shrinks packs where it matters":
+    "Sukompiliuota forma vidutiniškai mažesnė, o biudžetas spaudžiamas — įjungimas sumažintų paketus ten, kur to reikia",
+  "The compiled form is smaller on average, but the budget is not under pressure — enabling is safe yet buys nothing right now":
+    "Sukompiliuota forma vidutiniškai mažesnė, bet biudžetas nespaudžiamas — įjungti saugu, tačiau dabar tai nieko neduoda",
   "IR smaller in": "IR mažesnis",
   "avg delta": "vid. delta",
   // 032-b-03: verdikto šaltinio laukas (kuri pora buvo naudota) — sakinys įvardija KAS lyginama.

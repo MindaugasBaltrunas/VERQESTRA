@@ -44,6 +44,18 @@ test("every declared difference names a known aspect and a non-empty code and de
   }
 });
 
+test("ag-loop declares that its cell arrives with the approval gates already passed", () => {
+  // BENCH-3 honesty for the 2026-08-27 change: the loop's task envelope carries a
+  // HUMAN-REVIEW-APPROVED marker, so its human-review numbers are not what the gates would have
+  // caught. Undeclared, that reads as "the loop escalates less" — the opposite of what happened.
+  const declared = modeExecutionProfile("ag-loop").differences.find(
+    (difference) => difference.code === "approval-preapplied",
+  );
+  assert.ok(declared, "ag-loop no longer declares that approval is pre-applied to its cell task");
+  assert.equal(declared.aspect, "prompt");
+  assert.match(declared.detail, /HUMAN-REVIEW-APPROVED/);
+});
+
 test("a profile cannot be rewritten after a run was measured under it", () => {
   const profile = modeExecutionProfile("ag-loop");
   assert.throws(() => {

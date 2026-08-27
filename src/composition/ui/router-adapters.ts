@@ -66,7 +66,14 @@ const workflowBucketPorts = {
       process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open";
     // `runIgnoredProcess` LAUKIAMAS: be `await` nepavykęs paleidimas taptų pakibusiu Promise'u,
     // o dashboard'as parodytų „atidaryta" tada, kai nieko neatsidarė.
-    return await runIgnoredProcess(command, [absolutePath]).catch(() => false);
+    const launched = await runIgnoredProcess(command, [absolutePath]).catch(() => false);
+    // 2026-08-27: Windows `explorer.exe` grąžina exit 1 NET SĖKMINGAI atidaręs langą (žinoma
+    // OS keistenybė), tad ten exit kodas nieko nepasako — kiekvienas paspaudimas dashboard'e
+    // virsdavo „nepavyko atidaryti". Win32 sėkme laikome tai, ką realiai galime patikrinti:
+    // katalogas egzistuoja (spawn'ą jau bandėme; explorer.exe Windows'e visada yra).
+    // POSIX pusėje `open`/`xdg-open` exit kodas teisingas ir lieka autoritetas.
+    if (process.platform !== "win32") return launched;
+    return (await nodeFsAdapter.statPath(absolutePath)).kind === "directory";
   },
 };
 

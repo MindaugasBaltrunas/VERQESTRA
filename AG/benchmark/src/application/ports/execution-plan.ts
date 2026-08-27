@@ -97,6 +97,12 @@ export const MODE_EXECUTION_PROFILES: Readonly<Record<ExecutionMode, ModeExecuti
           detail:
             "One sample can cover several dispatches: tokens, LLM calls, attempts, repairs and human-review events are the sum over everything the loop did for this scenario.",
         },
+        {
+          aspect: "prompt",
+          code: "approval-preapplied",
+          detail:
+            "The task envelope carries a HUMAN-REVIEW-APPROVED marker, because a suite scenario is an artefact a human wrote, reviewed and locked before the run. The gate rules are unchanged; the cell's task simply arrives already signed, so keyword-triggered human-review parking — which ended eight scenarios before their first dispatch on 2026-08-26 — does not apply. Read the loop's human-review numbers as \"what the loop escalated on its own\", not as \"what the gates would have caught\", and note that agent-solo has no approval gate to pass in the first place.",
+        },
       ],
     }),
     "agent-solo": freezeProfile({

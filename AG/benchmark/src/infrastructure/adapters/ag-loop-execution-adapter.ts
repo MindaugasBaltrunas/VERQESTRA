@@ -56,7 +56,23 @@ import {
  * part of the configuration a baseline is compared under, and a `/2` baseline must be refused
  * here rather than silently subtracted from a `/3` run.
  */
-export const AG_LOOP_ADAPTER_VERSION = "ag-loop/3";
+/**
+ * `/4` (2026-08-27): the drive path now hands the cell a task that is already signed
+ * `HUMAN-REVIEW-APPROVED`.
+ *
+ * The `/3` note above named the trigger for the next bump — a change to the drive path that moves
+ * what a sample measures — and this is one. On 2026-08-26 eight scenarios (all three repetitions
+ * each) produced `attempts=0`: the loop parked the task in human-review before its first dispatch,
+ * so the mode covered 16 of 24 scenarios. A suite scenario is a human-authored, reviewed and
+ * locked artefact, so the cell now presents that approval instead of re-deriving it from keywords,
+ * and those cells run.
+ *
+ * That moves numbers in two directions at once, which is why a `/3` baseline must be refused here
+ * rather than subtracted: the ag-loop population grows by eight scenarios, and `humanReviewRate`
+ * loses the keyword-gate share it used to include. The gate rules themselves are untouched — the
+ * difference is declared as `approval-preapplied` in this mode's execution profile (BENCH-3).
+ */
+export const AG_LOOP_ADAPTER_VERSION = "ag-loop/4";
 
 export interface AgLoopExecutionAdapterOptions {
   readonly settings: ExecutionPlanSettings;

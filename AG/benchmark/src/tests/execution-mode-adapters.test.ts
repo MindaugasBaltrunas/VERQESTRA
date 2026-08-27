@@ -156,9 +156,11 @@ test("the two modes that read a telemetry envelope record the version of it they
   // moved, and the control, which reads no envelope at all, did not.
   //
   // `ag-loop` moved again to /3 on 2026-08-22, when the mode stopped being one bounded agent
-  // call and became a full cycle. The versions are deliberately NOT in step: the envelope
-  // contract both modes read is still v2, while what the loop mode DOES with it changed.
-  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/3");
+  // call and became a full cycle, and to /4 on 2026-08-27, when its cell started presenting the
+  // suite's human-review approval instead of re-deriving it from keywords. The versions are
+  // deliberately NOT in step: the envelope contract both modes read is still v2, while what the
+  // loop mode DOES with it changed.
+  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/4");
   assert.equal(AGENT_SOLO_ADAPTER_VERSION, "agent-solo/2");
   assert.equal(DETERMINISTIC_CONTROL_ADAPTER_VERSION, "deterministic-control/1");
 });

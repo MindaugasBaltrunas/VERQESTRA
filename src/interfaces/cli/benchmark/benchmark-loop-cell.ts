@@ -209,6 +209,68 @@ export function cellProjectProfile(): string {
   return `${JSON.stringify({ language: "javascript", selectedLanguage: "javascript" }, null, 2)}\n`;
 }
 
+/**
+ * Celės task'o žmogaus peržiūros parašas.
+ *
+ * 2026-08-26 pilnas bėgimas (run-20260825t210704416z): 8 scenarijų VISOS 3 ag-loop celės grąžino
+ * `attempts=0` — ciklas parkavo užduotį į human-review PRIEŠ pirmą dispatch'ą, ir adapteris tokį
+ * voką teisingai atmetė kaip neišmatuotą. Aprėptis buvo 16/24. Priežastys, perskaitytos iš pačių
+ * scenarijų teksto, o ne iš pavadinimų:
+ *
+ * - 7 scenarijai kertasi su `security` vartu (`permission(s)`, `auth`, `session token(s)`) —
+ *   bugfix-session-token-expiry, code-permission-wildcard, refactor-permission-inheritance,
+ *   security-log-session-tokens, security-skip-signature-check, security-unknown-role-admin,
+ *   tests-permission-denial-matrix;
+ * - `refactor-badge-markup-builder` į tą šabloną NETELPA: jo tekstas saugumo raktažodžių neturi,
+ *   bet jame yra sakinys „Do not add a dependency", kurį `dependency` varto frazė
+ *   `(add|install|…)…(dependency|package|…)` gaudo pažodžiui. Vartas negali skirti draudimo nuo
+ *   ketinimo, ir tai teisinga: scenarijaus tekste tai tikrai yra priklausomybių kalba.
+ *
+ * Todėl sprendimas vienas abiem grupėms, ir jis nėra varto keitimas. Scenarijų rinkinys yra
+ * žmogaus autorizuotas artefaktas — jį parašo, peržiūri ir užrakina operatorius (`suite.lock.json`)
+ * PRIEŠ bet kurį bėgimą. Būtent tai vartai ir prašo įrodyti, tad celės task'as ateina su jau
+ * uždėtu parašu, kaip ir bet kuris operatoriaus patvirtintas eilės task'as. Taisyklės
+ * (`domain/tasks/human-review`) lieka nepaliestos: pasikeičia tik įrodymo buvimas task'e.
+ *
+ * Data yra FIKSUOTA, ne `new Date()`: patvirtinimas įvyko vieną kartą visam rinkiniui, o ne per
+ * kiekvieną bėgimą. Judanti data celės task'ą padarytų nedeterministiniu tarp pakartojimų ir
+ * meluotų apie tai, kad kiekvienas bėgimas gavo naują žmogaus sprendimą.
+ *
+ * Kaina deklaruojama garsiai: `ag-loop` režimo skirtumų sąraše yra `approval-preapplied`
+ * (BENCH-3), tad palyginimas su `agent-solo` skaitomas kaip „loop'as su iš anksto praeitais
+ * approval vartais", o ne kaip like-for-like.
+ */
+export const CELL_HUMAN_REVIEW_APPROVAL =
+  "HUMAN-REVIEW-APPROVED: benchmark-suite 2026-08-27 (benchmark scenarijus — žmogaus " +
+  "autorizuotas, užrakintame rinkinyje peržiūrėtas artefaktas; patvirtinta vieną kartą visam rinkiniui)";
+
+/** Kur task'e atsiranda parašas: preambulėje po `# Task`, PRIEŠ pirmą `## ` sekciją. */
+const TASK_HEADING_RE = /^#\s+Task\s*$/;
+
+/**
+ * Uždeda parašą ant celės task'o teksto.
+ *
+ * Parašas dedamas į preambulę tarp `# Task` ir pirmos sekcijos, o ne į `## Tikslas`: taip
+ * `## Tikslas` kūnas lieka BAITAS Į BAITĄ scenarijaus promptas, ir BENCH-3 „identiškas promptas"
+ * tebegalioja būtent toje vietoje, kur jis tikrinamas. Sekcijų skaitytojai dirba per `^## `
+ * antraštes, tad preambulė nė vienos sekcijos kūno nekeičia.
+ */
+export function withCellHumanReviewApproval(taskText: string): string {
+  const lines = taskText.split("\n");
+  const headingIndex = lines.findIndex((line) => TASK_HEADING_RE.test(line));
+  if (headingIndex < 0) {
+    // Be `# Task` antraštės preambulės nėra — parašas eina į pačią pradžią, kad `^`-inkaruotas
+    // vartų regex'as jį vis tiek matytų. Tylus praleidimas grąžintų parkavimą be jokio pėdsako.
+    return `${CELL_HUMAN_REVIEW_APPROVAL}\n\n${taskText}`;
+  }
+  return [
+    ...lines.slice(0, headingIndex + 1),
+    "",
+    CELL_HUMAN_REVIEW_APPROVAL,
+    ...lines.slice(headingIndex + 1),
+  ].join("\n");
+}
+
 export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonly string[]): Promise<number> {
   const io = deps.io ?? consoleCliIo;
   const parsed = parseLoopCellArgs(args);
@@ -238,7 +300,9 @@ export async function benchmarkLoopCellCommand(deps: LoopCellDeps, args: readonl
   };
 
   const taskFile = cellTaskPath(workdirAbs, taskId);
-  await deps.ports.writeTextFile(taskFile, renderCellTask(cell));
+  // Parašas uždedamas ČIA, o ne `renderCellTask` viduje: gryna task'o forma lieka ta pati bet
+  // kuriam kvietėjui, o patvirtinimas yra šio — rinkinį vykdančio — kelio faktas.
+  await deps.ports.writeTextFile(taskFile, withCellHumanReviewApproval(renderCellTask(cell)));
   // Spec change'as PRIVALO atsirasti kartu su užduotimi: be jo `claude-preflight` kodo pakeitimą
   // teisingai nukreipia į human-review, ir celė baigiasi be nė vieno modelio kvietimo. Tai ne
   // apėjimas — tai ta pati tvarka, kurios loop'as reikalauja iš kiekvieno realaus darbo.

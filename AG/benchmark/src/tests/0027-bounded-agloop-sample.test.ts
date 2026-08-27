@@ -157,12 +157,16 @@ test("a host that already sets the variable cannot leak it into agent-solo", () 
   assert.equal(loop.env[AG_LOOP_BOUNDED_CELL_VARIABLE], AG_LOOP_BOUNDED_CELL_VALUE);
 });
 
-test("the adapter version is ag-loop/3, and the source records why it moved", async () => {
+test("the adapter version is ag-loop/4, and the source records why it moved", async () => {
   // 2026-08-22: the mode stopped being one bounded agent call and became a full cycle, so the
   // version HAD to move — a `/2` baseline measured a different thing and must be refused rather
   // than silently subtracted from a `/3` run. What has to survive here is the reason, because
   // the next change to the drive path is the one that will need the same judgement.
-  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/3");
+  //
+  // 2026-08-27 was that next change: the cell now hands the loop a task already signed
+  // HUMAN-REVIEW-APPROVED, which both adds eight scenarios to the mode's population and removes
+  // the keyword-gate share from its human-review rate. Same judgement, same outcome — /4.
+  assert.equal(AG_LOOP_ADAPTER_VERSION, "ag-loop/4");
 
   const source = await packageSource("src", "infrastructure", "adapters", "ag-loop-execution-adapter.ts");
   if (source === undefined) return; // Only the build is present; there is no source to pin.

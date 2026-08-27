@@ -68,6 +68,12 @@ export type PreflightFilePorts = {
   writePreflightInput(text: string): Promise<void>;
   /** `vq/logs/supervisor-last.log` (paskutinio LLM kvietimo išvestis). */
   writeSupervisorLog(text: string): Promise<void>;
+  /**
+   * Projekto šaknimi santykinio katalogo egzistavimas (hallucinated-allowed-path guard'ui
+   * po LLM reformulacijos — žr. preflight-llm.ts). Grynas predikatas su IO efektu; jokio
+   * `node:fs` importo interfaces sluoksnyje.
+   */
+  dirExists(relativeDir: string): Promise<boolean>;
 };
 
 export type ClaudePreflightPorts = {

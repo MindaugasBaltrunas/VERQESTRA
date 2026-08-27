@@ -349,6 +349,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     tier: preflightTier,
     maxTurns: semanticReviewMaxTurns,
     buildPrompt,
+    taskText: activeText,
   });
 
   // Skaldymas pavyko, jei yra bent vienas child task IR claude_task pats nebeviršija ribų.

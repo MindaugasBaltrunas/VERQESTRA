@@ -5,6 +5,9 @@
 
 import path from "node:path";
 import { USAGE_LIMIT_EXIT_CODE } from "../../../../shared/exit-codes.js";
+import { extractSection, findSectionBounds } from "../../../../shared/markdown.js";
+import { allowedPaths } from "../../../../domain/tasks/allowed-paths.js";
+import { detectHallucinatedAllowedPaths } from "../../../../application/quality-gates/preflight-rules.js";
 import type { PreflightLimits } from "../../../../application/policy-governance/preflight-limits-policy.js";
 import type { ClaudePreflightPorts, PreflightDecision } from "./preflight-ports.js";
 
@@ -134,7 +137,64 @@ export type PreflightLlmRunnerContext = {
   tier: string;
   maxTurns: number;
   buildPrompt(scale: PromptScale): string;
+  /** Pre-LLM aktyvus task tekstas — hallucinated-allowed-path guard'o originalo šaltinis. */
+  taskText: string;
 };
+
+/**
+ * Reformuluoto `claude_task` `## Failai` keliai, kurių tėvinis katalogas ĮRODYTAI neegzistuoja
+ * (grynoji taisyklė — `detectHallucinatedAllowedPaths`). `dirExists` yra async portas: tėviniai
+ * katalogai suresolvinami VIENĄ kartą prieš kviečiant grynąją taisyklę su sinchroniniu
+ * predikatu, sudarytu iš jau žinomų atsakymų (nežinomas kelias predikate — fail-open `true`,
+ * bet tai neįvyksta, nes žemėlapis apima kiekvieną kandidatą).
+ */
+async function findHallucinatedAllowedPaths(
+  claudeTask: string,
+  dirExists: (relativeDir: string) => Promise<boolean>,
+): Promise<string[]> {
+  const parentExists = new Map<string, boolean>();
+  for (const candidate of allowedPaths(claudeTask)) {
+    if (candidate.includes("*")) continue;
+    const parent = path.posix.dirname(candidate.replace(/\\/g, "/"));
+    if (parent === "." || parentExists.has(parent)) continue;
+    parentExists.set(parent, await dirExists(parent));
+  }
+  return detectHallucinatedAllowedPaths(claudeTask, (dir) => parentExists.get(dir) ?? true);
+}
+
+/** Pakeičia `claude_task` `## Failai` sekcijos KŪNĄ originalaus (pre-LLM) task teksto sekcija. */
+function replaceFailaiSectionWithOriginal(claudeTask: string, originalTaskText: string): string {
+  const lines = claudeTask.split(/\r?\n/);
+  const bounds = findSectionBounds(lines, (line) => line.trim() === "## Failai");
+  if (bounds === undefined) return claudeTask;
+  const originalBody = extractSection(originalTaskText, "## Failai");
+  if (!originalBody) return claudeTask;
+  return [...lines.slice(0, bounds.start + 1), originalBody, "", ...lines.slice(bounds.end)].join("\n");
+}
+
+/**
+ * LLM reformulacijos apsauga (task 045-a-02): jei `claude_task` `## Failai` nurodo kelią, kurio
+ * tėvinio katalogo NĖRA, LLM sugalvojo kelią. Grąžinam ORIGINALO `## Failai` sekciją ir garsiai
+ * pažymim žurnale (`CLAUDE PREFLIGHT: ... hallucinated-allowed-path`); niekas kitas sprendime
+ * nekeičiamas. Fail-open: be flagged kelių arba be `## Failai`/originalo sekcijos — nieko nedaro.
+ */
+async function guardAgainstHallucinatedAllowedPaths(
+  ports: ClaudePreflightPorts,
+  context: PreflightLlmRunnerContext,
+  decision: PreflightDecision,
+): Promise<PreflightDecision> {
+  const claudeTask = decision.claude_task;
+  if (!claudeTask) return decision;
+  const flagged = await findHallucinatedAllowedPaths(claudeTask, (dir) => ports.files.dirExists(dir));
+  if (flagged.length === 0) return decision;
+  const patched = replaceFailaiSectionWithOriginal(claudeTask, context.taskText);
+  if (patched === claudeTask) return decision;
+  await ports.agLog(
+    `CLAUDE PREFLIGHT: task=${context.taskId} hallucinated-allowed-path: LLM claude_task ## Failai referenced ` +
+      `non-existent path(s) (${flagged.join(", ")}) — reverted ## Failai to original task section`,
+  );
+  return { ...decision, claude_task: patched };
+}
 
 /**
  * Vieno LLM bandymo vykdytojas (etalono runPreflightAttempt 1:1). Kiekvienas bandymas
@@ -217,7 +277,8 @@ export function createPreflightLlmRunner(ports: ClaudePreflightPorts, context: P
       return { kind: "halt", exitCode: result.code };
     }
 
-    return { kind: "ok", decision: ports.parseDecision(result.stdout) };
+    const decision = await guardAgainstHallucinatedAllowedPaths(ports, context, ports.parseDecision(result.stdout));
+    return { kind: "ok", decision };
   };
 }
 

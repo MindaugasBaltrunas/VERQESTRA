@@ -190,6 +190,8 @@ export function claudePreflightPorts(input: ClaudePreflightAdapterInput): Claude
       writePreflightInput: (text) => nodeFsAdapter.writeTextFile(supervisor("preflight-input.md"), text),
       writeSupervisorLog: (text) =>
         nodeFsAdapter.writeTextFile(path.join(input.runtimeRoot, "logs", "supervisor-last.log"), text),
+      dirExists: async (relativeDir) =>
+        (await nodeFsAdapter.statKind(path.join(input.projectRoot, relativeDir))) === "directory",
     },
     recordResumeCheckpoint: (entry) =>
       recordResumeCheckpoint({

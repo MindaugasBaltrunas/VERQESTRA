@@ -201,6 +201,7 @@ function makeHarness(input: {
       },
       writePreflightInput: async () => {},
       writeSupervisorLog: async () => {},
+      dirExists: async () => true,
     },
     recordResumeCheckpoint: async (entry) => {
       checkpoints.push(`${entry.phase}:${entry.status}`);
@@ -361,6 +362,38 @@ test("claudePreflight: LLM kelias — fastpath-miss, prompt'as su taisyklėmis, 
   assert.match(written.claude_task ?? "", /## Agentai\nreadme-guard -> coder\n/);
   assert.equal(h.usageLogs[0]?.[0], "preflight", "LLM kvietimo usage apskaita");
   assert.ok(h.reformulated[0]!.startsWith("## Žingsnis 0"));
+});
+
+test("claudePreflight: LLM claude_task ## Failai turi sugalvotą kelią → guard grąžina originalo sekciją + garsus log (task 045-a-02)", async () => {
+  const llmDecision: PreflightDecision = {
+    verdict: "delegate",
+    task_id: "0042-demo",
+    selected_model: "sonnet",
+    target_agent_chain: ["coder"],
+    reason: "ok",
+    claude_task: LLM_CLAUDE_TASK.replace("readme-guard -> coder", "coder").replace(
+      "- `src/a.ts`",
+      "- `src/nera-tokio-katalogo/phantom.ts`",
+    ),
+    child_tasks: [],
+  };
+  const h = makeHarness({
+    // nežinomas agentas grandinėje → fastpath miss → LLM kelias.
+    taskText: CANONICAL_TASK.replace("readme-guard -> coder", "readme-guard -> nezinomas"),
+    llm: () => ({ stdout: JSON.stringify(llmDecision), stderr: "", code: 0 }),
+  });
+  h.ports.files.dirExists = async (dir) => dir !== "src/nera-tokio-katalogo";
+
+  const code = await claudePreflight(["t"], h.ports);
+  assert.equal(code, 0);
+
+  const written = h.fileDecisions[0]!;
+  assert.match(written.claude_task ?? "", /- `src\/a\.ts`/, "sugalvotas kelias pakeistas originalo ## Failai sekcija");
+  assert.doesNotMatch(written.claude_task ?? "", /nera-tokio-katalogo/, "sugalvotas kelias nebelieka claude_task'e");
+  assert.ok(
+    h.agLines.some((line) => line.includes("hallucinated-allowed-path")),
+    "garsus log apie sugalvotą kelią",
+  );
 });
 
 test("claudePreflight: LLM task_id (per ilgas/kitoks) visada antspauduojamas kanoniniu taskId (task 041)", async () => {

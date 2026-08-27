@@ -14,9 +14,12 @@
 //   2. TELEMETRIJA GNIUŽTA ATSKIRAI. Sugadintas ar nesantis `context-size.jsonl` negali paslėpti
 //      vėliavų — jos yra vienintelis dalykas, be kurio puslapis beprasmis. Telemetrijos lūžis
 //      virsta `degraded` įrašu, ne 500-uku.
-//   3. IR PALYGINIMAS YRA SHADOW. `raw_task_chars` vs `compiled_task_chars` matuojami net kai
-//      `worker_task_ir` išjungtas (`persist.ts` shadow kelias) — būtent todėl šis puslapis gali
-//      atsakyti „ar verta įjungti" PRIEŠ įjungiant.
+//   3. IR PALYGINIMAS YRA SHADOW. Matuojama net kai `worker_task_ir` išjungtas (`persist.ts`
+//      shadow kelias) — būtent todėl šis puslapis gali atsakyti „ar verta įjungti" PRIEŠ
+//      įjungiant. Kai mėginys turi prompt'o lygio porą (`raw_prompt_chars` vs
+//      `compiled_prompt_chars`, task 0032), ji naudojama — tai TAS PATS worker prompt, kurį
+//      gautų dispatch. Senesni mėginiai be jos krenta prie `raw_task_chars` vs
+//      `compiled_task_chars`, be lūžio.
 
 import {
   CONTEXT_COMPRESSION_CANARY_UNSUPPORTED,
@@ -46,9 +49,19 @@ export type ContextSizeSample = {
   selected_token_estimate?: unknown;
   raw_task_chars?: unknown;
   compiled_task_chars?: unknown;
+  /**
+   * Prompt'o lygio shadow pora (task 0032, `persist.ts`): TAS PATS worker prompt, kurį realiai
+   * gautų dispatch — ne vien task'o kūnas. Kai mėginyje yra, ji turi pirmenybę prieš
+   * `raw_task_chars`/`compiled_task_chars`.
+   */
+  raw_prompt_chars?: unknown;
+  compiled_prompt_chars?: unknown;
   exceeded?: unknown;
   cache_status?: unknown;
 };
+
+/** Kuri pora informavo shadow IR palyginimą: prompt'o lygio (nauja) ar task'o lygio (senoji). */
+export type UiCompressionIrPair = "prompt" | "task";
 
 export type UiCompressionTelemetry = {
   /** Kiek eilučių pateko į santrauką (imamos naujausios). */
@@ -66,6 +79,12 @@ export type UiCompressionTelemetry = {
   ir_compared_count: number;
   ir_smaller_count: number;
   avg_ir_delta_percent?: number;
+  /**
+   * Kuri pora sudarė `ir_*` skaičius. Prompt'o lygio pora turi pirmenybę kiekvienam mėginiui,
+   * kai jis ją turi; task'o lygio pora naudojama tik tiems mėginiams, kur prompt'o poros nėra.
+   * Nebūna, kai `ir_compared_count` yra 0 — tada nėra ko įvardyti.
+   */
+  ir_pair?: UiCompressionIrPair;
 };
 
 /**
@@ -90,6 +109,8 @@ export type UiCompressionRecommendation = {
     | "ir-smaller-no-pressure"
     | "too-few-ir-comparisons"
     | "no-shadow-measurement";
+  /** Kuri pora buvo naudota šiam sprendimui — kad UI galėtų įvardyti KAS lyginama. */
+  pair?: UiCompressionIrPair;
 };
 
 export type UiCompressionDecision = {
@@ -141,12 +162,38 @@ export function parseContextSizeSamples(raw: string, limit = COMPRESSION_TELEMET
   return samples;
 }
 
+type IrPairMeasurement = { raw: number; compiled: number; pair: UiCompressionIrPair };
+
+/**
+ * Vieno mėginio shadow IR pora. Prompt'o lygio pora (`raw_prompt_chars`/`compiled_prompt_chars`,
+ * task 0032) turi pirmenybę, kai mėginys ją turi — tai pora, ant kurios sprendimas iš tiesų
+ * daromas, nes ji apima tą patį worker prompt'ą, kurį gautų dispatch, ne vien task'o kūną.
+ * Senesni mėginiai jos neturi, todėl kritimas prie `raw_task_chars`/`compiled_task_chars` yra
+ * fallback, ne lūžis.
+ */
+function selectIrPair(sample: ContextSizeSample): IrPairMeasurement | undefined {
+  const promptRaw = finiteNumber(sample.raw_prompt_chars);
+  const promptCompiled = finiteNumber(sample.compiled_prompt_chars);
+  if (promptRaw !== undefined && promptCompiled !== undefined && promptRaw > 0) {
+    return { raw: promptRaw, compiled: promptCompiled, pair: "prompt" };
+  }
+
+  const taskRaw = finiteNumber(sample.raw_task_chars);
+  const taskCompiled = finiteNumber(sample.compiled_task_chars);
+  if (taskRaw !== undefined && taskCompiled !== undefined && taskRaw > 0) {
+    return { raw: taskRaw, compiled: taskCompiled, pair: "task" };
+  }
+
+  return undefined;
+}
+
 export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCompressionTelemetry {
   const budgetPercents: number[] = [];
   const irDeltas: number[] = [];
   let exceededCount = 0;
   let irCompared = 0;
   let irSmaller = 0;
+  let irPromptPairCount = 0;
   let latestTs: string | undefined;
 
   for (const sample of samples) {
@@ -160,13 +207,13 @@ export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCom
       if (share !== undefined) budgetPercents.push(share);
     }
 
-    const rawChars = finiteNumber(sample.raw_task_chars);
-    const compiledChars = finiteNumber(sample.compiled_task_chars);
-    if (rawChars !== undefined && compiledChars !== undefined && rawChars > 0) {
+    const measurement = selectIrPair(sample);
+    if (measurement !== undefined) {
       irCompared += 1;
-      if (compiledChars < rawChars) irSmaller += 1;
+      if (measurement.pair === "prompt") irPromptPairCount += 1;
+      if (measurement.compiled < measurement.raw) irSmaller += 1;
       // Neigiama delta = IR mažesnis (nauda). Teigiama = IR didesnis (žala).
-      irDeltas.push(Math.round(((compiledChars - rawChars) / rawChars) * 1000) / 10);
+      irDeltas.push(Math.round(((measurement.compiled - measurement.raw) / measurement.raw) * 1000) / 10);
     }
   }
 
@@ -183,6 +230,7 @@ export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCom
     ir_compared_count: irCompared,
     ir_smaller_count: irSmaller,
     ...(avgIrDelta === undefined ? {} : { avg_ir_delta_percent: avgIrDelta }),
+    ...(irCompared === 0 ? {} : { ir_pair: irPromptPairCount > 0 ? "prompt" : "task" }),
   };
 }
 
@@ -210,24 +258,27 @@ export function decidePressure(telemetry: UiCompressionTelemetry): UiCompression
 /**
  * Rekomendacija KIEKVIENAI vėliavai — įskaitant tas, kurioms matavimo nėra.
  *
- * Shadow matavimą šiandien turi tik `worker_task_ir` (`raw_task_chars` vs `compiled_task_chars`).
- * Likusioms keturioms sąžiningas atsakymas yra „nematuojama", o ne tyla: eilutės nebuvimas
- * skaitytojui atrodytų kaip „viskas gerai", nors iš tiesų sprendimui duomenų nėra.
+ * Shadow matavimą šiandien turi tik `worker_task_ir` — telemetrijos `ir_pair` sako, kuri pora
+ * jį sudarė (prompt'o lygio, kai mėginiuose yra, kitaip task'o lygio fallback), o rekomendacija
+ * tą lauką perduoda toliau, kad UI galėtų įvardyti KAS lyginama. Likusioms keturioms sąžiningas
+ * atsakymas yra „nematuojama", o ne tyla: eilutės nebuvimas skaitytojui atrodytų kaip „viskas
+ * gerai", nors iš tiesų sprendimui duomenų nėra.
  */
 export function decideCompression(telemetry: UiCompressionTelemetry): UiCompressionDecision {
   const pressure = decidePressure(telemetry);
+  const pairField = telemetry.ir_pair === undefined ? {} : { pair: telemetry.ir_pair };
 
   const irAction = ((): UiCompressionRecommendation => {
     if (telemetry.ir_compared_count < MIN_DECISION_SAMPLES) {
-      return { key: "worker_task_ir", action: "insufficient", reason: "too-few-ir-comparisons" };
+      return { key: "worker_task_ir", action: "insufficient", reason: "too-few-ir-comparisons", ...pairField };
     }
     const delta = telemetry.avg_ir_delta_percent ?? 0;
     // Teigiama delta = IR VIDUTINIŠKAI didesnis už raw — įjungimas paketą augintų, ne mažintų.
-    if (delta > 0) return { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average" };
+    if (delta > 0) return { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average", ...pairField };
     if (pressure === "high" || pressure === "moderate") {
-      return { key: "worker_task_ir", action: "enable", reason: "ir-smaller-under-pressure" };
+      return { key: "worker_task_ir", action: "enable", reason: "ir-smaller-under-pressure", ...pairField };
     }
-    return { key: "worker_task_ir", action: "optional", reason: "ir-smaller-no-pressure" };
+    return { key: "worker_task_ir", action: "optional", reason: "ir-smaller-no-pressure", ...pairField };
   })();
 
   return {

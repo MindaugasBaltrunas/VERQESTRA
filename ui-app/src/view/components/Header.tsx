@@ -100,12 +100,26 @@ export function Header({
         </nav>
         <div className="toolbar">
           {onResumeLoop && (
-            <button className="button success small-button" type="button" onClick={onResumeLoop} title={t("Start VERQESTRA")} disabled={!canResumeLoop}>
+            <button
+              className="button success small-button"
+              type="button"
+              onClick={onResumeLoop}
+              title={t("Start VERQESTRA")}
+              disabled={!canResumeLoop}
+              aria-busy={(resumeLoopLabel !== undefined && resumeLoopLabel !== "▶ Start loop") || undefined}
+            >
               {t(resumeLoopLabel ?? "▶ Start loop")}
             </button>
           )}
           {onStopLoop && (
-            <button className="button danger small-button" type="button" onClick={onStopLoop} title={t("Stop VERQESTRA")} disabled={!canStopLoop}>
+            <button
+              className="button danger small-button"
+              type="button"
+              onClick={onStopLoop}
+              title={t("Stop VERQESTRA")}
+              disabled={!canStopLoop}
+              aria-busy={(stopLoopLabel !== undefined && stopLoopLabel !== "⏹ Stop loop") || undefined}
+            >
               {t(stopLoopLabel ?? "⏹ Stop loop")}
             </button>
           )}

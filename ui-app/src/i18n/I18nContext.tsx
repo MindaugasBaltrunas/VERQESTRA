@@ -866,6 +866,11 @@ const lt: Record<string, string> = {
     "Stabdymas užfiksuotas, bet šis UI nežino nė vieno veikiančio ciklo proceso.",
   "Could not stop the loop": "Nepavyko sustabdyti ciklo",
   "Loop restarted.": "Ciklas perkrautas.",
+  // Task 048: Header'io „Paleisti" pereina per `run()`, o rankinis atnaujinimas gauna savo toast'ą.
+  "Loop started (pid {pid}).": "Ciklas paleistas (pid {pid}).",
+  "Could not start the loop": "Nepavyko paleisti ciklo",
+  "Status refreshed.": "Būsena atnaujinta.",
+  "Could not refresh the status": "Nepavyko atnaujinti būsenos",
   // Bendras perkrovimo prefiksas: `useOperatorActions` klaidos pranešimą sudaro iš prefikso ir
   // priežasties, o pati priežastis (žemiau) pasako, KURIAME žingsnyje sustota.
   "Could not restart the loop": "Nepavyko perkrauti ciklo",

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { DASHBOARD_RELOAD_ACTION } from "../../controller/useDashboardController";
 import type {
   LoopControlView,
   RuntimeProcessView,
@@ -179,7 +180,17 @@ export const RuntimePanel = memo(function RuntimePanel({
             <article className="system-signal signal-warning" key={process.name}>
               <span className="signal-icon" aria-hidden="true">!</span>
               <div><strong>{t("Runtime state is unknown")}: {process.name}</strong><p>{t("Refresh the status; if it remains unknown, verify that the PID tracker is connected.")}</p></div>
-              {onRefresh && <button className="button ghost small-button" type="button" onClick={onRefresh}>{t("Check again")}</button>}
+              {onRefresh && (
+                <button
+                  className="button ghost small-button"
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={pendingActions.has(DASHBOARD_RELOAD_ACTION)}
+                  aria-busy={pendingActions.has(DASHBOARD_RELOAD_ACTION) || undefined}
+                >
+                  {t("Check again")}
+                </button>
+              )}
             </article>
           ))}
           {loop?.status !== "stopped" && unknown.length === 0 && (
@@ -264,7 +275,17 @@ export const RuntimePanel = memo(function RuntimePanel({
             <h2 id="runtime-processes-title">{t("Runtime processes")}</h2>
             <p className="panel-subtitle">{t("Availability, purpose, and process identity")}</p>
           </div>
-          {onRefresh && <button className="button ghost small-button" type="button" onClick={onRefresh}>↻ {t("Refresh status")}</button>}
+          {onRefresh && (
+            <button
+              className="button ghost small-button"
+              type="button"
+              onClick={onRefresh}
+              disabled={pendingActions.has(DASHBOARD_RELOAD_ACTION)}
+              aria-busy={pendingActions.has(DASHBOARD_RELOAD_ACTION) || undefined}
+            >
+              ↻ {t("Refresh status")}
+            </button>
+          )}
         </div>
         <div className="runtime-grid">
           {processes.map((process) => (

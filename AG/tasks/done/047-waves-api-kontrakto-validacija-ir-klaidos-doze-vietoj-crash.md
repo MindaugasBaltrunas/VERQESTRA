@@ -21,7 +21,7 @@ paskutinių sėkmingų duomenų klaidos dėže — ALREADY_IMPLEMENTED.
 
 ## Tikslas
 2026-08-27 UI auditas: `#/system` ekranas gali nulūžti tyliai. (a) `fetchWaves`
-(`ui-app/src/api.ts:105-109`) daro žalią `as UiWavesView` be kontrakto patikros —
+(`ui-app/src/model/api.ts`) daro žalią `as UiWavesView` be kontrakto patikros —
 atsakymas be `degraded`/`leases` meta `TypeError` `WavesPanel.tsx:92` ir numuša visą
 ekraną. (b) `useWavesController` (`useWavesController.ts:34-45`) neturi `loading` —
 „Bandyti dar kartą" paspaudus 30 s nieko nevyksta. (c) Klaidos atveju panelė
@@ -32,10 +32,12 @@ readme-guard -> coder -> reviewer -> tester
 
 ## Failai
 Leidžiama:
-- `ui-app/src/api.ts`
+- `ui-app/src/model/api.ts`
 - `ui-app/src/controller/useWavesController.ts`
+- `ui-app/src/controller/useWavesController.test.ts`
+- `ui-app/src/model/apiEnvelopes.test.ts`
 - `ui-app/src/view/components/WavesPanel.tsx`
-- `ui-app/src/tests/**`
+- `ui-app/src/view/components/WavesPanel.test.tsx`
 
 Draudžiama:
 - `src/**`

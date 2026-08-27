@@ -28,6 +28,15 @@ import { useOperatorActions } from "./useOperatorActions";
 
 const REFRESH_SEC = 30;
 
+/**
+ * Header'io „Paleisti" veiksmo id (task 048). Sąmoningai ATSKIRAS nuo `LOOP_START_ACTION`: abu
+ * keliai lieka nesuvienyti (049), tad savo užrakto reikia ir šiam — kitaip dvigubas paspaudimas
+ * ant Header'io mygtuko vis tiek išsiųstų dvi `/tasks/resume` užklausas.
+ */
+export const LOOP_RESUME_ACTION = "loop-resume";
+/** Rankinio „Atnaujinti"/„Tikrinti dar kartą" veiksmo id — leidžia mygtukams rodyti `aria-busy`. */
+export const DASHBOARD_RELOAD_ACTION = "dashboard-reload";
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -63,6 +72,12 @@ function resumeLoopLabel(status: string, pid?: number): string {
  * Pagrindimas „fresh project, loop never ran" nebegalioja nuo tada, kai serveris `runtime` sąrašą
  * siunčia VISADA: „įrašo nėra" nebereiškia švaraus projekto, o reiškia netvarkingą atsakymą, kur
  * paleidimo siūlyti tuo labiau negalima.
+ *
+ * 2026-08-27 auditas (task 048): funkcija toliau lygina TEKSTĄ (signatūra ir esami testai
+ * nepakeisti), bet iškvietimo vietoje `resumeLabel`/`stopLabel` nebeperduodamas TIKRAS mygtuko
+ * tekstas — jis turi savo atsileidimo laikmatį ir po klaidos likdavo neatitikęs kelias sekundes
+ * ilgiau, nei veiksmas realiai vyko, tad mygtukas užsirakindavo be priežasties. Dabar įėjimas
+ * kilęs iš `pendingActions`, vienintelio šaltinio, žinančio, ar veiksmas TIKRAI dar vyksta.
  */
 export function buildLoopControls(
   loopStatus: LoopRunState,
@@ -158,11 +173,17 @@ export function useDashboardController() {
     };
   }, []);
 
-  const load = useCallback(async () => {
+  /**
+   * Grąžina rezultatą (ne tik pakeičia būseną), kad `reload` (žemiau) galėtų atskirti pavykusį
+   * atnaujinimą nuo nepavykusio ir per `run()` pranešti apie tai toast'u. Fonui skirtas apklausos
+   * ciklas ir kitų veiksmų `void load()` iškvietimai rezultatą ignoruoja — jiems pakanka to, ką
+   * `load` jau daro pati: `error`/`refreshError` būsenos.
+   */
+  const load = useCallback(async (): Promise<{ ok: true } | { ok: false; message: string }> => {
     const requestId = ++requestSequence.current;
     try {
       const dashboard = await api.fetchDashboard();
-      if (requestId !== requestSequence.current) return;
+      if (requestId !== requestSequence.current) return { ok: true };
       const serialized = JSON.stringify(dashboard);
       // Sėkmingo POLLO laikas, o ne duomenų pakeitimo: „nepasikeitė" yra šviežias atsakymas,
       // o ne pasenę duomenys. Žymima PRIEŠ ankstyvą grįžimą — kitaip ramus, nieko nekeičiantis
@@ -173,23 +194,43 @@ export function useDashboardController() {
         // dashboard does not re-render (and thus does not visually jump).
         setError(null);
         setRefreshError(null);
-        return;
+        return { ok: true };
       }
       lastSnapshot.current = serialized;
       setData(dashboard);
       hasDashboardData.current = true;
       setError(null);
       setRefreshError(null);
+      return { ok: true };
     } catch (loadError) {
-      if (requestId !== requestSequence.current) return;
+      if (requestId !== requestSequence.current) return { ok: true };
       const message = toErrorMessage(loadError);
       if (hasDashboardData.current) {
         setRefreshError(`Nepavyko atnaujinti duomenų: ${message}`);
-        return;
+        return { ok: false, message };
       }
       setError(message);
+      return { ok: false, message };
     }
   }, []);
+
+  /**
+   * Vienintelis rankinio atnaujinimo kelias (task 048): tas pats `run()` užraktas ir toast'as kaip
+   * kitiems mutuojantiems veiksmams, tad „Atnaujinti būseną"/„Tikrinti dar kartą" mygtukai gauna
+   * `aria-busy`/`disabled` iš `pendingActions`, o nesėkmė nebelieka matoma TIK viršutinėje
+   * `refreshError` juostoje. Fonui skirtas apklausos ciklas ir toliau naudoja `load` tiesiogiai —
+   * kitaip serveriui laikinai nepasiekus kas 30 s spėtų toast'ą, kurio niekas neprašė.
+   */
+  const reload = useCallback(async () => {
+    await run(DASHBOARD_RELOAD_ACTION, {
+      perform: async () => {
+        const result = await load();
+        if (!result.ok) throw new Error(result.message);
+        return t("Status refreshed.");
+      },
+      failureMessage: t("Could not refresh the status"),
+    });
+  }, [load, run, t]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -235,21 +276,33 @@ export function useDashboardController() {
     };
   }, [data]);
 
+  /**
+   * Header'io ciklo paleidimas (task 048). Anksčiau šis kelias apeidavo `run()`: nebuvo
+   * `pendingActions` užrakto (du greiti paspaudimai siųsdavo dvi `/tasks/resume` užklausas) ir
+   * jokio toast'o — rezultatas matydavosi TIK trumpam pasikeitusiame mygtuko tekste. Dabar veiksmas
+   * dalijasi ta pačia disciplina kaip `stopLoop`/`startLoopWithWorkers`.
+   */
   const resumeLoop = useCallback(async () => {
-    setResumeLabel("▶ Starting...");
-    try {
-      const result = await api.resumeLoop();
-      setResumeLabel(resumeLoopLabel(result.status, result.pid));
-      setNotice(null);
-      void load();
-      scheduleLabelReset(resumeResetTimer, setResumeLabel, "▶ Start loop", 4000);
-    } catch (resumeError) {
-      const message = toErrorMessage(resumeError);
-      setResumeLabel(`▶ Error: ${message}`);
-      setNotice(`Could not start the loop: ${message}`);
-      scheduleLabelReset(resumeResetTimer, setResumeLabel, "▶ Start loop", 6000);
-    }
-  }, [load]);
+    await run(LOOP_RESUME_ACTION, {
+      perform: async () => {
+        setResumeLabel("▶ Starting...");
+        try {
+          const result = await api.resumeLoop();
+          setResumeLabel(resumeLoopLabel(result.status, result.pid));
+          void load();
+          scheduleLabelReset(resumeResetTimer, setResumeLabel, "▶ Start loop", 4000);
+          return result.status === "already-running"
+            ? t("The loop was already running.")
+            : fill(t("Loop started (pid {pid})."), { pid: result.pid ?? "—" });
+        } catch (resumeError) {
+          setResumeLabel(`▶ Error: ${toErrorMessage(resumeError)}`);
+          scheduleLabelReset(resumeResetTimer, setResumeLabel, "▶ Start loop", 6000);
+          throw resumeError;
+        }
+      },
+      failureMessage: t("Could not start the loop"),
+    });
+  }, [load, run, t]);
 
   /**
    * Ciklo stabdymas. Header'is toliau gyvena iš `stopLabel`, o rezultato sakinys nuo šiol keliauja į
@@ -516,9 +569,20 @@ export function useDashboardController() {
     // TAS PATS šaltinis kaip `#/system` valdikliams (`loopRunStateOf`), o ne antras skaitymas iš
     // `runtime` sąrašo: du šaltiniai tam pačiam klausimui anksčiau ar vėliau duoda du atsakymus,
     // ir Header'is su `#/system` imtų siūlyti skirtingus veiksmus tai pačiai būsenai.
-    loopControls: buildLoopControls(data === null ? "unknown" : loopRunStateOf(data), resumeLabel, stopLabel),
+    //
+    // `resumeLabel`/`stopLabel` čia NEPERDUODAMI tiesiogiai (task 048): jie yra mygtuko RODOMAS
+    // tekstas su savo pačių atsileidimo laikmačiu (klaida rodo tekstą kelias sekundes ilgiau, nei
+    // veiksmas realiai vyksta), tad lyginant juos pažodžiui mygtukas liktų užrakintas ir PO to, kai
+    // veiksmas jau baigėsi. `buildLoopControls` toliau lygina TEKSTĄ (jos signatūra ir testai
+    // nekeičiami), bet įėjimas dabar kilęs iš TIKRO `pendingActions` — vienintelio šaltinio, kuris
+    // žino, ar veiksmas dar vyksta.
+    loopControls: buildLoopControls(
+      data === null ? "unknown" : loopRunStateOf(data),
+      pendingActions.has(LOOP_RESUME_ACTION) ? "" : "▶ Start loop",
+      pendingActions.has(LOOP_STOP_ACTION) ? "" : "⏹ Stop loop",
+    ),
     actions: {
-      reload: load,
+      reload,
       resumeLoop,
       stopLoop,
       restartLoop,

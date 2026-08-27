@@ -26,6 +26,7 @@ import {
   type PreflightFailureMemoRecord,
 } from "../quality-gates/preflight-memo-schema.js";
 import type { ResumeStateSnapshot, TaskRunPorts } from "./run-coordinator-ports.js";
+import { decisionInvalidMarker } from "./run-coordinator-ports.js";
 import { createTaskRunState, type TaskRunState } from "./task-run-state.js";
 import { PREFLIGHT_START_FAILURE_CLASS, preflightRetryWithoutChange } from "./run-coordinator-guards.js";
 import { dispatchTask } from "./dispatch-task.js";
@@ -74,7 +75,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
     if (decisionResult.status === "invalid") {
       return await applyTerminal(ports, state, {
         kind: "human-review",
-        reason: `TASK HUMAN REVIEW: ${state.taskId} corrupted_decision_json=1`,
+        reason: `TASK HUMAN REVIEW: ${state.taskId} ${decisionInvalidMarker(decisionResult)}`,
       });
     }
 
@@ -121,7 +122,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
     if (decisionResult.status === "invalid") {
       return await applyTerminal(ports, state, {
         kind: "human-review",
-        reason: `TASK HUMAN REVIEW: ${state.taskId} corrupted_decision_json=1`,
+        reason: `TASK HUMAN REVIEW: ${state.taskId} ${decisionInvalidMarker(decisionResult)}`,
       });
     }
 

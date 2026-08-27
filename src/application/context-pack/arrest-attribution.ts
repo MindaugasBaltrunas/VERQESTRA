@@ -108,6 +108,9 @@ export const INFRA_FAILURE_SIGNATURES: readonly string[] = [
   "preflight_retry_without_change",
   "preflight-retry-guard",
   "corrupted_decision_json",
+  // Task 041-a: svetimo sprendimo nuosavybės gedimas — atskirtas nuo corrupted, bet ta pati
+  // loop mašinerijos, ne prompt'o, klasė.
+  "foreign_decision_task_id",
   "adapter_not_allowed",
   "context_pack_failed",
   "budget_enforcement_failed",

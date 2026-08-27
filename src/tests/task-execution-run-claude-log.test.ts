@@ -145,3 +145,32 @@ test("coordinatorStatePort.readClaudeLog: attempt žurnalas su Write įrankiu �
     await rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+// Task 041-a: REALUS adapteris atskiria tris `decision.json` baigtis — sugadintas turinys,
+// SVETIMO task'o sprendimas (nuosavybės, ne turinio gedimas; rezultatas neša rastą task_id)
+// ir savas tvarkingas sprendimas. Vartas nesikeičia: abu blogi keliai lieka `invalid`.
+test("coordinatorStatePort.readDecision: corrupted / foreign / savas — trys skirtingos baigtys (task 041-a)", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "vq-041a-decision-"));
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const decisionPath = path.join(runtimeRoot, "supervisor", "decision.json");
+  try {
+    await mkdir(path.dirname(decisionPath), { recursive: true });
+    const state = coordinatorStatePort(adapterInput(projectRoot, runtimeRoot, noRuntimeAttemptResolution));
+
+    await writeFile(decisionPath, "{ sugadintas", "utf8");
+    assert.deepEqual(await state.readDecision(TASK), { status: "invalid", cause: "corrupted" });
+
+    await writeFile(decisionPath, JSON.stringify({ task_id: "kitas-task", verdict: "delegate" }), "utf8");
+    assert.deepEqual(await state.readDecision(TASK), {
+      status: "invalid",
+      cause: "foreign",
+      decisionTaskId: "kitas-task",
+    });
+
+    await writeFile(decisionPath, JSON.stringify({ task_id: TASK, verdict: "delegate" }), "utf8");
+    const own = await state.readDecision(TASK);
+    assert.equal(own.status, "ok");
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});

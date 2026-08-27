@@ -40,11 +40,18 @@ async function makeState(env: FakeTaskRunEnv, bucket: TaskBucket = "delegated", 
 
 test("runPreDispatchGates: sugadintas decision.json → human-review dar prieš adapterio vartus", async () => {
   const env = createFakeTaskRunEnv();
-  env.behavior.decision = { status: "invalid" };
+  env.behavior.decision = { status: "invalid", cause: "corrupted" };
   const { state, file } = await makeState(env);
   const result = await runPreDispatchGates(state, env.ports, { promptFile: file, isRepair: false });
   assert.equal(result.kind, "human-review");
   assert.match((result as { reason: string }).reason, /corrupted_decision_json=1/);
+
+  // Task 041-a: svetimas sprendimas parkuoja su NUOSAVYBĖS, ne turinio priežastimi; vartas nepakitęs.
+  env.behavior.decision = { status: "invalid", cause: "foreign", decisionTaskId: "kitas-task-id" };
+  const foreign = await runPreDispatchGates(state, env.ports, { promptFile: file, isRepair: false });
+  assert.equal(foreign.kind, "human-review");
+  assert.match((foreign as { reason: string }).reason, /foreign_decision_task_id=kitas-task-id/);
+  assert.doesNotMatch((foreign as { reason: string }).reason, /corrupted_decision_json/);
 });
 
 test("runPreDispatchGates: adapterio rolės draudimas → human-review; konfigo gedimas → infrastruktūra", async () => {
@@ -146,7 +153,7 @@ test("dispatchTask: sėkmė perkelia į active, fiksuoja ledger/checkpoint ir gr
 
 test("dispatchTask: veto prieš vykdytoją pažymimas preExecution ir nevykdo claude-dispatch", async () => {
   const env = createFakeTaskRunEnv();
-  env.behavior.decision = { status: "invalid" };
+  env.behavior.decision = { status: "invalid", cause: "corrupted" };
   const { state, file } = await makeState(env);
   const result = await dispatchTask(state, env.ports, { promptFile: file, fromTaskFile: file, isRepair: false });
   assert.equal(result.kind, "human-review");
@@ -216,9 +223,12 @@ test("verifyTask: verdiktų maršrutai — repair, rollback_stop/human_review, n
   assert.equal(unknown.kind, "human-review");
   assert.match((unknown as { reason: string }).reason, /UNKNOWN DIAGNOSIS VERDICT/);
 
-  env.behavior.decision = { status: "invalid" };
+  env.behavior.decision = { status: "invalid", cause: "corrupted" };
   const corrupted = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
   assert.match((corrupted as { reason: string }).reason, /corrupted_decision_json=1/);
+  env.behavior.decision = { status: "invalid", cause: "foreign", decisionTaskId: "svetimas" };
+  const foreign = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
+  assert.match((foreign as { reason: string }).reason, /foreign_decision_task_id=svetimas/);
 });
 
 test("verifyTask: done su produkto commit'ais → done; be jų — marker/clean-tree/parkas", async () => {

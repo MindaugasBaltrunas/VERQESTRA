@@ -35,7 +35,26 @@ export type TaskDecision = {
   child_tasks?: { title?: string; claude_task?: string }[];
 };
 
-export type DecisionReadResult = { status: "ok"; decision: TaskDecision } | { status: "invalid" };
+/**
+ * `invalid` privalo pasakyti KODĖL (task 041-a): sugadintas JSON ir SVETIMO task'o sprendimas
+ * yra skirtingi gedimai — pirmasis siunčia operatorių prie failo turinio, antrasis prie
+ * nuosavybės (kas ir kada perrašė `decision.json`). Iki šiol abu spausdino
+ * `corrupted_decision_json=1`, ir operatorius buvo siunčiamas ieškoti sugadinto failo,
+ * kurio nėra. `cause` yra PRIVALOMAS — gamintojas negali grąžinti anoniminio `invalid`.
+ */
+export type DecisionReadResult =
+  | { status: "ok"; decision: TaskDecision }
+  | { status: "invalid"; cause: "corrupted" }
+  | { status: "invalid"; cause: "foreign"; decisionTaskId: string };
+
+/**
+ * Mašininis žymuo human-review priežasčiai — VIENA vieta keturiems skaitytojams
+ * (dispatch vartai, delegate, preflight verdiktas, diagnozė), kad formos negalėtų išsiskirti.
+ * Nuosavybės VARTAS nesikeičia: abu cause parkuoja; skiriasi tik įvardijimas.
+ */
+export function decisionInvalidMarker(result: Extract<DecisionReadResult, { status: "invalid" }>): string {
+  return result.cause === "corrupted" ? "corrupted_decision_json=1" : `foreign_decision_task_id=${result.decisionTaskId}`;
+}
 
 export type JsonReadResult<T> = { status: "ok"; value: T } | { status: "corrupted"; error: string };
 

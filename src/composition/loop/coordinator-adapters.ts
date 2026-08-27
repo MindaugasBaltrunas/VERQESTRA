@@ -253,11 +253,13 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
       const read = await readJsonSnapshot<{ task_id?: string; verdict?: string }>(
         path.join(input.runtimeRoot, "supervisor", "decision.json"),
       );
-      if (read.status === "corrupted") return { status: "invalid" };
+      if (read.status === "corrupted") return { status: "invalid", cause: "corrupted" };
       const decision = read.value;
       // Svetimo task'o sprendimas irgi yra `invalid`: jis galioja, bet ne šiam task'ui.
+      // `cause: "foreign"` neša rastą task_id, kad priežastis operatoriui įvardytų NUOSAVYBĖS,
+      // o ne failo turinio gedimą (task 041-a — iki tol abu virsdavo corrupted_decision_json=1).
       if (decision.task_id !== undefined && decision.task_id.trim() !== "" && decision.task_id !== taskId) {
-        return { status: "invalid" };
+        return { status: "invalid", cause: "foreign", decisionTaskId: decision.task_id };
       }
       return { status: "ok", decision };
     },

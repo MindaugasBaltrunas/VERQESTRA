@@ -12,6 +12,7 @@ import type {
   TaskDecision,
   TaskRunPorts,
 } from "./run-coordinator-ports.js";
+import { decisionInvalidMarker } from "./run-coordinator-ports.js";
 import type { TaskRunState } from "./task-run-state.js";
 
 export type VerifyTaskResult =
@@ -51,7 +52,7 @@ export async function verifyTask(
 
   const decisionResult = await ports.state.readDecision(state.taskId);
   if (decisionResult.status === "invalid") {
-    return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} corrupted_decision_json=1` };
+    return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} ${decisionInvalidMarker(decisionResult)}` };
   }
 
   const decision = decisionResult.decision;

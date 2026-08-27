@@ -15,6 +15,7 @@
 import { isUsageErrorExitCode, POLICY_CONFIG_INVALID_EXIT_CODE } from "../../shared/exit-codes.js";
 import { isPolicyConfigError, type PolicyConfigError } from "../../shared/errors.js";
 import type { TaskRunPorts } from "./run-coordinator-ports.js";
+import { decisionInvalidMarker } from "./run-coordinator-ports.js";
 import type { TaskRunState } from "./task-run-state.js";
 
 export type DispatchTaskRequest = {
@@ -160,7 +161,7 @@ export async function runPreDispatchGates(
   // default modeliu vietoje parkavimo į human-review.
   const decisionResult = await ports.state.readDecision(state.taskId);
   if (decisionResult.status === "invalid") {
-    return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} corrupted_decision_json=1` };
+    return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} ${decisionInvalidMarker(decisionResult)}` };
   }
 
   // Etalono task 889: loop'as dalijasi kanoniniu adapter routing servisu su rankiniu dispatch'u.

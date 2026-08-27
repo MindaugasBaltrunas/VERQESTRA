@@ -14,12 +14,12 @@
 //   2. TELEMETRIJA GNIUŽTA ATSKIRAI. Sugadintas ar nesantis `context-size.jsonl` negali paslėpti
 //      vėliavų — jos yra vienintelis dalykas, be kurio puslapis beprasmis. Telemetrijos lūžis
 //      virsta `degraded` įrašu, ne 500-uku.
-//   3. IR PALYGINIMAS YRA SHADOW. Matuojama net kai `worker_task_ir` išjungtas (`persist.ts`
+//   3. PALYGINIMAS YRA SHADOW, VISOMS PENKIOMS. Matuojama net kai vėliava išjungta (`persist.ts`
 //      shadow kelias) — būtent todėl šis puslapis gali atsakyti „ar verta įjungti" PRIEŠ
-//      įjungiant. Kai mėginys turi prompt'o lygio porą (`raw_prompt_chars` vs
-//      `compiled_prompt_chars`, task 0032), ji naudojama — tai TAS PATS worker prompt, kurį
-//      gautų dispatch. Senesni mėginiai be jos krenta prie `raw_task_chars` vs
-//      `compiled_task_chars`, be lūžio.
+//      įjungiant. `FEATURE_PAIR_SELECTORS` sieja kiekvieną vėliavą su jos (raw, compiled) lauku
+//      poru mėginyje; `worker_task_ir` turi du galimus variantus (prompt'o lygio, task 0032, turi
+//      pirmenybę prieš senesnį task'o lygio), likusios keturios — po vieną fiksuotą porą. Vėliava
+//      be jokio palyginimo bet kuriame mėginyje lieka `"unmeasured"`, ne spėjimu.
 
 import {
   CONTEXT_COMPRESSION_CANARY_UNSUPPORTED,
@@ -58,6 +58,18 @@ export type ContextSizeSample = {
   compiled_prompt_chars?: unknown;
   exceeded?: unknown;
   cache_status?: unknown;
+  /** `bash_output_digest` shadow pora (`post-hooks.ts`). */
+  tool_raw_chars?: unknown;
+  tool_digest_chars?: unknown;
+  /** `symbol_slices` shadow pora (`metrics.ts`): pilnas šaltinis vs vien signatūra. */
+  symbol_source_chars?: unknown;
+  symbol_signature_chars?: unknown;
+  /** `dispatch_tool_schema` shadow pora (`metrics.ts`). */
+  tool_schema_full_chars?: unknown;
+  tool_schema_reduced_chars?: unknown;
+  /** `compact_dsl` shadow pora (`metrics.ts`). */
+  dsl_ir_chars?: unknown;
+  dsl_compiled_chars?: unknown;
 };
 
 /** Kuri pora informavo shadow IR palyginimą: prompt'o lygio (nauja) ar task'o lygio (senoji). */
@@ -85,6 +97,20 @@ export type UiCompressionTelemetry = {
    * Nebūna, kai `ir_compared_count` yra 0 — tada nėra ko įvardyti.
    */
   ir_pair?: UiCompressionIrPair;
+  /**
+   * Shadow pora likusioms keturioms vėliavoms (`compact_dsl`, `symbol_slices`,
+   * `bash_output_digest`, `dispatch_tool_schema`) — po vieną fiksuotą lauko porą kiekvienai,
+   * be prompt/task fallback'o, kurį turi tik `worker_task_ir` (žr. `ir_*` laukus aukščiau).
+   * Rakto nebuvimas reiškia „nė vienas mėginys šios poros neturėjo".
+   */
+  feature_pairs?: Partial<Record<ContextCompressionFeature, UiFeaturePairStats>>;
+};
+
+/** Vienos vėliavos shadow poros agregatas — analogiškas `ir_*` laukams, bet bet kuriai vėliavai. */
+export type UiFeaturePairStats = {
+  compared_count: number;
+  smaller_count: number;
+  avg_delta_percent?: number;
 };
 
 /**
@@ -108,7 +134,12 @@ export type UiCompressionRecommendation = {
     | "ir-smaller-under-pressure"
     | "ir-smaller-no-pressure"
     | "too-few-ir-comparisons"
-    | "no-shadow-measurement";
+    | "no-shadow-measurement"
+    /** Tos pačios keturios kategorijos, bet bet kuriai vėliavai be `worker_task_ir` prompt/task konteksto. */
+    | "larger-on-average"
+    | "smaller-under-pressure"
+    | "smaller-no-pressure"
+    | "too-few-comparisons";
   /** Kuri pora buvo naudota šiam sprendimui — kad UI galėtų įvardyti KAS lyginama. */
   pair?: UiCompressionIrPair;
 };
@@ -162,16 +193,24 @@ export function parseContextSizeSamples(raw: string, limit = COMPRESSION_TELEMET
   return samples;
 }
 
-type IrPairMeasurement = { raw: number; compiled: number; pair: UiCompressionIrPair };
+/**
+ * Vieno mėginio shadow pora bet kuriai vėliavai: `raw` — nesuspaustas dydis, `compiled` — po
+ * kompresijos. `pair` įvardija KURI pora naudota tik tada, kai vėliava turi daugiau nei vieną
+ * galimą porą (šiandien — tik `worker_task_ir`, prompt/task fallback); likusioms keturioms
+ * kiekvienai yra lygiai viena fiksuota lauko pora, tad `pair` joms nereikalingas.
+ */
+type PairMeasurement = { raw: number; compiled: number; pair?: UiCompressionIrPair };
 
 /**
- * Vieno mėginio shadow IR pora. Prompt'o lygio pora (`raw_prompt_chars`/`compiled_prompt_chars`,
+ * `worker_task_ir` shadow pora. Prompt'o lygio pora (`raw_prompt_chars`/`compiled_prompt_chars`,
  * task 0032) turi pirmenybę, kai mėginys ją turi — tai pora, ant kurios sprendimas iš tiesų
  * daromas, nes ji apima tą patį worker prompt'ą, kurį gautų dispatch, ne vien task'o kūną.
  * Senesni mėginiai jos neturi, todėl kritimas prie `raw_task_chars`/`compiled_task_chars` yra
- * fallback, ne lūžis.
+ * fallback, ne lūžis. REGRESIJOS RIBA: šios funkcijos rezultatas (ir tuo pačiu `worker_task_ir`
+ * verdiktas `decideCompression` viduje) privalo likti bitiškai tapatus, kad ir kaip keičiasi
+ * likusių keturių vėliavų logika.
  */
-function selectIrPair(sample: ContextSizeSample): IrPairMeasurement | undefined {
+function selectIrPair(sample: ContextSizeSample): PairMeasurement | undefined {
   const promptRaw = finiteNumber(sample.raw_prompt_chars);
   const promptCompiled = finiteNumber(sample.compiled_prompt_chars);
   if (promptRaw !== undefined && promptCompiled !== undefined && promptRaw > 0) {
@@ -187,14 +226,46 @@ function selectIrPair(sample: ContextSizeSample): IrPairMeasurement | undefined 
   return undefined;
 }
 
+/** Fiksuota (raw, compiled) lauko pora — vėliavoms be prompt/task fallback'o. */
+function fixedFieldPair(
+  rawKey: keyof ContextSizeSample,
+  compiledKey: keyof ContextSizeSample,
+): (sample: ContextSizeSample) => PairMeasurement | undefined {
+  return (sample) => {
+    const raw = finiteNumber(sample[rawKey]);
+    const compiled = finiteNumber(sample[compiledKey]);
+    if (raw === undefined || compiled === undefined || raw <= 0) return undefined;
+    return { raw, compiled };
+  };
+}
+
+/**
+ * Vienintelis vietoj kur susieta „kuri vėliava — kuri shadow pora mėginyje". Apima visas penkias
+ * vėliavas, kad `decideCompression`/`summarizeContextSizeSamples` galėtų dirbti per lentelę, o ne
+ * per vieną hardkodintą `worker_task_ir` atvejį + tylų „unmeasured" likusioms.
+ */
+export const FEATURE_PAIR_SELECTORS: Record<ContextCompressionFeature, (sample: ContextSizeSample) => PairMeasurement | undefined> = {
+  worker_task_ir: selectIrPair,
+  compact_dsl: fixedFieldPair("dsl_ir_chars", "dsl_compiled_chars"),
+  symbol_slices: fixedFieldPair("symbol_source_chars", "symbol_signature_chars"),
+  bash_output_digest: fixedFieldPair("tool_raw_chars", "tool_digest_chars"),
+  dispatch_tool_schema: fixedFieldPair("tool_schema_full_chars", "tool_schema_reduced_chars"),
+};
+
 export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCompressionTelemetry {
   const budgetPercents: number[] = [];
-  const irDeltas: number[] = [];
   let exceededCount = 0;
-  let irCompared = 0;
-  let irSmaller = 0;
-  let irPromptPairCount = 0;
   let latestTs: string | undefined;
+
+  const compared = new Map<ContextCompressionFeature, number>();
+  const smaller = new Map<ContextCompressionFeature, number>();
+  const deltas = new Map<ContextCompressionFeature, number[]>();
+  let irPromptPairCount = 0;
+  for (const key of CONTEXT_COMPRESSION_FEATURES) {
+    compared.set(key, 0);
+    smaller.set(key, 0);
+    deltas.set(key, []);
+  }
 
   for (const sample of samples) {
     if (typeof sample.ts === "string") latestTs = sample.ts;
@@ -207,19 +278,35 @@ export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCom
       if (share !== undefined) budgetPercents.push(share);
     }
 
-    const measurement = selectIrPair(sample);
-    if (measurement !== undefined) {
-      irCompared += 1;
-      if (measurement.pair === "prompt") irPromptPairCount += 1;
-      if (measurement.compiled < measurement.raw) irSmaller += 1;
-      // Neigiama delta = IR mažesnis (nauda). Teigiama = IR didesnis (žala).
-      irDeltas.push(Math.round(((measurement.compiled - measurement.raw) / measurement.raw) * 1000) / 10);
+    for (const key of CONTEXT_COMPRESSION_FEATURES) {
+      const measurement = FEATURE_PAIR_SELECTORS[key](sample);
+      if (measurement === undefined) continue;
+      compared.set(key, (compared.get(key) ?? 0) + 1);
+      if (key === "worker_task_ir" && measurement.pair === "prompt") irPromptPairCount += 1;
+      if (measurement.compiled < measurement.raw) smaller.set(key, (smaller.get(key) ?? 0) + 1);
+      // Neigiama delta = compiled mažesnis (nauda). Teigiama = compiled didesnis (žala).
+      deltas.get(key)?.push(Math.round(((measurement.compiled - measurement.raw) / measurement.raw) * 1000) / 10);
     }
   }
 
   const avgBudget = average(budgetPercents);
   const maxBudget = budgetPercents.length === 0 ? undefined : Math.max(...budgetPercents);
-  const avgIrDelta = average(irDeltas);
+  const irCompared = compared.get("worker_task_ir") ?? 0;
+  const irSmaller = smaller.get("worker_task_ir") ?? 0;
+  const avgIrDelta = average(deltas.get("worker_task_ir") ?? []);
+
+  const featurePairs: Partial<Record<ContextCompressionFeature, UiFeaturePairStats>> = {};
+  for (const key of CONTEXT_COMPRESSION_FEATURES) {
+    if (key === "worker_task_ir") continue;
+    const comparedCount = compared.get(key) ?? 0;
+    if (comparedCount === 0) continue;
+    const avgDelta = average(deltas.get(key) ?? []);
+    featurePairs[key] = {
+      compared_count: comparedCount,
+      smaller_count: smaller.get(key) ?? 0,
+      ...(avgDelta === undefined ? {} : { avg_delta_percent: avgDelta }),
+    };
+  }
 
   return {
     sample_count: samples.length,
@@ -231,6 +318,7 @@ export function summarizeContextSizeSamples(samples: ContextSizeSample[]): UiCom
     ir_smaller_count: irSmaller,
     ...(avgIrDelta === undefined ? {} : { avg_ir_delta_percent: avgIrDelta }),
     ...(irCompared === 0 ? {} : { ir_pair: irPromptPairCount > 0 ? "prompt" : "task" }),
+    ...(Object.keys(featurePairs).length === 0 ? {} : { feature_pairs: featurePairs }),
   };
 }
 
@@ -264,6 +352,32 @@ export function decidePressure(telemetry: UiCompressionTelemetry): UiCompression
  * atsakymas yra „nematuojama", o ne tyla: eilutės nebuvimas skaitytojui atrodytų kaip „viskas
  * gerai", nors iš tiesų sprendimui duomenų nėra.
  */
+/**
+ * Rekomendacija VIENAI iš keturių vėliavų be prompt/task fallback'o, remiantis jos shadow poros
+ * agregatu (`telemetry.feature_pairs[key]`). Tos pačios keturios kategorijos kaip `worker_task_ir`
+ * aukščiau, bet be `pair` lauko (nėra ko įvardyti — vėliava turi lygiai vieną poros variantą) ir su
+ * bendrais (ne `ir-` prefiksuotais) priežasties kodais.
+ */
+function decideFeaturePairAction(
+  key: Exclude<ContextCompressionFeature, "worker_task_ir">,
+  stats: UiFeaturePairStats | undefined,
+  pressure: UiCompressionPressureLevel,
+): UiCompressionRecommendation {
+  if (stats === undefined || stats.compared_count === 0) {
+    return { key, action: "unmeasured", reason: "no-shadow-measurement" };
+  }
+  if (stats.compared_count < MIN_DECISION_SAMPLES) {
+    return { key, action: "insufficient", reason: "too-few-comparisons" };
+  }
+  const delta = stats.avg_delta_percent ?? 0;
+  // Teigiama delta = compiled VIDUTINIŠKAI didesnis už raw — įjungimas paketą augintų, ne mažintų.
+  if (delta > 0) return { key, action: "hold", reason: "larger-on-average" };
+  if (pressure === "high" || pressure === "moderate") {
+    return { key, action: "enable", reason: "smaller-under-pressure" };
+  }
+  return { key, action: "optional", reason: "smaller-no-pressure" };
+}
+
 export function decideCompression(telemetry: UiCompressionTelemetry): UiCompressionDecision {
   const pressure = decidePressure(telemetry);
   const pairField = telemetry.ir_pair === undefined ? {} : { pair: telemetry.ir_pair };
@@ -284,7 +398,7 @@ export function decideCompression(telemetry: UiCompressionTelemetry): UiCompress
   return {
     pressure: { level: pressure },
     recommendations: CONTEXT_COMPRESSION_FEATURES.map((key) =>
-      key === "worker_task_ir" ? irAction : { key, action: "unmeasured" as const, reason: "no-shadow-measurement" as const },
+      key === "worker_task_ir" ? irAction : decideFeaturePairAction(key, telemetry.feature_pairs?.[key], pressure),
     ),
   };
 }

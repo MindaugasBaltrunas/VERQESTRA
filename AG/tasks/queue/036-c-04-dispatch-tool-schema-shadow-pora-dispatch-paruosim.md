@@ -23,21 +23,34 @@ PRIVALOMA grandinė, tvarka nekeičiama:
 readme-guard -> architect -> coder -> reviewer -> tester
 
 ## Failai
-Leidžiama:
-- `src/application/context-pack/tool-schema.ts`
-- `src/application/context-pack/token-usage-log.ts`
+Leidžiama (keliai PATIKSLINTI 2026-08-27 po pirmo bandymo — pirminiai buvo išgalvoti,
+worker'is teisingai sustojo pagal apačioje esančią taisyklę):
+- `src/interfaces/cli/dispatch/claude-dispatch/command.ts`
+- `src/infrastructure/adapters/claude-dispatch-delivery.ts`
+- `src/infrastructure/adapters/claude-dispatch-finalize.ts`
+- `src/application/context-pack/mcp-capability-registry.ts`
+- `src/tests/interfaces-cli-dispatch-plan.test.ts`
+- `src/tests/interfaces-cli-dispatch-command.test.ts`
 - `src/tests/infrastructure-dispatch-flow.test.ts`
 
 Draudžiama:
 - `AG/**`
 - `vq/**`
 - `.env`
+- `src/application/context-pack/metrics.ts` (poros laukai JAU yra — tik naudoti)
 - `src/interfaces/http/ui-compression-view.ts`
 - `ui-app/src/**`
 
 ## Veiksmas
-- Rasti esamą `toolSchema.candidates`/`applied` rinkimo tašką (šiandien žurnale tik režimo eilutė `"applied"|"off"`) ir šalia jo suskaičiuoti pilnos bei sumažintos schemos char dydžius — shadow pora, kaip 032.
-- Porą rašyti per `COMPRESSION_METRIC_FIELDS` lentelę į `context-size.jsonl`; nesantis matavimas lieka `undefined`, ne `0`. Jei tikslūs failų keliai skiriasi nuo nurodytų `## Failai`, sustoti ir raportuoti, o ne plėsti scope.
+- Rinkimo taškas yra `claude-dispatch/command.ts` (`ports.resolveToolSchemaProfile` kvietimas;
+  realizacija — `claude-dispatch-delivery.resolveDispatchToolSchemaProfile`), o telemetrijos
+  rašymo pusė — `claude-dispatch-finalize.ts` (`dispatch_tool_schema`/`disallowed_tools`
+  metaduomenys). Šalia suskaičiuoti pilnos bei sumažintos MCP tool schemos char dydžius —
+  shadow pora, kaip 032; schemų šaltinis — `mcp-capability-registry` pjūvis.
+- Porą rašyti per `COMPRESSION_METRIC_FIELDS` laukus (`toolSchemaFullChars`/
+  `toolSchemaReducedChars`, jau esančius `metrics.ts`) į `context-size.jsonl`; nesantis
+  matavimas lieka `undefined`, ne `0`. Jei tikslūs failų keliai VĖL skiriasi nuo nurodytų
+  `## Failai`, sustoti ir raportuoti, o ne plėsti scope.
 - Testuose padengti: pora rašoma kai vėliava išjungta, o realiai perduodama schema lieka nepakitusi.
 
 ## Patikra

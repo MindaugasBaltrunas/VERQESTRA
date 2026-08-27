@@ -96,3 +96,77 @@ test("decideCompression: be jokio IR palyginimo laukas 'pair' rekomendacijoje NE
   const ir = decision.recommendations.find((r) => r.key === "worker_task_ir");
   assert.ok(ir && !("pair" in ir), "nėra ką įvardyti, kai palyginimų apskritai nebuvo");
 });
+
+// Task 036-e-06: FEATURE_PAIR_SELECTORS apibendrina selectIrPair likusioms keturioms vėliavoms —
+// kiekviena gauna savo fiksuotą (raw, compiled) lauko porą, be prompt/task fallback'o.
+const DSL_PAIR_SAMPLE: ContextSizeSample = { ts: "x", dsl_ir_chars: 1000, dsl_compiled_chars: 400 };
+const SYMBOL_PAIR_SAMPLE: ContextSizeSample = { ts: "x", symbol_source_chars: 1000, symbol_signature_chars: 200 };
+const TOOL_DIGEST_PAIR_SAMPLE: ContextSizeSample = { ts: "x", tool_raw_chars: 1000, tool_digest_chars: 700 };
+const TOOL_SCHEMA_PAIR_SAMPLE: ContextSizeSample = {
+  ts: "x",
+  tool_schema_full_chars: 1000,
+  tool_schema_reduced_chars: 1200,
+};
+
+test("summarizeContextSizeSamples: kiekviena iš keturių likusių vėliavų gauna savo feature_pairs įrašą", () => {
+  const summary = summarizeContextSizeSamples([DSL_PAIR_SAMPLE, SYMBOL_PAIR_SAMPLE, TOOL_DIGEST_PAIR_SAMPLE, TOOL_SCHEMA_PAIR_SAMPLE]);
+
+  assert.equal(summary.feature_pairs?.compact_dsl?.compared_count, 1);
+  assert.equal(summary.feature_pairs?.compact_dsl?.avg_delta_percent, -60);
+  assert.equal(summary.feature_pairs?.symbol_slices?.compared_count, 1);
+  assert.equal(summary.feature_pairs?.symbol_slices?.avg_delta_percent, -80);
+  assert.equal(summary.feature_pairs?.bash_output_digest?.compared_count, 1);
+  assert.equal(summary.feature_pairs?.bash_output_digest?.avg_delta_percent, -30);
+  assert.equal(summary.feature_pairs?.dispatch_tool_schema?.compared_count, 1);
+  assert.equal(summary.feature_pairs?.dispatch_tool_schema?.avg_delta_percent, 20, "reduced > full — čia augimas, ne nauda");
+  assert.ok(!("worker_task_ir" in (summary.feature_pairs ?? {})), "worker_task_ir naudoja savo ir_* laukus, ne feature_pairs");
+});
+
+test("summarizeContextSizeSamples: vėliava be jokios poros mėginiuose NEATSIRANDA feature_pairs", () => {
+  const summary = summarizeContextSizeSamples([DSL_PAIR_SAMPLE]);
+  assert.ok(!("symbol_slices" in (summary.feature_pairs ?? {})));
+});
+
+test("decideCompression: vėliava su pakankamai mažėjančių palyginimų ir spaudimu gauna 'enable'", () => {
+  const summary = summarizeContextSizeSamples([
+    ...Array(MIN_DECISION_SAMPLES).fill(DSL_PAIR_SAMPLE),
+    { ts: "x", context_chars: 11000, max_context_chars: 12000, exceeded: true },
+  ]);
+  const decision = decideCompression(summary);
+  assert.equal(decision.pressure.level, "high");
+  const dsl = decision.recommendations.find((r) => r.key === "compact_dsl");
+  assert.deepEqual(dsl, { key: "compact_dsl", action: "enable", reason: "smaller-under-pressure" });
+  assert.ok(dsl && !("pair" in dsl), "fiksuotai porai nėra ko įvardyti");
+});
+
+test("decideCompression: vėliava su pakankamai mažėjančių palyginimų, be spaudimo gauna 'optional'", () => {
+  const summary = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(SYMBOL_PAIR_SAMPLE));
+  const decision = decideCompression(summary);
+  assert.equal(decision.pressure.level, "none", "context_chars/max_context_chars nėra šiuose mėginiuose");
+  const symbol = decision.recommendations.find((r) => r.key === "symbol_slices");
+  assert.deepEqual(symbol, { key: "symbol_slices", action: "optional", reason: "smaller-no-pressure" });
+});
+
+test("decideCompression: vėliava, kur compiled VIDUTINIŠKAI didesnis, gauna 'hold'", () => {
+  const summary = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(TOOL_SCHEMA_PAIR_SAMPLE));
+  const decision = decideCompression(summary);
+  const schema = decision.recommendations.find((r) => r.key === "dispatch_tool_schema");
+  assert.deepEqual(schema, { key: "dispatch_tool_schema", action: "hold", reason: "larger-on-average" });
+});
+
+test("decideCompression: vėliava su per mažai palyginimų gauna 'insufficient', ne 'unmeasured'", () => {
+  const summary = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES - 1).fill(TOOL_DIGEST_PAIR_SAMPLE));
+  const decision = decideCompression(summary);
+  const digest = decision.recommendations.find((r) => r.key === "bash_output_digest");
+  assert.deepEqual(digest, { key: "bash_output_digest", action: "insufficient", reason: "too-few-comparisons" });
+});
+
+test("decideCompression: worker_task_ir verdiktas nesikeičia, kai kitos vėliavos turi savo shadow poras", () => {
+  const withoutOthers = decideCompression(summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(PROMPT_PAIR_SAMPLE)));
+  const mixedSample: ContextSizeSample = { ...PROMPT_PAIR_SAMPLE, ...DSL_PAIR_SAMPLE };
+  const withOthers = decideCompression(summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(mixedSample)));
+
+  const irWithout = withoutOthers.recommendations.find((r) => r.key === "worker_task_ir");
+  const irWith = withOthers.recommendations.find((r) => r.key === "worker_task_ir");
+  assert.deepEqual(irWith, irWithout, "worker_task_ir yra bitiškai tapatus nepriklausomai nuo kitų vėliavų duomenų");
+});

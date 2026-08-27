@@ -265,3 +265,102 @@ test("finalizeDispatch: execution record, exit failas, checkpoint next_action ir
   assert.equal(usageRecord["dispatch_tool_schema"], "applied");
   assert.equal(usageRecord["disallowed_tools"], 1);
 });
+
+test("finalizeDispatch: toolSchema.shadow apibrėžtas — context-size.jsonl gauna tool_schema_full/reduced_chars porą", async () => {
+  const launchRecord: Omit<DispatchExecutionRecordInput, "status"> = {
+    phase: "implementation",
+    taskFile: "AG/tasks/queue/0099.md",
+    sourceChange: true,
+    selectedModel: "sonnet",
+    failedAttempts: 0,
+    attempt: 1,
+    startedAt: "2026-08-27T12:00:00.000Z",
+    contextGate: { kind: "skip", reason: "non-source" },
+  };
+
+  await finalizeDispatch({
+    runtimeRoot,
+    taskId: "0099",
+    taskFile: "AG/tasks/queue/0099.md",
+    dispatchPhase: "implementation",
+    attempt: 1,
+    effectiveTier: "sonnet",
+    routingReasonCodes: ["routine-default"],
+    claudeExitFile: path.join(runtimeRoot, "state", "claude-last-exit-code"),
+    claudeLog: path.join(runtimeRoot, "logs", "claude-last.log"),
+    claudeLogText: "",
+    toolSchema: {
+      mode: "off",
+      candidates: [],
+      applied: [],
+      reason: "policy",
+      shadow: { fullChars: 4000, reducedChars: 1500 },
+    },
+    launchRecord,
+    outcome: {
+      exitCode: 0,
+      usageLimitHit: false,
+      zeroUsageSuccess: false,
+      stopBridgeDone: false,
+    },
+    recordExecutionResult: async () => undefined,
+    recordResumeCheckpoint: async () => undefined,
+    logDispatch: async () => undefined,
+  });
+
+  const sizeRaw = (await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "logs", "context-size.jsonl")))!;
+  const sizeLines = sizeRaw
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((record) => record["task_id"] === "0099");
+  assert.equal(sizeLines.length, 1, "vienas shadow įrašas šiam task'ui");
+  assert.equal(sizeLines[0]?.["tool_schema_full_chars"], 4000);
+  assert.equal(sizeLines[0]?.["tool_schema_reduced_chars"], 1500);
+});
+
+test("finalizeDispatch: toolSchema.shadow neapibrėžtas — context-size.jsonl eilutės nerašo šiam task'ui", async () => {
+  const launchRecord: Omit<DispatchExecutionRecordInput, "status"> = {
+    phase: "implementation",
+    taskFile: "AG/tasks/queue/0100.md",
+    sourceChange: true,
+    selectedModel: "sonnet",
+    failedAttempts: 0,
+    attempt: 1,
+    startedAt: "2026-08-27T12:00:00.000Z",
+    contextGate: { kind: "skip", reason: "non-source" },
+  };
+
+  await finalizeDispatch({
+    runtimeRoot,
+    taskId: "0100",
+    taskFile: "AG/tasks/queue/0100.md",
+    dispatchPhase: "implementation",
+    attempt: 1,
+    effectiveTier: "sonnet",
+    routingReasonCodes: ["routine-default"],
+    claudeExitFile: path.join(runtimeRoot, "state", "claude-last-exit-code"),
+    claudeLog: path.join(runtimeRoot, "logs", "claude-last.log"),
+    claudeLogText: "",
+    toolSchema: { mode: "off", candidates: [], applied: [], reason: "policy" },
+    launchRecord,
+    outcome: {
+      exitCode: 0,
+      usageLimitHit: false,
+      zeroUsageSuccess: false,
+      stopBridgeDone: false,
+    },
+    recordExecutionResult: async () => undefined,
+    recordResumeCheckpoint: async () => undefined,
+    logDispatch: async () => undefined,
+  });
+
+  const sizeRaw = await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "logs", "context-size.jsonl"));
+  const sizeLines = (sizeRaw ?? "")
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((record) => record["task_id"] === "0100");
+  assert.equal(sizeLines.length, 0, "shadow neapibrėžtas — jokios eilutės šiam task'ui");
+});

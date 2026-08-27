@@ -13,6 +13,7 @@ import {
   type DispatchExecutionRecord,
   type DispatchExecutionRecordInput,
 } from "../../application/task-execution/dispatch-execution-record.js";
+import { appendContextSizeMetrics, buildContextSizeMetrics } from "../../application/context-pack/metrics.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { noRuntimeAttemptResolution, type AttemptResolutionPort } from "../state/attempt-resolution.js";
 import { logTokenUsage } from "../state/token-usage-log.js";
@@ -139,4 +140,22 @@ export async function finalizeDispatch(input: FinalizeDispatchInput): Promise<vo
       ...(input.attempt > 1 ? { retry_reason: `repair:${input.routingReasonCodes.join("+")}` } : {}),
     },
   });
+
+  const shadow = input.toolSchema.shadow;
+  if (shadow !== undefined) {
+    try {
+      const sizeRecord = buildContextSizeMetrics({
+        taskId: input.taskId,
+        contextChars: 0,
+        maxContextChars: 0,
+        specFragmentCount: 0,
+        codeContextItemCount: 0,
+        toolSchemaFullChars: shadow.fullChars,
+        toolSchemaReducedChars: shadow.reducedChars,
+      });
+      await appendContextSizeMetrics(nodeFsAdapter, input.runtimeRoot, sizeRecord);
+    } catch {
+      // Shadow telemetrija yra best-effort: gedimas negali sulaužyti dispatch finalize.
+    }
+  }
 }

@@ -691,6 +691,12 @@ export type CompressionTelemetry = {
   ir_smaller_count: number;
   /** Vidutinė delta procentais: neigiama = IR mažesnis (nauda), teigiama = didesnis (žala). */
   avg_ir_delta_percent?: number;
+  /**
+   * Kuri pora sudarė `ir_*` skaičius. Prompt'o lygio pora turi pirmenybę kiekvienam mėginiui, kai
+   * jis ją turi; task'o lygio pora naudojama tik tiems mėginiams, kur prompt'o poros nėra. Nebūna,
+   * kai `ir_compared_count` yra 0 — tada nėra ko įvardyti.
+   */
+  ir_pair?: CompressionIrPair;
 };
 
 /**
@@ -702,10 +708,15 @@ export type CompressionPressureLevel = "insufficient" | "none" | "moderate" | "h
 
 export type CompressionAction = "enable" | "optional" | "hold" | "insufficient" | "unmeasured";
 
+/** Kuri pora informavo shadow palyginimą: prompt'o lygio (task 0032) ar task'o lygio (fallback). */
+export type CompressionIrPair = "prompt" | "task";
+
 export type CompressionRecommendation = {
   key: CompressionFeatureKey;
   action: CompressionAction;
   reason: string;
+  /** Verdikto šaltinis: kuri pora buvo naudota šiai rekomendacijai — kad UI galėtų įvardyti KAS lyginama. */
+  pair?: CompressionIrPair;
 };
 
 export type CompressionDecision = {

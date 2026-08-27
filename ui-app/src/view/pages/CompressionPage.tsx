@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchCompression, setCompressionFeature } from "../../model/api";
-import type { CompressionFeature, CompressionFeatureValue, CompressionView } from "../../model/types";
+import type { CompressionFeature, CompressionFeatureValue, CompressionIrPair, CompressionView } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
 import { Header, type Route } from "../components/Header";
 
@@ -80,6 +80,16 @@ const ACTION_TONES: Record<string, "good" | "error" | "neutral"> = {
   optional: "neutral",
   insufficient: "neutral",
   unmeasured: "neutral",
+};
+
+/**
+ * Verdikto šaltinio laukas ("kuri pora buvo naudota") verčiamas į sakinį, KAS lyginama — ne vien
+ * skaičiai. Be šito operatorius mato „IR mažesnis 4/12" ir turi spėti, ar tai palyginta su tikru
+ * worker prompt'u, ar tik senesniu task'o kūno fallback'u.
+ */
+const PAIR_SENTENCES: Record<CompressionIrPair, string> = {
+  prompt: "Compared using the prompt-level pair — the same worker prompt the executor would receive.",
+  task: "Compared using the task-level pair — the task body only, an older fallback used when no prompt-level pair was recorded.",
 };
 
 const REASON_SENTENCES: Record<string, string> = {
@@ -205,6 +215,14 @@ export function CompressionPage({ activeRoute, onNavigate }: Props) {
                             </span>
                           </>
                         )}
+                        {rec.pair !== undefined && (
+                          <>
+                            <br />
+                            <span className="muted">
+                              <code>{rec.pair}</code> {t(PAIR_SENTENCES[rec.pair])}
+                            </span>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -305,6 +323,15 @@ export function CompressionPage({ activeRoute, onNavigate }: Props) {
                         : `${data.telemetry.avg_ir_delta_percent > 0 ? "+" : ""}${data.telemetry.avg_ir_delta_percent}%`}
                     </td>
                   </tr>
+                  {data.telemetry.ir_pair !== undefined && (
+                    <tr>
+                      <th scope="row">{t("Compared pair")}</th>
+                      <td>
+                        <code>{data.telemetry.ir_pair}</code>{" "}
+                        <span className="muted">{t(PAIR_SENTENCES[data.telemetry.ir_pair])}</span>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               {data.telemetry.latest_ts && (

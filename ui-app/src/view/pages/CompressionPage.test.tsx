@@ -125,6 +125,72 @@ describe("CompressionPage", () => {
     expect(screen.getByText(/Real pressure/)).toBeTruthy();
   });
 
+  it("įvardija KAS lyginama, kai verdiktas turi prompt'o lygio poros lauką", async () => {
+    vi.mocked(api.fetchCompression).mockResolvedValue(
+      view({
+        telemetry: {
+          sample_count: 12,
+          latest_ts: "2026-08-26T08:25:57.730Z",
+          avg_budget_percent: 58.7,
+          max_budget_percent: 105,
+          exceeded_count: 1,
+          ir_compared_count: 12,
+          ir_smaller_count: 4,
+          avg_ir_delta_percent: 12.5,
+          ir_pair: "prompt",
+        },
+        decision: {
+          pressure: { level: "high" },
+          recommendations: [
+            { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average", pair: "prompt" },
+            { key: "compact_dsl", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "symbol_slices", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "bash_output_digest", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "dispatch_tool_schema", action: "unmeasured", reason: "no-shadow-measurement" },
+          ],
+        },
+      }),
+    );
+    render(<CompressionPage activeRoute="compression" onNavigate={noop} />);
+
+    await waitFor(() => expect(screen.getByLabelText("worker_task_ir")).toBeTruthy());
+    expect(screen.getAllByText("prompt").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/the same worker prompt the executor would receive/).length).toBeGreaterThan(0);
+  });
+
+  it("krenta prie task'o lygio poros sakinio, kai mėginiai prompt'o poros neturi", async () => {
+    vi.mocked(api.fetchCompression).mockResolvedValue(
+      view({
+        telemetry: {
+          sample_count: 12,
+          latest_ts: "2026-08-26T08:25:57.730Z",
+          avg_budget_percent: 58.7,
+          max_budget_percent: 105,
+          exceeded_count: 1,
+          ir_compared_count: 12,
+          ir_smaller_count: 4,
+          avg_ir_delta_percent: 12.5,
+          ir_pair: "task",
+        },
+        decision: {
+          pressure: { level: "high" },
+          recommendations: [
+            { key: "worker_task_ir", action: "hold", reason: "ir-larger-on-average", pair: "task" },
+            { key: "compact_dsl", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "symbol_slices", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "bash_output_digest", action: "unmeasured", reason: "no-shadow-measurement" },
+            { key: "dispatch_tool_schema", action: "unmeasured", reason: "no-shadow-measurement" },
+          ],
+        },
+      }),
+    );
+    render(<CompressionPage activeRoute="compression" onNavigate={noop} />);
+
+    await waitFor(() => expect(screen.getByLabelText("worker_task_ir")).toBeTruthy());
+    expect(screen.getAllByText("task").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/an older fallback used when no prompt-level pair was recorded/).length).toBeGreaterThan(0);
+  });
+
   it("telemetrijos lūžis nepaslepia vėliavų", async () => {
     vi.mocked(api.fetchCompression).mockResolvedValue(
       view({

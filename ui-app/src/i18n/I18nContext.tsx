@@ -620,6 +620,12 @@ const lt: Record<string, string> = {
     "Šiai vėliavai šešėlinio matavimo dar nėra — sprendimui duomenų nėra",
   "IR smaller in": "IR mažesnis",
   "avg delta": "vid. delta",
+  // 032-b-03: verdikto šaltinio laukas (kuri pora buvo naudota) — sakinys įvardija KAS lyginama.
+  "Compared pair": "Lyginama pora",
+  "Compared using the prompt-level pair — the same worker prompt the executor would receive.":
+    "Lyginta prompt'o lygio pora — tas pats worker prompt'as, kurį gautų vykdytojas.",
+  "Compared using the task-level pair — the task body only, an older fallback used when no prompt-level pair was recorded.":
+    "Lyginta task'o lygio pora — tik task'o kūnas; senesnis fallback, naudojamas kai prompt'o lygio poros mėginyje nėra.",
   "Canonical WorkerTaskIR instead of raw task Markdown":
     "Kanoninis WorkerTaskIR vietoj neapdoroto task Markdown",
   "Compact worker DSL renderer": "Kompaktiškas worker DSL rendereris",

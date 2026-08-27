@@ -27,7 +27,8 @@ readme-guard -> architect -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `src/composition/loop/wave-scheduler-adapters.ts`
-- `src/tests/**`
+- `src/tests/composition-wave-scheduler-adapters.test.ts` (numatomas naujas)
+- `src/tests/scheduling-wave-provisioning.test.ts`
 - `templates/vq/config/worktree-policy.json`
 
 Draudžiama:

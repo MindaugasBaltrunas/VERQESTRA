@@ -16,7 +16,7 @@ nors datos tame pačiame faile jį naudoja (`DiagnosticsPanel.tsx:21-26`).
 (b) `WavesPanel.tsx:53` — `useWavesController({enabled: props.onReload ===
 undefined})`; `DashboardPage.tsx:298` `onReload` perduoda visada, tad hook'as
 ir jo `data`/`error`/`reload` šakos (`:54-56`) produkcijoje mirusios.
-(c) `REQUEST_TIMEOUT_MS = 30_000` (`api.ts:33`) == `REFRESH_SEC`/`WAVES_POLL_MS`
+(c) `REQUEST_TIMEOUT_MS = 30_000` (`model/api.ts:33`) == `REFRESH_SEC`/`WAVES_POLL_MS`
 (30 s) — lėtam serveriui užklausos persidengia ir `requestSequence`
 (`useDashboardController.ts:162-165`) tyliai meta rezultatus. (d)
 `DashboardPage.tsx:53-56` — `refreshAll` didina `proposalRefreshToken`, nors
@@ -28,11 +28,14 @@ readme-guard -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `ui-app/src/view/components/TokenBudgetPanel.tsx`
+- `ui-app/src/view/components/TokenBudgetPanel.test.tsx` (numatomas naujas)
 - `ui-app/src/view/components/DiagnosticsPanel.tsx`
+- `ui-app/src/view/components/DiagnosticsPanel.test.tsx`
 - `ui-app/src/view/components/WavesPanel.tsx`
+- `ui-app/src/view/components/WavesPanel.test.tsx`
 - `ui-app/src/view/pages/DashboardPage.tsx`
-- `ui-app/src/api.ts`
-- `ui-app/src/tests/**`
+- `ui-app/src/model/api.ts`
+- `ui-app/src/model/apiEnvelopes.test.ts`
 
 Draudžiama:
 - `src/**`

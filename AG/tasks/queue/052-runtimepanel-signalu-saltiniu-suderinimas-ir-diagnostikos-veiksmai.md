@@ -30,14 +30,16 @@ readme-guard -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `ui-app/src/view/components/RuntimePanel.tsx`
+- `ui-app/src/view/components/RuntimePanel.test.tsx`
 - `ui-app/src/view/components/DiagnosticsPanel.tsx`
-- `ui-app/src/viewmodel/loopControlsViewModel.ts`
+- `ui-app/src/view/components/DiagnosticsPanel.test.tsx`
+- `ui-app/src/model/loopControlsViewModel.ts`
+- `ui-app/src/model/loopControlsViewModel.test.ts`
 - `ui-app/src/i18n/I18nContext.tsx`
-- `ui-app/src/tests/**`
 
 Draudžiama:
 - `src/**`
-- `ui-app/src/api.ts`
+- `ui-app/src/model/api.ts`
 - `dist/**`
 - `node_modules/**`
 

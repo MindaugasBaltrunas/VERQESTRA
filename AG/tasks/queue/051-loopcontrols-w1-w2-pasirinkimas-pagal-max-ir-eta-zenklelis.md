@@ -27,14 +27,18 @@ readme-guard -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `ui-app/src/view/components/LoopControls.tsx`
-- `ui-app/src/viewmodel/loopControlsViewModel.ts`
+- `ui-app/src/view/components/LoopControls.test.tsx`
+- `ui-app/src/model/loopControlsViewModel.ts`
+- `ui-app/src/model/loopControlsViewModel.test.ts`
 - `ui-app/src/view/components/SlotProgressCard.tsx`
+- `ui-app/src/view/components/SlotProgressCard.test.tsx`
 - `ui-app/src/view/pages/DashboardPage.tsx`
-- `ui-app/src/tests/**`
+- `ui-app/src/i18n/I18nContext.tsx` (nauji raktai tooltip'ams/priežastims — be jų
+  `i18n/coverage.test.ts` raudonas)
 
 Draudžiama:
 - `src/**`
-- `ui-app/src/api.ts`
+- `ui-app/src/model/api.ts`
 - `dist/**`
 - `node_modules/**`
 

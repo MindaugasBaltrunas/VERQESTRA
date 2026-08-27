@@ -84,6 +84,20 @@ export type ContextCompressionMetricsInput = {
   toolRawChars?: number;
   /** Digested tool output chars that would replace the raw output. Same writer gap. */
   toolDigestChars?: number;
+  /**
+   * Full worker prompt WITHOUT compression: the raw task body plus the SAME execution context
+   * artifact a real dispatch would attach (task 0032 — `buildWorkerPrompt`, no `compiledTask`).
+   * This, not {@link rawTaskChars}, is one half of the pair a compression decision is actually
+   * made on: the task body alone is never what the worker receives.
+   */
+  rawPromptChars?: number;
+  /**
+   * Full worker prompt WITH compression: the same execution context as {@link rawPromptChars},
+   * but with the task body replaced by its shadow-compiled WorkerTaskIR prompt (task 0032 —
+   * `buildWorkerPrompt` with `compiledTask` set). Absent when the shadow compilation refused
+   * the task, same fail-closed reasoning as {@link irJsonChars}.
+   */
+  compiledPromptChars?: number;
 };
 
 /** Record-side (snake_case) counterpart of {@link ContextCompressionMetricsInput}. */
@@ -96,6 +110,8 @@ export type ContextCompressionMetrics = {
   symbol_signature_chars?: number;
   tool_raw_chars?: number;
   tool_digest_chars?: number;
+  raw_prompt_chars?: number;
+  compiled_prompt_chars?: number;
 };
 
 // Single input-key -> record-key table so a new measurement is added in exactly
@@ -111,6 +127,8 @@ const COMPRESSION_METRIC_FIELDS: ReadonlyArray<
   ["symbolSignatureChars", "symbol_signature_chars"],
   ["toolRawChars", "tool_raw_chars"],
   ["toolDigestChars", "tool_digest_chars"],
+  ["rawPromptChars", "raw_prompt_chars"],
+  ["compiledPromptChars", "compiled_prompt_chars"],
 ];
 
 /**

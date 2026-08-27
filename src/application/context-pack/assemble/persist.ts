@@ -6,7 +6,14 @@
 
 import path from "node:path";
 import { parseWithSchema } from "../../../shared/schema.js";
-import type { ContextCompressionFeature } from "../../../domain/policies/compression/features.js";
+import {
+  CONTEXT_COMPRESSION_CONFIG_VERSION,
+  defaultContextCompressionCanary,
+  defaultContextCompressionFeatures,
+  type ContextCompressionConfig,
+  type ContextCompressionFeature,
+} from "../../../domain/policies/compression/features.js";
+import { buildWorkerPrompt } from "../../task-execution/execution-context-gate.js";
 import {
   contextPackSchema,
   SPEC_HEADING_MISS_WARNING,
@@ -22,9 +29,21 @@ import {
   type ContextCacheStatus,
 } from "../metrics.js";
 import { renderExecutionContext } from "../render-execution-context.js";
+import { compileWorkerPromptTask } from "../worker-prompt-compilation.js";
 import { compileWorkerTaskIr, workerTaskIrChars } from "../worker-task-ir.js";
 import type { WorkerTaskIr } from "../worker-task-ir-schema.js";
 import type { ContextPackFileSystemPort } from "../ports.js";
+
+// Task 0032: shadow-measures the SAME representation `worker_task_ir` would send if that flag
+// were on for this task, unconditional of live config — same reasoning as
+// `shadowCompileWorkerTaskIr` below: an observed prompt size beats an estimate, and this config
+// object never reaches a real dispatch (compact_dsl stays off; that renderer is a separate
+// A/B axis and mixing it in here would blur which feature a size delta belongs to).
+const SHADOW_COMPRESSED_PROMPT_CONFIG: ContextCompressionConfig = {
+  version: CONTEXT_COMPRESSION_CONFIG_VERSION,
+  features: { ...defaultContextCompressionFeatures(), worker_task_ir: true },
+  canary: defaultContextCompressionCanary(),
+};
 
 /**
  * Where the context pack and the execution context derived from it are persisted (task
@@ -107,6 +126,35 @@ export async function persistContextPack(input: {
     }
   }
 
+  // The execution context is derived from the persisted pack only (no extra retrieval, no
+  // clock, no randomness), so re-running assembly over an unchanged repository rewrites a
+  // byte-identical execution-context.md with the same fingerprint.
+  const rendered = renderExecutionContext(pack, { maxChars: input.maxContextChars });
+  // Fingerprint antraštė dispatch gate'ui (CTX-2): task_sha256/context_pack_sha256
+  // skaičiuojami nuo TŲ PAČIŲ artefaktų, kuriuos dispatch skaitys iš disko.
+  const marker = buildExecutionContextMarker({
+    taskId: pack.task_id,
+    taskText: input.taskText,
+    contextPackText: encoded,
+  });
+  const executionContextBody = `${marker}\n${rendered.markdown}`;
+
+  // Task 0032: the pair a compression decision is actually made on — the SAME worker prompt
+  // builder and the SAME execution context artifact real dispatch would attach, once with the
+  // raw task body and once with the shadow-compiled one. Neither `rawTaskChars` nor
+  // `irJsonChars`/`compiledTaskChars` above is this: they measure the task body alone, which is
+  // never what the worker receives.
+  const rawPromptChars = buildWorkerPrompt({ taskText: input.taskText, executionContext: executionContextBody }).length;
+  const compiledPromptBody = shadowCompiledPromptBody(pack.task_id, input.taskText);
+  const compiledPromptChars =
+    compiledPromptBody === undefined
+      ? undefined
+      : buildWorkerPrompt({
+          taskText: input.taskText,
+          compiledTask: compiledPromptBody,
+          executionContext: executionContextBody,
+        }).length;
+
   await appendContextSizeMetrics(
     input.fs,
     input.runtimeRoot,
@@ -116,6 +164,8 @@ export async function persistContextPack(input: {
       ...(irJsonChars === undefined ? {} : { compiledTaskChars: irJsonChars, irJsonChars }),
       ...(symbolSourceChars === undefined ? {} : { symbolSourceChars }),
       ...(symbolSignatureChars === undefined ? {} : { symbolSignatureChars }),
+      rawPromptChars,
+      ...(compiledPromptChars === undefined ? {} : { compiledPromptChars }),
       contextChars: encoded.length,
       maxContextChars: input.maxContextChars,
       specFragmentCount: pack.spec_fragments.length,
@@ -148,18 +198,6 @@ export async function persistContextPack(input: {
     ? await input.artifacts.writeContextPack(encoded)
     : await writeGlobalArtifact(input.fs, path.join(input.runtimeRoot, "supervisor", "context-pack.json"), encoded);
 
-  // The execution context is derived from the persisted pack only (no extra retrieval, no
-  // clock, no randomness), so re-running assembly over an unchanged repository rewrites a
-  // byte-identical execution-context.md with the same fingerprint.
-  const rendered = renderExecutionContext(pack, { maxChars: input.maxContextChars });
-  // Fingerprint antraštė dispatch gate'ui (CTX-2): task_sha256/context_pack_sha256
-  // skaičiuojami nuo TŲ PAČIŲ artefaktų, kuriuos dispatch skaitys iš disko.
-  const marker = buildExecutionContextMarker({
-    taskId: pack.task_id,
-    taskText: input.taskText,
-    contextPackText: encoded,
-  });
-  const executionContextBody = `${marker}\n${rendered.markdown}`;
   const executionContextPath = input.artifacts
     ? await input.artifacts.writeExecutionContext(executionContextBody)
     : await writeGlobalArtifact(
@@ -189,6 +227,17 @@ function shadowCompileWorkerTaskIr(taskId: string, taskMarkdown: string): Worker
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Shadow-compiles the worker prompt body `worker_task_ir` would send for this task, via the
+ * SAME compiler the real dispatch chain uses (`compileWorkerPromptTask`), unconditional of live
+ * config (task 0032). Never throws — `compileWorkerPromptTask` already fails closed to a
+ * `fallback`/`disabled` kind on any compiler refusal or defect.
+ */
+function shadowCompiledPromptBody(taskId: string, taskText: string): string | undefined {
+  const compilation = compileWorkerPromptTask({ config: SHADOW_COMPRESSED_PROMPT_CONFIG, taskId, taskText });
+  return compilation.kind === "compiled" ? compilation.task.text : undefined;
 }
 
 // Historical persistence: the global supervisor file, created exactly as before (the

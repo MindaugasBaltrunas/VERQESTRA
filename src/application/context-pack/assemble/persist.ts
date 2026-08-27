@@ -29,6 +29,7 @@ import {
   type ContextCacheStatus,
 } from "../metrics.js";
 import { renderExecutionContext } from "../render-execution-context.js";
+import { measureSymbolTierChars } from "./tiers.js";
 import { compileWorkerPromptTask } from "../worker-prompt-compilation.js";
 import { compileWorkerTaskIr, workerTaskIrChars } from "../worker-task-ir.js";
 import type { WorkerTaskIr } from "../worker-task-ir-schema.js";
@@ -110,21 +111,12 @@ export async function persistContextPack(input: {
   const workerTaskIr = shadowCompileWorkerTaskIr(pack.task_id, input.taskText);
   const irJsonChars = workerTaskIr ? workerTaskIrChars(workerTaskIr) : undefined;
 
-  // REF/SIG/SRC tiers (task 0023) measured back out of the FINALIZED pack, not re-derived
-  // from the tiering decision: these stay absent (not zero) on a flag-off pack.
-  let symbolSourceChars: number | undefined;
-  let symbolSignatureChars: number | undefined;
-  if (symbolFragments.some((symbol) => symbol.tier !== undefined)) {
-    symbolSourceChars = 0;
-    symbolSignatureChars = 0;
-    for (const symbol of symbolFragments) {
-      if (symbol.tier === "SRC" && symbol.source) {
-        symbolSourceChars += symbol.source.text.length;
-      } else if (symbol.tier === "SIG" && symbol.signature) {
-        symbolSignatureChars += symbol.signature.length;
-      }
-    }
-  }
+  // REF/SIG/SRC tiers (task 0023), measured at gather time and always present (task
+  // 036-b-03): `measureSymbolTierChars` falls back to the same tier inference
+  // `codeContextSymbolState` uses, so a flag-off pack (no explicit `tier`) still reports its
+  // real SIG weight (signature text was already read from the index, no extra I/O) and its
+  // real — genuinely zero — SRC weight, instead of omitting the pair.
+  const { symbolSourceChars, symbolSignatureChars } = measureSymbolTierChars(symbolFragments);
 
   // The execution context is derived from the persisted pack only (no extra retrieval, no
   // clock, no randomness), so re-running assembly over an unchanged repository rewrites a
@@ -162,8 +154,8 @@ export async function persistContextPack(input: {
       taskId: pack.task_id,
       rawTaskChars: input.taskText.length,
       ...(irJsonChars === undefined ? {} : { compiledTaskChars: irJsonChars, irJsonChars }),
-      ...(symbolSourceChars === undefined ? {} : { symbolSourceChars }),
-      ...(symbolSignatureChars === undefined ? {} : { symbolSignatureChars }),
+      symbolSourceChars,
+      symbolSignatureChars,
       rawPromptChars,
       ...(compiledPromptChars === undefined ? {} : { compiledPromptChars }),
       contextChars: encoded.length,

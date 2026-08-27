@@ -75,7 +75,7 @@ export function codeContextSymbolState(symbol: TieredContextSymbol): CodeContext
   };
 }
 
-function currentTier(symbol: TieredContextSymbol): CodeContextTier {
+function currentTier(symbol: TierMeasurableSymbol): CodeContextTier {
   if (symbol.tier !== undefined) {
     return symbol.tier;
   }
@@ -83,6 +83,43 @@ function currentTier(symbol: TieredContextSymbol): CodeContextTier {
     return "SRC";
   }
   return symbol.signature !== undefined ? "SIG" : "REF";
+}
+
+/**
+ * The subset of a symbol's fields `measureSymbolTierChars`/`currentTier` need. Declared
+ * separately from `TieredContextSymbol` (rather than reused) so a pack read back through
+ * `contextPackSchema` — whose zod `.optional()` fields carry an explicit `| undefined` under
+ * `exactOptionalPropertyTypes` — is directly assignable, without persist.ts having to narrow
+ * every unrelated field (`line`, `endLine`, `id`, ...) first.
+ */
+type TierMeasurableSymbol = {
+  tier?: CodeContextTier | undefined;
+  signature?: string | undefined;
+  source?: { text: string } | undefined;
+};
+
+/**
+ * SRC/SIG chars of a gathered symbol list, measured at gather time so persist.ts never has to
+ * recompute it after the tier decision (task 036-b-03). Reuses `currentTier`'s fallback — the
+ * same rule `codeContextSymbolState` applies — so a `symbol_slices`-off list (no explicit
+ * `tier`, no `source`, but `signature` already read from the index with no extra I/O) still
+ * reports its real SIG weight instead of leaving the pair absent. SRC stays a true zero in that
+ * case: no source slice was ever read, so there is nothing to sum.
+ */
+export function measureSymbolTierChars(
+  symbols: readonly TierMeasurableSymbol[],
+): { symbolSourceChars: number; symbolSignatureChars: number } {
+  let symbolSourceChars = 0;
+  let symbolSignatureChars = 0;
+  for (const symbol of symbols) {
+    const tier = currentTier(symbol);
+    if (tier === "SRC" && symbol.source) {
+      symbolSourceChars += symbol.source.text.length;
+    } else if (tier === "SIG" && symbol.signature) {
+      symbolSignatureChars += symbol.signature.length;
+    }
+  }
+  return { symbolSourceChars, symbolSignatureChars };
 }
 
 /**

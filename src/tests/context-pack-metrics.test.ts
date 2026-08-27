@@ -278,3 +278,120 @@ test("context-size metrics: dispatch_tool_schema/compact_dsl shadow fields round
   assert.equal(reread[0]?.dsl_ir_chars, 900);
   assert.equal(reread[0]?.dsl_compiled_chars, 600);
 });
+
+// Task 036-b-03: symbol_source_chars/symbol_signature_chars used to be computed in persist.ts
+// ONLY when at least one symbol carried an explicit `tier` — i.e. only when `symbol_slices` was
+// on for that pack. That left an operator running with the flag off unable to see, from the
+// metrics log alone, whether turning it on would be worth the extra I/O.
+test("persistContextPack: symbol_source_chars/symbol_signature_chars are written even without explicit tiers", async () => {
+  const runtimeRoot = path.resolve("vq-test-root-036b03-no-tiers");
+  const fs = memoryFs();
+  const pack = {
+    ...packFor("036b03-no-tiers", "Task be symbol tier'ų — symbol_slices išjungtas.", ["src/module/a.ts"], []),
+    code_context: {
+      symbol_fragments: [
+        { id: "sym-a", file: "src/module/a.ts", name: "a", reason: "exported", signature: "function a(): void" },
+        { id: "sym-b", file: "src/module/a.ts", name: "b", reason: "declared", signature: "function b(): void" },
+      ],
+    },
+  };
+
+  await persistContextPack({
+    fs,
+    runtimeRoot,
+    taskText: "kažkoks task tekstas",
+    encoded: JSON.stringify(pack),
+    maxContextChars: 20_000,
+    cacheStatus: "bypass",
+    droppedItemCount: 0,
+    specDroppedCount: 0,
+    codeContextDroppedCount: 0,
+    codeContextRebuilt: false,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+  });
+
+  const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
+  const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+
+  // No symbol carries a `tier`, so the pair is inferred from `signature`/`source` alone
+  // (the same fallback `codeContextSymbolState` applies to un-tiered packs): every gathered
+  // signature counts toward SIG, and SRC is a true zero — no source slice was ever read.
+  assert.equal(record["symbol_signature_chars"], "function a(): void".length + "function b(): void".length);
+  assert.equal(record["symbol_source_chars"], 0);
+});
+
+test("persistContextPack: symbol_source_chars/symbol_signature_chars sum only their own tier when tiers are explicit", async () => {
+  const runtimeRoot = path.resolve("vq-test-root-036b03-tiered");
+  const fs = memoryFs();
+  const pack = {
+    ...packFor("036b03-tiered", "Task su symbol tier'ais — symbol_slices įjungtas.", ["src/module/a.ts"], []),
+    code_context: {
+      symbol_fragments: [
+        {
+          id: "sym-src",
+          file: "src/module/a.ts",
+          name: "src-symbol",
+          reason: "exported",
+          tier: "SRC",
+          // A SRC-tier symbol still carries its signature (only REF strips it); it must not
+          // ALSO count toward symbol_signature_chars — the two totals stay mutually exclusive.
+          signature: "function srcSymbol(): void",
+          source: { text: "function srcSymbol() { return 1; }", hash: "0".repeat(64), line: 1, endLine: 1 },
+        },
+        { id: "sym-sig", file: "src/module/a.ts", name: "sig-symbol", reason: "exported", tier: "SIG", signature: "function sigSymbol(): void" },
+        { id: "sym-ref", file: "src/module/a.ts", name: "ref-symbol", reason: "declared", tier: "REF" },
+      ],
+    },
+  };
+
+  await persistContextPack({
+    fs,
+    runtimeRoot,
+    taskText: "kažkoks task tekstas",
+    encoded: JSON.stringify(pack),
+    maxContextChars: 20_000,
+    cacheStatus: "bypass",
+    droppedItemCount: 0,
+    specDroppedCount: 0,
+    codeContextDroppedCount: 0,
+    codeContextRebuilt: false,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+  });
+
+  const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
+  const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+
+  assert.equal(record["symbol_source_chars"], "function srcSymbol() { return 1; }".length);
+  assert.equal(record["symbol_signature_chars"], "function sigSymbol(): void".length);
+});
+
+test("persistContextPack: symbol_source_chars/symbol_signature_chars are 0 (present, not absent) with no code context", async () => {
+  const runtimeRoot = path.resolve("vq-test-root-036b03-no-code-context");
+  const fs = memoryFs();
+  const pack = packFor("036b03-no-code-context", "Task be jokio code context'o.", ["src/module/a.ts"], []);
+
+  await persistContextPack({
+    fs,
+    runtimeRoot,
+    taskText: "kažkoks task tekstas",
+    encoded: JSON.stringify(pack),
+    maxContextChars: 20_000,
+    cacheStatus: "bypass",
+    droppedItemCount: 0,
+    specDroppedCount: 0,
+    codeContextDroppedCount: 0,
+    codeContextRebuilt: false,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+  });
+
+  const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
+  const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+
+  assert.equal("symbol_source_chars" in record, true);
+  assert.equal("symbol_signature_chars" in record, true);
+  assert.equal(record["symbol_source_chars"], 0);
+  assert.equal(record["symbol_signature_chars"], 0);
+});

@@ -13,6 +13,7 @@ import {
   loopActionAllowed,
   loopRunStateOf,
   slotActionId,
+  startStreamCount,
   streamIndexOf,
   workersActionId,
   LOOP_RESTART_ACTION,
@@ -30,8 +31,16 @@ const REFRESH_SEC = 30;
 
 /**
  * Header'io „Paleisti" veiksmo id (task 048). Sąmoningai ATSKIRAS nuo `LOOP_START_ACTION`: abu
- * keliai lieka nesuvienyti (049), tad savo užrakto reikia ir šiam — kitaip dvigubas paspaudimas
- * ant Header'io mygtuko vis tiek išsiųstų dvi `/tasks/resume` užklausas.
+ * mygtukai (Header ir ciklo valdymo juosta) turi savo `pendingActions` užraktą, kitaip dvigubas
+ * paspaudimas ant Header'io mygtuko vis tiek išsiųstų dvi užklausas.
+ *
+ * 2026-08-27 auditas (task 049): iki šiol šis veiksmas siųsdavo `/tasks/resume`, o ciklo valdymo
+ * juostos „Paleisti ciklą (N srautų)" — `/api/runtime/loop/start`, kuris PAPILDOMAI atstato srautų
+ * valdiklį pagal siunčiamą `workers` skaičių. Du vizualiai skirtingi, bet abu „Paleisti" mygtukai
+ * elgėsi skirtingai be jokio ženklo. Dabar Header'is siunčia TĄ PATĮ `/api/runtime/loop/start` su
+ * ESAMU pasirinktu srautų skaičiumi (`startStreamCount`) — abu keliai daro identišką veiksmą, tad
+ * skirtumo, kurio niekas nematė, nebelieka. `/tasks/resume` lieka `api.ts` (kitiems vartotojams),
+ * bet Header jo daugiau nekviečia.
  */
 export const LOOP_RESUME_ACTION = "loop-resume";
 /** Rankinio „Atnaujinti"/„Tikrinti dar kartą" veiksmo id — leidžia mygtukams rodyti `aria-busy`. */
@@ -41,13 +50,32 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// Etiketės yra vartotojui matomas tekstas, tad jos rašomos ANGLIŠKAI (raktų kalba) ir verčiamos
-// per `t()` Header'yje. Anksčiau čia buvo lietuviški literalai, kurie EN režime likdavo
-// neišversti, nes žodyne tokių raktų nėra (2026-08-06 UI auditas).
-function resumeLoopLabel(status: string, pid?: number): string {
-  const label =
-    status === "already-running" ? "already running" : status === "started" ? "started" : status;
-  return `▶ ${label}${pid ? ` (pid ${pid})` : ""}`;
+/**
+ * Ciklo veiksmo etiketė kaip RAKTAS + PARAMETRAI, o ne baigtas tekstas (2026-08-27 auditas,
+ * task 049). Anksčiau pid'as ir klaidos tekstas buvo įrašomi TIESIAI į galutinę stygą PRIEŠ
+ * `t()`, tad žodyno paieška niekada nerasdavo atitikmens ir net numatytoji LT sąsaja likdavo su
+ * angliškais žodžiais („Starting...", „Error: ..."). `fill()` įstato reikšmes į JAU IŠVERSTĄ
+ * šabloną, tad raktas lieka pastovus, o kintantis skaičius ar serverio tekstas juda per parametrą.
+ */
+type LoopLabelState = { key: string; params?: Record<string, string | number> };
+
+function formatLoopLabel(t: (text: string) => string, state: LoopLabelState): string {
+  return state.params ? fill(t(state.key), state.params) : t(state.key);
+}
+
+const IDLE_RESUME_LABEL: LoopLabelState = { key: "▶ Start loop" };
+const IDLE_STOP_LABEL: LoopLabelState = { key: "⏹ Stop loop" };
+
+/** Sėkmingo paleidimo etiketė; `pid` praleidžiamas, kai serveris jo negrąžina. */
+function resumeResultLabel(status: "already-running" | "started", pid?: number): LoopLabelState {
+  if (status === "already-running") return { key: "▶ Already running" };
+  return pid === undefined ? { key: "▶ Started" } : { key: "▶ Started (pid {pid})", params: { pid } };
+}
+
+/** Sėkmingo stabdymo etiketė; „no-known-process" grįžta tiesiai į IDLE (etalono elgesys). */
+function stopResultLabel(status: "stop-requested" | "stop-requested-no-known-process", pid?: number): LoopLabelState {
+  if (status !== "stop-requested") return IDLE_STOP_LABEL;
+  return pid === undefined ? { key: "⏹ Stopping" } : { key: "⏹ Stopping (pid {pid})", params: { pid } };
 }
 
 /**
@@ -113,10 +141,10 @@ function waitOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /** Perrašo ankstesnį timer'į ir įsimena naują, kad unmount galėtų jį atšaukti. */
-function scheduleLabelReset(
+function scheduleLabelReset<T>(
   timer: { current: ReturnType<typeof setTimeout> | null },
-  setLabel: (label: string) => void,
-  label: string,
+  setLabel: (label: T) => void,
+  label: T,
   delayMs: number,
 ): void {
   if (timer.current) clearTimeout(timer.current);
@@ -136,8 +164,12 @@ export function useDashboardController() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   /** Kada PASKUTINĮ kartą pavyko perskaityti `/api/dashboard`; `null` — dar nė karto. */
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
-  const [resumeLabel, setResumeLabel] = useState("▶ Start loop");
-  const [stopLabel, setStopLabel] = useState("⏹ Stop loop");
+  const [resumeLabelState, setResumeLabelState] = useState<LoopLabelState>(IDLE_RESUME_LABEL);
+  const [stopLabelState, setStopLabelState] = useState<LoopLabelState>(IDLE_STOP_LABEL);
+  // Rodomas tekstas perskaičiuojamas KIEKVIENĄ kalbos perjungimą (ne tik veiksmo metu): busena
+  // gyvena kaip raktas + parametrai, o `t()` čia yra vienintelė vieta, kur ji virsta styga.
+  const resumeLabel = useMemo(() => formatLoopLabel(t, resumeLabelState), [resumeLabelState, t]);
+  const stopLabel = useMemo(() => formatLoopLabel(t, stopLabelState), [stopLabelState, t]);
   // Vienas mutuojančių veiksmų kelias (task 1235): dvigubo paspaudimo apsauga ir rezultato pranešimas.
   // `notice` lieka įkėlimo, aplanko, politikų ir mokymosi keliams — jie čia neįtraukti sąmoningai.
   const { pendingActions, run, toasts, dismissToast } = useOperatorActions();
@@ -206,13 +238,13 @@ export function useDashboardController() {
       if (requestId !== requestSequence.current) return { ok: true };
       const message = toErrorMessage(loadError);
       if (hasDashboardData.current) {
-        setRefreshError(`Nepavyko atnaujinti duomenų: ${message}`);
+        setRefreshError(`${t("Could not refresh the data")}: ${message}`);
         return { ok: false, message };
       }
       setError(message);
       return { ok: false, message };
     }
-  }, []);
+  }, [t]);
 
   /**
    * Vienintelis rankinio atnaujinimo kelias (task 048): tas pats `run()` užraktas ir toast'as kaip
@@ -277,32 +309,38 @@ export function useDashboardController() {
   }, [data]);
 
   /**
-   * Header'io ciklo paleidimas (task 048). Anksčiau šis kelias apeidavo `run()`: nebuvo
-   * `pendingActions` užrakto (du greiti paspaudimai siųsdavo dvi `/tasks/resume` užklausas) ir
-   * jokio toast'o — rezultatas matydavosi TIK trumpam pasikeitusiame mygtuko tekste. Dabar veiksmas
-   * dalijasi ta pačia disciplina kaip `stopLoop`/`startLoopWithWorkers`.
+   * Header'io ciklo paleidimas (task 048, endpoint suvienodintas 049). Anksčiau šis kelias
+   * apeidavo `run()`: nebuvo `pendingActions` užrakto (du greiti paspaudimai siųsdavo dvi
+   * `/tasks/resume` užklausas) ir jokio toast'o — rezultatas matydavosi TIK trumpam pasikeitusiame
+   * mygtuko tekste. Dabar veiksmas dalijasi ta pačia disciplina kaip `stopLoop`/`startLoopWithWorkers`
+   * IR tuo pačiu `/api/runtime/loop/start` maršrutu su esamu pasirinktu srautų skaičiumi — žr.
+   * `LOOP_RESUME_ACTION` komentarą.
    */
   const resumeLoop = useCallback(async () => {
     await run(LOOP_RESUME_ACTION, {
       perform: async () => {
-        setResumeLabel("▶ Starting...");
+        setResumeLabelState({ key: "▶ Starting..." });
         try {
-          const result = await api.resumeLoop();
-          setResumeLabel(resumeLoopLabel(result.status, result.pid));
+          const workers = startStreamCount(dashboard?.workerControl);
+          const result = await api.startLoopWithWorkers(workers);
+          // `failed` ateina 200 atsakyme: tyliai jį palaikyti sėkme reikštų parašyti „paleista",
+          // kai niekas nepaleista (ta pati taisyklė kaip `startLoopWithWorkers` veiksme žemiau).
+          if (result.status === "failed") throw new Error(result.reason ?? result.status);
+          setResumeLabelState(resumeResultLabel(result.status, result.pid));
           void load();
-          scheduleLabelReset(resumeResetTimer, setResumeLabel, "▶ Start loop", 4000);
+          scheduleLabelReset(resumeResetTimer, setResumeLabelState, IDLE_RESUME_LABEL, 4000);
           return result.status === "already-running"
             ? t("The loop was already running.")
             : fill(t("Loop started (pid {pid})."), { pid: result.pid ?? "—" });
         } catch (resumeError) {
-          setResumeLabel(`▶ Error: ${toErrorMessage(resumeError)}`);
-          scheduleLabelReset(resumeResetTimer, setResumeLabel, "▶ Start loop", 6000);
+          setResumeLabelState({ key: "▶ Error: {message}", params: { message: toErrorMessage(resumeError) } });
+          scheduleLabelReset(resumeResetTimer, setResumeLabelState, IDLE_RESUME_LABEL, 6000);
           throw resumeError;
         }
       },
       failureMessage: t("Could not start the loop"),
     });
-  }, [load, run, t]);
+  }, [dashboard, load, run, t]);
 
   /**
    * Ciklo stabdymas. Header'is toliau gyvena iš `stopLabel`, o rezultato sakinys nuo šiol keliauja į
@@ -312,14 +350,14 @@ export function useDashboardController() {
   const stopLoop = useCallback(async () => {
     await run(LOOP_STOP_ACTION, {
       perform: async () => {
-        setStopLabel("⏹ Stopping...");
+        setStopLabelState({ key: "⏹ Stopping..." });
         try {
           const result = await api.stopLoop();
           if (result.status === "failed") throw new Error(result.reason ?? result.status);
           // Serveris nebemeluoja: `…-no-known-process` reiškia, kad vėliava įrašyta, bet gyvo, šiam
           // UI žinomo proceso nėra.
-          setStopLabel(result.status === "stop-requested" ? `⏹ stopping (pid ${result.pid})` : "⏹ Stop loop");
-          scheduleLabelReset(stopResetTimer, setStopLabel, "⏹ Stop loop", 6000);
+          setStopLabelState(stopResultLabel(result.status, result.pid));
+          scheduleLabelReset(stopResetTimer, setStopLabelState, IDLE_STOP_LABEL, 6000);
           void load();
           return result.status === "stop-requested"
             ? fill(t("Stop requested; the loop will stop after the current task (pid {pid})."), {
@@ -327,8 +365,8 @@ export function useDashboardController() {
               })
             : t("Stop was recorded, but no running loop process is known to this UI.");
         } catch (stopError) {
-          setStopLabel(`⏹ Error: ${toErrorMessage(stopError)}`);
-          scheduleLabelReset(stopResetTimer, setStopLabel, "⏹ Stop loop", 6000);
+          setStopLabelState({ key: "⏹ Error: {message}", params: { message: toErrorMessage(stopError) } });
+          scheduleLabelReset(stopResetTimer, setStopLabelState, IDLE_STOP_LABEL, 6000);
           throw stopError;
         }
       },
@@ -344,12 +382,12 @@ export function useDashboardController() {
         setNotice(null);
         void load();
       } catch (uploadError) {
-        const message = `Nepavyko įkelti užduoties: ${toErrorMessage(uploadError)}`;
+        const message = `${t("Could not upload the task")}: ${toErrorMessage(uploadError)}`;
         setNotice(message);
         throw new Error(message, { cause: uploadError });
       }
     },
-    [load],
+    [load, t],
   );
 
   const approveLearning = useCallback(
@@ -359,10 +397,10 @@ export function useDashboardController() {
         setNotice(null);
         void load();
       } catch (decisionError) {
-        setNotice(`Nepavyko patvirtinti rekomendacijos: ${toErrorMessage(decisionError)}`);
+        setNotice(`${t("Could not approve the recommendation")}: ${toErrorMessage(decisionError)}`);
       }
     },
-    [load],
+    [load, t],
   );
 
   const rejectLearning = useCallback(
@@ -372,10 +410,10 @@ export function useDashboardController() {
         setNotice(null);
         void load();
       } catch (decisionError) {
-        setNotice(`Nepavyko atmesti rekomendacijos: ${toErrorMessage(decisionError)}`);
+        setNotice(`${t("Could not reject the recommendation")}: ${toErrorMessage(decisionError)}`);
       }
     },
-    [load],
+    [load, t],
   );
 
   const openFolder = useCallback(async (bucket: string) => {
@@ -383,9 +421,9 @@ export function useDashboardController() {
       await api.openFolder(bucket);
       setNotice(null);
     } catch (openError) {
-      setNotice(`Nepavyko atidaryti aplanko: ${toErrorMessage(openError)}`);
+      setNotice(`${t("Could not open the folder")}: ${toErrorMessage(openError)}`);
     }
-  }, []);
+  }, [t]);
 
   const loadWorkflowTasks = useCallback(async (bucket: string): Promise<string[]> => {
     const result = await api.fetchWorkflowTasks(bucket);
@@ -399,10 +437,10 @@ export function useDashboardController() {
         setNotice(null);
         void load();
       } catch (proposeError) {
-        setNotice(`Nepavyko pateikti pasiūlymo: ${toErrorMessage(proposeError)}`);
+        setNotice(`${t("Could not submit the proposal")}: ${toErrorMessage(proposeError)}`);
       }
     },
-    [load],
+    [load, t],
   );
 
   const setRequestedWorkers = useCallback(

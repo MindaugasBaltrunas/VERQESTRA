@@ -869,8 +869,26 @@ const lt: Record<string, string> = {
   // Task 048: Header'io „Paleisti" pereina per `run()`, o rankinis atnaujinimas gauna savo toast'ą.
   "Loop started (pid {pid}).": "Ciklas paleistas (pid {pid}).",
   "Could not start the loop": "Nepavyko paleisti ciklo",
+  // Header'io „Paleisti"/„Sustabdyti" DINAMINĖS būsenos (task 049 UI auditas): anksčiau pid ir
+  // klaidos tekstas buvo įrašomi TIESIAI į galutinę stygą prieš `t()`, tad žodyno paieška niekada
+  // nerasdavo atitikmens — net numatytoji LT sąsaja rodydavo angliškus žodžius „Starting...".
+  "▶ Starting...": "▶ Paleidžiama...",
+  "▶ Already running": "▶ Jau veikia",
+  "▶ Started": "▶ Paleista",
+  "▶ Started (pid {pid})": "▶ Paleista (pid {pid})",
+  "▶ Error: {message}": "▶ Klaida: {message}",
+  "⏹ Stopping...": "⏹ Stabdoma...",
+  "⏹ Stopping": "⏹ Stabdoma",
+  "⏹ Stopping (pid {pid})": "⏹ Stabdoma (pid {pid})",
+  "⏹ Error: {message}": "⏹ Klaida: {message}",
   "Status refreshed.": "Būsena atnaujinta.",
   "Could not refresh the status": "Nepavyko atnaujinti būsenos",
+  "Could not refresh the data": "Nepavyko atnaujinti duomenų",
+  "Could not upload the task": "Nepavyko įkelti užduoties",
+  "Could not approve the recommendation": "Nepavyko patvirtinti rekomendacijos",
+  "Could not reject the recommendation": "Nepavyko atmesti rekomendacijos",
+  "Could not open the folder": "Nepavyko atidaryti aplanko",
+  "Could not submit the proposal": "Nepavyko pateikti pasiūlymo",
   // Bendras perkrovimo prefiksas: `useOperatorActions` klaidos pranešimą sudaro iš prefikso ir
   // priežasties, o pati priežastis (žemiau) pasako, KURIAME žingsnyje sustota.
   "Could not restart the loop": "Nepavyko perkrauti ciklo",

@@ -106,9 +106,13 @@ export function Header({
               onClick={onResumeLoop}
               title={t("Start VERQESTRA")}
               disabled={!canResumeLoop}
-              aria-busy={(resumeLoopLabel !== undefined && resumeLoopLabel !== "▶ Start loop") || undefined}
+              // `resumeLoopLabel` (task 049) atkeliauja JAU IŠVERSTAS iš kontrolerio — jis žino
+              // `t()` ir sudeda pid/klaidos parametrus PRIEŠ juos perduodamas. Antras `t()` kvietimas
+              // čia lygintų išverstą LT tekstą su angliška sentinele ir aria-busy liktų amžinai
+              // teisingas TIK EN kalbai; sentinelė todėl irgi verčiama.
+              aria-busy={(resumeLoopLabel !== undefined && resumeLoopLabel !== t("▶ Start loop")) || undefined}
             >
-              {t(resumeLoopLabel ?? "▶ Start loop")}
+              {resumeLoopLabel ?? t("▶ Start loop")}
             </button>
           )}
           {onStopLoop && (
@@ -118,9 +122,9 @@ export function Header({
               onClick={onStopLoop}
               title={t("Stop VERQESTRA")}
               disabled={!canStopLoop}
-              aria-busy={(stopLoopLabel !== undefined && stopLoopLabel !== "⏹ Stop loop") || undefined}
+              aria-busy={(stopLoopLabel !== undefined && stopLoopLabel !== t("⏹ Stop loop")) || undefined}
             >
-              {t(stopLoopLabel ?? "⏹ Stop loop")}
+              {stopLoopLabel ?? t("⏹ Stop loop")}
             </button>
           )}
           {(onResumeLoop || onStopLoop) && <span className="toolbar-divider" aria-hidden="true" />}

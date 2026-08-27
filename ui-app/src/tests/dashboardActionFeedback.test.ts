@@ -9,6 +9,10 @@ import { useDashboardController } from "../controller/useDashboardController";
  * dvigubo paspaudimo apsaugos, o po klaidos mygtukas užsirakindavo net kai veiksmas jau seniai
  * baigėsi (žr. `useDashboardController.ts` `buildLoopControls` iškvietimą). Šie testai tikrina
  * abu pataisytus dalykus TIESIOGIAI per `loopControls`/`pendingActions`, o ne per etiketės tekstą.
+ *
+ * Task 049: `resumeLoop` (Header'io „Paleisti") nuo šiol siunčia `api.startLoopWithWorkers`, o ne
+ * `api.resumeLoop` — abu vizualiai skirtingi „Paleisti" mygtukai (Header ir ciklo valdymo juosta)
+ * dabar kviečia TĄ PATĮ serverio maršrutą su esamu srautų skaičiumi.
  */
 
 vi.mock("../model/api", () => ({
@@ -56,9 +60,9 @@ describe("useDashboardController — vieningas veiksmų feedback (task 048)", ()
     vi.mocked(api.fetchDashboard).mockResolvedValue(dashboard(oneWorker));
   });
 
-  it("resumeLoop: dvigubas paspaudimas eina per run() ir siunčia VIENĄ POST", async () => {
+  it("resumeLoop: dvigubas paspaudimas eina per run() ir siunčia VIENĄ POST į /api/runtime/loop/start", async () => {
     let release: ((value: LoopResult) => void) | null = null;
-    vi.mocked(api.resumeLoop).mockImplementation(
+    vi.mocked(api.startLoopWithWorkers).mockImplementation(
       () => new Promise((resolve) => { release = resolve; }),
     );
 
@@ -71,7 +75,10 @@ describe("useDashboardController — vieningas veiksmų feedback (task 048)", ()
       void result.current.actions.resumeLoop();
     });
 
-    expect(api.resumeLoop).toHaveBeenCalledTimes(1);
+    // `oneWorker` fixture'as: esamas pasirinkimas yra 1 srautas — tą patį skaičių, kurį rodytų
+    // ciklo valdymo juostos mygtukas, jei paspaustum jį vietoje Header'io (task 049 suvienodinimas).
+    expect(api.startLoopWithWorkers).toHaveBeenCalledTimes(1);
+    expect(api.startLoopWithWorkers).toHaveBeenCalledWith(1);
     await waitFor(() => expect(result.current.pendingActions.has("loop-resume")).toBe(true));
     // Kol veiksmas vyksta, Header'io „Paleisti" NEGALI būti paspaudžiamas antrą kartą.
     expect(result.current.loopControls.canResume).toBe(false);
@@ -86,7 +93,7 @@ describe("useDashboardController — vieningas veiksmų feedback (task 048)", ()
   });
 
   it("resumeLoop: nesėkmė praneša toast'u ir NEUŽRAKINA mygtuko amžinai", async () => {
-    vi.mocked(api.resumeLoop).mockRejectedValue(new Error("HTTP 500: orchestrator busy"));
+    vi.mocked(api.startLoopWithWorkers).mockRejectedValue(new Error("HTTP 500: orchestrator busy"));
 
     const { result } = renderHook(() => useDashboardController());
     await waitFor(() => expect(result.current.dashboard).not.toBeNull());

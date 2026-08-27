@@ -67,9 +67,10 @@ Commit'ink, kai patikros žalios. Sustok, jei sprendimas imtų reikšti nuosavyb
 ## Neįtraukta
 - `slugFromTask` 50 simbolių riba ir auto-change katalogų kelių forma.
 - PASTABA AUTORIUI: task'o tekste `openspec/changes/` prefiksas leidžiamas TIK tikrai, aktyviai
-  nuorodai. Nuorodos su daugtaškiu ar archyvo keliu preflight'as neatskiria nuo tikrų: šis
-  task'as dėl to krito 21:42:55 (`openspec/changes/auto- does not exist`), o `039` — dėl
-  archyvinio kelio 19:28:51.
+  nuorodai — net citatoje ar backtick'uose preflight'as jį laiko nuoroda. Šis task'as dėl to
+  krito 21:42:55 (citata su `…changes/auto-` fragmentu → „does not exist"), o `039` — dėl
+  archyvinio kelio 19:28:51. Antrą kartą (05:25:52) jį pargriovė būtent ši pastaba, kol joje
+  buvo pilna klaidos citata su prefiksu.
 - Retry vartų (`retryGuardAdapters.readDecision`) kelias — jis skaito tą patį failą, bet
   nuosavybės netikrina, tad šio defekto nemato.
 - `032` grąžinimas į eilę (operatoriaus veiksmas po pataisos).

@@ -26,7 +26,10 @@ import {
 import { loadTokenBudgetConfig } from "../application/token-governance/token-budget-config.js";
 import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
-import { evaluateArchitectureAndPolicyGates } from "../application/quality-gates/preflight-rules.js";
+import {
+  detectHallucinatedAllowedPaths,
+  evaluateArchitectureAndPolicyGates,
+} from "../application/quality-gates/preflight-rules.js";
 import {
   evaluatePreflight,
   requiresFreshCodeIndex,
@@ -433,4 +436,30 @@ test("spec source kandidatai ir code-index trigeris", () => {
   assert.equal(requiresFreshCodeIndex("naudok code graph context"), true);
   assert.equal(requiresFreshCodeIndex("code graph context + code-index build"), false);
   assert.equal(requiresFreshCodeIndex("paprastas taskas"), false);
+});
+
+test("detectHallucinatedAllowedPaths: neegzistuojantis tėvinis katalogas → sugalvotas kelias", () => {
+  const task = `# Task
+
+## Failai
+Leidžiama:
+- \`src/real/existing.ts\`
+- \`src/real/new-file.ts\`
+- \`src/nera-tokio-katalogo/phantom.ts\`
+- \`src/**\`
+- \`src/nera-tokio-katalogo/**\`
+- \`Dockerfile\`
+`;
+  const existingDirs = new Set(["src/real"]);
+  const dirExists = (dir: string): boolean => existingDirs.has(dir);
+
+  assert.deepEqual(detectHallucinatedAllowedPaths(task, dirExists), ["src/nera-tokio-katalogo/phantom.ts"]);
+});
+
+test("detectHallucinatedAllowedPaths: fail-open be `## Failai` sekcijos ir kai visi katalogai egzistuoja", () => {
+  assert.deepEqual(
+    detectHallucinatedAllowedPaths("# Task\n\n## Tikslas\nBe Failai sekcijos.\n", () => false),
+    [],
+  );
+  assert.deepEqual(detectHallucinatedAllowedPaths(CANONICAL_TASK, () => true), []);
 });

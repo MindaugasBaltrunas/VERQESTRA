@@ -7,6 +7,7 @@
 // parseris (FQC-12: vienas parseris visame repo).
 
 import { extractSection, findSectionBounds, markdownFenceMask, splitLines } from "../../shared/markdown.js";
+import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
 import { serializeAgentChain } from "../../domain/policies/agent-selection.js";
 import {
   detectForbiddenDependencyViolations,
@@ -435,4 +436,33 @@ export function evaluateArchitectureAndPolicyGates(input: PolicyGateInput): Poli
   }
 
   return { invalidReasons, reviewReasons };
+}
+
+// --- Hallucinated allowed-path detection --------------------------------------------------
+
+/** Tėvinis katalogas, arba `undefined` root-level failui/katalogui (tikrinti nėra ko). */
+function parentDirectoryOf(filePath: string): string | undefined {
+  const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const idx = normalized.lastIndexOf("/");
+  return idx === -1 ? undefined : normalized.slice(0, idx);
+}
+
+/**
+ * `## Failai` → `Leidžiama:` keliai, kurių TĖVINIS KATALOGAS neegzistuoja — ĮRODYTAI
+ * sugalvotas kelias, ne tik dar nesamas failas esamame kataloge. `dirExists` yra
+ * injektuojamas predikatas (jokio `node:fs` čia — application sluoksnis lieka grynas).
+ * Glob'ai (`**`, `*`) ir root-level keliai (be tėvinio katalogo) fail-open praleidžiami:
+ * abejotinas kelias paliekamas leidžiamas.
+ */
+export function detectHallucinatedAllowedPaths(taskText: string, dirExists: (dir: string) => boolean): string[] {
+  const flagged: string[] = [];
+  for (const path of allowedPaths(taskText)) {
+    if (path.includes("*")) continue;
+    const parent = parentDirectoryOf(path);
+    if (parent === undefined) continue;
+    if (!dirExists(parent)) {
+      flagged.push(path);
+    }
+  }
+  return flagged;
 }

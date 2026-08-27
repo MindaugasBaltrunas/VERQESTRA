@@ -46,6 +46,9 @@ import { recordResumeCheckpoint } from "../../infrastructure/state/resume-checkp
 import type { AttemptResolutionPort } from "../../infrastructure/state/attempt-resolution.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
 import { appendLogLine, readJsonSnapshot } from "./adapters.js";
+import { ANALYTICS_SNAPSHOT_STATES } from "../../application/task-execution/task-events-model.js";
+import { emitLearningEventsForTaskTransition } from "../../application/learning/learning-emitter.js";
+import { updateTokenAnalyticsSnapshot } from "../../application/learning/token-analytics-snapshot.js";
 import { taskLedgerStore } from "../runtime/node-adapters.js";
 import { readClaudeSessionLog, readOptionalFile } from "../quality/diagnose-adapters.js";
 import { run } from "../../infrastructure/process/run-process.js";
@@ -193,11 +196,24 @@ export function coordinatorJournalPort(input: CoordinatorAdapterInput): TaskJour
   const eventsPath = path.join(input.runtimeRoot, "logs", "task-events.jsonl");
 
   return {
-    recordEvent: (event) =>
-      nodeFsAdapter.appendTextFile(
+    recordEvent: async (event) => {
+      await nodeFsAdapter.appendTextFile(
         eventsPath,
         `${JSON.stringify({ ...event, at: new Date().toISOString() })}\n`,
-      ),
+      );
+
+      // Learning kelias yra best-effort ir NIEKADA negali nutraukti perėjimo įrašymo: emiseris
+      // savo try/catch jau turi, bet snapshot'o kvietimas čia yra papildomas — apgaubtas atskirai,
+      // kad viena klaida nesustabdytų kitos.
+      try {
+        await emitLearningEventsForTaskTransition(nodeFsAdapter, input.runtimeRoot, event);
+        if (ANALYTICS_SNAPSHOT_STATES.has(event.to_state)) {
+          await updateTokenAnalyticsSnapshot(nodeFsAdapter, input.runtimeRoot);
+        }
+      } catch {
+        /* learning maitinimas yra best-effort — niekada neblokuoja task perėjimo */
+      }
+    },
     /**
      * Fazės gedimas: mašininė eilutė žurnale plius apkarpyta išvestis.
      *

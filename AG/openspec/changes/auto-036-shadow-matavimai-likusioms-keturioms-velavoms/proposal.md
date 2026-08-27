@@ -1,29 +1,30 @@
 # Proposal
 
 ## Why
-`decideCompression` (src/interfaces/http/ui-compression-view.ts) can only ever return a real verdict for `worker_task_ir`: it is the only one of the five compression flags in `CONTEXT_COMPRESSION_FEATURES` with a shadow measurement feeding `context-size.jsonl`. The other four read as `unmeasured`/`no-shadow-measurement` today, for four different reasons that this change closes one by one:
+`decideCompression` (src/interfaces/http/ui-compression-view.ts) turi realų verdiktą tik vienai iš penkių kompresijos vėliavų — `worker_task_ir`. Likusios keturios (`bash_output_digest`, `symbol_slices`, `dispatch_tool_schema`, `compact_dsl`) visada gauna `action: "unmeasured"`, `reason: "no-shadow-measurement"`, nes joms nėra rašomos poros "kiek kainuotų su" vs "kiek kainuoja be" — nors jų VIETA lauko lygyje jau deklaruota (`metrics.ts` `ContextCompressionMetricsInput`: `toolRawChars`/`toolDigestChars` su pastaba "no writer in this module"). `symbol_slices` porai (`symbol_source_chars`/`symbol_signature_chars`) rašytojas yra, bet suveikia TIK kai `symbolFragments.some(tier !== undefined)` — t. y. tik po to, kai vėliava jau įjungta (persist.ts:117); tai apverstas klausimas — operatorius negali sužinoti, ar verta jungti, nesujungęs pirmiau. `dispatch_tool_schema` šiandien žurnale turi tik režimo eilutę (`token-usage-log.ts`: `"applied"|"off"`), jokio dydžio matavimo. `compact_dsl` porą (`irChars`/DSL statistika kompiliacijoje) turi, bet ji niekada nepasiekia `context-size.jsonl`.
 
-- `bash_output_digest` — a shadow computation ALREADY runs (post-hooks.ts `digestBashOutput`), but it writes to its own log (`bash-digest-shadow.jsonl`), never reaches `context-size.jsonl`, and `metrics.ts:82-86` documents `toolRawChars`/`toolDigestChars` as "declared for schema/reader compatibility, no writer". The data exists; it is not wired to the verdict.
-- `dispatch_tool_schema` — `resolveDispatchMcpCapabilities` fail-opens to zero I/O when the flag is off (`mcp-capability-registry.ts:147-148`); nothing measures what the full vs. reduced MCP schema would have cost.
-- `symbol_slices` — `persist.ts:113-127` only measures `symbol_source_chars`/`symbol_signature_chars` from an ALREADY-tiered pack, i.e. only once the flag is on. With it off, `gather.ts:60-66` sets `readSourceSlices: false` and no source slice is ever read, so there is nothing to measure from.
-- `compact_dsl` — the raw/compiled pair already exists inside `worker-prompt-compilation.ts` (`irChars`/`compiledChars` plus `CompactWorkerDslStats`), but `persist.ts`'s shadow compile (`SHADOW_COMPRESSED_PROMPT_CONFIG`) only exercises `worker_task_ir: true, compact_dsl: false` — the compact-DSL variant is never shadow-compiled, so its pair never reaches `context-size.jsonl`.
-
-Without all five flags carrying a measured pair, the operator UI (`docs/audits/` 2026-08-26 compressor audit) cannot answer "is it worth turning this on" for four fifths of the levers it exposes — it can only ever recommend against the one flag that happens to be instrumented.
+Be visų penkių porų operatoriaus sprendimas "ką jungti" lieka spėjimu keturiais atvejais iš penkių — būtent tam sukurtas UI puslapis (2026-08-26) negali atlikti savo darbo.
 
 ## Scope
-- Add a shadow measurement for `bash_output_digest`, `symbol_slices`, `dispatch_tool_schema`, `compact_dsl`, following the same "absent, not zero" contract `worker_task_ir` already established in `COMPRESSION_METRIC_FIELDS`.
-- Wire each new pair into `decideCompression` so it produces a real verdict (`enable`/`optional`/`hold`/`insufficient`) using the same threshold logic (`MIN_DECISION_SAMPLES`, pressure levels) already applied to `worker_task_ir`, generalized to iterate all five flags instead of special-casing one.
-- Extend `ui-compression-view.ts` telemetry/decision shapes and `ui-app` translations for whatever new reason codes a generalized decision function needs.
-- Where a flag's shadow pair cannot be measured without new I/O or a measurable slowdown on the live dispatch path (this is expected for `symbol_slices`, see Design), stop and report rather than silently accepting the cost.
+- Keturios NAUJOS arba UŽPILDOMOS shadow poros, po vieną kiekvienai neišmatuotai vėliavai, rašomos į `vq/logs/context-size.jsonl` per esamą `COMPRESSION_METRIC_FIELDS` vieno-įrašo lentelę (`src/application/context-pack/metrics.ts`).
+- `bash_output_digest`: užpildyti jau deklaruotus `toolRawChars`/`toolDigestChars` iš PostToolUse Bash hook'o shadow kelio (`src/interfaces/hooks/post-hooks.ts` — `recordBashDigestShadow` jau skaičiuoja digest'ą į atskirą `bash-digest-shadow.jsonl`; ši užduotis prijungia tą patį skaičiavimą prie `context-size.jsonl` per `task_id`).
+- `symbol_slices`: perkelti `symbol_source_chars`/`symbol_signature_chars` skaičiavimą (`src/application/context-pack/assemble/persist.ts` ir `tiers.ts`) iš "tik kai tier'ai jau priskirti" į "visada surinkimo metu, nepriklausomai nuo to, ar pack'as renderinamas su tier'ais".
+- `dispatch_tool_schema`: naujas shadow matavimas dispatch paruošimo metu (pilnos vs sumažintos MCP schemos dydis), analogiškai 032 užduoties `rawPromptChars`/`compiledPromptChars` porai.
+- `compact_dsl`: pratekinti jau egzistuojančią kompiliacijos porą (`compact-dsl/render.ts` `irChars` vs `compiledChars`) į `context-size.jsonl`, jei jos ten dar nėra.
+- `decideCompression` apibendrinti nuo vieno hardcoded `worker_task_ir` atvejo į lentelę "vėliava → poros laukai", kad kiekviena vėliava su savo pora gautų tą pačią moka/nemoka/trūksta-mėginių logiką.
+- UI (`ui-app`) — nauji priežasčių vertimai naujoms `reason` reikšmėms, jei jų prireiks per lentelės apibendrinimą.
 
 ## Out Of Scope
-- Turning any of the five flags on by default or in canary.
-- Benchmark-package cohorts.
-- Prompt-level dedup / IR structure changes (closed by tasks 029/030).
-- Changing what content is actually sent to a worker — every new measurement must be read-only telemetry.
+- Bet kurios vėliavos įjungimas config'e ar canary kohortoje.
+- `AG/benchmark` paketo kohortos ir jų analizė.
+- Prompt'o lygio dedup ir IR struktūros pakeitimai (uždaryta 029/030).
+- `worker_task_ir` poros keitimas — ji jau veikia (032) ir šia užduotimi nekeičiama.
+- Naujų kompresijos vėliavų pridėjimas prie `CONTEXT_COMPRESSION_FEATURES` registro.
 
 ## Architecture Boundaries
-- **Module**: `application/context-pack` (metrics.ts, assemble/persist.ts, assemble/gather.ts, mcp-capability-registry.ts, worker-prompt-compilation.ts), `interfaces/hooks` (post-hooks.ts, bash digest shadow path), `interfaces/http/ui-compression-view.ts`, `ui-app/src` (verdict labels/translations only).
-- **Reads**: `vq/logs/context-size.jsonl`, `vq/logs/bash-digest-shadow.jsonl`, `vq/config/context-compression.json`, MCP capability registry config (`vq/config` per mcp-capability-registry.ts), source files touched by a task (ONLY if `symbol_slices` shadow can reuse data already gathered for other purposes — see Design risk).
-- **Writes**: `vq/logs/context-size.jsonl` (new optional fields per `COMPRESSION_METRIC_FIELDS`), no new files unless the `bash_output_digest` correlation design (see Design) requires reading a second existing log rather than writing a new one.
-- **Job types**: nėra — pakeitimas veikia esamų assembly/dispatch/hook kelių viduje; naujo job tipo neįveda.
+- **Moduliai**: `src/application/context-pack/**` (metrics, persist, tiers, gather, compact-dsl), `src/interfaces/hooks/**` (PostToolUse Bash shadow kelias), `src/interfaces/http/ui-compression-view.ts` (decideCompression apibendrinimas), `ui-app/src/**` (tik verdikto priežasčių vertimai).
+- **Sluoksnių ribos**: `application` sluoksnis (metrics/persist/tiers/gather/compact-dsl) gali importuoti tik iš `application`, `domain`, `shared` — jokio `infrastructure`. `interfaces/hooks` ir `interfaces/http` gauna efektus per portus (`ContextPackFileSystemPort`, esami hook'ų portai), naujų infrastruktūros importų NEreikia — visi rašymo taškai jau turi FS portą.
+- **Reads**: `vq/logs/context-size.jsonl` (esamas), `vq/config/context-compression.json` (esamas, per `loadConfig`/`loadCompressionConfig` portus).
+- **Writes**: `vq/logs/context-size.jsonl` — TIK nauji NEPRIVALOMI laukai per `COMPRESSION_METRIC_FIELDS`; jokio schema breaking change esamiems skaitytojams. `bash-digest-shadow.jsonl` lieka (esamas atskiras žurnalas), jei jo skaičiavimas pakartotinai naudojamas `context-size.jsonl` įrašui — sprendžia architect/coder, ar dubliuoti skaičiavimą, ar dalintis viena funkcija.
+- **Job types**: nėra. Visi matavimai vyksta sinchroniškai esamuose best-effort telemetrijos keliuose (hook'o PostToolUse, context-pack assembly, dispatch paruošimas) — ne atskiras worker/job.
+- **DB**: nėra — visa telemetrija yra append-only JSONL faile, ne DB lentelė.

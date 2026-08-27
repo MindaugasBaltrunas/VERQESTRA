@@ -1,22 +1,28 @@
 # Spec Delta
 
 ## Added
-- `COMPRESSION_METRIC_FIELDS` (metrics.ts) gains new optional input/record key pairs: one for the `compact_dsl` shadow prompt size (e.g. `compactPromptChars`/`compact_prompt_chars`), two for the `dispatch_tool_schema` shadow schema sizes (full/reduced), and — if the symbol_slices risk in Design resolves to "measurable" — the flag-off-path variants of `symbol_source_chars`/`symbol_signature_chars` (same field names, now written from BOTH the tiered-pack path and the new shadow path, never both in the same record).
-- A second shadow compile call in `persist.ts` (compact_dsl variant of `compileWorkerPromptTask`), parallel to the existing `worker_task_ir` shadow compile, same fail-closed `try/catch` contract.
-- A shadow resolve of dispatch MCP capabilities at dispatch-preparation time, unconditional of the live `dispatch_tool_schema` flag, producing full-vs-reduced char counts.
-- A `bash-digest-shadow.jsonl` read port on `CompressionViewPorts` (ui-compression-view.ts), plus a dedicated aggregation function for that flag's raw/digest pair, separate from `summarizeContextSizeSamples`.
-- Generalized `decideCompression` verdict logic covering all five `CONTEXT_COMPRESSION_FEATURES` via one shared per-flag decision routine (same reason-code vocabulary: `ir-larger-on-average` / `ir-smaller-under-pressure` / `ir-smaller-no-pressure` / `too-few-ir-comparisons` / `no-shadow-measurement`, generalized to non-`ir`-specific naming where it now applies to four more flags), with unavailable-source flags (only if the symbol_slices risk resolves to "cannot measure") staying on `no-shadow-measurement`.
-- `ui-app` translations for whichever new reason codes/verdicts the generalized decision function introduces, if any go beyond the existing five.
+- `ContextCompressionMetricsInput`/`ContextCompressionMetrics`/`COMPRESSION_METRIC_FIELDS` (`src/application/context-pack/metrics.ts`): nauji NEPRIVALOMI laukų porų įrašai dispatch_tool_schema (pvz. `toolSchemaFullChars`/`tool_schema_full_chars`, `toolSchemaReducedChars`/`tool_schema_reduced_chars`) ir compact_dsl (pvz. `dslIrChars`/`dsl_ir_chars`, `dslCompiledChars`/`dsl_compiled_chars`). Tikslūs pavadinimai priklauso nuo architect sprendimo, bet privalo eiti per vieną lentelę, ne šalutinius spread'us.
+- Rašytojas `toolRawChars`/`toolDigestChars` laukams: PostToolUse Bash shadow kelias (`src/interfaces/hooks/post-hooks.ts`) papildomai rašo į `context-size.jsonl` per `task_id`.
+- Surinkimo-meto (ne tik finalizuoto pack'o) SRC/SIG dydžių skaičiavimas `gather.ts`/`tiers.ts`/`persist.ts` kelyje, veikiantis nepriklausomai nuo `symbol_slices` vėliavos būsenos.
+- Dispatch paruošimo shadow matavimas: pilnos vs sumažintos MCP tool schemos dydis (naujas skaičiavimo taškas šalia esamo `toolSchema.candidates`/`applied` rinkimo).
+- `compact_dsl` poros pratekinimas iš `compact-dsl/render.ts` į `context-size.jsonl`.
+- `FEATURE_PAIR_SELECTORS` (ar analogiškas pavadinimas) — lentelė `ContextCompressionFeature -> (sample) => PairMeasurement | undefined` `ui-compression-view.ts` faile, apibendrinanti esamą `selectIrPair`.
+- Nauji UI (`ui-app`) vertimai `reason` reikšmėms, kai jos taikomos vėliavoms, kurių pavadinimas anksčiau nebuvo tekste (pvz. "kompresuotas" vietoj kietai koduoto "IR").
 
 ## Changed
-- `ui-compression-view.ts`'s `UiCompressionTelemetry`/`UiCompressionDecision`/`UiCompressionRecommendation` types extended to carry per-flag pair provenance (analogous to today's `ir_pair`) for each of the newly-measured flags, not just `worker_task_ir`.
-- `metrics.ts` doc comments on `toolRawChars`/`toolDigestChars` ("no writer in this module") updated once a writer/reader path exists, or replaced with an explicit note that this flag's pair is intentionally sourced from `bash-digest-shadow.jsonl` instead.
-- `persist.ts` comment block explaining `SHADOW_COMPRESSED_PROMPT_CONFIG` updated to describe the added `compact_dsl` shadow compile and why it stays a second, independent call rather than folding into the existing one.
+- `summarizeContextSizeSamples` (`ui-compression-view.ts`): apibendrinama skaičiuoti `compared_count`/`smaller_count`/`avg_delta_percent` PER vėliavą, ne tik `ir_*` laukus; grąžinamos struktūros forma keičiasi (naujas per-vėliavos žemėlapis arba analogiškų laukų rinkinys penkioms vėliavoms), bet esami `ir_*` laukai IR jų reikšmės `worker_task_ir` vėliavai lieka bitiškai identiški.
+- `decideCompression`: vietoj hardcoded `irAction` šakos + likusių keturių automatinio `"unmeasured"`, kiekviena vėliava iš `CONTEXT_COMPRESSION_FEATURES` eina per tą pačią moka/nemoka/trūksta-mėginių logiką, naudodama savo poros selektorių, jei toks yra.
+- `src/application/context-pack/assemble/persist.ts` ir `tiers.ts`: SRC/SIG dydžių skaičiavimas perkeliamas iš "po tier sprendimo" į "surinkimo metu, visada".
+- `src/interfaces/hooks/post-hooks.ts`: `recordBashDigestShadow` papildomai rašo į `context-size.jsonl`, be pakeitimo tam, kas grąžinama darbuotojui (fail-safe, best-effort, kaip ir esamas `bash-digest-shadow.jsonl` rašymas).
 
 ## Acceptance Criteria
-- Every field added to `COMPRESSION_METRIC_FIELDS` follows the existing "absent, not zero" contract: a run that never measured a value must not write a key for it, verified by tests asserting JSONL byte-identity when a new field's precondition is not met.
-- All five entries in `CONTEXT_COMPRESSION_FEATURES` produce a `decideCompression` recommendation that is NOT `no-shadow-measurement`/`unmeasured` once at least `MIN_DECISION_SAMPLES` real shadow-paired samples exist for that flag — OR, for `symbol_slices` specifically, the change ships with an explicit, reviewed decision (recorded in the task's final ataskaita) that its shadow pair cannot be made free and therefore intentionally stays `unmeasured`, with the reasoning captured in code comments and the task's Stop report.
-- Flipping any of the five flags ON or OFF continues to change ONLY what content is sent to the worker/dispatch; no new shadow measurement code path is reachable from, or alters, the actual (non-shadow) payload.
-- The flag-off path's I/O profile for `dispatch_tool_schema` is measured before/after and reported in the task's ataskaita (small config read is acceptable; anything larger is not, per Design).
-- `worker_task_ir`'s existing verdicts (all fixture cases in `compression-policy-verdicts.json` / existing `interfaces-http-compression.test.ts` cases) are byte-identical before and after the `decideCompression` generalization.
-- `pnpm typecheck`, `pnpm test`, and `pnpm --dir ui-app test` all pass green.
+- [ ] Kiekviena iš keturių anksčiau neišmatuotų vėliavų (`bash_output_digest`, `symbol_slices`, `dispatch_tool_schema`, `compact_dsl`) turi bent vieną naują arba užpildytą shadow porą, rašomą per `COMPRESSION_METRIC_FIELDS`.
+- [ ] Visi nauji laukai NEPRIVALOMI: nesantis matavimas serializuojasi kaip lauko NEBUVIMAS JSONL eilutėje, ne `0`.
+- [ ] `decideCompression` grąžina realų verdiktą (`enable`/`optional`/`hold`/`insufficient`) kiekvienai vėliavai, turinčiai pakankamai mėginių su pora; be poros arba nepakankamai mėginių — `"unmeasured"`/`"insufficient"`, kaip šiandien.
+- [ ] `worker_task_ir` verdikto rezultatas ESAMIEMS `context-size.jsonl` mėginiams nepasikeičia po `decideCompression` apibendrinimo (regresijos testas ant esamo fixture rinkinio).
+- [ ] Nė vienas naujas shadow matavimas nepakeičia realiai perduodamo turinio (Bash tool output, worker prompt, dispatch schema, DSL dokumentas) — flag'ui esant išjungtam, elgesys identiškas prieš ir po pakeitimo.
+- [ ] `symbol_source_chars`/`symbol_signature_chars` rašomi net kai pack'as renderinamas be tier'ų (t. y. `symbol_slices` išjungtas).
+- [ ] `bash-digest-shadow.jsonl` rašymo elgesys (esamas žurnalas) NESIKEIČIA — naujas rašymas į `context-size.jsonl` yra PAPILDOMAS, ne pakeičiantis.
+- [ ] `CONTEXT_CACHE_VERSION` nepakeltas (telemetrija, ne pack turinys) — arba, jei įrodoma, kad kuris nors matavimas paveikia realų pack sprendimą, task'as sustoja prieš tai eskaluodamas, o ne kelia versiją tyliai.
+- [ ] `ui-app` verdikto priežasčių vertimai apima visas naujas `reason`/vėliavos kombinacijas, kurios gali pasirodyti UI puslapyje.
+- [ ] `pnpm typecheck`, `pnpm test`, `pnpm --dir ui-app test` žali.

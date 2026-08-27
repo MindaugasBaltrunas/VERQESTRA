@@ -33,6 +33,7 @@ type Props = {
    */
   data?: UiWavesView | null;
   error?: string | null;
+  loading?: boolean;
   onReload?: () => void;
 };
 
@@ -53,16 +54,19 @@ export const WavesPanel = memo(function WavesPanel(props: Props) {
   const owned = useWavesController({ enabled: props.onReload === undefined });
   const data = props.onReload ? props.data ?? null : owned.data;
   const error = props.onReload ? props.error ?? null : owned.error;
+  const loading = props.onReload ? props.loading ?? false : owned.loading;
   const reload = props.onReload ?? owned.reload;
 
-  if (error) {
+  // Klaida čia matoma TIK kai dar nėra jokių sėkmingai gautų duomenų — jei jie jau yra, klaida
+  // rodoma juosta žemiau, o ne šia vieta pakeičia paskutinius matytus duomenis.
+  if (error && !data) {
     return (
       <section className="panel" aria-labelledby="waves-title">
         <div className="panel-header"><h2 id="waves-title">{t("Waves")}</h2></div>
         <div className="notice notice-warning" role="alert">
           {t("Failed to load waves")}: {error}
-          <button className="button ghost small-button" type="button" onClick={() => void reload()}>
-            {t("Try again")}
+          <button className="button ghost small-button" type="button" onClick={() => void reload()} disabled={loading}>
+            {loading ? t("Loading...") : t("Try again")}
           </button>
         </div>
       </section>
@@ -88,6 +92,15 @@ export const WavesPanel = memo(function WavesPanel(props: Props) {
           <p className="panel-subtitle">{t("Slot leases, rejection reasons, and wave events")}</p>
         </div>
       </div>
+
+      {error && (
+        <div className="notice notice-warning" role="alert">
+          {t("Failed to load waves")}: {error}
+          <button className="button ghost small-button" type="button" onClick={() => void reload()} disabled={loading}>
+            {loading ? t("Loading...") : t("Try again")}
+          </button>
+        </div>
+      )}
 
       {data.degraded.length > 0 && (
         <p className="runtime-explanation">

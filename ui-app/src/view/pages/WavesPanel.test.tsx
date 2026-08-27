@@ -101,6 +101,42 @@ describe("WavesPanel", () => {
     await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
   });
 
+  it("keeps showing the last successful data as a banner when a later poll fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.mocked(api.fetchWaves).mockResolvedValueOnce(view());
+      render(<WavesPanel />);
+      await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
+
+      vi.mocked(api.fetchWaves).mockRejectedValueOnce(new Error("HTTP 503: waves snapshot unreadable"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      // Klaida rodoma JUOSTA virš duomenų, o ne vietoj jų — paskutinė sėkminga eilutė lieka matoma.
+      await waitFor(() => expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument());
+      expect(screen.getByText("w1")).toBeInTheDocument();
+      expect(screen.getByText("0900-example")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disables the retry button and shows a loading label while a retry is in flight", async () => {
+    vi.mocked(api.fetchWaves).mockRejectedValueOnce(new Error("HTTP 500: internal"));
+    render(<WavesPanel />);
+    await waitFor(() => expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument());
+
+    let resolveRetry!: (value: ReturnType<typeof view>) => void;
+    vi.mocked(api.fetchWaves).mockReturnValueOnce(new Promise((resolve) => { resolveRetry = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Loading..." })).toBeDisabled());
+
+    resolveRetry(view());
+    await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
+  });
+
   it("polls again after 30 seconds", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

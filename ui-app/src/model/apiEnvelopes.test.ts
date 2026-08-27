@@ -160,8 +160,8 @@ describe("benchmark ataskaitos atsakymo struktūrinė patikra", () => {
 
 /**
  * `assertOk` keturios šakos (žr. `./api.ts`): JSON su `error`, JSON be `error`, ne-JSON kūnas ir
- * tuščias kūnas. Dengiama per `fetchWaves()`, nes tai vienintelis GET kelias be papildomo voko
- * patikros (kitaip `assertOk` klaida būtų maskuojama vėlesnės `require*` patikros).
+ * tuščias kūnas. Dengiama per `fetchWaves()`: visi stub'ai grąžina ne-200 statusą, tad `assertOk`
+ * meta klaidą PRIEŠ pasiekiant `requireContractFields` — voko patikra jos nemaskuoja.
  */
 describe("assertOk klaidos žinutė", () => {
   it("JSON kūnas su `error` lauku: žinutėje statusas ir paaiškinimas", async () => {
@@ -207,6 +207,35 @@ describe("HTTP ribos vartas: joks klientas nepažymi konkretaus tipo be runtime 
       .filter(({ line }) => /\b(?:response|r)\.json\(\)\s*as\s+(?!Promise<unknown>)/.test(line))
       .map(({ line, number }) => `${number}: ${line}`);
     expect(offendingLines).toEqual([]);
+  });
+});
+
+/**
+ * 2026-08-27 UI auditas: `fetchWaves` iki šio pataisymo žymėjo atsakymą `as UiWavesView` be
+ * jokios runtime patikros — atsakymas be `degraded`/`leases` numušdavo `WavesPanel` `TypeError`
+ * klaida PRIEŠ pirmą renderį. Dabar trūkstamas laukas meta ĮVARDYTĄ klaidą (ne throw'ą per visą
+ * komponentų medį — kontroleris ją pagauna ir paverčia klaidos būsena).
+ */
+describe("bangų atsakymo struktūrinė patikra", () => {
+  const validWaves = { events: [], leases: [], last_rejections: [], degraded: [] };
+
+  it("teisingas atsakymas praeina nepakeistas", async () => {
+    stubFetch(validWaves);
+    expect(await fetchWaves()).toEqual(validWaves);
+  });
+
+  it("trūkstamas 'leases' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { leases, ...withoutLeases } = validWaves;
+    void leases;
+    stubFetch(withoutLeases);
+    await expect(fetchWaves()).rejects.toThrow(/\/api\/waves.*leases/s);
+  });
+
+  it("trūkstamas 'degraded' laukas meta klaidą su maršrutu ir lauko vardu", async () => {
+    const { degraded, ...withoutDegraded } = validWaves;
+    void degraded;
+    stubFetch(withoutDegraded);
+    await expect(fetchWaves()).rejects.toThrow(/\/api\/waves.*degraded/s);
   });
 });
 

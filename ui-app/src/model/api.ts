@@ -102,10 +102,22 @@ export async function fetchDashboard(): Promise<DashboardData> {
   return parseDashboardData(await (response.json() as Promise<unknown>));
 }
 
+/**
+ * Laukai, kuriuos `WavesPanel` skaito besąlygiškai (`data.degraded.length`, `data.leases`,
+ * `data.last_rejections`, `data.events`). `slots`/`refill_decisions` lieka neprivalomi — panelė
+ * juos skaito per `?? []`.
+ */
+const WAVES_VIEW_FIELDS: readonly ContractField[] = [
+  { path: "degraded", kind: "array" },
+  { path: "leases", kind: "array" },
+  { path: "last_rejections", kind: "array" },
+  { path: "events", kind: "array" },
+];
+
 export async function fetchWaves(): Promise<UiWavesView> {
   const response = await request("/api/waves");
   await assertOk(response);
-  return (await response.json()) as UiWavesView;
+  return requireContractFields<UiWavesView>(await response.json(), WAVES_VIEW_FIELDS, "/api/waves");
 }
 
 const WORKFLOW_BUCKET_FIELDS: readonly ContractField[] = [

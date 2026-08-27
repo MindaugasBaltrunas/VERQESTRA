@@ -29,10 +29,12 @@ export function useWavesController(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
   const [data, setData] = useState<UiWavesView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
+    setLoading(true);
     try {
       const view = await fetchWaves();
       if (requestId !== requestSequence.current) return;
@@ -41,6 +43,8 @@ export function useWavesController(options?: { enabled?: boolean }) {
     } catch (loadError) {
       if (requestId !== requestSequence.current) return;
       setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -51,5 +55,5 @@ export function useWavesController(options?: { enabled?: boolean }) {
     return () => clearInterval(timer);
   }, [enabled, load]);
 
-  return { data, error, reload: load };
+  return { data, error, loading, reload: load };
 }

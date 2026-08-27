@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchWaves } from "../model/api";
 import { useWavesController } from "./useWavesController";
@@ -63,5 +63,33 @@ describe("useWavesController", () => {
 
     await waitFor(() => expect(result.current.error).toBe("HTTP 503: waves snapshot unreadable"));
     expect(result.current.data).toBeNull();
+  });
+
+  it("reports loading while a request is in flight and clears it once settled", async () => {
+    let resolveFetch!: (value: typeof emptyView) => void;
+    fetchWavesMock.mockReturnValue(new Promise((resolve) => { resolveFetch = resolve; }));
+
+    const { result } = renderHook(() => useWavesController());
+
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    resolveFetch(emptyView);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.data).toEqual(emptyView);
+  });
+
+  it("does not clear previously loaded data when a reload fails", async () => {
+    fetchWavesMock.mockResolvedValueOnce(emptyView);
+    const { result } = renderHook(() => useWavesController());
+    await waitFor(() => expect(result.current.data).toEqual(emptyView));
+
+    fetchWavesMock.mockRejectedValueOnce(new Error("HTTP 503: waves snapshot unreadable"));
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe("HTTP 503: waves snapshot unreadable"));
+    expect(result.current.data).toEqual(emptyView);
+    expect(result.current.loading).toBe(false);
   });
 });

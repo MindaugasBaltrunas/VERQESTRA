@@ -234,3 +234,47 @@ test("context-size metrics: raw/compiled prompt fields round-trip and stay absen
   assert.equal(reread[0]?.raw_prompt_chars, 500);
   assert.equal(reread[0]?.compiled_prompt_chars, 300);
 });
+
+test("context-size metrics: dispatch_tool_schema/compact_dsl shadow fields round-trip and stay absent when unmeasured", async () => {
+  const withShadowPairs = buildContextSizeMetrics({
+    taskId: "0036-x",
+    contextChars: 100,
+    maxContextChars: 200,
+    specFragmentCount: 0,
+    codeContextItemCount: 0,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+    toolSchemaFullChars: 4000,
+    toolSchemaReducedChars: 1200,
+    dslIrChars: 900,
+    dslCompiledChars: 600,
+  });
+  assert.equal(withShadowPairs.tool_schema_full_chars, 4000);
+  assert.equal(withShadowPairs.tool_schema_reduced_chars, 1200);
+  assert.equal(withShadowPairs.dsl_ir_chars, 900);
+  assert.equal(withShadowPairs.dsl_compiled_chars, 600);
+
+  const withoutShadowPairs = buildContextSizeMetrics({
+    taskId: "0036-y",
+    contextChars: 100,
+    maxContextChars: 200,
+    specFragmentCount: 0,
+    codeContextItemCount: 0,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+  });
+  assert.equal("tool_schema_full_chars" in withoutShadowPairs, false, "nesantis matavimas yra NESANTIS, ne 0");
+  assert.equal("tool_schema_reduced_chars" in withoutShadowPairs, false);
+  assert.equal("dsl_ir_chars" in withoutShadowPairs, false);
+  assert.equal("dsl_compiled_chars" in withoutShadowPairs, false);
+
+  const runtimeRoot = path.resolve("vq-test-root-metrics-0036");
+  const fs = memoryFs();
+  await appendContextSizeMetrics(fs, runtimeRoot, withShadowPairs);
+  const reread = await readContextSizeMetrics(fs, runtimeRoot);
+  assert.equal(reread.length, 1);
+  assert.equal(reread[0]?.tool_schema_full_chars, 4000);
+  assert.equal(reread[0]?.tool_schema_reduced_chars, 1200);
+  assert.equal(reread[0]?.dsl_ir_chars, 900);
+  assert.equal(reread[0]?.dsl_compiled_chars, 600);
+});

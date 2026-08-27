@@ -98,6 +98,14 @@ export type ContextCompressionMetricsInput = {
    * the task, same fail-closed reasoning as {@link irJsonChars}.
    */
   compiledPromptChars?: number;
+  /** Full tool schema size sent to the model, before `dispatch_tool_schema` reduction. */
+  toolSchemaFullChars?: number;
+  /** Reduced tool schema size after `dispatch_tool_schema` shrinks it for this dispatch. */
+  toolSchemaReducedChars?: number;
+  /** Size of the `compact_dsl` intermediate representation, before DSL compilation. */
+  dslIrChars?: number;
+  /** Size of the `compact_dsl`-compiled output handed to the dispatch. */
+  dslCompiledChars?: number;
 };
 
 /** Record-side (snake_case) counterpart of {@link ContextCompressionMetricsInput}. */
@@ -112,6 +120,10 @@ export type ContextCompressionMetrics = {
   tool_digest_chars?: number;
   raw_prompt_chars?: number;
   compiled_prompt_chars?: number;
+  tool_schema_full_chars?: number;
+  tool_schema_reduced_chars?: number;
+  dsl_ir_chars?: number;
+  dsl_compiled_chars?: number;
 };
 
 // Single input-key -> record-key table so a new measurement is added in exactly
@@ -129,6 +141,10 @@ const COMPRESSION_METRIC_FIELDS: ReadonlyArray<
   ["toolDigestChars", "tool_digest_chars"],
   ["rawPromptChars", "raw_prompt_chars"],
   ["compiledPromptChars", "compiled_prompt_chars"],
+  ["toolSchemaFullChars", "tool_schema_full_chars"],
+  ["toolSchemaReducedChars", "tool_schema_reduced_chars"],
+  ["dslIrChars", "dsl_ir_chars"],
+  ["dslCompiledChars", "dsl_compiled_chars"],
 ];
 
 /**

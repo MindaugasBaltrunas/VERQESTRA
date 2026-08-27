@@ -10,6 +10,8 @@ Grąžinti į ag-loop benchmark aprėptį 8 scenarijus, kurių celės baigia su 
 scenarijus yra žmogaus autorizuotas artefaktas, tad celės task'as turi teisę į
 `HUMAN-REVIEW-APPROVED` žymą pagal konstrukciją.
 
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-27 (operatoriaus sprendimas per Claude sesiją; saugumo raktažodžiai task'e yra tiriamų benchmark scenarijų vardai, ne auth/security pakeitimai — vartų taisyklės pagal ## Failai neliečiamos)
+
 ## Agentai
 readme-guard -> architect -> coder -> reviewer -> tester
 

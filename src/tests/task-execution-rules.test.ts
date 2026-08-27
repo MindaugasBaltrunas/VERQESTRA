@@ -16,6 +16,7 @@ import {
   type PreflightFailureMemoRecord,
 } from "../application/quality-gates/preflight-memo-schema.js";
 import { resolveSkipDispatch } from "../application/task-execution/skip-dispatch.js";
+import { buildTaskSplitPlan } from "../application/task-execution/task-splitting.js";
 import { resolveDispatchAdapter, resolveLoopDispatchAdapter } from "../application/task-execution/adapter-routing.js";
 import { taskFileBasename } from "../application/task-execution/task-run-state.js";
 import { extractAutoChangeSlugs, markTasksComplete } from "../application/task-execution/openspec-archive.js";
@@ -170,6 +171,65 @@ test("slugFromTask: auto- prefiksas, task id visada įeina, 50 simbolių riba", 
   const long = slugFromTask("0042", `# ${"labai ".repeat(30)}ilga antraštė`);
   assert.ok(long.length <= "auto-".length + 50, "slug dalis kerpama iki 50");
   assert.ok(!long.endsWith("-"), "nukirpimo uodegos brūkšnys pašalintas");
+});
+
+const SPLIT_LIMITS = { maxLines: 10, maxAllowedPaths: 1, maxDomains: 1, maxActionBullets: 10 };
+
+const TASK_WITH_ONE_FAKE_PATH = `# Task
+
+## Spec source
+openspec/changes/demo
+
+## Tikslas
+Didelis darbas.
+
+## Failai
+Leidžiama:
+- \`src/a/one.ts\`
+- \`src/fake/two.ts\`
+- \`src/a/three.ts\`
+
+## Veiksmas
+- pirmas
+- antras
+
+## Patikra
+- \`pnpm test\`
+
+## Stop
+Sustoti, kai patikros praeina.
+`;
+
+test("buildTaskSplitPlan: vaikas su pramanytu keliu gauna tėvinę ## Failai sekciją, garsus warning", () => {
+  const dirExists = (dir: string): boolean => dir !== "src/fake";
+  const plan = buildTaskSplitPlan(TASK_WITH_ONE_FAKE_PATH, "0042", SPLIT_LIMITS, dirExists);
+
+  assert.equal(plan.parts, 3);
+  assert.equal(plan.child_tasks.length, 2);
+
+  const [hallucinatedChild, cleanChild] = plan.child_tasks;
+  assert.match(hallucinatedChild!.claude_task, /- `src\/a\/one\.ts`/, "atstatyta tėvo pilna Leidžiama aibė");
+  assert.match(hallucinatedChild!.claude_task, /- `src\/fake\/two\.ts`/);
+  assert.match(hallucinatedChild!.claude_task, /- `src\/a\/three\.ts`/);
+
+  assert.doesNotMatch(cleanChild!.claude_task, /src\/fake\/two\.ts/, "švarus vaikas nepaliestas");
+  assert.match(cleanChild!.claude_task, /- `src\/a\/three\.ts`/);
+
+  const warnings = plan.warnings ?? [];
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /hallucinated-allowed-path/);
+  assert.match(warnings[0]!, /part=2/);
+  assert.match(warnings[0]!, /src\/fake\/two\.ts/);
+});
+
+test("buildTaskSplitPlan: be dirExists predikato (fail-open default) — nė vienas vaikas nekeičiamas", () => {
+  const plan = buildTaskSplitPlan(TASK_WITH_ONE_FAKE_PATH, "0042", SPLIT_LIMITS);
+
+  assert.deepEqual(plan.warnings, []);
+  const [firstChild, secondChild] = plan.child_tasks;
+  assert.match(firstChild!.claude_task, /- `src\/fake\/two\.ts`/, "chunk paliktas kaip suplanuota, be atstatymo");
+  assert.doesNotMatch(firstChild!.claude_task, /src\/a\/one\.ts/);
+  assert.match(secondChild!.claude_task, /- `src\/a\/three\.ts`/);
 });
 
 test("bucket-transition: taskBucketDir forma ir terminal vartas finishTaskInBucket", async () => {

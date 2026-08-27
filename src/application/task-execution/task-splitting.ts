@@ -10,7 +10,8 @@ import {
   type TaskSizeMetrics,
 } from "../../domain/tasks/size.js";
 import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
-import { extractSection } from "../../shared/markdown.js";
+import { extractSection, findSectionBounds } from "../../shared/markdown.js";
+import { detectHallucinatedAllowedPaths } from "../quality-gates/preflight-rules.js";
 import type { TaskDecision } from "./run-coordinator-ports.js";
 
 /** Vaiko task juodraštis — ta pati forma kaip `TaskDecision.child_tasks` įrašo. */
@@ -23,6 +24,12 @@ export type TaskSplitPlan = {
   first_task: string;
   child_tasks: Required<ChildTaskDraft>[];
   parts: number;
+  /**
+   * Garsūs log punktai, kai vaiko `## Failai` buvo pakeista tėvo sekcija (žr.
+   * `buildTaskSplitPlan` — hallucinated-allowed-path guard). Neprivalomas — senesni fixture'ai
+   * jo neturi; `buildTaskSplitPlan` visada grąžina bent tuščią masyvą.
+   */
+  warnings?: string[];
 };
 
 type TaskSections = {
@@ -40,7 +47,12 @@ export function shouldSplitTask(metrics: TaskSizeMetrics, limits: TaskSizeLimits
   return exceedsLimits(metrics, limits);
 }
 
-export function buildTaskSplitPlan(taskText: string, parentTaskId: string, limits: TaskSizeLimitsView): TaskSplitPlan {
+export function buildTaskSplitPlan(
+  taskText: string,
+  parentTaskId: string,
+  limits: TaskSizeLimitsView,
+  dirExists: (relativeDir: string) => boolean = () => true,
+): TaskSplitPlan {
   const metrics = measureTaskSize(taskText);
   const violations = shouldSplitTask(metrics, limits);
   const sections = parseTaskSections(taskText);
@@ -58,17 +70,44 @@ export function buildTaskSplitPlan(taskText: string, parentTaskId: string, limit
     }),
   );
 
+  const warnings: string[] = [];
+  const childTaskTexts = taskParts.slice(1).map((claudeTask, index) => {
+    const flagged = detectHallucinatedAllowedPaths(claudeTask, dirExists);
+    if (flagged.length === 0 || !sections.files) return claudeTask;
+    const patched = withOriginalFailaiSection(claudeTask, sections.files);
+    if (patched === claudeTask) return claudeTask;
+    warnings.push(
+      `TASK SPLIT: parent=${parentTaskId} part=${index + 2} hallucinated-allowed-path: referenced ` +
+        `non-existent path(s) (${flagged.join(", ")}) — reverted ## Failai to parent section`,
+    );
+    return patched;
+  });
+
   return {
     required: violations.length > 0,
     reason: violations,
     parent_task_id: parentTaskId,
     first_task: taskParts[0] ?? taskText,
-    child_tasks: taskParts.slice(1).map((claudeTask, index) => ({
+    child_tasks: childTaskTexts.map((claudeTask, index) => ({
       title: splitTitle(sections.goal, index + 2),
       claude_task: claudeTask,
     })),
     parts: taskParts.length,
+    warnings,
   };
+}
+
+/**
+ * Pakeičia vaiko `## Failai` sekcijos KŪNĄ tėvo (pre-split) `## Failai` sekcija — tas pats
+ * atstatymo šablonas kaip LLM reformulacijos apsaugoje (045-a-02), taikomas skaidymo vaikams:
+ * skaidymo chunk'ai kilę iš PAČIO tėvo `allowedPaths(taskText)`, tad hallucinated kelias čia
+ * reiškia, kad tėvas jau turėjo įrodytai sugalvotą kelią PRIEŠ skaidymą.
+ */
+function withOriginalFailaiSection(claudeTask: string, originalFailaiBody: string): string {
+  const lines = claudeTask.split(/\r?\n/);
+  const bounds = findSectionBounds(lines, (line) => line.trim() === "## Failai");
+  if (bounds === undefined) return claudeTask;
+  return [...lines.slice(0, bounds.start + 1), originalFailaiBody, "", ...lines.slice(bounds.end)].join("\n");
 }
 
 function parseTaskSections(taskText: string): TaskSections {

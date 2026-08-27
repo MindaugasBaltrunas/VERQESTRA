@@ -38,7 +38,9 @@ Leidžiama:
 - `ui-app/src/controller/useOperatorActions.ts`
 - `ui-app/src/view/components/RuntimePanel.tsx`
 - `ui-app/src/view/components/Header.tsx`
-- `ui-app/src/tests/**`
+- `ui-app/src/i18n/I18nContext.tsx` (nauji vertimo raktai naujoms žinutėms — be jų
+  `i18n/coverage.test.ts` raudonas; etikečių suvienijimas lieka 049)
+- `ui-app/src/tests/dashboardActionFeedback.test.ts`
 
 Draudžiama:
 - `src/**`

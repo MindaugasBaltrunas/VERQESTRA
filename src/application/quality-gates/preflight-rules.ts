@@ -154,6 +154,7 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 - Po BET KOKIO \`src\` pakeitimo \`dist\` pasensta ir hook'ai blokuoja bash komandas. Pirma perbuild'ink TIKSLIA forma be pipe/redirect: \`${commands.rebuild}\`
 - Patikroms naudok tik: ${checks.map((check) => `\`${check}\``).join(" ir ")} (be \`--\`, be pipe į kitas komandas).
 - \`echo\`, \`sed\`, \`node -e\` ir kompound komandos su neleistinais segmentais VISADA atmetamos — nekartok jų kitomis formomis; failams skaityti naudok Read/Grep tools.
+- Rašymo darbą atlik PATS šioje sesijoje (Write/Edit) ir neatidėk jo vėlesniam laikui: headless sesija po paskutinio tavo žingsnio baigiasi, o bėgimas be nė vieno Write/Edit parkuojamas human-review. \`## Agentai\` grandinė yra orkestratoriaus maršruto metaduomuo — jei subagentas negrąžina rezultato šiame bėgime, įgyvendink pakeitimą tiesiogiai.
 
 `;
 }

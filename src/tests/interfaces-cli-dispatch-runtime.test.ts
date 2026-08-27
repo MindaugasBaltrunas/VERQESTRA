@@ -205,8 +205,24 @@ test("dispatch-execution-record: minimalus įrašas be optional raktų, pilnas s
   assert.equal(full.prompt_chars, "PROMPT BODY".length);
   assert.equal(full.prompt_sha256, contextArtifactSha256("PROMPT BODY"));
   assert.equal(full.model, "claude-x");
-  assert.ok(!("tool_schema" in full), "off režimas įraše nepalieka lauko");
+  assert.ok(!("tool_schema" in full), "off režimas be pritaikytų draudimų įraše nepalieka lauko");
   assert.ok(!JSON.stringify(full).includes("SLAPTAS KONTEKSTAS"), "execution context tekstas į artefaktą nepatenka");
+
+  // Off režimas SU realiai pritaikytu draudimu (visada galiojantis pacing sąrašas) privalo
+  // likti įraše — kitaip įrašas meluotų apie CLI perduotus argumentus.
+  const offWithBan = buildDispatchExecutionRecord({
+    status: "started",
+    phase: "repair",
+    taskFile: "vq/state/repair/0042.md",
+    sourceChange: false,
+    selectedModel: "sonnet",
+    failedAttempts: 1,
+    attempt: 2,
+    startedAt: "2026-08-20T12:00:00.000Z",
+    contextGate: attachGate,
+    toolSchema: { mode: "off", candidates: [], applied: ["ScheduleWakeup"], reason: "pacing ban" },
+  });
+  assert.deepEqual(offWithBan.tool_schema?.applied, ["ScheduleWakeup"]);
   assert.deepEqual(full.mid_dispatch_budget, { billable_tokens: 9, raw_tokens: 12, limit: 8, limitSource: "dispatch-ceiling" });
 });
 

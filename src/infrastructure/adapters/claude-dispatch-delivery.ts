@@ -12,7 +12,7 @@ import {
   type DispatchToolPolicyDecision,
 } from "./claude-tool-schema.js";
 import type { DispatchMcpCapabilities } from "../../application/context-pack/mcp-capability-registry.js";
-import { AGENT_ROUTING_TOOLS } from "../../application/policy-governance/agent-policy.js";
+import { AGENT_ROUTING_TOOLS, DISPATCH_SESSION_PACING_TOOLS } from "../../application/policy-governance/agent-policy.js";
 import { loadToolBudget, selectToolBudget } from "../../application/policy-governance/tool-budget-config.js";
 import type { PolicyConfigFileSystemPort } from "../../application/policy-governance/ports.js";
 
@@ -88,7 +88,7 @@ export function resolveDispatchPromptDelivery(input: {
 // ---------------------------------------------------------------------------
 
 export type DispatchToolSchemaMode =
-  /** `dispatch_tool_schema` išjungtas — CLI argumentai baitas į baitą kaip iki 0028. */
+  /** `dispatch_tool_schema` išjungtas — jokių biudžeto kandidatų (pacing draudimas lieka). */
   | "off"
   /** Profilis sudarytas ir pritaikytas CLI argumentuose. */
   | "applied"
@@ -101,9 +101,13 @@ export type DispatchToolSchemaMode =
 
 export type DispatchToolSchemaProfile = {
   mode: DispatchToolSchemaMode;
-  /** Ką politika sudarė (net jei transport'as nepritaikė) — A/B įrodymui. */
+  /** Ką BIUDŽETO politika sudarė (be visada galiojančio pacing draudimo) — A/B įrodymui. */
   candidates: string[];
-  /** Ką REALIAI gavo CLI. Tuščias visur, išskyrus `applied`. */
+  /**
+   * Ką REALIAI gavo CLI: biudžeto kandidatai + DISPATCH_SESSION_PACING_TOOLS. Pacing dalis
+   * yra kiekviename režime (2026-08-27 „no write-tool calls" incidentas), tad tuščias
+   * `applied` lieka tik `cli-fallback` atveju.
+   */
   applied: string[];
   reason: string;
 };
@@ -125,19 +129,28 @@ export function resolveDispatchToolSchemaProfile(input: {
   /** Grindys virš DISPATCH_BASELINE_TOOLS; numatytai — agentų maršrutizavimo įrankiai. */
   protectedTools?: readonly string[];
 }): DispatchToolSchemaProfile {
+  const protectedTools = input.protectedTools ?? AGENT_ROUTING_TOOLS;
+  // Visada galiojanti dalis: sesijos pacing įrankiai (žr. DISPATCH_SESSION_PACING_TOOLS).
+  // Ji eina per tą patį floor filtrą, kad grindų kontraktas liktų vienas.
+  const pacingBan = buildDispatchDisallowedTools({ candidates: DISPATCH_SESSION_PACING_TOOLS, protectedTools });
   if (!input.enabled) {
-    return { mode: "off", candidates: [], applied: [], reason: "dispatch_tool_schema disabled" };
+    return {
+      mode: "off",
+      candidates: [],
+      applied: pacingBan,
+      reason: "dispatch_tool_schema disabled; session pacing tools still disallowed",
+    };
   }
   const candidates = buildDispatchDisallowedTools({
     candidates: dispatchDisallowedToolCandidates(input.policy, input.mcp),
-    protectedTools: input.protectedTools ?? AGENT_ROUTING_TOOLS,
+    protectedTools,
   });
   const mcpNote = mcpFailOpenNote(input.policy, input.mcp);
   if (candidates.length === 0) {
     return {
       mode: "no-candidates",
       candidates,
-      applied: [],
+      applied: pacingBan,
       reason: `tool budget forbids no removable tool family${mcpNote}`,
     };
   }
@@ -146,7 +159,7 @@ export function resolveDispatchToolSchemaProfile(input: {
   return {
     mode: "applied",
     candidates,
-    applied: candidates,
+    applied: buildDispatchDisallowedTools({ candidates: [...candidates, ...pacingBan], protectedTools }),
     reason: `policy-backed dispatch tool profile${mcpNote}`,
   };
 }

@@ -136,8 +136,10 @@ export function buildDispatchExecutionRecord(input: DispatchExecutionRecordInput
     ...(input.delivery === undefined
       ? {}
       : { delivery: { platform: input.delivery.platform, transport: input.delivery.transport } }),
-    // `off` režimo įraše nėra: išjungtas flag'as nepalieka nė vieno naujo lauko.
-    ...(input.toolSchema === undefined || input.toolSchema.mode === "off"
+    // `off` režimas be pritaikytų draudimų įraše nepalieka nė vieno naujo lauko. Bet jei
+    // CLI realiai gavo `--disallowed-tools` (visada galiojantis pacing draudimas), įrašas
+    // privalo tai rodyti — praleidimas čia būtų melas apie paleistą komandą.
+    ...(input.toolSchema === undefined || (input.toolSchema.mode === "off" && input.toolSchema.applied.length === 0)
       ? {}
       : {
           tool_schema: {

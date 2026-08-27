@@ -297,6 +297,9 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
   assert.equal(posix.platform, "posix");
   assert.equal(posix.transport, "stdin");
 
+  // Pacing įrankių draudimas (2026-08-27 „no write-tool calls" incidentas) galioja
+  // KIEKVIENAME režime — ir kai dispatch_tool_schema išjungtas ar be biudžeto kandidatų.
+  const pacing = ["CronCreate", "EnterPlanMode", "ScheduleWakeup"];
   const off = resolveDispatchToolSchemaProfile({
     enabled: false,
     platform: "windows",
@@ -304,6 +307,8 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
     mcp: { known: false, tools: [], source: "registry absent" },
   });
   assert.equal(off.mode, "off");
+  assert.deepEqual(off.candidates, []);
+  assert.deepEqual(off.applied, pacing);
 
   const none = resolveDispatchToolSchemaProfile({
     enabled: true,
@@ -313,6 +318,7 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
   });
   assert.equal(none.mode, "no-candidates");
   assert.match(none.reason, /mcp schemas left uncompressed \(registry absent/);
+  assert.deepEqual(none.applied, pacing);
 
   const applied = resolveDispatchToolSchemaProfile({
     enabled: true,
@@ -321,7 +327,8 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
     mcp: { known: true, tools: ["mcp__srv__tool"], source: "registry" },
   });
   assert.equal(applied.mode, "applied");
-  assert.deepEqual(applied.applied, ["WebFetch", "WebSearch", "mcp__srv__tool"]);
+  assert.deepEqual(applied.candidates, ["WebFetch", "WebSearch", "mcp__srv__tool"]);
+  assert.deepEqual(applied.applied, ["CronCreate", "EnterPlanMode", "ScheduleWakeup", "WebFetch", "WebSearch", "mcp__srv__tool"]);
 
   // Sugadintas biudžetas NIEKO nedraudžia (fail-safe {}).
   assert.deepEqual(await loadDispatchToolPolicyDecision({ readTextFileIfExists: async () => "{ blogas" }, "/repo/vq"), {});

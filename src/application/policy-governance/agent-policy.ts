@@ -20,6 +20,16 @@ import type { PolicyConfigFileSystemPort } from "./ports.js";
 // paleisti sub-agentų).
 export const AGENT_ROUTING_TOOLS: readonly string[] = ["Task", "Skill", "SlashCommand", "TodoWrite"];
 
+// 2026-08-27 incidentas: keturi taskai iš eilės (041, 041-a, 042, 042-a) parkuoti
+// „executor made no write-tool calls" — worker'is grandinę paleido fone ir sesiją užbaigė
+// „laukdamas" per ScheduleWakeup (3–11 turns, nė vieno Write/Edit). Vienkartiniame headless
+// dispatch bėgime sesijos stabdymo/atidėjimo įrankiai neturi jokio teisėto panaudojimo:
+// ScheduleWakeup atideda darbą turn'ui, kuris niekada neateis; CronCreate kuria darbus už
+// bėgimo ribų; EnterPlanMode laukia patvirtinimo, kurio headless režime nėra kam duoti.
+// Draudimas galioja VISADA, nepriklausomai nuo dispatch_tool_schema A/B — tai korektiškumo,
+// ne kompresijos politika (abi kohortos jį gauna vienodai, tad A/B palyginimo neiškreipia).
+export const DISPATCH_SESSION_PACING_TOOLS: readonly string[] = ["CronCreate", "EnterPlanMode", "ScheduleWakeup"];
+
 // Built-in roles remain a documented compatibility vocabulary. Project-local agents are
 // intentionally dynamic and use the same safe identifier format as their
 // `.claude/agents/<role>.md` file name.

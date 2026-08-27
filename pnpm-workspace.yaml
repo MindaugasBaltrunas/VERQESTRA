@@ -21,9 +21,12 @@ packages:
   - mobile-app
   - mobile-app/native
 
-# pnpm >=10 blokuoja dependency build skriptus, kol jie nepatvirtinti. `node-pty` yra
-# vienintelis įrašas ir jis yra OPERATORIAUS sprendimas (2026-08-23, E9 mobile migracija), o ne
-# tylus install'o šalutinis efektas: be jo `pnpm install` stringa ties ERR_PNPM_IGNORED_BUILDS,
-# o `mobile-gateway` be PTY neturi kuo paleisti agento terminalo.
-onlyBuiltDependencies:
-  - node-pty
+# pnpm blokuoja dependency build skriptus, kol jie nepatvirtinti. pnpm 11 senojo
+# `onlyBuiltDependencies` sąrašo nebegerbia — sprendimai rašomi čia, po vieną paketą.
+# `node-pty: true` yra OPERATORIAUS sprendimas (2026-08-23, E9 mobile migracija), o ne tylus
+# install'o šalutinis efektas: be PTY `mobile-gateway` neturi kuo paleisti agento terminalo.
+# `esbuild: false` — jo postinstall tik tikrina binarą; patį binarą pnpm atsineša per
+# optionalDependencies (@esbuild/win32-x64), tad build skriptas nereikalingas.
+allowBuilds:
+  esbuild: false
+  node-pty: true

@@ -10,8 +10,19 @@
 //
 // Tapatybė (visos trys dalys, sujungtos į vieną `key`):
 //   1. `tree`   — git worktree tree hash per LAIKINĄ indeksą (adapterio E4 darbas): `git add -A`
-//                 + `git write-tree` duoda deterministinį viso medžio turinio hash'ą, ĮSKAITANT
+//                 + `git write-tree` duoda deterministinį medžio turinio hash'ą, ĮSKAITANT
 //                 untracked produkto failus; gitignore'inti runtime keliai į jį nepatenka.
+//                 Prieš `write-tree` iš laikino indekso pašalinami TRYS orkestratoriaus
+//                 lifecycle keliai — `AG/tasks/**`, `AG/state/**`, `AG/logs/**` (žr.
+//                 `gates-memo-store.ts`): jie keičiasi kiekvieno eilės dispatch'o metu (task
+//                 failo perkėlimas tarp bucket'ų, būsenos ir žurnalo įrašai), bet nėra darbo
+//                 TURINYS — jei liktų, kiekvienas eilės judesys anuliuotų memo nepriklausomai
+//                 nuo to, ar `src`/`ui-app` iš tikrųjų pasikeitė. Sąrašas fail-closed: TIK šie
+//                 trys keliai išimti, o bet koks naujas kelias numatytai LIEKA hash'e (ĮEINA),
+//                 kol nėra atskiro, pagrįsto sprendimo jį pašalinti — ne atvirkščiai.
+//                 `AG/openspec/**` (paketo kontraktai) ir `AG/benchmark/**` sąmoningai LIEKA
+//                 hash'e: jų turinys yra darbo pakeitimas, ne eilės mechanika, tad privalo
+//                 anuliuoti memo kaip ir bet koks kitas src pakeitimas.
 //   2. `dist`   — sukompiliuoto orchestratoriaus `dist` `.js` TURINIO hash'as. Būtent turinio,
 //                 o ne buildstamp'o: stamp'ą kiekvienas build perrašo, tad juo raktintas memo
 //                 nepataikytų niekada.

@@ -14,6 +14,13 @@
 // medyje būtų savidestrukcinis: `git add -A` įtrauktų jį patį, tad kiekvienas skaičiavimas duotų
 // NAUJĄ hash'ą ir memo nepataikytų niekada. Šiame repo `vq/` yra gitignore'intas ir problema
 // nesimatytų, bet taikinio projekte, kur jis netyčia sekamas, mechanizmas tyliai virstų nuliniu.
+//
+// Ta pati logika taikoma orkestratoriaus LIFECYCLE keliams (`AG/tasks/**`, `AG/state/**`,
+// `AG/logs/**`): jie keičiasi kiekvieno eilės dispatch'o metu (task failo perkėlimas tarp
+// bucket'ų, būsenos ir žurnalo įrašai), bet nėra darbo TURINYS. Jei jie liktų hash'e, kiekvienas
+// eilės judesys anuliuotų memo nepriklausomai nuo to, ar `src`/`ui-app` iš tikrųjų pasikeitė.
+// Sąrašas fail-closed: TIK šie trys keliai pašalinami; `AG/openspec/**` ir `AG/benchmark/**`
+// (paketo kontraktai) hash'e LIEKA.
 
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile } from "node:fs/promises";
@@ -32,6 +39,9 @@ import { run } from "./run-process.js";
 
 const TREE_ADD_TIMEOUT_MS = 120_000;
 const TREE_WRITE_TIMEOUT_MS = 60_000;
+
+/** Orkestratoriaus lifecycle keliai, TIK šie — pašalinami iš laikino indekso prieš `write-tree`. */
+const LIFECYCLE_PATHS = ["AG/tasks", "AG/state", "AG/logs"];
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -58,6 +68,16 @@ async function computeTreeHash(projectRoot: string): Promise<string | null> {
 
   const add = await run("git", ["add", "-A"], { cwd: projectRoot, timeoutMs: TREE_ADD_TIMEOUT_MS, env });
   if (add.code !== 0) return null;
+
+  // Lifecycle keliai pašalinami TIK iš laikino indekso (`--cached`) — darbo medis nepaliečiamas.
+  // `--ignore-unmatch`, nes projekte gali jų visai nebūti (pvz. testų worktree be `AG/`).
+  const removeLifecycle = await run(
+    "git",
+    ["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", "--", ...LIFECYCLE_PATHS],
+    { cwd: projectRoot, timeoutMs: TREE_ADD_TIMEOUT_MS, env },
+  );
+  if (removeLifecycle.code !== 0) return null;
+
   const tree = await run("git", ["write-tree"], { cwd: projectRoot, timeoutMs: TREE_WRITE_TIMEOUT_MS, env });
   if (tree.code !== 0) return null;
   const value = tree.stdout.trim();

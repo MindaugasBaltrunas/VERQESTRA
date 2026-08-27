@@ -98,6 +98,72 @@ test("pakeista vartų politika irgi keičia raktą", async () => {
   }
 });
 
+test("task failo perkėlimas AG/tasks viduje NEkeičia tapatybės", async () => {
+  const world = await workspace({ git: true });
+  try {
+    await mkdir(path.join(world.projectRoot, "AG", "tasks", "active"), { recursive: true });
+    await mkdir(path.join(world.projectRoot, "AG", "tasks", "queue"), { recursive: true });
+    await writeFile(path.join(world.projectRoot, "AG", "tasks", "active", "044-x.md"), "# task\n", "utf8");
+
+    const port = createGatesMemoPort(world);
+    const first = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+    assert.notEqual(first, null);
+
+    await rm(path.join(world.projectRoot, "AG", "tasks", "active", "044-x.md"));
+    await writeFile(path.join(world.projectRoot, "AG", "tasks", "queue", "044-x.md"), "# task\n", "utf8");
+    const afterMove = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+
+    assert.equal(afterMove?.tree, first?.tree);
+    assert.equal(afterMove?.key, first?.key);
+  } finally {
+    await rm(world.projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("AG/state ir AG/logs pokyčiai NEkeičia tapatybės, o `src` failo pakeitimas keičia", async () => {
+  const world = await workspace({ git: true });
+  try {
+    await mkdir(path.join(world.projectRoot, "AG", "state"), { recursive: true });
+    await mkdir(path.join(world.projectRoot, "AG", "logs"), { recursive: true });
+    await writeFile(path.join(world.projectRoot, "AG", "state", "ledger.json"), "{}", "utf8");
+    await writeFile(path.join(world.projectRoot, "AG", "logs", "session.md"), "log v1\n", "utf8");
+
+    const port = createGatesMemoPort(world);
+    const first = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+    assert.notEqual(first, null);
+
+    await writeFile(path.join(world.projectRoot, "AG", "state", "ledger.json"), '{"n":1}', "utf8");
+    await writeFile(path.join(world.projectRoot, "AG", "logs", "session.md"), "log v2\n", "utf8");
+    const afterLifecycleChange = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+    assert.equal(afterLifecycleChange?.tree, first?.tree);
+    assert.equal(afterLifecycleChange?.key, first?.key);
+
+    await writeFile(path.join(world.projectRoot, "src.ts"), "export const a = 2;\n", "utf8");
+    const afterSrcChange = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+    assert.notEqual(afterSrcChange?.tree, first?.tree);
+    assert.notEqual(afterSrcChange?.key, first?.key);
+  } finally {
+    await rm(world.projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("naujas untracked failas `src` viduje keičia tapatybę", async () => {
+  const world = await workspace({ git: true });
+  try {
+    const port = createGatesMemoPort(world);
+    const first = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+    assert.notEqual(first, null);
+
+    await writeFile(path.join(world.projectRoot, "src-new.ts"), "export const b = 1;\n", "utf8");
+    const changed = await port.identify({ projectRoot: world.projectRoot, ...identityInput });
+
+    assert.notEqual(changed?.tree, first?.tree);
+    assert.notEqual(changed?.key, first?.key);
+  } finally {
+    await rm(world.projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("kitas scope duoda kitą raktą", async () => {
   const world = await workspace({ git: true });
   try {

@@ -19,7 +19,11 @@ import {
   unsupportedBashOutputDigest,
   type BashReplacementRecord,
 } from "../../domain/tool-results/index.js";
-import { estimateTokensFromChars } from "../../application/context-pack/metrics.js";
+import {
+  buildContextSizeMetrics,
+  contextSizeMetricsLogPath,
+  estimateTokensFromChars,
+} from "../../application/context-pack/metrics.js";
 import { sha256Hex } from "../../shared/hash.js";
 import { appendJsonArrayEntry } from "./session-write-ledger.js";
 import {
@@ -39,6 +43,7 @@ import {
   readEventsPath,
   relativeToProject,
   runtimeLogPath,
+  runtimeStatePath,
 } from "./post-hook-context.js";
 
 /** Sėkmingo PostToolUse hook'o exit kodas. Kitokio šiame faile nėra ir negali būti. */
@@ -88,11 +93,31 @@ export async function hookPostBash(deps: PostHookDeps): Promise<number> {
 }
 
 /**
- * Bash išvesties digest'o SHADOW matavimas (etalono task 0026).
+ * `task_id`, kuriam priskirti šio Bash kvietimo shadow matavimą, arba `""`, kai jis
+ * nepasiekiamas.
+ *
+ * Ta pati tapatybės grandinė kaip {@link resolveWriterIdentity} `post-write.ts` faile:
+ * `current-task-id` yra VIENAS globalus failas, kurį mato visos to paties darbo medžio
+ * sesijos. Be `AG_DISPATCH_NONCE` patikros interaktyvi sesija priskirtų savo Bash kvietimus
+ * tam task'ui, kurį tuo metu vykdo VISIŠKAI kita (dispatch'inta) sesija — būtent tą
+ * susimaišymą nonce patikra ir užkerta.
+ */
+async function resolveShadowTaskId(context: PostHookContext): Promise<string> {
+  const nonce = (context.deps.ports.env("AG_DISPATCH_NONCE") ?? "").trim();
+  if (!nonce) return "";
+  const taskId = await context.deps.ports.fs.readTextFileIfExists(runtimeStatePath(context, "current-task-id"));
+  return (taskId ?? "").trim();
+}
+
+/**
+ * Bash išvesties digest'o SHADOW matavimas (etalono task 0026; task 0036 prideda
+ * `tool_raw_chars`/`tool_digest_chars` porą į `context-size.jsonl`).
  *
  * Šis hook'as lieka stebėtoju: jis nieko nespausdina, negrąžina `updatedToolOutput` ir todėl
  * negali pakeisti nė vieno simbolio rezultato, kurį mato darbuotojas. Vienintelis efektas —
- * viena JSONL eilutė per Bash kvietimą, fiksuojanti, kiek digest'as BŪTŲ kainavęs ir sutaupęs.
+ * viena JSONL eilutė per Bash kvietimą, fiksuojanti, kiek digest'as BŪTŲ kainavęs ir sutaupęs,
+ * ir (kai `task_id` žinomas) antra eilutė bendrame `context-size.jsonl`, kad ta pati pora
+ * patektų į A/B palyginimą šalia kitų kompresijos vėliavų.
  *
  * Išjungta vėliava yra tikras no-op: patikra įvyksta PRIEŠ paliečiant payload'ą. Kiekvienas
  * gedimas (neperskaitomas konfigas ar payload'as, defektas variklyje) degraduoja į „nėra
@@ -117,6 +142,29 @@ async function recordBashDigestShadow(
       runtimeLogPath(context, "bash-digest-shadow.jsonl"),
       `${JSON.stringify(record)}\n`,
     );
+
+    // Be `task_id` šis įrašas negalėtų prisijungti prie jokio kito matavimo tam pačiam
+    // bandymui, o pakaitinis identifikatorius (session id ir pan.) tik apsimestų task'u —
+    // tad tokiu atveju eilutė tiesiog nerašoma, ne pakeičiama nesaugiu spėjimu.
+    const taskId = await resolveShadowTaskId(context);
+    if (taskId) {
+      const sizeRecord = buildContextSizeMetrics(
+        {
+          taskId,
+          contextChars: 0,
+          maxContextChars: 0,
+          specFragmentCount: 0,
+          codeContextItemCount: 0,
+          toolRawChars: record.raw_chars,
+          toolDigestChars: record.digest_chars,
+        },
+        context.now(),
+      );
+      await context.deps.ports.fs.appendTextFile(
+        contextSizeMetricsLogPath(context.runtimeRoot),
+        `${JSON.stringify(sizeRecord)}\n`,
+      );
+    }
   } catch {
     // Shadow telemetrija yra best-effort pagal kontraktą: sugadintas kompresijos konfigas,
     // netikėtas payload'as ar nepavykęs log rašymas neturi paversti PostToolUse hook'o

@@ -23,6 +23,7 @@ const HOOKS_LOG = path.join(RUNTIME, "logs", "hooks.log");
 const READ_EVENTS = path.join(RUNTIME, "state", "readme-read-events.json");
 const SHADOW_LOG = path.join(RUNTIME, "logs", "bash-digest-shadow.jsonl");
 const REPLACEMENT_LOG = path.join(RUNTIME, "logs", "bash-digest-replacement.jsonl");
+const CONTEXT_SIZE_LOG = path.join(RUNTIME, "logs", "context-size.jsonl");
 
 const LONG_OUTPUT = `${"ok 1 - a\n".repeat(120)}# pass 120\n# fail 0\n`;
 
@@ -59,6 +60,58 @@ test("hookPostBash: žurnalas rašomas visada, o shadow eilutė — tik su įjun
   assert.equal(await hookPostBash(deps(on)), 0);
   const record = JSON.parse((on.store.get(SHADOW_LOG) ?? "").trim()) as Record<string, unknown>;
   assert.equal(typeof record["ts"], "string");
+});
+
+test("hookPostBash: context-size.jsonl gauna tool_raw_chars/tool_digest_chars porą, kai task_id pasiekiamas", async () => {
+  const world = fakePostHookWorld({
+    stdin: JSON.stringify({
+      tool_input: { command: "pnpm test" },
+      tool_response: { stdout: LONG_OUTPUT, stderr: "", exit_code: 0 },
+    }),
+    config: digestOn(),
+    env: { AG_DISPATCH_NONCE: "nonce-1" },
+    files: { [path.join(RUNTIME, "state", "current-task-id")]: "036-a-02" },
+  });
+
+  assert.equal(await hookPostBash(deps(world)), 0);
+
+  const shadow = JSON.parse((world.store.get(SHADOW_LOG) ?? "").trim()) as Record<string, unknown>;
+  const sizeRecord = JSON.parse((world.store.get(CONTEXT_SIZE_LOG) ?? "").trim()) as Record<string, unknown>;
+  assert.equal(sizeRecord["task_id"], "036-a-02");
+  assert.equal(sizeRecord["tool_raw_chars"], shadow["raw_chars"]);
+  assert.equal(sizeRecord["tool_digest_chars"], shadow["digest_chars"]);
+});
+
+test("hookPostBash: be task_id (nėra dispatch nonce) context-size.jsonl eilutė nerašoma, jokio pakaitinio id", async () => {
+  const world = fakePostHookWorld({
+    stdin: JSON.stringify({
+      tool_input: { command: "pnpm test" },
+      tool_response: { stdout: LONG_OUTPUT, stderr: "", exit_code: 0 },
+    }),
+    config: digestOn(),
+    // Tyčia be AG_DISPATCH_NONCE ir be current-task-id failo — interaktyvi sesija.
+  });
+
+  assert.equal(await hookPostBash(deps(world)), 0);
+  assert.equal(world.store.has(SHADOW_LOG), true, "bash-digest-shadow.jsonl rašomas kaip anksčiau");
+  assert.equal(world.store.has(CONTEXT_SIZE_LOG), false, "nėra task_id — nėra ir įrašo");
+});
+
+test("hookPostBash: shadow rašymas negrąžina jokio stdout — realus Bash rezultatas lieka bitiškai nepakitęs", async () => {
+  const world = fakePostHookWorld({
+    stdin: JSON.stringify({
+      tool_input: { command: "pnpm test" },
+      tool_response: { stdout: LONG_OUTPUT, stderr: "", exit_code: 0 },
+    }),
+    config: digestOn(),
+    env: { AG_DISPATCH_NONCE: "nonce-1" },
+    files: { [path.join(RUNTIME, "state", "current-task-id")]: "036-a-02" },
+  });
+
+  assert.equal(await hookPostBash(deps(world)), 0);
+  // hookPostBash negrąžina `updatedToolOutput` ir nieko nespausdina — vienintelis efektas yra
+  // žurnalo eilutės, tad worker'io matomas Bash rezultatas negali pakisti nė vienu simboliu.
+  assert.deepEqual(world.out, [], "hookPostBash niekada nespausdina — negali pakeisti tool_response");
 });
 
 test("hookPostBash: konfigo ir žurnalo gedimai negali užblokuoti tool call'o", async () => {

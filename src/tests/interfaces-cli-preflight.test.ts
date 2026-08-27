@@ -355,6 +355,36 @@ test("claudePreflight: LLM kelias — fastpath-miss, prompt'as su taisyklėmis, 
   assert.ok(h.reformulated[0]!.startsWith("## Žingsnis 0"));
 });
 
+test("claudePreflight: LLM task_id (per ilgas/kitoks) visada antspauduojamas kanoniniu taskId (task 041)", async () => {
+  const longModelTaskId = `0042-demo-${"x".repeat(60)}`; // > 50 simbolių, nesutampa su kanoniniu
+  const llmDecision: PreflightDecision = {
+    verdict: "delegate",
+    task_id: longModelTaskId,
+    selected_model: "sonnet",
+    target_agent_chain: ["coder"],
+    reason: "ok",
+    claude_task: LLM_CLAUDE_TASK.replace("readme-guard -> coder", "coder"),
+    child_tasks: [],
+  };
+  const h = makeHarness({
+    // nežinomas agentas grandinėje → fastpath miss → LLM kelias.
+    taskText: CANONICAL_TASK.replace("readme-guard -> coder", "readme-guard -> nezinomas"),
+    llm: () => ({ stdout: JSON.stringify(llmDecision), stderr: "", code: 0 }),
+  });
+  const code = await claudePreflight(["t"], h.ports);
+
+  // (b) Sprendimas RAŠOMAS (ne human_review/reject dėl neatitikimo) — tai antspaudavimas, ne atmetimas.
+  assert.equal(code, 0);
+  assert.notEqual(h.fileDecisions[0]?.verdict, "human_review");
+
+  // (a) Ką faktiškai parašė failų ir attempt portai — kanoninis taskId, ne modelio reikšmė.
+  const canonicalTaskId = "0042-demo";
+  assert.equal(h.fileDecisions[0]?.task_id, canonicalTaskId);
+  assert.notEqual(h.fileDecisions[0]?.task_id, longModelTaskId);
+  assert.equal(h.attemptDecisions[0]?.task_id, canonicalTaskId);
+  assert.notEqual(h.attemptDecisions[0]?.task_id, longModelTaskId);
+});
+
 test("claudePreflight: 429 → USAGE_LIMIT_EXIT_CODE; tuščias verdict du kartus → human-review; biudžetas išsemtas → human-review", async () => {
   const limited = makeHarness({
     taskText: CANONICAL_TASK.replace("readme-guard -> coder", "readme-guard -> nezinomas"),

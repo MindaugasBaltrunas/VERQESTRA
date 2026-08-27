@@ -92,18 +92,18 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
   const inputPath = path.join(ports.runtimeRoot, "supervisor", "preflight-input.md");
   const supervisorLogPath = path.join(ports.runtimeRoot, "logs", "supervisor-last.log");
 
-  // Kanoninis attempt įrašas PIRMAS, globalus decision.json veidrodis ANTRAS (task 1117a);
-  // task 0941: preflight PASKELBIA token biudžeto tier'ą sprendime, kad dispatch turn langą
-  // skaičiuotų iš tos pačios reikšmės, o ne perklasifikuotų iš naujo.
+  // Kanoninis attempt įrašas PIRMAS, globalus decision.json veidrodis ANTRAS (task 1117a); task 0941: preflight PASKELBIA token biudžeto tier'ą sprendime, kad dispatch turn langą skaičiuotų iš tos pačios reikšmės, o ne perklasifikuotų iš naujo.
   const writeDecision = async (decision: PreflightDecision, tokenBudgetTier?: TokenBudgetTier): Promise<void> => {
-    const published: PreflightDecision =
-      tokenBudgetTier === undefined ? decision : { ...decision, [DECISION_TOKEN_BUDGET_TIER_KEY]: tokenBudgetTier };
+    const published: PreflightDecision = {
+      ...decision,
+      ...(tokenBudgetTier === undefined ? {} : { [DECISION_TOKEN_BUDGET_TIER_KEY]: tokenBudgetTier }),
+      task_id: taskId,
+    };
     await ports.attempt.writeDecision(published);
     await ports.files.writeDecision(`${JSON.stringify(published, null, 2)}\n`);
   };
 
-  // `task` artefaktas write-once (bandymo ĮVESTIS); rašomi TIE PATYS baitai kaip į
-  // reformulated-task.md.
+  // `task` artefaktas write-once (bandymo ĮVESTIS); rašomi TIE PATYS baitai kaip į reformulated-task.md.
   const writeReformulatedTask = async (body: string): Promise<void> => {
     await ports.attempt.writeTask(body);
     await ports.files.writeReformulated(body);
@@ -129,23 +129,19 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
       log_file: out,
       next_action: "Preflight validation failed — human review required",
     });
-    // Priežastis PRIVALO likti bendrame žurnale: decision.json ir supervisor-last.log
-    // perrašomi kito task'o per kelias sekundes (etalono 861/868-02/869-02 pamoka).
+    // Priežastis PRIVALO likti bendrame žurnale: decision.json ir supervisor-last.log perrašomi kito task'o per kelias sekundes (etalono 861/868-02/869-02 pamoka).
     await ports.agLog(`CLAUDE PREFLIGHT: task=${taskId} human-review reason: ${reason}`);
     ports.stderr(reason);
     return 1;
   };
 
   const taskText = await ports.readOptionalFile(taskFile);
-  // Legacy/near-kanoninių sekcijų deterministinis normalizavimas PRIEŠ bet kokį gate'ą
-  // (task 882); activeText toliau gali būti papildytas auto-OpenSpec nuoroda.
+  // Legacy/near-kanoninių sekcijų deterministinis normalizavimas PRIEŠ bet kokį gate'ą (task 882); activeText toliau gali būti papildytas auto-OpenSpec nuoroda.
   let activeText = normalizeLegacyTaskSections(taskText);
   const preflightLimitsFile = await readPreflightLimitsFile(ports.policyFs, ports.runtimeRoot);
   const configuredLimits = mergePreflightLimits(preflightLimitsFile.values);
   const contextBudget = await loadContextBudget(ports.policyFs, ports.runtimeRoot);
-  // 016 (2026-08-25): turn lentelė imama iš TO PATIES šaltinio kaip dispatch'o
-  // `resolveDispatchBudgetPlan` (token-budget.json > legacy preflight-limits.turnLimits >
-  // kodas) — kitaip preflight žurnalas skelbtų max_turns, kurio dispatch'as niekada nevykdo.
+  // 016 (2026-08-25): turn lentelė imama iš TO PATIES šaltinio kaip dispatch'o `resolveDispatchBudgetPlan` (token-budget.json > legacy preflight-limits.turnLimits > kodas) — kitaip preflight žurnalas skelbtų max_turns, kurio dispatch'as niekada nevykdo.
   const tokenBudgetConfig = await loadTokenBudgetConfig(ports.policyFs, ports.runtimeRoot, {
     ...(preflightLimitsFile.values.turnLimits === undefined
       ? {}
@@ -181,8 +177,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     return await writeHumanReviewDecision(`Task is missing required sections: ${inputMissing.hard.join(", ")}`);
   }
 
-  // CV-03: rizikos patikra PRIEŠ size gate ir PRIEŠ LLM kvietimą — rizikingam task'ui
-  // neeikvojamas LLM bandymas, o dispatch nevyksta.
+  // CV-03: rizikos patikra PRIEŠ size gate ir PRIEŠ LLM kvietimą — rizikingam task'ui neeikvojamas LLM bandymas, o dispatch nevyksta.
   const humanReview = analyzeHumanReviewGates(activeText, allowedPaths(activeText));
   if (humanReview.requires_human_review) {
     const categories = humanReview.gates.map((gate) => gate.category).join(", ");
@@ -197,8 +192,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     );
   }
 
-  // Task 873: architecture-style ir enforcement vartai — tos pačios grynos taisyklės kaip
-  // rankiniame preflight; fatal → human_review, advisory — tik žurnalas.
+  // Task 873: architecture-style ir enforcement vartai — tos pačios grynos taisyklės kaip rankiniame preflight; fatal → human_review, advisory — tik žurnalas.
   const policyGateAllowedFiles = allowedPaths(activeText);
   const policyGateClassification = classifyTask(
     activeText,
@@ -226,8 +220,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     );
   }
 
-  // Task 975: existing-code task'ai niekada tyliai nepraranda code graph konteksto —
-  // pirma deterministinis rebuild, human review tik kai rebuild pats negali.
+  // Task 975: existing-code task'ai niekada tyliai nepraranda code graph konteksto — pirma deterministinis rebuild, human review tik kai rebuild pats negali.
   const codeIndexReadiness = await ports.ensureFreshCodeIndex(policyGateAllowedFiles);
   if (codeIndexReadiness.kind === "blocked") {
     await ports.agLog(`CLAUDE PREFLIGHT: task=${taskId} code-index blocked: ${codeIndexReadiness.reason}`);
@@ -249,13 +242,10 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     turnLimits: tokenBudgetConfig.turnLimits,
   });
   const optimizedTier = optimizedBudget.model_policy_hint;
-  // Aktyvus OpenSpec darbas lieka bent Sonnet; rutininiai bounded task'ai gali gauti Haiku
-  // ir remtis retry eskalacija, jei quality gates nepraeis.
+  // Aktyvus OpenSpec darbas lieka bent Sonnet; rutininiai bounded task'ai gali gauti Haiku ir remtis retry eskalacija, jei quality gates nepraeis.
   const preflightTier = openSpecRefs.activeChangeDirs.length > 0 && optimizedTier === "haiku" ? "sonnet" : optimizedTier;
   const model = await ports.resolveModel(preflightTier);
-  // 016: žurnale — VYKDOMA reikšmė (ta pati lentelė + tos pačios dispatchMaxTurns lubos kaip
-  // dispatch'e), ne deklaratyvi. Iki 2026-08-25 čia buvo skelbiama max_turns=180, kurią
-  // dispatch'as su 120 lubomis niekada nevykdė (optimizavimo audito P1-2/P2-4).
+  // 016: žurnale — VYKDOMA reikšmė (ta pati lentelė + tos pačios dispatchMaxTurns lubos kaip dispatch'e), ne deklaratyvi. Iki 2026-08-25 čia buvo skelbiama max_turns=180, kurią dispatch'as su 120 lubomis niekada nevykdė (optimizavimo audito P1-2/P2-4).
   const publishedMaxTurns = resolveMaxTurns({
     phase: "implementation",
     tier: optimizedBudget.tier,

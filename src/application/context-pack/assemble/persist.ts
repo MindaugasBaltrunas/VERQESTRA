@@ -14,6 +14,7 @@ import {
   type ContextCompressionFeature,
 } from "../../../domain/policies/compression/features.js";
 import { buildWorkerPrompt } from "../../task-execution/execution-context-gate.js";
+import { renderCompactWorkerDsl } from "../compact-dsl/render.js";
 import {
   contextPackSchema,
   SPEC_HEADING_MISS_WARNING,
@@ -111,6 +112,12 @@ export async function persistContextPack(input: {
   const workerTaskIr = shadowCompileWorkerTaskIr(pack.task_id, input.taskText);
   const irJsonChars = workerTaskIr ? workerTaskIrChars(workerTaskIr) : undefined;
 
+  // Task 036-d-05: shadow-renders the SAME IR into the compact worker DSL, unconditional of
+  // the `compact_dsl` flag — same reasoning as the shadow compilations above. The renderer
+  // fails closed (round-trip parity check, IR version guard), so a refusal here just means
+  // no pair, not a broken pack.
+  const compactDsl = shadowRenderCompactWorkerDsl(workerTaskIr);
+
   // REF/SIG/SRC tiers (task 0023), measured at gather time and always present (task
   // 036-b-03): `measureSymbolTierChars` falls back to the same tier inference
   // `codeContextSymbolState` uses, so a flag-off pack (no explicit `tier`) still reports its
@@ -154,6 +161,9 @@ export async function persistContextPack(input: {
       taskId: pack.task_id,
       rawTaskChars: input.taskText.length,
       ...(irJsonChars === undefined ? {} : { compiledTaskChars: irJsonChars, irJsonChars }),
+      ...(compactDsl === undefined
+        ? {}
+        : { dslIrChars: compactDsl.stats.ir_chars, dslCompiledChars: compactDsl.stats.dsl_chars }),
       symbolSourceChars,
       symbolSignatureChars,
       rawPromptChars,
@@ -216,6 +226,20 @@ function shadowCompileWorkerTaskIr(taskId: string, taskMarkdown: string): Worker
   try {
     const compiled = compileWorkerTaskIr({ taskId, taskMarkdown });
     return compiled.ok ? compiled.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Shadow-renders the compact worker DSL for an already shadow-compiled IR (task 036-d-05).
+ * Absent when there is no IR to render, or when the renderer itself refuses (IR version
+ * mismatch, lossy round-trip) — same fail-closed treatment as {@link shadowCompileWorkerTaskIr}.
+ */
+function shadowRenderCompactWorkerDsl(ir: WorkerTaskIr | undefined): ReturnType<typeof renderCompactWorkerDsl> | undefined {
+  if (!ir) return undefined;
+  try {
+    return renderCompactWorkerDsl(ir);
   } catch {
     return undefined;
   }

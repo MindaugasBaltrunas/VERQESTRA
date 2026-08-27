@@ -13,6 +13,10 @@ import { parseCompactWorkerDsl } from "../application/context-pack/compact-dsl/p
 import { compactWorkerDslParity } from "../application/context-pack/compact-dsl/parity.js";
 import { contextArtifactSha256 } from "../application/context-pack/execution-context-fingerprint.js";
 import { workerTaskIrSchema, type WorkerTaskIr } from "../application/context-pack/worker-task-ir-schema.js";
+import { compileWorkerTaskIr } from "../application/context-pack/worker-task-ir.js";
+import { persistContextPack } from "../application/context-pack/assemble/persist.js";
+import { contextSizeMetricsLogPath } from "../application/context-pack/metrics.js";
+import type { ContextPackFileSystemPort } from "../application/context-pack/ports.js";
 
 type DslCase = {
   id: string;
@@ -81,3 +85,138 @@ for (const dslCase of fixture.cases) {
     assert.deepStrictEqual(actual, dslCase.expect, dslCase.id);
   });
 }
+
+// Task 036-d-05: persist.ts must shadow-render the SAME IR it already shadow-compiles into the
+// compact worker DSL and flow the pair into the context-size log, unconditional of the
+// `compact_dsl` flag — same reasoning as the `worker_task_ir` shadow measure it sits beside.
+function memoryFs(): ContextPackFileSystemPort {
+  const store = new Map<string, string>();
+  return {
+    async readTextFileIfExists(absolutePath) {
+      return store.get(path.resolve(absolutePath));
+    },
+    async readFileBytes(absolutePath) {
+      const value = store.get(path.resolve(absolutePath));
+      if (value === undefined) throw new Error(`ENOENT: ${absolutePath}`);
+      return new TextEncoder().encode(value);
+    },
+    async exists(absolutePath) {
+      return store.has(path.resolve(absolutePath));
+    },
+    async appendTextFile(absolutePath, text) {
+      const key = path.resolve(absolutePath);
+      store.set(key, (store.get(key) ?? "") + text);
+    },
+    async writeTextFile(absolutePath, content) {
+      store.set(path.resolve(absolutePath), content);
+    },
+    async makeDirectory() {
+      // in-memory — nėra ką kurti
+    },
+  };
+}
+
+const COMPILABLE_TASK = [
+  "# Task",
+  "",
+  "## Tikslas",
+  "Ilgas tikslas su pakankamai teksto ir keliais keliais, kad DSL alias'ai turėtų ką aliasinti.",
+  "",
+  "## Failai",
+  "Leidžiama:",
+  "- `src/module/a.ts`",
+  "- `src/module/b.ts`",
+  "Draudžiama:",
+  "- `.env*`",
+  "",
+  "## Veiksmas",
+  "- Pirmas žingsnis.",
+  "- Antras žingsnis.",
+  "",
+  "## Patikra",
+  "- `pnpm test`",
+  "",
+  "## Stop",
+  "Kai patikros žalios, sustok.",
+  "",
+].join("\n");
+
+function packFor(taskId: string, goal: string, allowedPaths: string[], checks: string[]): Record<string, unknown> {
+  return {
+    task_id: taskId,
+    phase: "implementation",
+    goal,
+    allowed_paths: allowedPaths,
+    agents: [],
+    spec_fragments: [],
+    spec_fragment_warnings: [],
+    spec_fragment_truncated: [],
+    acceptance_criteria: [],
+    architecture_rules: [],
+    checks,
+    out_of_scope: [],
+  };
+}
+
+test("persistContextPack: dsl_ir_chars/dsl_compiled_chars flow from the compact-dsl shadow render", async () => {
+  const runtimeRoot = path.resolve("vq-test-root-036d05-compact-dsl");
+  const fs = memoryFs();
+  const pack = packFor("036d05-compilable", "Ilgas tikslas su pakankamai teksto.", ["src/module/a.ts"], ["pnpm test"]);
+
+  const compiled = compileWorkerTaskIr({ taskId: "036d05-compilable", taskMarkdown: COMPILABLE_TASK });
+  assert.equal(compiled.ok, true, "kompiliuojamas task'as -> shadow IR yra");
+  const expectedDsl = compiled.ok ? renderCompactWorkerDsl(compiled.value) : undefined;
+
+  await persistContextPack({
+    fs,
+    runtimeRoot,
+    taskText: COMPILABLE_TASK,
+    encoded: JSON.stringify(pack),
+    maxContextChars: 20_000,
+    cacheStatus: "bypass",
+    droppedItemCount: 0,
+    specDroppedCount: 0,
+    codeContextDroppedCount: 0,
+    codeContextRebuilt: false,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+  });
+
+  const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
+  const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+
+  assert.equal(record["dsl_ir_chars"], expectedDsl?.stats.ir_chars);
+  assert.equal(record["dsl_compiled_chars"], expectedDsl?.stats.dsl_chars);
+});
+
+test("persistContextPack: dsl_ir_chars/dsl_compiled_chars are absent (not zero) when the shadow IR refuses the task", async () => {
+  const runtimeRoot = path.resolve("vq-test-root-036d05-noncompilable");
+  const fs = memoryFs();
+  const pack = packFor(
+    "036d05-noncompilable",
+    "Tikslas be jokių backtick patikrų — IR kompiliacija privalo atsisakyti.",
+    ["src/module/b.ts"],
+    [],
+  );
+
+  await persistContextPack({
+    fs,
+    runtimeRoot,
+    taskText: "Tikslas be backtick patikrų.",
+    encoded: JSON.stringify(pack),
+    maxContextChars: 20_000,
+    cacheStatus: "bypass",
+    droppedItemCount: 0,
+    specDroppedCount: 0,
+    codeContextDroppedCount: 0,
+    codeContextRebuilt: false,
+    canaryFeatures: [],
+    canarySizeFallback: false,
+  });
+
+  const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
+  const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+
+  assert.equal("dsl_ir_chars" in record, false, "nesantis matavimas yra NESANTIS, ne 0");
+  assert.equal("dsl_compiled_chars" in record, false);
+});

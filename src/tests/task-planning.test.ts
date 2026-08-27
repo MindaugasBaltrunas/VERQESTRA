@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { taskGenerate, nextAvailableTaskNumber, type TaskGeneratePorts } from "../application/task-planning/generate.js";
 import {
+  analyzeDeclaredOpenSpecReferences,
   analyzeOpenSpecReferences,
   buildOpenSpecContext,
   type OpenSpecContextPorts,
@@ -171,4 +172,46 @@ test("openspec-context: aktyvi nuoroda skaitoma su biudžetu, trūkstama — pa�
   // Be project.md ir be nuorodų — kontekstas neišgalvojamas.
   const emptyPorts: OpenSpecContextPorts = { fs: makePorts(new Map()).fs, isDirectory: async () => false };
   assert.equal(await buildOpenSpecContext(emptyPorts, ROOT, "be jokių nuorodų"), "OpenSpec context not found for this task.");
+});
+
+test("openspec-context: deklaruotų nuorodų analizė mato tik ## Spec source sekciją", async () => {
+  const dirs = new Set([abs("AG/openspec/changes/foo")]);
+  const ports: OpenSpecContextPorts = {
+    fs: makePorts(new Map()).fs,
+    isDirectory: async (p) => dirs.has(norm(p)),
+  };
+
+  // Kūno citata su nesama nuoroda (039/041 klasė) į deklaruotų rinkinį NEpatenka.
+  const taskText = [
+    "# Task",
+    "",
+    "## Spec source",
+    "openspec/changes/foo",
+    "",
+    "## Neįtraukta",
+    "- task'as krito 21:42 (`openspec/changes/auto- does not exist`)",
+    "- archyvo paminėjimas: openspec/changes/archive/senas",
+  ].join("\n");
+  const declared = await analyzeDeclaredOpenSpecReferences(ports, ROOT, taskText);
+  assert.deepEqual(declared.activeChangeDirs, ["openspec/changes/foo"]);
+  assert.deepEqual(declared.missingChangeDirs, []);
+  assert.deepEqual(declared.archivedChangeDirs, []);
+
+  // Ta pati citata VISO teksto analizėje lieka matoma — konteksto praturtinimas nesusiaurėja.
+  const full = await analyzeOpenSpecReferences(ports, ROOT, taskText);
+  assert.deepEqual(full.missingChangeDirs, ["openspec/changes/auto-"]);
+  assert.deepEqual(full.archivedChangeDirs, ["openspec/changes/archive/senas"]);
+
+  // Nesama nuoroda PAČIOJE ## Spec source sekcijoje tebeklasifikuojama kaip missing.
+  const badDeclared = await analyzeDeclaredOpenSpecReferences(
+    ports,
+    ROOT,
+    "## Spec source\nopenspec/changes/nesamas\n\n## Tikslas\nX.",
+  );
+  assert.deepEqual(badDeclared.missingChangeDirs, ["openspec/changes/nesamas"]);
+
+  // Be ## Spec source sekcijos — tuščia analizė, net jei kūnas pilnas nuorodų.
+  const noSection = await analyzeDeclaredOpenSpecReferences(ports, ROOT, "Žr. openspec/changes/foo");
+  assert.deepEqual(noSection.activeChangeDirs, []);
+  assert.deepEqual(noSection.missingChangeDirs, []);
 });

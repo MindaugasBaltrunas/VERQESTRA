@@ -251,6 +251,11 @@ test("readTextFileIfExists: RAW be trim; nesamas failas ir katalogas — undefin
  * Testas VIENAKRYPTIS, tad ne flaky: ištaisytas kelias (vienas `readFile`) ENOENT mesti fiziškai
  * negali, o sugrąžinus `stat` + `readFile` jis kris. Trynimas paleidžiamas TUO PAČIU metu kaip
  * skaitymas — būtent tas langas ir buvo defektas.
+ *
+ * 2026-08-27: šis testas po vartų apkrova pagavo ANTRĄ tos pačios lenktynės pusę — win32
+ * delete-pending langu `open` grąžina EPERM, ne ENOENT. Adapteris dabar jį pakartoja per
+ * `withWin32RenameRetry` (dingęs failas kitu bandymu virsta ENOENT → undefined), tad
+ * „vienakryptis" galioja ir Windows'e.
  */
 test("readTextFileIfExists: lygiagretus trynimas negrąžina klaidos (TOCTOU)", async () => {
   const target = p("toctou", "owner.json");

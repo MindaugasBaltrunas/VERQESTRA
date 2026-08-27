@@ -317,6 +317,14 @@ test("claudePreflight: rizikos vartai ir invalid OpenSpec ref → human_review s
   });
   assert.equal(await claudePreflight(["t"], archived.ports), 1);
   assert.match(archived.fileDecisions[0]?.reason ?? "", /Invalid OpenSpec reference: .*archived/);
+
+  // Task 042: kūno CITATA (klaidos tekstas backtick'uose — 039/041 kritimo klasė) nebėra vartų
+  // įvestis: parkuoja tik `## Spec source` DEKLARUOTOS nuorodos, o deklaruota čia tvarkinga.
+  const cited = makeHarness({
+    taskText: CANONICAL_TASK.replace("- nieko", "- krito 21:42 (`openspec/changes/auto- does not exist`)"),
+  });
+  assert.equal(await claudePreflight(["t"], cited.ports), 0);
+  assert.equal(cited.fileDecisions[0]?.verdict, "delegate");
 });
 
 test("claudePreflight: LLM kelias — fastpath-miss, prompt'as su taisyklėmis, verdikto validacija ir readme-guard prepend", async () => {

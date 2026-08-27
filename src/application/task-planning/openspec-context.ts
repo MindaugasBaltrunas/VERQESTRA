@@ -5,6 +5,7 @@
 // statIsDirectory.
 
 import path from "node:path";
+import { extractSection } from "../../shared/markdown.js";
 import { normalizeProjectPath, resolveProjectPath } from "../../shared/paths.js";
 import type { TaskPlanningFsPort } from "./spec-source.js";
 
@@ -101,6 +102,27 @@ export async function analyzeOpenSpecReferences(
     templateRefs: unique(analysis.templateRefs),
     missingChangeDirs: unique(analysis.missingChangeDirs),
   };
+}
+
+/**
+ * Deklaruotų nuorodų analizė: nuorodos renkamos TIK iš `## Spec source` sekcijos
+ * (fence-aware ribos per `shared/markdown.extractSection`; be sekcijos — tuščia analizė).
+ *
+ * 2026-08-27: viso teksto analizė kaip VARTŲ įvestis vertė task'us į human-review dėl
+ * citatų kūne — 039 krito dėl archyvinio kelio PAMINĖJIMO, 041 du kartus dėl nukirsto
+ * kelio citatos (antrą kartą jį pargriovė pastaba, cituojanti pirmojo kritimo klaidą).
+ * Griežta validacija (missing/archived/template → human_review) taikoma deklaruotoms
+ * nuorodoms; viso teksto analizė lieka konteksto praturtinimui (`buildOpenSpecContext`)
+ * ir auto-OpenSpec vartui. Etalonas turi tą pačią spragą — nukrypimas įrašytas
+ * migration-coverage.json (kryptis ne silpninanti: deklaruotos nuorodos tikrinamos kaip
+ * tikrintos, dingsta tik klaidingi teigiami iš citatų).
+ */
+export async function analyzeDeclaredOpenSpecReferences(
+  ports: OpenSpecContextPorts,
+  projectRoot: string,
+  taskText: string,
+): Promise<OpenSpecReferenceAnalysis> {
+  return await analyzeOpenSpecReferences(ports, projectRoot, extractSection(taskText, "## Spec source"));
 }
 
 function extractTouchedSpecs(taskText: string): string[] {

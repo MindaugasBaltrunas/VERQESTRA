@@ -62,10 +62,23 @@ export const nodeFsAdapter = {
    * ENOTDIR; abu reiškia tą patį, ką ir `!stats.isFile()` — „to failo čia nėra". Kiti kodai
    * (EACCES ir pan.) TOLIAU metami: tolerantiška versija yra atskira —
    * `readContendedTextFileIfExists`, ir jų sulieti negalima.
+   *
+   * 2026-08-27 — ANTRA tos pačios lenktynės pusė, kurią ENOENT pataisa paliko atvirą:
+   * Windows trynimas nėra momentinis — tarp `unlink` ir paskutinio handle uždarymo vardas
+   * yra delete-pending, ir `open` tuo langu grąžina EPERM, ne ENOENT (ta pati klasė, kaip
+   * `isLockDirectoryTaken` mkdir pusėje). Atkartota TOCTOU testo po vartų apkrova. Todėl
+   * skaitymas eina per `withWin32RenameRetry`: laikinas EPERM pakartojamas, o kitas bandymas
+   * dingusiam failui duoda ENOENT → `undefined`. TIKRA teisių klaida (failas tebeegzistuoja)
+   * po retry biudžeto vis tiek metama — kontraktas su `readContendedTextFileIfExists`,
+   * kuri praryja viską, lieka atskirtas. POSIX EPERM metamas iškart (retry tik win32).
    */
   async readTextFileIfExists(absolutePath: string): Promise<string | undefined> {
     try {
-      return await readFile(absolutePath, "utf8");
+      let content: string | undefined;
+      await withWin32RenameRetry(async () => {
+        content = await readFile(absolutePath, "utf8");
+      });
+      return content;
     } catch (error: unknown) {
       if (isErrnoCode(error, "ENOENT") || isErrnoCode(error, "EISDIR") || isErrnoCode(error, "ENOTDIR")) {
         return undefined;

@@ -6,6 +6,7 @@
 import path from "node:path";
 import { findSectionBounds } from "../../../../shared/markdown.js";
 import {
+  analyzeDeclaredOpenSpecReferences,
   analyzeOpenSpecReferences,
   buildOpenSpecContext,
   type OpenSpecReferenceAnalysis,
@@ -89,10 +90,16 @@ export async function ensureSpecSource(
   let { activeText, openSpecRefs, openSpecContext } = input;
   const { taskId } = input;
 
+  // 2026-08-27 (task 042): griežtoji validacija taikoma TIK `## Spec source` sekcijoje
+  // DEKLARUOTOMS nuorodoms. Kūno citata (`…changes/…` paminėjimas prozoje, backtick'uose ar
+  // klaidos tekste) nebėra vartų įvestis — 039/041 dėl jos krito į human-review, nors tikroji
+  // deklaruota nuoroda buvo tvarkinga. Viso teksto analizė (`input.openSpecRefs`) lieka
+  // konteksto praturtinimui ir auto-OpenSpec vartui žemiau — tvarkingo task'o elgesys nekinta.
+  const declaredRefs = await analyzeDeclaredOpenSpecReferences(ports.openSpec, ports.projectRoot, activeText);
   const invalidOpenSpecRefs = [
-    ...openSpecRefs.archivedChangeDirs.map((ref) => `${ref} is archived`),
-    ...openSpecRefs.missingChangeDirs.map((ref) => `${ref} does not exist`),
-    ...openSpecRefs.templateRefs.map((ref) => `${ref} is a template`),
+    ...declaredRefs.archivedChangeDirs.map((ref) => `${ref} is archived`),
+    ...declaredRefs.missingChangeDirs.map((ref) => `${ref} does not exist`),
+    ...declaredRefs.templateRefs.map((ref) => `${ref} is a template`),
   ];
   if (invalidOpenSpecRefs.length > 0) {
     return { ok: false, reason: `Invalid OpenSpec reference: ${invalidOpenSpecRefs.join("; ")}` };

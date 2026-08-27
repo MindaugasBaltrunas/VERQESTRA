@@ -29,6 +29,8 @@ import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import {
   detectHallucinatedAllowedPaths,
   evaluateArchitectureAndPolicyGates,
+  stripVerificationPreamble,
+  verificationPreamble,
 } from "../application/quality-gates/preflight-rules.js";
 import {
   evaluatePreflight,
@@ -462,4 +464,33 @@ test("detectHallucinatedAllowedPaths: fail-open be `## Failai` sekcijos ir kai v
     [],
   );
   assert.deepEqual(detectHallucinatedAllowedPaths(CANONICAL_TASK, () => true), []);
+});
+
+const VERIFICATION_COMMANDS = { rebuild: "pnpm build", checks: ["pnpm typecheck", "pnpm test"] };
+
+test("stripVerificationPreamble: vedantis Žingsnis 0 + Sandbox taisyklės blokas nuimamas", () => {
+  const preamble = verificationPreamble(VERIFICATION_COMMANDS);
+  const withPreamble = `${preamble}${CANONICAL_TASK}`;
+  assert.notEqual(withPreamble, CANONICAL_TASK, "sanity: preamble realiai pridėta");
+  assert.equal(stripVerificationPreamble(withPreamble), CANONICAL_TASK);
+});
+
+test("stripVerificationPreamble: ne-vedantis pasikartojimas (po `# Task`) NEnuimamas", () => {
+  const taskWithLateHeading = "# Task\n\n## Sandbox taisyklės (paminėta viduryje, ne pradžioje)\nNe preambulė — po `# Task`.\n\n## Tikslas\nX.\n";
+  assert.equal(stripVerificationPreamble(taskWithLateHeading), taskWithLateHeading);
+});
+
+test("stripVerificationPreamble: fence bloke cituojama antraštė lieka nepaliesta (nelaikoma preambule)", () => {
+  const fencedExample = `\`\`\`text
+## Sandbox taisyklės (privaloma — taupo turns)
+Tai tik pavyzdys šablono dokumentacijoje, ne tikra vedanti antraštė.
+\`\`\`
+
+${CANONICAL_TASK}`;
+  assert.equal(stripVerificationPreamble(fencedExample), fencedExample);
+});
+
+test("stripVerificationPreamble: tekstas be preambulės grįžta nepakitęs", () => {
+  assert.equal(stripVerificationPreamble(CANONICAL_TASK), CANONICAL_TASK);
+  assert.equal(stripVerificationPreamble(""), "");
 });

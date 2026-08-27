@@ -160,6 +160,37 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 `;
 }
 
+// Antraštės, kurias `verificationPreamble` gali įterpti task'o pradžioje. Prefiksas, ne
+// tiksli eilutė — antraštės neša laisvus sufiksus (plg. `worker-task-ir`
+// DIRECTIVE_HEADING_PREFIXES).
+const VERIFICATION_PREAMBLE_HEADING_PREFIXES: readonly string[] = ["## Žingsnis 0", "## Sandbox taisyklės"];
+
+/** Nuima VEDANČIUS `## Žingsnis 0` / `## Sandbox taisyklės` blokus (žr. {@link verificationPreamble}) iš task teksto pradžios; ta pati antraštė vėliau tekste (po `# Task`, ar fenced pavyzdyje) lieka nepaliesta. */
+export function stripVerificationPreamble(taskText: string): string {
+  const original = taskText ?? "";
+  let lines = splitLines(original);
+  let stripped = false;
+  for (;;) {
+    let leadIndex = 0;
+    while (leadIndex < lines.length && (lines[leadIndex] ?? "").trim() === "") {
+      leadIndex += 1;
+    }
+    const leadLine = (lines[leadIndex] ?? "").trim();
+    if (!VERIFICATION_PREAMBLE_HEADING_PREFIXES.some((prefix) => leadLine.startsWith(prefix))) {
+      break;
+    }
+    const bounds = findSectionBounds(lines, (line) =>
+      VERIFICATION_PREAMBLE_HEADING_PREFIXES.some((prefix) => line.trim().startsWith(prefix)),
+    );
+    if (bounds === undefined || bounds.start !== leadIndex) {
+      break;
+    }
+    lines = lines.slice(bounds.end);
+    stripped = true;
+  }
+  return stripped ? lines.join("\n") : original;
+}
+
 export function missingTaskSections(task: string | undefined): { hard: string[]; soft: string[] } {
   const content = task ?? "";
   return {

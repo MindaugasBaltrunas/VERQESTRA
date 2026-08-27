@@ -19,6 +19,7 @@ import {
   needsPatikraChecksRetry,
   normalizeLegacyTaskSections,
   parseBacktickChecks,
+  stripVerificationPreamble,
   syncAgentsSection,
 } from "../../../../application/quality-gates/preflight-rules.js";
 import {
@@ -286,10 +287,10 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
         child_tasks: [],
       };
       await writeDecision(decision, optimizedBudget.tier);
-      // Requeue'inti delegated failai preamble jau turi — antrą kartą nepridedam.
+      // Requeue'intas task'as gali nešti SENĄ preambulės versiją — nuimam ją ir prilipdom šviežią (task 046-a-02).
       const preamble = verificationPreamble(await ports.verificationCommands());
-      const reformulatedBody = claudeTask.includes("## Žingsnis 0") ? claudeTask : `${preamble}${claudeTask}`;
-      await writeReformulatedTask(`${reformulatedBody.trimEnd()}\n`);
+      const strippedClaudeTask = stripVerificationPreamble(claudeTask);
+      await writeReformulatedTask(`${preamble}${strippedClaudeTask.trimEnd()}\n`);
       await ports.recordResumeCheckpoint({
         actor: "supervisor",
         phase: "preflight",
@@ -473,7 +474,9 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
 
   claudeTask = wrapClaudeTask(claudeTask, decision.target_agent_chain ?? []);
 
-  await writeReformulatedTask(`${verificationPreamble(await ports.verificationCommands())}${claudeTask.trimEnd()}\n`);
+  await writeReformulatedTask(
+    `${verificationPreamble(await ports.verificationCommands())}${stripVerificationPreamble(claudeTask).trimEnd()}\n`,
+  );
   await ports.recordResumeCheckpoint({
     actor: "supervisor",
     phase: "preflight",

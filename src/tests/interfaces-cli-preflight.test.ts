@@ -81,6 +81,10 @@ const LLM_CLAUDE_TASK = [
   "Stop.",
 ].join("\n");
 
+// Senos preambulės imitacija (046-a-02): requeue'intas failas gali nešti bet kokį ankstesnį
+// `verificationPreamble` turinį — jis privalo dingti, ne susikaupti.
+const STALE_PREAMBLE = "## Žingsnis 0 — SENA-VERSIJA-QWERTY\nSENA-KOMANDA-QWERTY\n\n## Sandbox taisyklės (sena)\n- x\n\n\n";
+
 function auth(overrides: Partial<LlmCallAuthorization> = {}): LlmCallAuthorization {
   return {
     allowed: true,
@@ -298,10 +302,20 @@ test("claudePreflight: fast-path — sprendimas į attempt PIRMA + globalus veid
 
   assert.equal(h.reformulated.length, 1);
   assert.ok(h.reformulated[0]!.startsWith("## Žingsnis 0"), "VERIFICATION_PREAMBLE pridėtas");
+  assert.equal((h.reformulated[0]!.match(/## Žingsnis 0/g) ?? []).length, 1, "tik viena preambulė");
   assert.deepEqual(h.attemptTasks, h.reformulated, "attempt task — tie patys baitai");
   assert.deepEqual(h.usageLogs[0], ["preflight-fastpath", "none", undefined]);
   assert.equal(h.checkpoints.at(-1), "preflight:finished");
   assert.equal(h.preflightInputs.length, 0, "fast-path be LLM — jokio prompt'o");
+});
+
+test("claudePreflight: fast-path perrenderina SENĄ preambulę šviežia, nesikaupia (task 046-a-02)", async () => {
+  const h = makeHarness({ taskText: `${STALE_PREAMBLE}${CANONICAL_TASK}` });
+  assert.equal(await claudePreflight(["AG/tasks/queue/0042-demo.md"], h.ports), 0);
+  const body = h.reformulated[0]!;
+  assert.equal((body.match(/## Žingsnis 0/g) ?? []).length, 1, "tik viena preambulė, sena nuimta");
+  assert.doesNotMatch(body, /QWERTY/, "sena preambulė nebelieka");
+  assert.match(body, /pnpm build/, "šviežia preambulė neša dabartines verificationCommands");
 });
 
 test("claudePreflight: rizikos vartai ir invalid OpenSpec ref → human_review sprendimas + exit 1", async () => {
@@ -362,6 +376,29 @@ test("claudePreflight: LLM kelias — fastpath-miss, prompt'as su taisyklėmis, 
   assert.match(written.claude_task ?? "", /## Agentai\nreadme-guard -> coder\n/);
   assert.equal(h.usageLogs[0]?.[0], "preflight", "LLM kvietimo usage apskaita");
   assert.ok(h.reformulated[0]!.startsWith("## Žingsnis 0"));
+  assert.equal((h.reformulated[0]!.match(/## Žingsnis 0/g) ?? []).length, 1, "tik viena preambulė");
+});
+
+test("claudePreflight: LLM claude_task su SENA preambule → reformulate perrenderina šviežia (task 046-a-02)", async () => {
+  const llmDecision: PreflightDecision = {
+    verdict: "delegate",
+    task_id: "0042-demo",
+    selected_model: "sonnet",
+    target_agent_chain: ["coder"],
+    reason: "ok",
+    claude_task: `${STALE_PREAMBLE}${LLM_CLAUDE_TASK.replace("readme-guard -> coder", "coder")}`,
+    child_tasks: [],
+  };
+  const h = makeHarness({
+    // nežinomas agentas grandinėje → fastpath miss → LLM kelias.
+    taskText: CANONICAL_TASK.replace("readme-guard -> coder", "readme-guard -> nezinomas"),
+    llm: () => ({ stdout: JSON.stringify(llmDecision), stderr: "", code: 0 }),
+  });
+  assert.equal(await claudePreflight(["t"], h.ports), 0);
+  const body = h.reformulated[0]!;
+  assert.equal((body.match(/## Žingsnis 0/g) ?? []).length, 1, "tik viena preambulė, sena nuimta");
+  assert.doesNotMatch(body, /QWERTY/, "sena preambulė nebelieka");
+  assert.match(body, /pnpm build/, "šviežia preambulė neša dabartines verificationCommands");
 });
 
 test("claudePreflight: LLM claude_task ## Failai turi sugalvotą kelią → guard grąžina originalo sekciją + garsus log (task 045-a-02)", async () => {

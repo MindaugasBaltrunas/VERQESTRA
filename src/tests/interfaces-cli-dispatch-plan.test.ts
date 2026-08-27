@@ -309,6 +309,21 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
   assert.equal(off.mode, "off");
   assert.deepEqual(off.candidates, []);
   assert.deepEqual(off.applied, pacing);
+  assert.equal(off.shadow, undefined, "mcp.known === false — pjūvis neautoritetingas, ne 0");
+
+  // 036-c-04: shadow pora skaičiuojama net kai profilis IŠJUNGTAS — `off` grąžina pilną porą,
+  // kai MCP pjūvis žinomas, o `candidates`/`applied` lieka nepakitę.
+  const offWithMcp = resolveDispatchToolSchemaProfile({
+    enabled: false,
+    platform: "windows",
+    policy: {},
+    mcp: { known: true, tools: ["mcp__srv__tool"], source: "registry" },
+  });
+  assert.equal(offWithMcp.mode, "off");
+  assert.deepEqual(offWithMcp.candidates, []);
+  assert.deepEqual(offWithMcp.applied, pacing);
+  assert.ok(offWithMcp.shadow, "known mcp — shadow pora užpildyta net off režime");
+  assert.equal(offWithMcp.shadow?.fullChars, offWithMcp.shadow?.reducedChars, "off: applied=pacing neliečia inventoriaus");
 
   const none = resolveDispatchToolSchemaProfile({
     enabled: true,
@@ -319,6 +334,7 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
   assert.equal(none.mode, "no-candidates");
   assert.match(none.reason, /mcp schemas left uncompressed \(registry absent/);
   assert.deepEqual(none.applied, pacing);
+  assert.equal(none.shadow, undefined, "mcp.known === false — pjūvis neautoritetingas, ne 0");
 
   const applied = resolveDispatchToolSchemaProfile({
     enabled: true,
@@ -329,6 +345,11 @@ test("claude-dispatch-delivery: POSIX argumentai, delivery šakos ir 0028 tool p
   assert.equal(applied.mode, "applied");
   assert.deepEqual(applied.candidates, ["WebFetch", "WebSearch", "mcp__srv__tool"]);
   assert.deepEqual(applied.applied, ["CronCreate", "EnterPlanMode", "ScheduleWakeup", "WebFetch", "WebSearch", "mcp__srv__tool"]);
+  assert.ok(applied.shadow, "known mcp + pašalinti kandidatai — shadow pora užpildyta");
+  assert.ok(
+    (applied.shadow?.reducedChars ?? Infinity) < (applied.shadow?.fullChars ?? -Infinity),
+    "applied: pašalinti įrankiai turi sumažinti proxy dydį",
+  );
 
   // Sugadintas biudžetas NIEKO nedraudžia (fail-safe {}).
   assert.deepEqual(await loadDispatchToolPolicyDecision({ readTextFileIfExists: async () => "{ blogas" }, "/repo/vq"), {});

@@ -8,6 +8,7 @@ import {
   buildDispatchDisallowedTools,
   claudeDispatchDisallowedToolsArgs,
   claudeMaxTurnsArgs,
+  DISPATCH_BASELINE_TOOLS,
   dispatchDisallowedToolCandidates,
   type DispatchToolPolicyDecision,
 } from "./claude-tool-schema.js";
@@ -110,6 +111,13 @@ export type DispatchToolSchemaProfile = {
    */
   applied: string[];
   reason: string;
+  /**
+   * Task 036-c-04: shadow matavimas — kiek `--disallowed-tools` KEISTŲ schemos dydį, jei
+   * profilis būtų pritaikytas. Skaičiuojama VISIEMS režimams (net `mode: "off"`), kad
+   * matavimas gyventų nepriklausomai nuo to, ar dispatch_tool_schema faktiškai įjungtas.
+   * `candidates`/`applied` šis laukas NEKEIČIA nė vienu simboliu — grynai stebėjimas.
+   */
+  shadow?: { fullChars: number; reducedChars: number };
 };
 
 /**
@@ -118,6 +126,28 @@ export type DispatchToolSchemaProfile = {
  */
 function mcpFailOpenNote(policy: DispatchToolPolicyDecision, mcp: DispatchMcpCapabilities): string {
   return policy.mcp === false && !mcp.known ? `; mcp schemas left uncompressed (${mcp.source})` : "";
+}
+
+/**
+ * Task 036-c-04: shadow pora (pilnos vs sumažintos schemos dydis). VARDAIS grįstas proxy —
+ * registre schemų KŪNŲ nėra, tad dydis matuojamas iš įrankių vardų inventoriaus
+ * (`DISPATCH_BASELINE_TOOLS` ∪ šio dispatch'o MCP pjūvis), ne iš realių JSON schemų.
+ * `known === false` reiškia „MCP pjūvis neautoritetingas" — pora lieka `undefined`,
+ * niekada apsimestinis `0`.
+ */
+function dispatchToolSchemaShadow(
+  mcp: DispatchMcpCapabilities,
+  applied: readonly string[],
+): { fullChars: number; reducedChars: number } | undefined {
+  if (!mcp.known) return undefined;
+  const inventory = sortedUniqueTools([...DISPATCH_BASELINE_TOOLS, ...mcp.tools]);
+  const appliedSet = new Set(applied);
+  const reduced = inventory.filter((tool) => !appliedSet.has(tool));
+  return { fullChars: JSON.stringify(inventory).length, reducedChars: JSON.stringify(reduced).length };
+}
+
+function sortedUniqueTools(values: Iterable<string>): string[] {
+  return [...new Set(values)].sort();
 }
 
 export function resolveDispatchToolSchemaProfile(input: {
@@ -134,11 +164,13 @@ export function resolveDispatchToolSchemaProfile(input: {
   // Ji eina per tą patį floor filtrą, kad grindų kontraktas liktų vienas.
   const pacingBan = buildDispatchDisallowedTools({ candidates: DISPATCH_SESSION_PACING_TOOLS, protectedTools });
   if (!input.enabled) {
+    const shadow = dispatchToolSchemaShadow(input.mcp, pacingBan);
     return {
       mode: "off",
       candidates: [],
       applied: pacingBan,
       reason: "dispatch_tool_schema disabled; session pacing tools still disallowed",
+      ...(shadow !== undefined ? { shadow } : {}),
     };
   }
   const candidates = buildDispatchDisallowedTools({
@@ -147,20 +179,25 @@ export function resolveDispatchToolSchemaProfile(input: {
   });
   const mcpNote = mcpFailOpenNote(input.policy, input.mcp);
   if (candidates.length === 0) {
+    const shadow = dispatchToolSchemaShadow(input.mcp, pacingBan);
     return {
       mode: "no-candidates",
       candidates,
       applied: pacingBan,
       reason: `tool budget forbids no removable tool family${mcpNote}`,
+      ...(shadow !== undefined ? { shadow } : {}),
     };
   }
   // Task 0005: abu keliai (`createVisibleClaudeLauncher` ir POSIX args) `--disallowed-tools`
   // perduoda — platforma profilio taikymui įtakos nebeturi.
+  const appliedTools = buildDispatchDisallowedTools({ candidates: [...candidates, ...pacingBan], protectedTools });
+  const shadow = dispatchToolSchemaShadow(input.mcp, appliedTools);
   return {
     mode: "applied",
     candidates,
-    applied: buildDispatchDisallowedTools({ candidates: [...candidates, ...pacingBan], protectedTools }),
+    applied: appliedTools,
     reason: `policy-backed dispatch tool profile${mcpNote}`,
+    ...(shadow !== undefined ? { shadow } : {}),
   };
 }
 

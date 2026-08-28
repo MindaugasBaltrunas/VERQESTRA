@@ -7,6 +7,10 @@ lygiagrečiu procesu, ne task'o problema). Perleidžiama be turinio pakeitimų.
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 
+## Priklausomybės
+- 064-a-02-orphan-reaper-kviecia-registraciju-valyma-po-katal
+- 064-b-03-provisioning-pries-git-worktree-add-isvalo-to-pati
+
 ## Tikslas
 Surišti preserved work review portus su realiais adapteriais loop composition sluoksnyje, kad automatinė išsaugoto darbo peržiūra veiktų gyvame dispatch kelyje.
 

@@ -8,6 +8,8 @@
 - 061-w2-vaiko-stderr-log-orchestrator-log
 - 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
 - 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
+- 064-a-02-orphan-reaper-kviecia-registraciju-valyma-po-katal
+- 064-b-03-provisioning-pries-git-worktree-add-isvalo-to-pati
 
 ## Tikslas
 `#/system` viršuje turi likti žmogiška santrauka, o vidiniai mechanizmai — lease'ai, bangų įvykiai, hash'ai ir diagnostika — nukeliami žemiau hero į išskleidžiamus `details` blokus. Nieko nešalinti: ekspertui pasiekiama, žmogui netrukdo.

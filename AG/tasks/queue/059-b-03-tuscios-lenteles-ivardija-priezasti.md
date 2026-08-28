@@ -8,6 +8,8 @@
 - 061-w2-vaiko-stderr-log-orchestrator-log
 - 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
 - 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
+- 064-a-02-orphan-reaper-kviecia-registraciju-valyma-po-katal
+- 064-b-03-provisioning-pries-git-worktree-add-isvalo-to-pati
 
 ## Tikslas
 Tuščios `#/system` lentelės meluoja tylėdamos. Workerių lease lentelė: vietoj „Aktyvių lease'ų nėra" rodyti „Worktree politika išjungta (vq/config/worktree-policy.json) — lease'ų nebus ir antras srautas nepakils" (naudoti waves view worktree politikos lauką). „Bangų detalės": vietoj „nėra duomenų" — kada jų atsiras.

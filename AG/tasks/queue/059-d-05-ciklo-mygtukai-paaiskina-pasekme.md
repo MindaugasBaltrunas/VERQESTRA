@@ -8,6 +8,8 @@
 - 061-w2-vaiko-stderr-log-orchestrator-log
 - 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
 - 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
+- 064-a-02-orphan-reaper-kviecia-registraciju-valyma-po-katal
+- 064-b-03-provisioning-pries-git-worktree-add-isvalo-to-pati
 
 ## Tikslas
 `#/system` ciklo mygtukai neaiškina pasekmių. „Stabdyti" drain semantikos pastraipą perkelti prie paties mygtuko (subtekstas arba tooltip), o kiekvienas išjungtas mygtukas privalo turėti `title` su priežastimi, kodėl neaktyvus. Vienas šablonas visiems trims ciklo mygtukams.

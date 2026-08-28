@@ -8,6 +8,8 @@
 - 061-w2-vaiko-stderr-log-orchestrator-log
 - 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
 - 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
+- 064-a-02-orphan-reaper-kviecia-registraciju-valyma-po-katal
+- 064-b-03-provisioning-pries-git-worktree-add-isvalo-to-pati
 
 ## Tikslas
 `#/system` puslapyje amžinai „laksto linija" — indeterminate progress animacija (tikėtina slot progress / ETA juosta), kuri be realių duomenų sukasi be pabaigos. Pakeisti sąžininga būsena: realus progresas, kai duomenys yra; statinė tekstinė būsena, kai jų nėra. Jokių amžinų animacijų.

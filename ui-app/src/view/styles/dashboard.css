@@ -2941,6 +2941,39 @@ header .muted {
   text-align: center;
 }
 .policy-group > .summary { margin-top: 8px; }
+
+/* `#/system` po-hero mechanizmai (059-f-07): kortelės lygio `<details>`, kurio TURINYS yra visa
+   panelė (RuntimePanel/TokenBudgetPanel/WavesPanel/DiagnosticsPanel), o ne sąrašo eilutė — todėl
+   kortelės rėmelis, ne `.policy-group` atlanko raštas. */
+.system-panel-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.system-panel-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 700;
+}
+.system-panel-details > summary::-webkit-details-marker { display: none; }
+.system-panel-details > summary::after {
+  margin-left: auto;
+  color: var(--accent);
+  content: "⌄";
+  font-size: 18px;
+  transition: transform var(--speed) var(--ease);
+}
+.system-panel-details[open] > summary::after { transform: rotate(180deg); }
+.system-panel-details[open] > summary { border-bottom: 1px solid var(--border); }
+.system-panel-details-body { padding: 18px 20px 20px; }
+
 .policy-workspace {
   overflow: hidden;
 }

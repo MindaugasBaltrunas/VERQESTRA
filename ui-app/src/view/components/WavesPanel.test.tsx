@@ -190,4 +190,29 @@ describe("WavesPanel", () => {
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(container.querySelector("[data-state]")).toBeNull();
   });
+
+  // Task 059-f-07: lease'ų lentelė yra vidinis mechanizmas — suskleista pagal nutylėjimą, bet
+  // duomenys lieka DOM'e ir pasiekiami per `summary` antraštę.
+  it("keeps the lease table content in the DOM behind a closed-by-default details/summary", () => {
+    const { container } = render(<WavesPanel data={view()} onReload={() => {}} />);
+
+    const summary = container.querySelector("details.policy-group > summary");
+    expect(summary).toHaveTextContent("Worker lease slots");
+    const details = summary?.closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.getByText("w1")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+  });
+
+  it("keeps the wave-events tail content in the DOM behind its own closed-by-default details/summary", () => {
+    render(<WavesPanel data={view()} onReload={() => {}} />);
+
+    const summary = screen.getByText("Wave details");
+    const details = summary.closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.getByText(/isolation_conflict/)).toBeInTheDocument();
+    expect(screen.getByText(/wave.granted/)).toBeInTheDocument();
+  });
 });

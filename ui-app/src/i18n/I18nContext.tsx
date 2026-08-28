@@ -147,6 +147,9 @@ const lt: Record<string, string> = {
   "Nothing currently requires your decision.": "Šiuo metu niekam nereikia jūsų sprendimo.",
   "Approve": "Patvirtinti",
   "Reject": "Atmesti",
+  // Naujas raktas (059-f-07): `#/system` po-hero panelių `<details>` antraštė — trumpesnis nei
+  // „Runtime health", nes čia žymima visa suskleista sekcija, ne vienas signalas jos viduje.
+  "Runtime": "Vykdymo aplinka",
   "Runtime health": "Vykdymo aplinkos būklė",
   "Current process availability and identity": "Dabartinis procesų pasiekiamumas ir tapatybė",
   "Overall status": "Bendra būsena",

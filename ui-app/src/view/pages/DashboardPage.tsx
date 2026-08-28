@@ -270,38 +270,66 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
             onGoToReviews={() => onNavigate("reviews")}
           />
         )}
+        {/* Hero jau atsakė „kas vyksta DABAR ir ko reikia iš manęs" — likę mechanizmai (procesai,
+            biudžetas, bangos, diagnostika) yra PAAIŠKINIMAS, ne veiksmas, tad slepiami po
+            <details>/<summary> pagal nutylėjimą. Nė vienas duomuo nedingsta iš DOM — tik
+            perkeliamas žemiau hero ir uždaromas. */}
         {activeRoute === "system" && (
-          <RuntimePanel
-            processes={dashboard.runtime}
-            root={dashboard.root}
-            // `#/system` paleidimas eina per `/api/runtime/loop/start` (jis atstato ir srautų
-            // valdiklį), o Header'io „Paleisti" — per `/tasks/resume`. Suvienodinamas TIK šis ekranas.
-            onStartLoop={(workers) => void actions.startLoopWithWorkers(workers)}
-            onRefresh={() => void actions.reload()}
-            // Vienas ciklo būsenos šaltinis visam `#/system` ekranui: iš jo panelė skaičiuoja ir
-            // signalo kortelės, ir ciklo valdymo juostos mygtukus.
-            loopRunState={loopRunState}
-            workerControl={dashboard.workerControl}
-            onSetWorkers={(requested) => void actions.setRequestedWorkers(requested)}
-            loopControl={dashboard.loopControl}
-            onStopSlot={(workerId) => void actions.stopSlot(workerId)}
-            onResumeSlot={(workerId) => void actions.resumeSlot(workerId)}
-            onAbortSlot={(workerId) => void actions.abortSlot(workerId)}
-            onStopLoop={() => void actions.stopLoop()}
-            onRestartLoop={(workers) => void actions.restartLoop(workers)}
-            slotProgress={slotProgress}
-            pendingActions={pendingActions}
-            fixableTaskIds={fixable}
-            onFixTask={(taskId) => void actions.fixSlotTask(taskId)}
-          />
+          <details className="system-panel-details">
+            <summary><span>{t("Runtime")}</span></summary>
+            <div className="system-panel-details-body">
+              <RuntimePanel
+                processes={dashboard.runtime}
+                root={dashboard.root}
+                // `#/system` paleidimas eina per `/api/runtime/loop/start` (jis atstato ir srautų
+                // valdiklį), o Header'io „Paleisti" — per `/tasks/resume`. Suvienodinamas TIK šis ekranas.
+                onStartLoop={(workers) => void actions.startLoopWithWorkers(workers)}
+                onRefresh={() => void actions.reload()}
+                // Vienas ciklo būsenos šaltinis visam `#/system` ekranui: iš jo panelė skaičiuoja ir
+                // signalo kortelės, ir ciklo valdymo juostos mygtukus.
+                loopRunState={loopRunState}
+                workerControl={dashboard.workerControl}
+                onSetWorkers={(requested) => void actions.setRequestedWorkers(requested)}
+                loopControl={dashboard.loopControl}
+                onStopSlot={(workerId) => void actions.stopSlot(workerId)}
+                onResumeSlot={(workerId) => void actions.resumeSlot(workerId)}
+                onAbortSlot={(workerId) => void actions.abortSlot(workerId)}
+                onStopLoop={() => void actions.stopLoop()}
+                onRestartLoop={(workers) => void actions.restartLoop(workers)}
+                slotProgress={slotProgress}
+                pendingActions={pendingActions}
+                fixableTaskIds={fixable}
+                onFixTask={(taskId) => void actions.fixSlotTask(taskId)}
+              />
+            </div>
+          </details>
         )}
         {/* Biudžetas ir diagnostika gyvena `#/system`, nes abu atsako į klausimą „kodėl sistema
             elgiasi taip, kaip elgiasi". Iki 2026-08-24 abiejų duomenys buvo siunčiami ir numetami. */}
-        {activeRoute === "system" && raw && <TokenBudgetPanel budget={raw.controlPlane?.token_budget} />}
-        {activeRoute === "system" && (
-          <WavesPanel data={waves} error={wavesError} onReload={() => void reloadWaves()} />
+        {activeRoute === "system" && raw && (
+          <details className="system-panel-details">
+            <summary><span>{t("Token budget")}</span></summary>
+            <div className="system-panel-details-body">
+              <TokenBudgetPanel budget={raw.controlPlane?.token_budget} />
+            </div>
+          </details>
         )}
-        {activeRoute === "system" && raw && <DiagnosticsPanel data={raw} />}
+        {activeRoute === "system" && (
+          <details className="system-panel-details">
+            <summary><span>{t("Waves")}</span></summary>
+            <div className="system-panel-details-body">
+              <WavesPanel data={waves} error={wavesError} onReload={() => void reloadWaves()} />
+            </div>
+          </details>
+        )}
+        {activeRoute === "system" && raw && (
+          <details className="system-panel-details">
+            <summary><span>{t("Diagnostics")}</span></summary>
+            <div className="system-panel-details-body">
+              <DiagnosticsPanel data={raw} />
+            </div>
+          </details>
+        )}
       </main>
     </>
   );

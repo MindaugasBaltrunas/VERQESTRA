@@ -124,70 +124,76 @@ export const WavesPanel = memo(function WavesPanel({ data = null, error = null, 
         </p>
       )}
 
-      <div className="usage-table-scroll">
-        {slots.length > 0 ? (
-          <table className="usage-table">
-            <caption className="visually-hidden">{t("Worker lease slots")}</caption>
-            <thead>
-              <tr>
-                <th>{t("Worker")}</th>
-                <th>{t("Task")}</th>
-                <th>{t("State")}</th>
-                <th>{t("Heartbeat")}</th>
-                <th>{t("Lease expires")}</th>
-                <th>{t("Worktree")}</th>
-                <th>{t("Last failure")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {slots.map((slot) => (
-                <tr key={slot.worker_id}>
-                  <td data-label={t("Worker")}>{slot.worker_id}</td>
-                  <td data-label={t("Task")}>{slot.task_id}</td>
-                  <td data-label={t("State")} data-state={slot.state}>{t(STATE_LABELS[slot.state])}</td>
-                  <td data-label={t("Heartbeat")}>
-                    {formatAge(slot.heartbeat_age_ms)}
-                    {slot.stale ? ` ⚠ ${t("Stale lease")}` : ""}
-                  </td>
-                  <td data-label={t("Lease expires")}>{slot.expires_at}</td>
-                  <td data-label={t("Worktree")}>{slot.has_worktree ? t("Yes") : t("No")}</td>
-                  <td data-label={t("Last failure")} title={slot.last_failure?.reason ?? ""}>
-                    {slot.last_failure ? `${slot.last_failure.ts} — ${slot.last_failure.reason}` : "—"}
-                  </td>
+      {/* Lease'ų/slot'ų lentelė yra vidinis mechanizmas, ne pirmas atsakymas — suskleista kartu su
+          bangų įvykių uodega žemiau, kad hero virš `WavesPanel` liktų sąžininga santrauka. */}
+      <details className="policy-group">
+        <summary><span>{t("Worker lease slots")}</span></summary>
+
+        <div className="usage-table-scroll">
+          {slots.length > 0 ? (
+            <table className="usage-table">
+              <caption className="visually-hidden">{t("Worker lease slots")}</caption>
+              <thead>
+                <tr>
+                  <th>{t("Worker")}</th>
+                  <th>{t("Task")}</th>
+                  <th>{t("State")}</th>
+                  <th>{t("Heartbeat")}</th>
+                  <th>{t("Lease expires")}</th>
+                  <th>{t("Worktree")}</th>
+                  <th>{t("Last failure")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <table className="usage-table">
-            <caption className="visually-hidden">{t("Worker lease slots")}</caption>
-            <thead>
-              <tr>
-                <th>{t("Worker")}</th>
-                <th>{t("Task")}</th>
-                <th>{t("Status")}</th>
-                <th>{t("Lease expires")}</th>
-                <th>{t("Worktree")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.leases.length === 0 ? (
-                <tr><td colSpan={5}>{emptyLeasesReason(data.worktree_policy, data.degraded, t)}</td></tr>
-              ) : (
-                data.leases.map((lease) => (
-                  <tr key={lease.worker_id}>
-                    <td data-label={t("Worker")}>{lease.worker_id}</td>
-                    <td data-label={t("Task")}>{lease.task_id}</td>
-                    <td data-label={t("Status")}>{lease.status}</td>
-                    <td data-label={t("Lease expires")}>{lease.expires_at}</td>
-                    <td data-label={t("Worktree")}>{lease.has_worktree ? t("Yes") : t("No")}</td>
+              </thead>
+              <tbody>
+                {slots.map((slot) => (
+                  <tr key={slot.worker_id}>
+                    <td data-label={t("Worker")}>{slot.worker_id}</td>
+                    <td data-label={t("Task")}>{slot.task_id}</td>
+                    <td data-label={t("State")} data-state={slot.state}>{t(STATE_LABELS[slot.state])}</td>
+                    <td data-label={t("Heartbeat")}>
+                      {formatAge(slot.heartbeat_age_ms)}
+                      {slot.stale ? ` ⚠ ${t("Stale lease")}` : ""}
+                    </td>
+                    <td data-label={t("Lease expires")}>{slot.expires_at}</td>
+                    <td data-label={t("Worktree")}>{slot.has_worktree ? t("Yes") : t("No")}</td>
+                    <td data-label={t("Last failure")} title={slot.last_failure?.reason ?? ""}>
+                      {slot.last_failure ? `${slot.last_failure.ts} — ${slot.last_failure.reason}` : "—"}
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table className="usage-table">
+              <caption className="visually-hidden">{t("Worker lease slots")}</caption>
+              <thead>
+                <tr>
+                  <th>{t("Worker")}</th>
+                  <th>{t("Task")}</th>
+                  <th>{t("Status")}</th>
+                  <th>{t("Lease expires")}</th>
+                  <th>{t("Worktree")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.leases.length === 0 ? (
+                  <tr><td colSpan={5}>{emptyLeasesReason(data.worktree_policy, data.degraded, t)}</td></tr>
+                ) : (
+                  data.leases.map((lease) => (
+                    <tr key={lease.worker_id}>
+                      <td data-label={t("Worker")}>{lease.worker_id}</td>
+                      <td data-label={t("Task")}>{lease.task_id}</td>
+                      <td data-label={t("Status")}>{lease.status}</td>
+                      <td data-label={t("Lease expires")}>{lease.expires_at}</td>
+                      <td data-label={t("Worktree")}>{lease.has_worktree ? t("Yes") : t("No")}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </details>
 
       {/* Uodegos NIEKAS neištrynė — jos tiesiog nustojo būti pagrindinis eilės vaizdas ir suskleistos
           po vienu skėčiu: failų vardų sąrašas atsako į „kas įvyko", o ne į „kas vyksta dabar". */}

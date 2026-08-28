@@ -17,8 +17,14 @@ neturi nė vienos „preserved" nuorodos (grep patikrinta 19:20). Use case'as
 `infrastructure/git/preserved-work.ts` jau egzistuoja — šio task'o darbas yra
 juos SURIŠTI composition sluoksnyje. Ankstesnis bėgimas grąžino „checks passed"
 be jokio Write/Edit ir buvo pagrįstai atmestas. NEskelbk ALREADY_IMPLEMENTED,
-nebent pateiksi konkrečią composition/loop failo eilutę su surišimu — jos
-šiandien nėra. Darbą atlik Write/Edit įrankiais ŠIAME bėgime.
+nebent pateiksi konkrečią composition/loop failo eilutę su surišimu. Darbą
+atlik Write/Edit įrankiais ŠIAME bėgime.
+
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 run-coordinator failai legalizuoti — surišimas be koordinatoriaus portų neįmanomas (3 bandymo radinys)
+
+Trečio bandymo darbas IŠSAUGOTAS: `refs/verqestra/preserved/86dc55927c46364891dffdb75d0725c84f485610`
+(žr. vq/state/rollback-preserved/063-c-….json, 6 failai). Gali atkurti iš jo
+(`git show <ref>:<kelias>`) arba daryti iš naujo — abu keliai legalūs.
 
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
@@ -37,7 +43,10 @@ Privaloma grandinė: readme-guard -> architect -> coder -> reviewer -> tester
 Leidžiama:
 - `src/composition/loop/preserved-work-adapters.ts`
 - `src/composition/loop/command.ts`
+- `src/application/task-execution/run-coordinator.ts`
+- `src/application/task-execution/run-coordinator-model.ts`
 - `src/tests/composition-preserved-work-wiring.test.ts`
+- `src/tests/task-execution-coordinator.test.ts`
 
 Draudžiama:
 - `dist/**`

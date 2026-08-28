@@ -19,7 +19,7 @@ import { loadWorkflowBuckets, loadWorkflowBucketTasks, openTaskBucketFolder } fr
 import { applyTaskTriage } from "../../interfaces/http/ui-task-actions.js";
 import { uploadQueueMarkdownFiles } from "../../interfaces/http/task-upload.js";
 import { ensureLoopRunning, requestLoopStop } from "../../interfaces/http/loop-lifecycle.js";
-import type { UiRouterPorts } from "../../interfaces/http/ui-router.js";
+import type { BundleMtimeFacts, UiRouterPorts } from "../../interfaces/http/ui-router.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
 import { readWaveSnapshot, waveSnapshotExists } from "../../infrastructure/state/wave-snapshot-store.js";
@@ -77,6 +77,23 @@ const workflowBucketPorts = {
   },
 };
 
+/**
+ * Bundle senumo faktai: `ui-app/dist/index.html` mtime prieš naujausią `ui-app/src` failo
+ * mtime. Trūkstamas dist (dar nesukurtas bundle) grąžina `null`, o ne meta klaidą — `/api/dashboard`
+ * tada tiesiog rodo `bundle_built_at: null` (žr. `bundleStalenessFields`), ne 500.
+ */
+function bundlePorts(projectRoot: string): { readFacts(): Promise<BundleMtimeFacts> } {
+  return {
+    readFacts: async (): Promise<BundleMtimeFacts> => {
+      const bundleMtimeMs = await nodeFsAdapter.fileMtimeMs(path.join(projectRoot, "ui-app/dist/index.html"));
+      if (bundleMtimeMs === undefined) return null;
+      const srcMtimeMs = await nodeFsAdapter.newestMtimeInDir(path.join(projectRoot, "ui-app/src"));
+      if (srcMtimeMs === undefined) return null;
+      return { bundleMtimeMs, srcMtimeMs };
+    },
+  };
+}
+
 export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
   const stateDir = path.join(input.runtimeRoot, "state");
   const lifecycle = { ports: processLifecyclePorts(input), runtimeRoot: input.runtimeRoot };
@@ -100,6 +117,7 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
         runtimeRoot: input.runtimeRoot,
         agRoot: input.agRoot,
       }),
+    bundle: bundlePorts(input.projectRoot),
     // Politikų governance eina per TĄ PATĮ use-case sluoksnį kaip CLI: `apply` realiai įrašo
     // politikos failą, o `ProposalNotApproved`/`HumanReviewApprovalRequired` vartai yra KELYJE, o
     // ne šalia jo (žr. `policy-adapters`).

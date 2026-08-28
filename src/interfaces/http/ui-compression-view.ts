@@ -28,6 +28,10 @@ import {
   type ContextCompressionFeature,
   type ContextCompressionFeatureValue,
 } from "../../domain/policies/compression/features.js";
+import {
+  COMPRESSION_DEPENDENCY_INACTIVE,
+  COMPRESSION_FEATURE_DEPENDENCIES,
+} from "../../domain/policies/compression/dependencies.js";
 
 /** Vienos vėliavos eilutė UI'ui: dabartinė reikšmė ir tai, ką jai apskritai leidžiama pasirinkti. */
 export type UiCompressionFeature = {
@@ -38,6 +42,17 @@ export type UiCompressionFeature = {
    * task konteksto, tad canary ten tyliai reikštų „išjungta"; serveris tokią reikšmę atmeta.
    */
   canary_supported: boolean;
+  /**
+   * Vėliavos, kurios privalo būti ≠ `false`, kad ši vėliava iš tiesų veiktų
+   * (`domain/policies/compression/dependencies.ts`). Rakto nebuvimas = jokių priklausomybių.
+   */
+  requires?: ContextCompressionFeature[];
+  /**
+   * Užpildoma TIK kai `value` deklaruoja vėliavą aktyvia (≠ `false`), o bent viena `requires`
+   * vėliava šiame pačiame konfige yra `false` — tokiu atveju `resolveCompressionFeatureDependencies`
+   * ją fail-closed priverstinai išjungtų vykdymo metu, kad ir ką rodo `value`. Kitaip lauko nėra.
+   */
+  inactive_reason?: typeof COMPRESSION_DEPENDENCY_INACTIVE;
 };
 
 /** `context-size.jsonl` eilutė — tik tie laukai, kuriuos šis vaizdas naudoja. */
@@ -435,11 +450,20 @@ export async function buildCompressionView(ports: CompressionViewPorts): Promise
   return {
     version: config.version,
     canary: { percent: config.canary.percent, salt: config.canary.salt },
-    features: CONTEXT_COMPRESSION_FEATURES.map((key) => ({
-      key,
-      value: config.features[key],
-      canary_supported: !CONTEXT_COMPRESSION_CANARY_UNSUPPORTED.includes(key),
-    })),
+    features: CONTEXT_COMPRESSION_FEATURES.map((key) => {
+      const value = config.features[key];
+      const requires = COMPRESSION_FEATURE_DEPENDENCIES.filter((dependency) => dependency.feature === key).map(
+        (dependency) => dependency.requires,
+      );
+      const unsatisfied = requires.some((required) => config.features[required] === false);
+      return {
+        key,
+        value,
+        canary_supported: !CONTEXT_COMPRESSION_CANARY_UNSUPPORTED.includes(key),
+        ...(requires.length === 0 ? {} : { requires }),
+        ...(value !== false && unsatisfied ? { inactive_reason: COMPRESSION_DEPENDENCY_INACTIVE } : {}),
+      };
+    }),
     telemetry,
     decision: decideCompression(telemetry),
     degraded,

@@ -7,11 +7,70 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildCompressionView,
   decideCompression,
   MIN_DECISION_SAMPLES,
   summarizeContextSizeSamples,
   type ContextSizeSample,
 } from "../interfaces/http/ui-compression-view.js";
+import {
+  defaultContextCompressionConfig,
+  type ContextCompressionConfig,
+} from "../domain/policies/compression/features.js";
+
+function config(overrides: Partial<ContextCompressionConfig["features"]> = {}): ContextCompressionConfig {
+  const base = defaultContextCompressionConfig();
+  return { ...base, features: { ...base.features, ...overrides } };
+}
+
+// Task 055: `resolveCompressionFeatureDependencies` fail-closed išjungia `compact_dsl`, kai jo
+// priklausomybė `worker_task_ir` yra `false` — bet TIK vykdymo metu, per efektyvų konfigą. Ši
+// projekcija skaito AUTORINĮ (nerezoliuotą) konfigą, tad ji privalo pati įvardyti tą pačią
+// priklausomybę, kitaip UI rodo `compact_dsl=true` kaip veikiantį, nors realiai jis nebus taikomas.
+test("buildCompressionView: compact_dsl deklaruotas true, worker_task_ir false -> inactive_reason užpildytas", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config({ compact_dsl: true, worker_task_ir: false }),
+    readContextSizeLog: async () => undefined,
+  });
+
+  const compactDsl = view.features.find((f) => f.key === "compact_dsl");
+  assert.equal(compactDsl?.value, true, "deklaruota reikšmė lieka matoma — tik pažymima kaip neveiksni");
+  assert.deepEqual(compactDsl?.requires, ["worker_task_ir"]);
+  assert.equal(compactDsl?.inactive_reason, "inactive_due_to_dependency");
+});
+
+test("buildCompressionView: worker_task_ir=true -> compact_dsl neturi inactive_reason lauko", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config({ compact_dsl: true, worker_task_ir: true }),
+    readContextSizeLog: async () => undefined,
+  });
+
+  const compactDsl = view.features.find((f) => f.key === "compact_dsl");
+  assert.ok(!("inactive_reason" in (compactDsl ?? {})), "priklausomybė patenkinta — lauko nebūna");
+});
+
+test("buildCompressionView: compact_dsl=false -> inactive_reason nebūna, nors worker_task_ir taip pat false", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config({ compact_dsl: false, worker_task_ir: false }),
+    readContextSizeLog: async () => undefined,
+  });
+
+  const compactDsl = view.features.find((f) => f.key === "compact_dsl");
+  assert.ok(
+    !("inactive_reason" in (compactDsl ?? {})),
+    "operatorius pats išjungė vėliavą — tai ne priklausomybės sukeltas fail-closed",
+  );
+});
+
+test("buildCompressionView: vėliavos be deklaruotų priklausomybių neturi requires lauko", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config(),
+    readContextSizeLog: async () => undefined,
+  });
+
+  const workerTaskIr = view.features.find((f) => f.key === "worker_task_ir");
+  assert.ok(!("requires" in (workerTaskIr ?? {})));
+});
 
 const TASK_PAIR_SAMPLE: ContextSizeSample = {
   ts: "2026-08-26T08:25:57.730Z",

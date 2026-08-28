@@ -162,6 +162,20 @@ test("decideCompression: be duomenų verdiktas ATSISAKOMAS, o nematuojamos vėli
   assert.ok(unmeasured.every((r) => r.reason === "no-shadow-measurement"));
 });
 
+test("buildCompressionView: compact_dsl=true + worker_task_ir=false -> inactive_reason pasiekia atsakymą", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config({ compact_dsl: true, worker_task_ir: false }),
+    readContextSizeLog: async () => undefined,
+  });
+
+  const compactDsl = view.features.find((f) => f.key === "compact_dsl");
+  assert.deepEqual(compactDsl?.requires, ["worker_task_ir"]);
+  assert.equal(compactDsl?.inactive_reason, "inactive_due_to_dependency");
+
+  const workerTaskIr = view.features.find((f) => f.key === "worker_task_ir");
+  assert.ok(!("inactive_reason" in (workerTaskIr ?? {})), "worker_task_ir pati priklausomybių neturi");
+});
+
 test("buildCompressionView: verdiktas keliauja kartu su vaizdu ir gniūžta kartu su telemetrija", async () => {
   const view = await buildCompressionView({
     loadConfig: async () => config(),

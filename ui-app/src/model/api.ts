@@ -29,8 +29,13 @@ export function getUiToken(): string {
  * ar nutilęs serveris palikdavo puslapį suktis amžinai — be klaidos, be „bandyti dar kartą"
  * (2026-08-06 UI auditas). `/api/reliability-analytics?fresh=1` paleidžia git subprocesus, todėl
  * riba yra dosni, bet baigtinė.
+ *
+ * Invariantas: šis timeout'as PRIVALO likti mažesnis už trumpiausią pollingo periodą (30s —
+ * `useDashboardController` REFRESH_SEC ir `useWavesController` WAVES_POLL_MS), kitaip lėtam
+ * serveriui dar nenutraukta užklausa persidengia su kitu pollingo ciklu ir `requestSequence`
+ * tyliai meta rezultatus (2026-08-28 UI auditas).
  */
-const REQUEST_TIMEOUT_MS = 30_000;
+export const REQUEST_TIMEOUT_MS = 15_000;
 
 function withTimeout(options: RequestInit): { init: RequestInit; done: () => void } {
   const controller = new AbortController();

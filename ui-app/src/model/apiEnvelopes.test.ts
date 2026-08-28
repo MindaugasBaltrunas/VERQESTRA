@@ -10,6 +10,7 @@ import {
   fetchTokenUsage,
   fetchWaves,
   fetchWorkflowTasks,
+  REQUEST_TIMEOUT_MS,
   resumeLoop,
   setRequestedWorkers,
   startLoopWithWorkers,
@@ -45,6 +46,7 @@ function stubFetchWithText(body: string, status = 200): void {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("ciklo valdymo vokas", () => {
@@ -320,5 +322,36 @@ describe("token analytics atsakymo struktūrinė patikra", () => {
     void history;
     stubFetch(withoutHistory);
     await expect(fetchTokenAnalytics()).rejects.toThrow(/\/api\/token-analytics.*history/s);
+  });
+});
+
+/**
+ * 2026-08-28: `REQUEST_TIMEOUT_MS` buvo lygus pollingo periodui (30s), tad lėtam serveriui
+ * užklausa dar nebūdavo nutraukta, kai startuodavo kita — `requestSequence` tyliai mesdavo
+ * rezultatus. Timeout privalo likti aiškiai mažesnis už trumpiausią pollingo periodą.
+ */
+describe("užklausos timeout riba", () => {
+  it("REQUEST_TIMEOUT_MS yra mažesnis už trumpiausią pollingo periodą (30s)", () => {
+    expect(REQUEST_TIMEOUT_MS).toBeLessThan(30_000);
+  });
+
+  it("AbortSignal nutraukia užklausą su timeout klaida", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          }),
+      ),
+    );
+
+    const pending = fetchWaves();
+    const assertion = expect(pending).rejects.toThrow(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+    await assertion;
   });
 });

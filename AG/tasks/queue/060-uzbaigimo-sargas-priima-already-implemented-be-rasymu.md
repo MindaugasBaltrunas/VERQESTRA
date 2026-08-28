@@ -37,25 +37,28 @@ readme-guard -> architect -> schedule-domain -> coder -> reviewer -> tester
 
 ## Failai
 Leidžiama:
-- `src/application/task-execution/**` — užbaigimo/parkavimo sprendimo
-  vieta (architect įvardija tikslų failą; tikėtina write-activity /
-  completion gate moduliai; įrašyti tikslius kelius į ataskaitą)
-- `src/tests/task-execution-orchestration.test.ts`
-- `src/tests/task-execution-completion-gate.test.ts` (numatomas naujas)
+- `src/domain/diagnosis/dispositions.ts` (sprendimo vieta:
+  `resolveNoCommitReviewReason` / `evaluateLocalDiagnosis`)
+- `src/tests/characterization-diagnosis.test.ts`
+- `src/tests/domain-diagnosis-already-implemented.test.ts` (numatomas naujas)
 
 Draudžiama:
 - `src/domain/tasks/human-review/gates.ts` (rizikos vartai — kitas
   mechanizmas, neliesti)
+- `src/application/task-execution/**` (kvietėjai nesikeičia — taisoma
+  grynoji diagnozės taisyklė)
 - `src/interfaces/**`
 - `ui-app/**`
 - `dist/**`
 - `node_modules/**`
 
 ## Veiksmas
-- Architect: surasti tikslų sprendimo tašką („TASK NOT DONE: executor made
-  no write-tool calls" eilutės autorių) ir ALREADY_IMPLEMENTED žymos
-  kanoninį parserį (jis jau egzistuoja — diagnozė žymą atpažįsta);
-  išimtis privalo naudoti TĄ PATĮ parserį, ne naują regex kopiją.
+- Architect: sprendimo taškas jau surastas —
+  `src/domain/diagnosis/dispositions.ts` (`resolveNoCommitReviewReason`
+  grąžina „executor made no write-tool calls",
+  `evaluateLocalDiagnosis` jau turi ALREADY_IMPLEMENTED atpažinimą
+  read-only task'ams). Išimtis privalo naudoti TĄ PATĮ žymos parserį,
+  kurį diagnozė naudoja dabar, ne naują regex kopiją.
 - Testai: (a) zero-writes + ALREADY_IMPLEMENTED su įrodymu → done;
   (b) zero-writes be žymos → human-review kaip dabar; (c) žyma yra, bet
   verdiktas ne `done` → human-review; (d) žyma be įrodymo teksto →

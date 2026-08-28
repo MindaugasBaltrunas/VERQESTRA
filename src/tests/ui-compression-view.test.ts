@@ -39,6 +39,19 @@ test("buildCompressionView: compact_dsl deklaruotas true, worker_task_ir false -
   assert.equal(compactDsl?.inactive_reason, "inactive_due_to_dependency");
 });
 
+test("buildCompressionView: worker_task_ir='canary' TENKINA priklausomybę — kohorta yra task'o savybė, ne 'false'", async () => {
+  const view = await buildCompressionView({
+    loadConfig: async () => config({ compact_dsl: true, worker_task_ir: "canary" }),
+    readContextSizeLog: async () => undefined,
+  });
+
+  const compactDsl = view.features.find((f) => f.key === "compact_dsl");
+  assert.ok(
+    !("inactive_reason" in (compactDsl ?? {})),
+    "tik 'false' yra nepatenkinta priklausomybė (dependencies.ts:76: `!== false`)",
+  );
+});
+
 test("buildCompressionView: worker_task_ir=true -> compact_dsl neturi inactive_reason lauko", async () => {
   const view = await buildCompressionView({
     loadConfig: async () => config({ compact_dsl: true, worker_task_ir: true }),

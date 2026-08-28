@@ -59,6 +59,7 @@ import { taskRunPorts } from "./coordinator-execution-adapters.js";
 import { cliChildRunner } from "./coordinator-adapters.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
 import { createCheapFinishEnvOverlay } from "../quality/cheap-finish-adapters.js";
+import { preservedWorkReviewPorts, preservedWorkRuntimeLayout } from "./preserved-work-adapters.js";
 import {
   ledgerDuplicate,
   locateTaskBucket,
@@ -99,6 +100,20 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
   const absolutePath = (relativeFile: string): string => path.join(projectRoot, relativeFile);
   const stateDir = path.join(runtimeRoot, "state");
   const cheapFinishOverlay = createCheapFinishEnvOverlay();
+  // 063-c: preserved-work review portas realiam materializavimui/patikroms — TA PATI kopijos
+  // struktūra kaip žemiau `prepareWorktree` (be jos `## Patikra` komandos kaip `pnpm typecheck`
+  // kristų dėl trūkstamo `dist`).
+  const preservedWorkReview = preservedWorkReviewPorts({
+    projectRoot,
+    runtime: {
+      layout: preservedWorkRuntimeLayout(path.relative(projectRoot, path.join(runtimeRoot, "config")).split(path.sep).join("/")),
+      log: deps.log,
+      runProductInstall: (request) =>
+        run(request.command, request.args, { cwd: request.cwd, timeoutMs: PRODUCT_INSTALL_TIMEOUT_MS }).then(
+          (result) => result.code,
+        ),
+    },
+  });
 
   // Aprūpinimas gauna PLANUOKLIO būseną (grafą ir tai, kas dirba) per fabriką: konstantos čia
   // reikštų aklą aprūpinimą — be grafo write-set'as tuščias, o be „kas dirba" tas pats task'as
@@ -220,6 +235,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           cheapFinishOverlay,
           ...cliChildRunner(projectRoot, cheapFinishOverlay),
         }),
+        { preservedWorkReview },
       ).start(absoluteFile),
     runChild: async (slot, worktreeAbs) => {
       // Task failas perduodamas RELIATYVUS: vaikas jį išsprendžia prieš savo darbo katalogą, tad

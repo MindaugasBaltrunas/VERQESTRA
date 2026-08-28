@@ -13,6 +13,7 @@ import type {
   IntegrationRunResult,
   TaskDecision,
 } from "./run-coordinator-ports.js";
+import type { PreservedWorkReviewPorts } from "./preserved-work-review-model.js";
 
 /**
  * Cheap finish bandymo baigtis verifikacijos ciklui:
@@ -66,4 +67,6 @@ export type RunCoordinator = {
 export type RunCoordinatorOptions = {
   preflightCmd?: string;
   diagnoseCmd?: string;
+  /** 063-c: paduodama į `verifyTask` be pakeitimų; jos nebuvimas elgesio nekeičia (063-b). */
+  preservedWorkReview?: PreservedWorkReviewPorts;
 };

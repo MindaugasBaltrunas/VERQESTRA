@@ -202,6 +202,7 @@ const lt: Record<string, string> = {
   "Rebuild the UI bundle from the latest source (pnpm --dir ui-app build).":
     "Perstato UI bundle iš naujausio šaltinio (pnpm --dir ui-app build).",
   "Rebuild is running in the background; this can take a moment.": "Perbuild'as vyksta fone; tai gali užtrukti.",
+  "Rebuild is already running": "Perbuild'as jau vyksta",
   "Rebuild finished.": "Perbuild'as baigtas.",
   "Reload page": "Perkrauti puslapį",
   "Rebuild failed": "Perbuild'as nepavyko",

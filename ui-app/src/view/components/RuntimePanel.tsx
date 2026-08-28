@@ -257,9 +257,9 @@ export const RuntimePanel = memo(function RuntimePanel({
               )}
             </article>
           )}
-          {/* Vienas veiksmas, viena vieta: mygtukas gyvena TIK „Dashboard'o bundle" sekcijoje
-              žemiau (ta pati taisyklė kaip 052 review — N kopijų to paties veiksmo yra blogiau
-              už jo nebuvimą), ši kortelė tik įvardija faktą ir nukreipia į jį. */}
+          {/* Mygtukas šalia įspėjimo (058-b spec): operatorius sprendžia „senas bundle" akimirksniu,
+              o ne ieško jo žemiau esančioje sekcijoje. Abu mygtukai skaito TĄ PATĮ `rebuildState`,
+              tad jie negali skirtingai atsakyti „ar dabar vyksta perbuild'as". */}
           {bundleStale === true && (
             <article className="system-signal signal-warning">
               <span className="signal-icon" aria-hidden="true">⟳</span>
@@ -267,6 +267,16 @@ export const RuntimePanel = memo(function RuntimePanel({
                 <strong>{t("Dashboard bundle is stale")}</strong>
                 <p>{t("The dashboard you are viewing is older than its sources.")}</p>
               </div>
+              <button
+                className="button ghost small-button"
+                type="button"
+                onClick={triggerUiRebuild}
+                disabled={rebuildState === "running"}
+                aria-busy={rebuildState === "running" || undefined}
+                title={rebuildState === "running" ? t("Rebuild is already running") : undefined}
+              >
+                {t("Rebuild dashboard")}
+              </button>
             </article>
           )}
           {loopRunState !== "stopped" && unknown.length === 0 && bundleStale !== true && (
@@ -291,6 +301,7 @@ export const RuntimePanel = memo(function RuntimePanel({
             onClick={triggerUiRebuild}
             disabled={rebuildState === "running"}
             aria-busy={rebuildState === "running" || undefined}
+            title={rebuildState === "running" ? t("Rebuild is already running") : undefined}
           >
             {t("Rebuild dashboard")}
           </button>

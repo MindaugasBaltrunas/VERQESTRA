@@ -662,8 +662,12 @@ describe("RuntimePanel bundle rebuild", () => {
     const { rerender } = render(
       <RuntimePanel processes={processes} root="D:/project" bundleStale={true} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Rebuild dashboard" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rebuild dashboard" })).toBeDisabled());
+    // Kol bundle pasenęs, tas pats veiksmas pasiekiamas iš dviejų vietų: signalo kortelės ir
+    // „Dashboard'o bundle" sekcijos — abi valdo tas pats `rebuildState`.
+    const [signalButton, panelButton] = screen.getAllByRole("button", { name: "Rebuild dashboard" });
+    fireEvent.click(signalButton!);
+    await waitFor(() => expect(panelButton).toBeDisabled());
+    expect(signalButton).toBeDisabled();
 
     // Tas pats `/api/dashboard` pollingas, kurį jau vykdo tėvas — ne antras, panelės savas.
     rerender(<RuntimePanel processes={processes} root="D:/project" bundleStale={false} />);
@@ -671,6 +675,21 @@ describe("RuntimePanel bundle rebuild", () => {
     expect(screen.getByText("Rebuild finished.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload page" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rebuild dashboard" })).toBeEnabled();
+  });
+
+  it("shows a rebuild button next to the stale-bundle notice, wired to the same rebuild action", async () => {
+    vi.mocked(api.rebuildUiBundle).mockResolvedValue({ status: "started", pid: 789 });
+
+    render(<RuntimePanel processes={processes} root="D:/project" bundleStale={true} />);
+
+    const notice = within(screen.getByText("Dashboard bundle is stale").closest("article")!);
+    const noticeButton = notice.getByRole("button", { name: "Rebuild dashboard" });
+    expect(noticeButton).not.toHaveAttribute("title");
+
+    fireEvent.click(noticeButton);
+    await waitFor(() => expect(noticeButton).toBeDisabled());
+    expect(noticeButton).toHaveAttribute("title", "Rebuild is already running");
+    expect(api.rebuildUiBundle).toHaveBeenCalledOnce();
   });
 
   it("shows the server's failure reason", async () => {

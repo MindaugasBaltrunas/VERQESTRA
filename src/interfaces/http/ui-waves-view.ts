@@ -31,7 +31,7 @@ import {
   type WaveSlotLease,
 } from "../ui-model/wave-slot-model.js";
 import { sanitizeFreeText } from "./free-text-redaction.js";
-import { normalizeProjectPath } from "../../shared/paths.js";
+import { isProjectRelativePath, normalizeProjectPath } from "../../shared/paths.js";
 
 export type UiWaveEvent = {
   ts: string;
@@ -92,7 +92,7 @@ export type UiWavesView = {
   degraded: string[];
 };
 
-export type { UiWaveSlot, UiWaveSlotFailure, UiWaveSlotState } from "../ui-model/wave-slot-model.js";
+export type { UiWaveSlot, UiWaveSlotFailure, UiWaveSlotPhase, UiWaveSlotState } from "../ui-model/wave-slot-model.js";
 
 export const DEFAULT_WAVE_EVENT_LIMIT = 50;
 export const MAX_WAVE_EVENT_LIMIT = 500;
@@ -382,6 +382,17 @@ async function readWaveEventTail(
   return events;
 }
 
+/**
+ * `worktree_path` gali būti absoliutus (žr. `resolveWorkerLeaseScope` tą patį apsauginį šabloną):
+ * normalizuojama projekto-reliatyviu keliu, o kelias, vedantis už projekto ribų, VISAI
+ * praleidžiamas — absoliutus kelias į naršyklę neišeina niekada.
+ */
+function safeWorktreePath(projectRoot: string, worktreePath: string | undefined): string | null {
+  if (!worktreePath) return null;
+  const normalized = normalizeProjectPath(projectRoot, worktreePath);
+  return isProjectRelativePath(normalized) ? normalized : null;
+}
+
 async function readLeases(ports: WavesViewPorts, projectRoot: string): Promise<WaveSlotLease[]> {
   const leases = await ports.listWorkerLeases(projectRoot);
   return leases.map((lease) => ({
@@ -392,6 +403,7 @@ async function readLeases(ports: WavesViewPorts, projectRoot: string): Promise<W
     heartbeat_at: lease.heartbeat_at,
     expires_at: lease.expires_at,
     has_worktree: Boolean(lease.worktree_path),
+    worktree_path: safeWorktreePath(projectRoot, lease.worktree_path),
   }));
 }
 

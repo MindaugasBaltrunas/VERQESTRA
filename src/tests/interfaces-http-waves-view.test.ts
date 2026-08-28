@@ -65,6 +65,8 @@ function wavesWorld(): WavesWorld {
   return world;
 }
 
+// Lease store'as saugo worktree_path JAU projekto-reliatyviu keliu (žr. wave-provisioning.ts
+// `created.relativePath`) — fixture atspindi tą formą, ne absoliutų kelią.
 const lease = {
   worker_id: "w1",
   task_id: "890",
@@ -72,7 +74,7 @@ const lease = {
   acquired_at: "2026-08-21T11:00:00.000Z",
   heartbeat_at: "2026-08-21T11:59:00.000Z",
   expires_at: "2026-08-21T12:30:00.000Z",
-  worktree_path: "/repo/.worktrees/w1",
+  worktree_path: ".worktrees/w1",
 };
 
 test("normalizeEventLimit: netinkama reikšmė krenta į numatytąją", () => {
@@ -112,7 +114,23 @@ test("buildWavesView: wire lease neneša worktree kelio, o slot'ai gauna vykdymo
     { worker_id: "w1", task_id: "890", status: "held", expires_at: "2026-08-21T12:30:00.000Z", has_worktree: true },
   ]);
   assert.equal(view.slots[0]?.state, "running");
+  assert.equal(view.slots[0]?.phase, "delegated");
+  assert.equal(view.slots[0]?.worktree_path, ".worktrees/w1");
+  assert.deepEqual(view.slots[0]?.last_event, {
+    ts: "2026-08-21T11:05:00.000Z",
+    event: "task_started",
+    task_id: "890",
+  });
   assert.deepEqual(view.degraded, []);
+});
+
+test("buildWavesView: worktree kelias, vedantis už projekto ribų, į slot'ą nepatenka", async () => {
+  const world = wavesWorld();
+  world.leases = [{ ...lease, worktree_path: "/etc/passwd" }];
+
+  const view = await buildWavesView({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME });
+  assert.equal(view.slots[0]?.worktree_path, null);
+  assert.equal(view.slots[0]?.has_worktree, true, "has_worktree lieka true — worktree yra, tik jo kelias nerodomas");
 });
 
 test("buildWavesView: neperskaityti įvykiai pažymimi degraded IR neverčia provisioned melo", async () => {

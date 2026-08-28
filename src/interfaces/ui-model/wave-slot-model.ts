@@ -15,6 +15,21 @@
 
 export type UiWaveSlotState = "provisioned" | "running" | "failed" | "released";
 
+/**
+ * Smulkesnis vykdymo etapas TO PATIES `state` viduje — operatoriui, kuris grep'ina, kiek toli
+ * nuėjo antras slot'as, be `running` neužtenka.
+ *
+ * `bootstrap` — lease paimtas, jokio vykdymo įrodymo dar nėra (atitinka `state: "provisioned"`).
+ * `delegated` — vykdymo įrodymas yra (`task_started`/`worker_slot_refilled`), bet integracijos
+ * įrodymo (`task_integration_ready`) dar nėra. Etapas PREFLIGHT čia sąmoningai NEIŠSKIRIAMAS iš
+ * `delegated`: preflight verdiktas gyvena run-coordinator'iaus resume checkpoint'e, kuris nėra
+ * šio modulio leidžiamas šaltinis (tik lease'ai + wave-events) — jo įtraukimas reikštų naują
+ * skaitymo kelią, o ne esamų šaltinių projekciją.
+ * `integracija` — `task_integration_ready` įrodymas yra.
+ * `failed` / `released` — tas pats kaip `state`.
+ */
+export type UiWaveSlotPhase = "bootstrap" | "delegated" | "integracija" | "failed" | "released";
+
 export type UiWaveSlotFailure = {
   /** Log eilutės laikas, normalizuotas į ISO Z. */
   ts: string;
@@ -29,6 +44,8 @@ export type UiWaveSlot = {
   worker_id: string;
   task_id: string;
   state: UiWaveSlotState;
+  /** Smulkesnis etapas — žr. {@link UiWaveSlotPhase}. */
+  phase: UiWaveSlotPhase;
   lease_status: string;
   acquired_at: string;
   heartbeat_at: string;
@@ -38,7 +55,14 @@ export type UiWaveSlot = {
   /** Lease'as vis dar `held`, bet galiojimas jau pasibaigęs (arba `expires_at` neperskaitomas). */
   stale: boolean;
   has_worktree: boolean;
+  /**
+   * Projekto-reliatyvus worktree kelias arba `null` (be worktree, arba kelias veda už projekto
+   * ribų — absoliutus kelias į naršyklę niekada neišeina, žr. `WaveSlotLease.worktree_path`).
+   */
+  worktree_path: string | null;
   last_failure: UiWaveSlotFailure | null;
+  /** Paskutinis ŠIOS lease'o kartos wave-events įrašas šiam task'ui — „kuo baigėsi" be grep'o. */
+  last_event: WaveSlotEvent | null;
 };
 
 /** Lease'o projekcija, iš kurios statomas slot'as. Turtingesnė už wire `leases` įrašą. */
@@ -50,6 +74,8 @@ export type WaveSlotLease = {
   heartbeat_at: string;
   expires_at: string;
   has_worktree: boolean;
+  /** Jau normalizuotas projekto-reliatyviu keliu (arba `null`) PRIEŠ patenkant į šį modelį. */
+  worktree_path: string | null;
 };
 
 /** Tiek bangos įvykio, kiek reikia vykdymo įrodymui. */
@@ -163,6 +189,18 @@ export function buildWaveSlots(input: BuildWaveSlotsInput): UiWaveSlot[] {
         withinGeneration(event.ts),
     );
 
+    const hasIntegrationEvidence = input.events.some(
+      (event) => event.event === "task_integration_ready" && event.task_id === lease.task_id && withinGeneration(event.ts),
+    );
+
+    // Paskutinis ŠIOS lease'o kartos wave-events įrašas šiam task'ui, log tvarka.
+    let lastEvent: WaveSlotEvent | null = null;
+    for (const event of input.events) {
+      if (event.task_id !== lease.task_id) continue;
+      if (!withinGeneration(event.ts)) continue;
+      lastEvent = event;
+    }
+
     // Precedencija: nesėkmė nugali `released` (slot'as, kuris krito ir buvo atlaisvintas, VIS TIEK
     // yra kritęs), o neperskaitomas įvykių šaltinis neturi versti `provisioned` melo.
     const state: UiWaveSlotState = lastFailure
@@ -173,6 +211,16 @@ export function buildWaveSlots(input: BuildWaveSlotsInput): UiWaveSlot[] {
           ? "running"
           : "provisioned";
 
+    const phase: UiWaveSlotPhase = lastFailure
+      ? "failed"
+      : lease.status !== "held"
+        ? "released"
+        : hasIntegrationEvidence
+          ? "integracija"
+          : hasExecutionEvidence || !input.events_available
+            ? "delegated"
+            : "bootstrap";
+
     const expiresAt = Date.parse(lease.expires_at);
     const stale = lease.status === "held" && (Number.isNaN(expiresAt) || nowMs >= expiresAt);
 
@@ -180,6 +228,7 @@ export function buildWaveSlots(input: BuildWaveSlotsInput): UiWaveSlot[] {
       worker_id: lease.worker_id,
       task_id: lease.task_id,
       state,
+      phase,
       lease_status: lease.status,
       acquired_at: lease.acquired_at,
       heartbeat_at: lease.heartbeat_at,
@@ -188,7 +237,9 @@ export function buildWaveSlots(input: BuildWaveSlotsInput): UiWaveSlot[] {
       heartbeat_age_ms: ageMs(lease.heartbeat_at, input.now),
       stale,
       has_worktree: lease.has_worktree,
+      worktree_path: lease.worktree_path,
       last_failure: lastFailure,
+      last_event: lastEvent,
     };
   });
 }

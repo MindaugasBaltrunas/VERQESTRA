@@ -30,6 +30,7 @@ function lease(over: Partial<WaveSlotLease> = {}): WaveSlotLease {
     heartbeat_at: "2026-08-21T11:59:00.000Z",
     expires_at: "2026-08-21T12:30:00.000Z",
     has_worktree: true,
+    worktree_path: ".worktrees/w1",
     ...over,
   };
 }
@@ -41,19 +42,49 @@ function input(over: Partial<BuildWaveSlotsInput> = {}): BuildWaveSlotsInput {
 test("buildWaveSlots: be vykdymo įrodymo lieka provisioned, su įrodymu — running", () => {
   const idle = buildWaveSlots(input());
   assert.equal(idle[0]?.state, "provisioned");
+  assert.equal(idle[0]?.phase, "bootstrap");
   assert.equal(idle[0]?.lease_age_ms, 3_600_000 - 500);
   assert.equal(idle[0]?.stale, false);
+  assert.equal(idle[0]?.worktree_path, ".worktrees/w1");
+  assert.equal(idle[0]?.last_event, null);
 
   const running = buildWaveSlots(
     input({ events: [{ ts: "2026-08-21T11:05:00.000Z", event: "task_started", task_id: "890" }] }),
   );
   assert.equal(running[0]?.state, "running");
+  assert.equal(running[0]?.phase, "delegated");
+  assert.deepEqual(running[0]?.last_event, { ts: "2026-08-21T11:05:00.000Z", event: "task_started", task_id: "890" });
 
   // Svetimo task'o įvykis nieko neįrodo apie šį slot'ą.
   const foreign = buildWaveSlots(
     input({ events: [{ ts: "2026-08-21T11:05:00.000Z", event: "task_started", task_id: "999" }] }),
   );
   assert.equal(foreign[0]?.state, "provisioned");
+  assert.equal(foreign[0]?.phase, "bootstrap");
+  assert.equal(foreign[0]?.last_event, null);
+});
+
+test("buildWaveSlots: integracijos įrodymas veda į phase integracija, be jo — delegated", () => {
+  const integrating = buildWaveSlots(
+    input({
+      events: [
+        { ts: "2026-08-21T11:05:00.000Z", event: "task_started", task_id: "890" },
+        { ts: "2026-08-21T11:20:00.000Z", event: "task_integration_ready", task_id: "890" },
+      ],
+    }),
+  );
+  assert.equal(integrating[0]?.state, "running");
+  assert.equal(integrating[0]?.phase, "integracija");
+  assert.deepEqual(integrating[0]?.last_event, {
+    ts: "2026-08-21T11:20:00.000Z",
+    event: "task_integration_ready",
+    task_id: "890",
+  });
+
+  const delegated = buildWaveSlots(
+    input({ events: [{ ts: "2026-08-21T11:05:00.000Z", event: "task_started", task_id: "890" }] }),
+  );
+  assert.equal(delegated[0]?.phase, "delegated");
 });
 
 test("buildWaveSlots: neperskaitytas įvykių šaltinis NEVERČIA provisioned melo", () => {
@@ -73,7 +104,12 @@ test("buildWaveSlots: nesėkmė nugali released, o senesnės kartos nesėkmė ne
 
   const released = buildWaveSlots(input({ leases: [lease({ status: "released" })], failures: [failure] }));
   assert.equal(released[0]?.state, "failed", "kritęs ir atlaisvintas slot'as vis tiek yra kritęs");
+  assert.equal(released[0]?.phase, "failed", "phase paklūsta tai pačiai precedencijai kaip state");
   assert.equal(released[0]?.last_failure?.reason, "worktree užimtas");
+
+  // Atlaisvintas be nesėkmės — phase seka state.
+  const cleanlyReleased = buildWaveSlots(input({ leases: [lease({ status: "released" })] }));
+  assert.equal(cleanlyReleased[0]?.phase, "released");
 
   // Ankstesnės kartos įrašas log'e lieka dienomis — naujam lease'ui jis negalioja.
   const old = buildWaveSlots(input({ failures: [{ ...failure, ts: "2026-08-21T10:00:00.000Z" }] }));

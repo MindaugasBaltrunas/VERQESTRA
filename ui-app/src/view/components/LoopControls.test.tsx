@@ -40,7 +40,9 @@ describe("LoopControls", () => {
       <LoopControls loopStatus="unknown" onStartLoop={vi.fn()} onStopLoop={vi.fn()} onRestartLoop={vi.fn()} />,
     );
 
-    expect(screen.getByRole("button", { name: "Start loop (1 stream(s))" })).toBeDisabled();
+    const start = screen.getByRole("button", { name: "Start loop (1 stream(s))" });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAttribute("title", "Starting is blocked while the loop state is unconfirmed.");
     expect(screen.getByRole("button", { name: "Stop loop" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Restart loop" })).toBeDisabled();
     expect(
@@ -48,6 +50,43 @@ describe("LoopControls", () => {
         "The loop process state is not confirmed. Starting is blocked so a second orchestrator cannot be launched; stopping stays available.",
       ),
     ).toBeInTheDocument();
+  });
+
+  // Task 059-d: kiekvienas išjungtas ciklo mygtukas paaiškina priežastį per `title`, o „Stabdyti"
+  // pasekmė (drain semantika) matoma visada, ne tik `hover` metu.
+  it("explains each button's disabled reason and always shows the stop button's consequence", () => {
+    render(
+      <LoopControls
+        loopStatus="stopped"
+        onStartLoop={vi.fn()}
+        onStopLoop={vi.fn()}
+        onRestartLoop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Start loop (1 stream(s))" })).toBeEnabled();
+    const stop = screen.getByRole("button", { name: "Stop loop" });
+    expect(stop).toBeDisabled();
+    expect(stop).toHaveAttribute("title", "The loop is already stopped.");
+    const restart = screen.getByRole("button", { name: "Restart loop" });
+    expect(restart).toBeDisabled();
+    expect(restart).toHaveAttribute("title", "Restart requires the loop to be running.");
+
+    // Pasekmės sakinys šalia „Stabdyti" — VISADA, nepriklausomai nuo to, ar mygtukas šiuo metu aktyvus.
+    expect(
+      screen.getByText(
+        "Stopping does not force-kill the loop — the running task finishes first, then the loop stops.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("explains that starting is blocked because the loop is already running", () => {
+    render(<LoopControls loopStatus="running" onStartLoop={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Start loop (1 stream(s))" })).toHaveAttribute(
+      "title",
+      "The loop is already running.",
+    );
   });
 
   it("requires a second, deliberate click before restarting a running loop", () => {
@@ -88,8 +127,16 @@ describe("LoopControls", () => {
     const stop = screen.getByRole("button", { name: "Stop loop" });
     expect(stop).toHaveAttribute("aria-busy", "true");
     expect(stop).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Start loop (1 stream(s))" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Restart loop" })).toBeDisabled();
+    // Vykdomas veiksmas irgi paaiškinamas: „busy" jį rodo vizualiai, o `title` — pagalbinėms
+    // technologijoms ir pelės hover'ui.
+    const pendingReason = "A loop action is currently in progress; wait for it to finish.";
+    expect(stop).toHaveAttribute("title", pendingReason);
+    const start = screen.getByRole("button", { name: "Start loop (1 stream(s))" });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAttribute("title", pendingReason);
+    const restart = screen.getByRole("button", { name: "Restart loop" });
+    expect(restart).toBeDisabled();
+    expect(restart).toHaveAttribute("title", pendingReason);
   });
 
   it("reports a worker click as a new request", () => {

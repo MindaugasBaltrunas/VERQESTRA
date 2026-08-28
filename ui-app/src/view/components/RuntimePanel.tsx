@@ -232,7 +232,18 @@ export const RuntimePanel = memo(function RuntimePanel({
               {/* Tas pats veiksmas kaip ciklo valdymo juostoje: du įėjimo taškai, VIENAS ketinimas,
                   vienas `loop-start` id ir ta pati mygtukų matrica, tad antras paspaudimas nepaleidžia
                   antros užklausos, o abu mygtukai negali skirtingai atsakyti „ar dabar galima paleisti". */}
-              {onStartLoop && <button className="button success small-button" type="button" onClick={() => onStartLoop(startStreamCount(workerControl))} disabled={!loopButtons.start.enabled} aria-busy={loopButtons.start.busy || undefined}>{t("Start loop")}</button>}
+              {onStartLoop && (
+                <button
+                  className="button success small-button"
+                  type="button"
+                  onClick={() => onStartLoop(startStreamCount(workerControl))}
+                  disabled={!loopButtons.start.enabled}
+                  aria-busy={loopButtons.start.busy || undefined}
+                  title={!loopButtons.start.enabled ? t("A loop action is currently in progress; wait for it to finish.") : undefined}
+                >
+                  {t("Start loop")}
+                </button>
+              )}
             </article>
           )}
           {unknown.length > 0 && (

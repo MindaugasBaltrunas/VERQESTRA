@@ -7,6 +7,8 @@ type Props = {
   tone?: "danger" | "ghost" | "success";
   disabled?: boolean;
   busy?: boolean;
+  /** Priežastis, kodėl mygtukas neaktyvus — rodoma TIK pradinėje (nepatvirtintoje) būsenoje. */
+  title?: string;
   onConfirm: () => void;
 };
 
@@ -27,6 +29,7 @@ export function ConfirmButton({
   tone = "danger",
   disabled = false,
   busy = false,
+  title,
   onConfirm,
 }: Props) {
   const [armed, setArmed] = useState(false);
@@ -65,6 +68,7 @@ export function ConfirmButton({
       // `aria-busy` rašomas tik kai veiksmas tikrai vyksta: nuolatinis `aria-busy="false"` nieko
       // nepasako, o mygtuko PAVADINIMAS nesikeičia — suktukas paslėptas nuo pagalbinių technologijų.
       aria-busy={busy || undefined}
+      title={blocked ? title : undefined}
       onClick={() => setArmed(true)}
     >
       {label}

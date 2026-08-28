@@ -7,6 +7,7 @@ import type {
   WorkerControlView,
 } from "../../model/dashboardViewModel";
 import * as api from "../../model/api";
+import { LOOP_START_ACTION } from "../../model/loopControlsViewModel";
 import { RuntimePanel } from "./RuntimePanel";
 
 vi.mock("../../model/api", () => ({
@@ -131,6 +132,23 @@ describe("RuntimePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start loop" }));
 
     expect(onStartLoop).toHaveBeenCalledWith(2);
+  });
+
+  // Task 059-d: kiekvienas išjungtas ciklo mygtukas privalo turėti `title` su priežastimi.
+  it("explains why the idle-signal start button is disabled while another loop action is pending", () => {
+    render(
+      <RuntimePanel
+        processes={processes}
+        root="D:/project"
+        onStartLoop={vi.fn()}
+        loopRunState="stopped"
+        pendingActions={new Set([LOOP_START_ACTION])}
+      />,
+    );
+
+    const start = screen.getByRole("button", { name: "Start loop" });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAttribute("title", "A loop action is currently in progress; wait for it to finish.");
   });
 
   /**

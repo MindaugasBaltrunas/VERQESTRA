@@ -1,15 +1,18 @@
+## Žingsnis 0 — ar jau įgyvendinta?
+Prieš keisdamas kodą patikrink, ar ## Tikslas ir ## Patikra jau tenkinami esamame kode.
+Jei taip — NEDARYK jokių pakeitimų ir galutinę ataskaitą pradėk atskira eilute:
+ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
+
+## Sandbox taisyklės (privaloma — taupo turns)
+- Po BET KOKIO `src` pakeitimo `dist` pasensta ir hook'ai blokuoja bash komandas. Pirma perbuild'ink TIKSLIA forma be pipe/redirect: `pnpm build`
+- Patikroms naudok tik: `pnpm build` ir `pnpm test` (be `--`, be pipe į kitas komandas).
+- `echo`, `sed`, `node -e` ir kompound komandos su neleistinais segmentais VISADA atmetamos — nekartok jų kitomis formomis; failams skaityti naudok Read/Grep tools.
+- Rašymo darbą atlik PATS šioje sesijoje (Write/Edit) ir neatidėk jo vėlesniam laikui: headless sesija po paskutinio tavo žingsnio baigiasi, o bėgimas be nė vieno Write/Edit parkuojamas human-review. `## Agentai` grandinė yra orkestratoriaus maršruto metaduomuo — jei subagentas negrąžina rezultato šiame bėgime, įgyvendink pakeitimą tiesiogiai.
+
 # Task
 
 ## Spec source
 `openspec/changes/verqestra-backlog-v1/`
-
-## Priklausomybės
-- 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
-- 061-w2-vaiko-stderr-log-orchestrator-log
-- 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
-- 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
-- 064-a-02-orphan-reaper-kviecia-registraciju-valyma-po-katal
-- 064-b-03-provisioning-pries-git-worktree-add-isvalo-to-pati
 
 ## Tikslas
 `#/system` ciklo mygtukai neaiškina pasekmių. „Stabdyti" drain semantikos pastraipą perkelti prie paties mygtuko (subtekstas arba tooltip), o kiekvienas išjungtas mygtukas privalo turėti `title` su priežastimi, kodėl neaktyvus. Vienas šablonas visiems trims ciklo mygtukams.

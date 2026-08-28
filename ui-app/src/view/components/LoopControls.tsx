@@ -3,9 +3,13 @@ import type { WorkerControlView } from "../../model/dashboardViewModel";
 import { fill } from "../../model/fillTemplate";
 import {
   buildLoopControlsView,
+  LOOP_RESTART_ACTION,
+  LOOP_START_ACTION,
+  LOOP_STOP_ACTION,
   startStreamCount,
   workerChoices,
   workersActionId,
+  type LoopButtonView,
   type LoopControlsView,
   type LoopRunState,
 } from "../../model/loopControlsViewModel";
@@ -21,6 +25,64 @@ import { ConfirmButton } from "./ConfirmButton";
 
 /** Tuščias rinkinys yra pastovus: naujas `Set` kiekvienam renderiui griautų `memo` prasmę. */
 const NO_PENDING: ReadonlySet<string> = new Set<string>();
+
+function anyLoopActionPending(pending: ReadonlySet<string>): boolean {
+  return pending.has(LOOP_START_ACTION) || pending.has(LOOP_STOP_ACTION) || pending.has(LOOP_RESTART_ACTION);
+}
+
+/** Bendra „kodėl neaktyvus" priežastis, kai KITAS iš trijų ciklo veiksmų dar vyksta. */
+function pendingReason(t: (text: string) => string): string {
+  return t("A loop action is currently in progress; wait for it to finish.");
+}
+
+function startDisabledReason(t: (text: string) => string, status: LoopRunState, pending: boolean): string {
+  if (pending) return pendingReason(t);
+  if (status === "running") return t("The loop is already running.");
+  return t("Starting is blocked while the loop state is unconfirmed.");
+}
+
+function stopDisabledReason(t: (text: string) => string, pending: boolean): string {
+  if (pending) return pendingReason(t);
+  return t("The loop is already stopped.");
+}
+
+function restartDisabledReason(t: (text: string) => string, pending: boolean): string {
+  if (pending) return pendingReason(t);
+  return t("Restart requires the loop to be running.");
+}
+
+type LoopActionButtonProps = {
+  label: string;
+  toneClassName: string;
+  button: LoopButtonView;
+  disabledReason: string;
+  /** Pasekmės sakinys — VISADA matomas, ne tik `hover`, kad paaiškinimas nepriklausytų nuo pelės. */
+  subtext?: string;
+  onClick: () => void;
+};
+
+/**
+ * Vienas šablonas visiems trims ciklo mygtukams (task 059-d): tas pats išjungimo `title`
+ * skaičiavimas ir ta pati subteksto vieta, kad kiekvienas mygtukas atsakytų į „kodėl neaktyvus"
+ * ir „kokia pasekmė" vienodai, o ne kaskart iš naujo išgalvota.
+ */
+function LoopActionButton({ label, toneClassName, button, disabledReason, subtext, onClick }: LoopActionButtonProps) {
+  return (
+    <div className="loop-action">
+      <button
+        className={toneClassName} type="button"
+        disabled={!button.enabled}
+        aria-busy={button.busy || undefined}
+        title={!button.enabled ? disabledReason : undefined}
+        onClick={onClick}
+      >
+        {label}
+        {button.busy && <span className="button-spinner" aria-hidden="true" />}
+      </button>
+      {subtext && <p className="runtime-explanation">{subtext}</p>}
+    </div>
+  );
+}
 
 type Props = {
   loopStatus: LoopRunState;
@@ -73,6 +135,9 @@ export const LoopControls = memo(function LoopControls({
       },
       pending: pendingActions,
     });
+  // Bendra priežastis visiems trims: kol vienas iš trijų ciklo veiksmų dar vyksta, likę du yra
+  // uždaryti dėl TOS PAČIOS priežasties, o ne dėl savo statuso.
+  const anyPending = anyLoopActionPending(pendingActions);
   // Vykdomas VIENO workerių skaičiaus prašymas užrakina abu mygtukus: kol serveris neatsakė, kuris
   // skaičius įsigaliojo, antras paspaudimas būtų prašymas spėlioti.
   const choices = workerChoices(workerControl);
@@ -160,37 +225,37 @@ export const LoopControls = memo(function LoopControls({
         </>
       )}
 
-      <div className="toolbar">
-        <button
-          className="button success small-button" type="button"
-          disabled={!buttons.start.enabled}
-          aria-busy={buttons.start.busy || undefined}
+      <div className="loop-toolbar">
+        <LoopActionButton
+          label={fill(t("Start loop ({count} stream(s))"), { count: streams })}
+          toneClassName="button success small-button"
+          button={buttons.start}
+          disabledReason={startDisabledReason(t, loopStatus, anyPending)}
           onClick={() => onStartLoop?.(streams)}
-        >
-          {fill(t("Start loop ({count} stream(s))"), { count: streams })}
-          {buttons.start.busy && <span className="button-spinner" aria-hidden="true" />}
-        </button>
-        <button
-          className="button ghost small-button" type="button"
-          disabled={!buttons.stop.enabled}
-          aria-busy={buttons.stop.busy || undefined}
+        />
+        <LoopActionButton
+          label={t("Stop loop")}
+          toneClassName="button ghost small-button"
+          button={buttons.stop}
+          disabledReason={stopDisabledReason(t, anyPending)}
+          subtext={t("Stopping does not force-kill the loop — the running task finishes first, then the loop stops.")}
           onClick={() => onStopLoop?.()}
-        >
-          {t("Stop loop")}
-          {buttons.stop.busy && <span className="button-spinner" aria-hidden="true" />}
-        </button>
+        />
         {/* Perkrovimas patvirtinamas dviem paspaudimais: jis SUSTABDO veikiantį orkestratorių, o
             1-as srautas valdo visą ciklą. Paleidimas, stabdymas ir workerių pasirinkimas
             patvirtinimo neturi — jie grįžtami. */}
-        <ConfirmButton
-          label={t("Restart loop")}
-          confirmLabel={t("Confirm restart")}
-          cancelLabel={t("Cancel")}
-          tone="ghost"
-          disabled={!buttons.restart.enabled}
-          busy={buttons.restart.busy}
-          onConfirm={() => onRestartLoop?.(streams)}
-        />
+        <div className="loop-action">
+          <ConfirmButton
+            label={t("Restart loop")}
+            confirmLabel={t("Confirm restart")}
+            cancelLabel={t("Cancel")}
+            tone="ghost"
+            disabled={!buttons.restart.enabled}
+            busy={buttons.restart.busy}
+            title={restartDisabledReason(t, anyPending)}
+            onConfirm={() => onRestartLoop?.(streams)}
+          />
+        </div>
       </div>
 
       {stopRequested && <p className="runtime-explanation">⏹ {t("Stop requested")}</p>}

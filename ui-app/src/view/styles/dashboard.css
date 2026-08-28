@@ -1959,6 +1959,21 @@ button.system-status-hero-stat-link:hover {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* Ciklo mygtukai (task 059-d): kiekvienas su savo pasekmės sakiniu po juo, tad `align-items:
+   center` čia netiktų — subtekstas turi tekėti nuo mygtuko viršaus, ne centruotis su juo. */
+.loop-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.loop-action {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  max-width: 260px;
+}
 .toolbar-divider {
   width: 1px;
   height: 22px;

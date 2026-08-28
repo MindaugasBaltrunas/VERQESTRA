@@ -886,6 +886,17 @@ const lt: Record<string, string> = {
   "Stop loop": "Stabdyti ciklą",
   "Restart loop": "Perkrauti ciklą",
   "Confirm restart": "Patvirtinti perkrovimą",
+  // Task 059-d: kiekvienas išjungtas ciklo mygtukas paaiškina priežastį per `title`, o „Stabdyti"
+  // pasekmę (drain semantika — nestabdo iškart) rodo visada, ne tik `hover` metu.
+  "A loop action is currently in progress; wait for it to finish.":
+    "Šiuo metu vyksta kitas ciklo veiksmas; palauk, kol jis baigsis.",
+  "The loop is already running.": "Ciklas jau veikia.",
+  "Starting is blocked while the loop state is unconfirmed.":
+    "Paleidimas užblokuotas, kol ciklo būsena nepatvirtinta.",
+  "The loop is already stopped.": "Ciklas jau sustabdytas.",
+  "Restart requires the loop to be running.": "Perkrovimui reikia, kad ciklas veiktų.",
+  "Stopping does not force-kill the loop — the running task finishes first, then the loop stops.":
+    "Stabdymas priverstinai nenutraukia ciklo — pirmiausia baigiama vykdoma užduotis, tik tada ciklas sustoja.",
   "The loop process state is not confirmed. Starting is blocked so a second orchestrator cannot be launched; stopping stays available.":
     "Ciklo proceso būsena nepatvirtinta. Paleidimas užblokuotas, kad nebūtų paleistas antras orkestratorius; stabdymas lieka galimas.",
   "What the last wave actually granted, and why any slot was rejected.":

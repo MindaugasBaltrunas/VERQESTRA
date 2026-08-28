@@ -580,6 +580,8 @@ const lt: Record<string, string> = {
   "Set to": "Nustatyti",
   "Canary cohort": "Canary kohorta",
   "no salt set": "žetonas nenustatytas",
+  "inactive": "neaktyvi",
+  "Saved, but not active — requires": "Išsaugota, bet neveikia — reikalauja",
   "canary": "canary",
   "Shadow telemetry": "Šešėlinė telemetrija",
   "Measured from context-size.jsonl even while every flag is off — that is what makes deciding possible before enabling.":

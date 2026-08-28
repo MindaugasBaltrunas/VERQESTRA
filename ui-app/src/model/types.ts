@@ -677,6 +677,13 @@ export type CompressionFeature = {
   key: CompressionFeatureKey;
   value: CompressionFeatureValue;
   canary_supported: boolean;
+  /** Vėliavos, kurios privalo būti ≠ `false`, kad ši vėliava iš tiesų veiktų. Rakto nebuvimas = jokių priklausomybių. */
+  requires?: CompressionFeatureKey[];
+  /**
+   * Užpildoma TIK kai `value` deklaruoja vėliavą aktyvia, o bent viena `requires` vėliava yra
+   * `false` — serveris ją fail-closed priverstinai išjungtų vykdymo metu, kad ir ką rodo `value`.
+   */
+  inactive_reason?: "inactive_due_to_dependency";
 };
 
 export type CompressionTelemetry = {

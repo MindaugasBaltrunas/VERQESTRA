@@ -466,6 +466,13 @@ h2 {
   background: var(--surface-2);
   border-color: var(--border);
 }
+/* Vėliavos eilutės hint'as, kai reikšmė deklaruota aktyvia, bet priklausomybė ją fail-closed
+   išjungia vykdymo metu (`inactive_reason`). Ne `.notice-warning` — tai vienos eilutės tekstas
+   tarp muted hint'ų, ne atskira dėžutė. */
+.compression-inactive-warning {
+  color: var(--warning);
+  font-weight: 600;
+}
 
 /* ---- Tables ----------------------------------------------------------- */
 table {

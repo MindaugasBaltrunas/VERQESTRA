@@ -257,10 +257,19 @@ export function CompressionPage({ activeRoute, onNavigate }: Props) {
                         <strong>{feature.key}</strong>
                         <br />
                         <span className="muted">{t(FEATURE_HINTS[feature.key] ?? feature.key)}</span>
+                        {feature.inactive_reason && (
+                          <>
+                            <br />
+                            <span className="compression-inactive-warning">
+                              {t("Saved, but not active — requires")} {feature.requires?.join(", ")}
+                            </span>
+                          </>
+                        )}
                       </td>
                       <td>
-                        <span className={`badge status-${valueTone(feature.value)}`}>
+                        <span className={`badge status-${feature.inactive_reason ? "error" : valueTone(feature.value)}`}>
                           {t(toOptionValue(feature.value))}
+                          {feature.inactive_reason && ` · ${t("inactive")}`}
                         </span>
                       </td>
                       <td>

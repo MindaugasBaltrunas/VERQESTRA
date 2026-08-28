@@ -213,6 +213,37 @@ describe("CompressionPage", () => {
     expect(screen.queryByText("smaller-under-pressure")).toBeNull();
   });
 
+  it("rodo įspėjimą, kai vėliava išsaugota, bet priklausomybė ją laiko neaktyvia", async () => {
+    vi.mocked(api.fetchCompression).mockResolvedValue(
+      view({
+        features: [
+          { key: "worker_task_ir", value: false, canary_supported: true },
+          {
+            key: "compact_dsl",
+            value: true,
+            canary_supported: true,
+            requires: ["worker_task_ir"],
+            inactive_reason: "inactive_due_to_dependency",
+          },
+          { key: "symbol_slices", value: "canary", canary_supported: true },
+          { key: "bash_output_digest", value: false, canary_supported: false },
+          { key: "dispatch_tool_schema", value: true, canary_supported: true },
+        ],
+      }),
+    );
+    render(<CompressionPage activeRoute="compression" onNavigate={noop} />);
+
+    await waitFor(() => expect(screen.getByLabelText("compact_dsl")).toBeTruthy());
+    // Neaktyviai vėliavai: badge nebe „good", ir po hint'u yra įspėjimo eilutė su priklausomybe.
+    expect(screen.getByText(/Saved, but not active — requires/)).toBeTruthy();
+    expect(screen.getAllByText(/worker_task_ir/).length).toBeGreaterThan(0);
+    expect(screen.getByText("inactive", { exact: false })).toBeTruthy();
+
+    // Kitos keturios vėliavos neturi inactive_reason — įspėjimo eilutė matoma tik VIENĄ kartą.
+    const warnings = screen.queryAllByText(/Saved, but not active/);
+    expect(warnings.length).toBe(1);
+  });
+
   it("telemetrijos lūžis nepaslepia vėliavų", async () => {
     vi.mocked(api.fetchCompression).mockResolvedValue(
       view({

@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { DashboardData } from "../../model/types";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { TokenBudgetPanel } from "./TokenBudgetPanel";
@@ -129,6 +129,49 @@ describe("DiagnosticsPanel", () => {
     expect(screen.getByRole("status").textContent).toContain("README neįvardija karkaso");
     // Automatikos politika irgi matoma — iki šio rato `config_controls` neturėjo NĖ VIENOS panelės.
     expect(screen.getByText("Auto push")).toBeInTheDocument();
+  });
+
+  /**
+   * 052 review radinys: vienintelis būdas šią reikšmę pakeisti (`command`) buvo paslėptas
+   * `title` atribute — matomas tik po užvedimu pele. Dabar jis rodomas kaip `<code>` blokas su
+   * kopijavimo mygtuku.
+   */
+  it("rodo automatikos politikos komandą matomą, ne title atribute, su kopijavimo mygtuku", () => {
+    const writeText = vi.fn();
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          controlPlane: {
+            config_controls: [
+              {
+                id: "auto_push_enabled",
+                label: "Auto push",
+                value: false,
+                source: "vq/config/git.json",
+                editable: true,
+                command: "verqestra policy propose auto_push_enabled true",
+              },
+            ],
+            human_review_tasks: [],
+            learning_recommendations: [],
+            learning_summary: {
+              records: 0,
+              by_type: {},
+              pending_recommendations: 0,
+              approved_recommendations: 0,
+              rejected_recommendations: 0,
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("verqestra policy propose auto_push_enabled true")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+    expect(writeText).toHaveBeenCalledWith("verqestra policy propose auto_push_enabled true");
   });
 });
 

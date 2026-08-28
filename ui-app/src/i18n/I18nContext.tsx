@@ -171,6 +171,8 @@ const lt: Record<string, string> = {
   "Human-readable runtime findings and the next useful action": "Aiškiai aprašyta vykdymo būsena ir kitas naudingas veiksmas",
   "Automation is idle": "Automatika laukia",
   "VERQESTRA is stopped; queued work will not start automatically.": "VERQESTRA sustabdytas – eilėje esantis darbas automatiškai neprasidės.",
+  "The process tracker still reports the loop process as {status}; the control file decides whether start is allowed here.":
+    "Proceso sekiklis vis dar rodo ciklo procesą kaip {status}; ar galima paleisti, sprendžia valdymo failas.",
   "Start loop": "Paleisti ciklą",
   "Runtime state is unknown": "Vykdymo būsena nežinoma",
   "Refresh the status; if it remains unknown, verify that the PID tracker is connected.": "Atnaujinkite būseną; jei ji lieka nežinoma, patikrinkite PID sekimo ryšį.",
@@ -535,6 +537,8 @@ const lt: Record<string, string> = {
   "Executor": "Vykdytojas",
   "Next action": "Kitas veiksmas",
   "Setting": "Nustatymas",
+  "Change command": "Pakeitimo komanda",
+  "Copy command": "Kopijuoti komandą",
   "Size": "Dydis",
   "File": "Failas",
   // `high`/`medium`/`low` jau yra ETA bloke žemiau — pasitikėjimo lygiai dalijasi tais pačiais

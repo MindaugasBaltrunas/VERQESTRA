@@ -47,6 +47,12 @@ function StackDecision({ decision }: { decision: UiStackDecision }) {
   );
 }
 
+function copyCommand(command: string): void {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    void navigator.clipboard.writeText(command);
+  }
+}
+
 function ConfigControls({ controls }: { controls: readonly UiConfigControl[] }) {
   const { t } = useI18n();
   if (controls.length === 0) return null;
@@ -56,16 +62,38 @@ function ConfigControls({ controls }: { controls: readonly UiConfigControl[] }) 
       <table className="diagnostics-table">
         <caption className="visually-hidden">{t("Automation policy")}</caption>
         <thead>
-          <tr><th scope="col">{t("Setting")}</th><th scope="col">{t("Value")}</th><th scope="col">{t("Source")}</th></tr>
+          <tr>
+            <th scope="col">{t("Setting")}</th>
+            <th scope="col">{t("Value")}</th>
+            <th scope="col">{t("Source")}</th>
+            <th scope="col">{t("Change command")}</th>
+          </tr>
         </thead>
         <tbody>
           {controls.map((control) => (
             <tr key={control.id}>
               <th scope="row">{t(control.label)}</th>
               <td><strong>{String(control.value)}</strong></td>
-              {/* `command` yra vienintelis būdas šią reikšmę pakeisti — jis rodomas, o ne
-                  nutylimas, nes valdiklis be kelio jį pakeisti yra tik pranešimas. */}
-              <td><code title={control.command ?? undefined}>{control.source}</code></td>
+              <td>{control.source}</td>
+              {/* `command` yra vienintelis būdas šią reikšmę pakeisti — anksčiau jis buvo
+                  paslėptas `title` atribute (matomas tik po užvedimu pele). Dabar jis matomas
+                  kaip `<code>` blokas su kopijavimo mygtuku. */}
+              <td>
+                {control.command ? (
+                  <>
+                    <code>{control.command}</code>{" "}
+                    <button
+                      type="button"
+                      className="button ghost small-button"
+                      onClick={() => copyCommand(control.command ?? "")}
+                    >
+                      {t("Copy command")}
+                    </button>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

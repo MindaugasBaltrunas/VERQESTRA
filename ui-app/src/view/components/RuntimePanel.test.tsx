@@ -45,6 +45,54 @@ describe("RuntimePanel", () => {
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
+  /**
+   * 052 review radinys: `overall` anksčiau tapdavo „critical" vien todėl, kad PID sekiklis
+   * nemato „AG UI" proceso — bet operatorius TĄ AKIMIRKĄ žiūri būtent į šią sąsają. Nematymas yra
+   * neaiškumas (`unknown`/nerastas), o ne patvirtintas gedimas, tad ekranas turi likti „attention",
+   * ne „critical".
+   */
+  it("treats an untracked operator interface as degraded, not unavailable", () => {
+    const uiUnknown: RuntimeProcessView[] = [
+      { name: "AG UI", status: "unknown", detail: "PID not recorded", variant: "warning" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "unknown", detail: "PID not recorded", variant: "warning" },
+    ];
+
+    render(<RuntimePanel processes={uiUnknown} root="D:/project" />);
+
+    expect(screen.getByRole("heading", { name: "Runtime state is incomplete" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Operator interface unavailable" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the operator interface critical only on a confirmed stop", () => {
+    const uiStopped: RuntimeProcessView[] = [
+      { name: "AG UI", status: "stopped", detail: "pid 10", variant: "neutral" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "running", detail: "pid 30", variant: "good" },
+    ];
+
+    render(<RuntimePanel processes={uiStopped} root="D:/project" />);
+
+    expect(screen.getByRole("heading", { name: "Operator interface unavailable" })).toBeInTheDocument();
+  });
+
+  // 052 review radinys: N nežinomų procesų anksčiau gaudavo N „Tikrinti dar kartą" kopijų, visos
+  // kviesdavo tą patį globalų `reload()`. Dabar sekcija turi VIENĄ mygtuką.
+  it("shows a single recheck action for every unknown process in the section", () => {
+    const manyUnknown: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "unknown", detail: "PID not recorded", variant: "warning" },
+      { name: "User Claude terminal", status: "unknown", detail: "PID not recorded", variant: "warning" },
+    ];
+    const onRefresh = vi.fn();
+
+    render(<RuntimePanel processes={manyUnknown} root="D:/project" onRefresh={onRefresh} />);
+
+    expect(screen.getAllByRole("button", { name: "Check again" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
   // Task 1235: ciklo valdymas yra PAPILDOMAS blokas — be abiejų duomenų šaltinių jo nėra.
   it("omits the loop controls when the server reports neither the loop nor the worker state", () => {
     render(<RuntimePanel processes={processes} root="D:/project" />);
@@ -86,7 +134,7 @@ describe("RuntimePanel", () => {
    * `dist`) tame pačiame ekrane stovėdavo AKTYVUS ir IŠJUNGTAS „Paleisti". Nuo šiol abu maitina
    * viena `loopRunState` reikšmė.
    */
-  it("gives both start buttons the same answer when the loop state is not confirmed", () => {
+  it("gives every rendered start button the same answer when the loop state is not confirmed", () => {
     render(
       <RuntimePanel
         processes={processes}
@@ -97,11 +145,52 @@ describe("RuntimePanel", () => {
       />,
     );
 
-    // Nė vienos `loopRunState` reikšmės: numatytoji nežinomybė uždaro paleidimą ABIEJOSE vietose.
-    expect(screen.getByRole("button", { name: "Start loop" })).toBeDisabled();
+    // Nė vienos `loopRunState` reikšmės: numatytoji nežinomybė uždaro paleidimą, o „Automatika
+    // laukia" kortelė VISAI nerodoma — nepatvirtinta būsena nesiūlo veiksmo, kurio negalima
+    // paaiškinti (skirtingai nei anksčiau, kai kortelė remdavosi VIENA `processes` reikšme).
+    expect(screen.queryByRole("button", { name: "Start loop" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start loop (1 stream(s))" })).toBeDisabled();
     // Stabdymas nežinomoje būsenoje lieka — stop vėliava nekenksminga.
     expect(screen.getByRole("button", { name: "Stop loop" })).toBeEnabled();
+  });
+
+  /**
+   * 052 review radinys: kortelės rodymas anksčiau skaitė `processes` (PID sekiklis), o mygtuko
+   * leidimas — `loopRunState` (valdymo failas). Dabar abu skaito `loopRunState`; kai PID sekiklis
+   * vis dar mato procesą gyvą, tai NEBEslepiama — kortelėje atsiranda paaiškinimas.
+   */
+  it("explains a source disagreement instead of leaving the button silently unusable", () => {
+    const processesWithLiveLoop: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "unknown", detail: "PID not recorded", variant: "warning" },
+    ];
+
+    render(
+      <RuntimePanel
+        processes={processesWithLiveLoop}
+        root="D:/project"
+        onStartLoop={vi.fn()}
+        loopRunState="stopped"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Start loop" })).toBeEnabled();
+    expect(
+      screen.getByText(
+        "The process tracker still reports the loop process as running; the control file decides whether start is allowed here.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not explain anything when the process tracker and the control file agree", () => {
+    render(
+      <RuntimePanel processes={processes} root="D:/project" onStartLoop={vi.fn()} loopRunState="stopped" />,
+    );
+
+    expect(
+      screen.queryByText(/The process tracker still reports the loop process as/),
+    ).not.toBeInTheDocument();
   });
 
   it("ignores the loop control block's own status and follows the controller's state", () => {

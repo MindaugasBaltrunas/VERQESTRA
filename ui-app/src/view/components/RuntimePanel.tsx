@@ -118,7 +118,11 @@ export const RuntimePanel = memo(function RuntimePanel({
   const ui = processes.find((process) => process.name === "AG UI");
   const loop = processes.find((process) => process.name === "AG loop");
   const unknown = processes.filter((process) => process.status === "unknown");
-  const overall = ui?.status !== "running" ? "critical" : unknown.length > 0 ? "attention" : "healthy";
+  // `ui` nematomas PID sekikliui ("unknown" arba visai nerastas) NĖRA "critical": operatorius tuo
+  // metu žiūri būtent į šią sąsają, tad jos realaus neveikimo tvirtinti negalima — tai neaiškumas,
+  // ne gedimas. "critical" lieka TIK patvirtintam "stopped" signalui.
+  const overall =
+    ui?.status === "stopped" ? "critical" : unknown.length > 0 || ui === undefined ? "attention" : "healthy";
 
   return (
     <div className="system-console">
@@ -161,25 +165,46 @@ export const RuntimePanel = memo(function RuntimePanel({
             <h2 id="system-signals-title">{t("Attention signals")}</h2>
             <p className="panel-subtitle">{t("Human-readable runtime findings and the next useful action")}</p>
           </div>
-          <span className={`badge ${unknown.length || loop?.status === "stopped" ? "status-warning" : "status-good"}`}>
-            {unknown.length + (loop?.status === "stopped" ? 1 : 0)}
+          <span className={`badge ${unknown.length || loopRunState === "stopped" ? "status-warning" : "status-good"}`}>
+            {unknown.length + (loopRunState === "stopped" ? 1 : 0)}
           </span>
         </div>
         <div className="system-signal-list">
-          {loop?.status === "stopped" && (
+          {/* Kortelės rodymas IR mygtuko leidimas skaito TĄ PATĮ šaltinį (`loopRunState`) — ne
+              kortelė iš `processes`, o mygtukas iš `loopControl`. Du šaltiniai anksčiau reiškė, kad
+              nesutapus jiems kortelė kviesdavo veikti su amžinai išjungtu mygtuku be paaiškinimo. */}
+          {loopRunState === "stopped" && (
             <article className="system-signal signal-neutral">
               <span className="signal-icon" aria-hidden="true">Ⅱ</span>
-              <div><strong>{t("Automation is idle")}</strong><p>{t("VERQESTRA is stopped; queued work will not start automatically.")}</p></div>
+              <div>
+                <strong>{t("Automation is idle")}</strong>
+                <p>{t("VERQESTRA is stopped; queued work will not start automatically.")}</p>
+                {/* PID sekiklis dar mato `AG loop` procesą gyvą, nors valdymo failas (VIENINTELIS
+                    mygtuko šaltinis) sako „sustabdytas". Paaiškinimas, ne tylus prieštaravimas. */}
+                {loop && loop.status !== "unknown" && loop.status !== loopRunState && (
+                  <p className="runtime-explanation">
+                    {fill(
+                      t("The process tracker still reports the loop process as {status}; the control file decides whether start is allowed here."),
+                      { status: t(loop.status) },
+                    )}
+                  </p>
+                )}
+              </div>
               {/* Tas pats veiksmas kaip ciklo valdymo juostoje: du įėjimo taškai, VIENAS ketinimas,
                   vienas `loop-start` id ir ta pati mygtukų matrica, tad antras paspaudimas nepaleidžia
                   antros užklausos, o abu mygtukai negali skirtingai atsakyti „ar dabar galima paleisti". */}
               {onStartLoop && <button className="button success small-button" type="button" onClick={() => onStartLoop(startStreamCount(workerControl))} disabled={!loopButtons.start.enabled} aria-busy={loopButtons.start.busy || undefined}>{t("Start loop")}</button>}
             </article>
           )}
-          {unknown.map((process) => (
-            <article className="system-signal signal-warning" key={process.name}>
+          {unknown.length > 0 && (
+            <article className="system-signal signal-warning">
               <span className="signal-icon" aria-hidden="true">!</span>
-              <div><strong>{t("Runtime state is unknown")}: {process.name}</strong><p>{t("Refresh the status; if it remains unknown, verify that the PID tracker is connected.")}</p></div>
+              <div>
+                <strong>{t("Runtime state is unknown")}: {unknown.map((process) => process.name).join(", ")}</strong>
+                <p>{t("Refresh the status; if it remains unknown, verify that the PID tracker is connected.")}</p>
+              </div>
+              {/* VIENAS mygtukas visai sekcijai: kiekvienas nežinomas procesas anksčiau gaudavo savo
+                  kopiją, o visos jos kvietė tą patį globalų `reload()` — N kopijų to paties veiksmo. */}
               {onRefresh && (
                 <button
                   className="button ghost small-button"
@@ -192,8 +217,8 @@ export const RuntimePanel = memo(function RuntimePanel({
                 </button>
               )}
             </article>
-          ))}
-          {loop?.status !== "stopped" && unknown.length === 0 && (
+          )}
+          {loopRunState !== "stopped" && unknown.length === 0 && (
             <div className="system-all-clear"><span>✓</span><div><strong>{t("No runtime issues detected")}</strong><p>{t("All observable processes report a known state.")}</p></div></div>
           )}
         </div>

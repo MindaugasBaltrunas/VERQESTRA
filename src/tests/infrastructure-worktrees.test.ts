@@ -227,6 +227,55 @@ test("integration-branch plumbing: planas taikomas į izoliuotą ref'ą, pirmin�
   if (rerun.status === "applied") assert.equal(rerun.applied[0]?.reused, true);
 });
 
+test("provision: negyva registracija isvaloma pries add - be kolizijos sufikso; gyva nesvari kopija vis dar karantinas", async () => {
+  const id5 = { ...identity, task_id: "t5" };
+  const created = await createTaskWorktree({
+    projectRoot: root,
+    identity: id5,
+    lease: lease({ lease_id: "lease-6", fencing_token: 6, task_id: "t5" }),
+    baseRef: "HEAD",
+  });
+  assert.equal(created.status, "created", JSON.stringify(created));
+  if (created.status !== "created") return;
+  const originalPath = created.layout.path;
+
+  // Katalogas pašalinamas rankomis (ne "git worktree remove") — git registracija lieka, bet
+  // katalogo nebėra: tiksliai ta situacija, kuri anksčiau versdavo kolizijos sufiksą.
+  await rm(originalPath, { recursive: true, force: true });
+
+  const inspectedDead = await inspectTaskWorktree({ projectRoot: root, identity: id5 });
+  assert.equal(inspectedDead.status, "quarantine", JSON.stringify(inspectedDead));
+  if (inspectedDead.status === "quarantine") assert.deepEqual(inspectedDead.reasons, ["prunable"]);
+
+  const recreated = await createTaskWorktree({
+    projectRoot: root,
+    identity: id5,
+    lease: lease({ lease_id: "lease-7", fencing_token: 7, task_id: "t5" }),
+    baseRef: "HEAD",
+  });
+  assert.equal(recreated.status, "created", JSON.stringify(recreated));
+  if (recreated.status !== "created") return;
+  assert.equal(
+    recreated.layout.path,
+    originalPath,
+    "negyva registracija turėjo išsivalyti prieš add — be kolizijos sufikso",
+  );
+
+  // Gyva nešvari kopija: katalogas egzistuoja, bet turi necommit'intą failą. Ji privalo likti
+  // karantine, ne būti automatiškai išvalyta.
+  await nodeFsAdapter.writeTextFile(path.join(recreated.layout.path, "src", "nesvarus5.ts"), "x\n");
+  const dirtyAttempt = await createTaskWorktree({
+    projectRoot: root,
+    identity: id5,
+    lease: lease({ lease_id: "lease-8", fencing_token: 8, owner_id: "owner-8", task_id: "t5" }),
+    baseRef: "HEAD",
+  });
+  assert.equal(dirtyAttempt.status, "quarantined", JSON.stringify(dirtyAttempt));
+  if (dirtyAttempt.status !== "quarantined") return;
+  assert.ok(dirtyAttempt.reasons.includes("dirty-worktree"));
+  assert.equal(await nodeFsAdapter.exists(dirtyAttempt.layout.path), true, "gyva nešvari kopija neturi būti ištrinta");
+});
+
 test("orphan reap eskalacija: negyva git worktree registracija su stale index.lock issivalo po reap'o, gyva islieka", async () => {
   const escRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-escalate-"));
   try {

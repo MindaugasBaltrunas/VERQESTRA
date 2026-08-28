@@ -22,6 +22,7 @@ import {
 } from "./worktree-layout.js";
 import { entryFor, unmergedPathsIn, worktreeGit, worktreeGitFailure } from "./worktree-git-util.js";
 import { ownerMarkerFor, quarantineWorktree, readWorktreeOwner, writeWorktreeOwner } from "./worktree-owner.js";
+import { cleanupWorktreeRegistrations } from "./worktree-registration-cleanup.js";
 import {
   classifyWorktreeState,
   type WorktreeOwnerMarker,
@@ -102,7 +103,14 @@ export async function createTaskWorktree(input: {
     owner_id: input.lease.owner_id,
     fencing_token: input.lease.fencing_token,
   };
-  const existing = await inspectTaskWorktree({ projectRoot, identity: input.identity, claim });
+  let existing = await inspectTaskWorktree({ projectRoot, identity: input.identity, claim });
+
+  if (existing.status === "quarantine" && existing.reasons.length === 1 && existing.reasons[0] === "prunable") {
+    // Negyva registracija (katalogo nebėra) — `prune` ją išvalo prieš `add`, kad nauja kopija
+    // negautų kolizijos sufikso vien dėl to, kad `.git/worktrees/<name>/` dar egzistuoja.
+    await cleanupWorktreeRegistrations({ projectRoot });
+    existing = await inspectTaskWorktree({ projectRoot, identity: input.identity, claim });
+  }
 
   if (existing.status === "reusable") {
     const owner = ownerMarkerFor(input.lease, layout.branch, now.toISOString());

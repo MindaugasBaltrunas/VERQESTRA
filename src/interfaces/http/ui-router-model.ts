@@ -43,8 +43,35 @@ export type PolicyDecisionRequest = {
   reason: string;
 };
 
+/**
+ * Bundle mtime pora tiesiai iš fs, dar be interpretacijos. `null` reiškia „bundle nesukurtas" —
+ * fs adapteris (atskira užduotis) taip atsako, kai `ui-app/dist/index.html` nerastas.
+ */
+export type BundleMtimeFacts = { bundleMtimeMs: number; srcMtimeMs: number } | null;
+
+/**
+ * `/api/dashboard` bundle senumo laukai iš žalių mtime faktų. Grynas skaičiavimas — jokio I/O —
+ * kad testai galėtų pin'inti ribą (`srcMtimeMs > bundleMtimeMs`) be adapterio.
+ */
+export function bundleStalenessFields(facts: BundleMtimeFacts): {
+  bundle_built_at: string | null;
+  bundle_stale: boolean;
+} {
+  if (facts === null) return { bundle_built_at: null, bundle_stale: false };
+  return {
+    bundle_built_at: new Date(facts.bundleMtimeMs).toISOString(),
+    bundle_stale: facts.srcMtimeMs > facts.bundleMtimeMs,
+  };
+}
+
 export type UiRouterPorts = {
   dashboardData(uiToken: string): Promise<unknown>;
+  /**
+   * Bundle senumo faktai (`ui-app/dist` vs naujausias `ui-app/src` failas). Optional: tikras fs
+   * adapteris sujungiamas atskiroje (composition) užduotyje — iki tol lauko tiesiog nėra, ir
+   * `/api/dashboard` atsako `null` / `false`, be klaidos.
+   */
+  bundle?: { readFacts(): Promise<BundleMtimeFacts> };
   /** Visi pasiūlymai su sprendimų istorija: `{ proposals }`, o ne žalias žurnalo sąrašas. */
   listPolicyProposals(): Promise<unknown>;
   /**

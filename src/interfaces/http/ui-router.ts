@@ -25,7 +25,14 @@ import {
 import { UI_IDENTITY_ROUTE, projectFingerprint, uiIdentityPayload } from "./ui-port-rules.js";
 import { UnknownTaskBucketError } from "./workflow-buckets.js";
 import { hasValidApiToken, isLoopbackHost } from "./ui-security.js";
-import { json, toResponse, type UiRouteRequest, type UiRouteResponse, type UiRouterDeps } from "./ui-router-model.js";
+import {
+  bundleStalenessFields,
+  json,
+  toResponse,
+  type UiRouteRequest,
+  type UiRouteResponse,
+  type UiRouterDeps,
+} from "./ui-router-model.js";
 import { handlePost } from "./ui-router-mutations.js";
 import {
   normalizeTokenUsageLimit,
@@ -33,6 +40,7 @@ import {
 } from "../../application/analytics/token-usage-query.js";
 
 export type {
+  BundleMtimeFacts,
   PolicyDecisionRequest,
   PolicyProposalInput,
   UiRouteRequest,
@@ -110,7 +118,14 @@ async function handleGet(deps: UiRouterDeps, pathname: string, url: URL): Promis
     case "/api/events":
       return { kind: "sse" };
     case "/api/dashboard":
-      return await guarded(() => ports.dashboardData(deps.uiToken));
+      // Bundle senumo faktai prisegami PRIE dashboard snapshot'o, ne atskiru maršrutu: klientas
+      // jau kreipiasi čia kas 30 s, o antras periodinis kelias vien šitiems dviem laukams
+      // reikštų dvigubą pooling'ą tam pačiam ekranui.
+      return await guarded(async () => {
+        const data = await ports.dashboardData(deps.uiToken);
+        const facts = ports.bundle ? await ports.bundle.readFacts() : null;
+        return { ...(data as Record<string, unknown>), ...bundleStalenessFields(facts) };
+      });
     case "/api/policies/proposals":
       return await guarded(() => ports.listPolicyProposals());
     case "/api/token-usage":

@@ -141,7 +141,48 @@ test("API skaitymai be token'o duoda 403, su token'u — duomenis", async () => 
   assert.deepEqual(world.calls, []);
 
   const allowed = await handleUiRequest(world.deps, request({ url: "/api/dashboard" }));
-  assert.deepEqual(jsonBody(allowed), { token: TOKEN });
+  assert.deepEqual(jsonBody(allowed), { token: TOKEN, bundle_built_at: null, bundle_stale: false });
+});
+
+test("/api/dashboard: bundle senumo faktai — portui nesant, bundle nesant, ir tikrai pasenus", async () => {
+  const withoutPort = routerWorld();
+  const noPort = await handleUiRequest(withoutPort.deps, request({ url: "/api/dashboard" }));
+  assert.deepEqual(jsonBody(noPort), { token: TOKEN, bundle_built_at: null, bundle_stale: false });
+
+  const missingBundle = routerWorld();
+  missingBundle.deps = { ...missingBundle.deps, ports: { ...missingBundle.deps.ports, bundle: { readFacts: () => Promise.resolve(null) } } };
+  const noBundle = await handleUiRequest(missingBundle.deps, request({ url: "/api/dashboard" }));
+  assert.deepEqual(jsonBody(noBundle), { token: TOKEN, bundle_built_at: null, bundle_stale: false });
+
+  const stale = routerWorld();
+  stale.deps = {
+    ...stale.deps,
+    ports: {
+      ...stale.deps.ports,
+      bundle: { readFacts: () => Promise.resolve({ bundleMtimeMs: 1000, srcMtimeMs: 2000 }) },
+    },
+  };
+  const staleResponse = await handleUiRequest(stale.deps, request({ url: "/api/dashboard" }));
+  assert.deepEqual(jsonBody(staleResponse), {
+    token: TOKEN,
+    bundle_built_at: new Date(1000).toISOString(),
+    bundle_stale: true,
+  });
+
+  const fresh = routerWorld();
+  fresh.deps = {
+    ...fresh.deps,
+    ports: {
+      ...fresh.deps.ports,
+      bundle: { readFacts: () => Promise.resolve({ bundleMtimeMs: 2000, srcMtimeMs: 1000 }) },
+    },
+  };
+  const freshResponse = await handleUiRequest(fresh.deps, request({ url: "/api/dashboard" }));
+  assert.deepEqual(jsonBody(freshResponse), {
+    token: TOKEN,
+    bundle_built_at: new Date(2000).toISOString(),
+    bundle_stale: false,
+  });
 });
 
 test("skaitymo maršrutai: query parametrai perduodami, klaida virsta 500 be detalių", async () => {

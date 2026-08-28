@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { useWavesController, type UiWaveSlot, type UiWaveSlotState, type UiWavesView } from "../../controller/useWavesController";
+import type { UiWaveSlot, UiWaveSlotState, UiWavesView } from "../../model/types";
 import { formatAge } from "../../model/slotProgressFormat";
 import { useI18n } from "../../i18n/I18nContext";
 
@@ -27,14 +27,14 @@ function sortSlots(slots: readonly UiWaveSlot[]): UiWaveSlot[] {
 
 type Props = {
   /**
-   * Duomenis gali paduoti puslapis (task 1233) — tada tas pats bangų atsakymas maitina ir srautų
-   * korteles, ir šią panelę, t. y. viena užklausa vietoj dviejų. Be `onReload` panelė lieka
-   * savarankiška ir kraunasi pati: senas naudojimo būdas `<WavesPanel />` NEsulūžta.
+   * Duomenys ateina TIK iš `DashboardPage` (task 1233): tas pats `/api/waves` atsakymas maitina ir
+   * srautų korteles, ir šią panelę, per vieną pollingo srautą. Vidinis `useWavesController` kelias
+   * pašalintas (task 053-a-02) — jis niekada nebuvo pasiekiamas, nes `onReload` visada paduodamas.
    */
   data?: UiWavesView | null;
   error?: string | null;
   loading?: boolean;
-  onReload?: () => void;
+  onReload: () => void;
 };
 
 /**
@@ -47,15 +47,8 @@ type Props = {
  * Lentelė VIENA: kai serveris grąžina `slots`, rodomos slot'ų eilutės (jose lease'as jau yra), o kai
  * negrąžina — senoji lease'ų lentelė. Dvi lentelės tuos pačius workerius rodytų dukart.
  */
-export const WavesPanel = memo(function WavesPanel(props: Props) {
+export const WavesPanel = memo(function WavesPanel({ data = null, error = null, loading = false, onReload: reload }: Props) {
   const { t } = useI18n();
-  // Hook'as kviečiamas VISADA (kitaip lūžtų hook'ų tvarka), bet išjungiamas, kai duomenis jau
-  // paduoda tėvinis komponentas — kitaip tas pats endpoint'as būtų apklausiamas dukart.
-  const owned = useWavesController({ enabled: props.onReload === undefined });
-  const data = props.onReload ? props.data ?? null : owned.data;
-  const error = props.onReload ? props.error ?? null : owned.error;
-  const loading = props.onReload ? props.loading ?? false : owned.loading;
-  const reload = props.onReload ?? owned.reload;
 
   // Klaida čia matoma TIK kai dar nėra jokių sėkmingai gautų duomenų — jei jie jau yra, klaida
   // rodoma juosta žemiau, o ne šia vieta pakeičia paskutinius matytus duomenis.

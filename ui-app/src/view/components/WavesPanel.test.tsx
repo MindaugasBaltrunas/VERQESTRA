@@ -1,22 +1,14 @@
-import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { WavesPanel } from "./WavesPanel";
-import * as api from "../../model/api";
-import type { UiWaveSlot, UiWavesView } from "../../controller/useWavesController";
+import type { UiWaveSlot, UiWavesView } from "../../model/types";
 
 /**
- * Mock'inama `fetchWaves`, o NE globalus `fetch`.
- *
- * Iki 2026-08-26 šie testai stub'ino `globalThis.fetch`, nes kontroleris pats kalbėjosi su tinklu.
- * Task 028 jį perkėlė į bendrą klientą (`model/api`), tad tinklo sluoksnis — timeout'as, token'as
- * ir `assertOk` klaidų paaiškinimai — nebėra šio komponento reikalas. Testas, kuris ir toliau
- * stub'intų `fetch`, tikrintų kelią, kurio komponentas nebeturi: mock'as perima `fetchWaves`,
- * tikrasis `fetch` niekada nekviečiamas, o panelė lieka be duomenų.
+ * Nuo task 053-a-02 `WavesPanel` nebeturi vidinio duomenų kelio — duomenis visada paduoda
+ * tėvinis komponentas per props (`DashboardPage` juos visada paduoda). Todėl testai nebemock'ina
+ * `fetchWaves` ar `fetch`: jie tiesiog paduoda `data`/`error`/`loading` props ir tikrina vaizdą
+ * bei `onReload` iškvietimą.
  */
-vi.mock("../../model/api", () => ({
-  fetchWaves: vi.fn(),
-  getUiToken: () => "test-token",
-}));
 
 function view(overrides: Partial<UiWavesView> = {}): UiWavesView {
   return {
@@ -49,17 +41,10 @@ function slot(overrides: Partial<UiWaveSlot> = {}): UiWaveSlot {
 }
 
 describe("WavesPanel", () => {
-  beforeEach(() => {
-    vi.mocked(api.fetchWaves).mockReset();
-  });
+  it("renders slot leases and rejections from props", () => {
+    render(<WavesPanel data={view()} onReload={() => {}} />);
 
-  it("renders slot leases and rejections from GET /api/waves", async () => {
-    vi.mocked(api.fetchWaves).mockResolvedValue(view());
-
-    render(<WavesPanel />);
-
-    await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
-    expect(api.fetchWaves).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("w1")).toBeInTheDocument();
     expect(screen.getByText("0900-example")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(screen.getByText(/isolation_conflict/)).toBeInTheDocument();
@@ -67,113 +52,80 @@ describe("WavesPanel", () => {
     expect(screen.getByText(/wave.granted/)).toBeInTheDocument();
   });
 
-  it("shows a degraded-sources notice without failing the whole panel", async () => {
-    vi.mocked(api.fetchWaves).mockResolvedValue(view({ degraded: ["leases"] }));
+  it("shows a degraded-sources notice without failing the whole panel", () => {
+    render(<WavesPanel data={view({ degraded: ["leases"] })} onReload={() => {}} />);
 
-    render(<WavesPanel />);
-
-    await waitFor(() =>
-      expect(screen.getByText(/Some wave sources could not be read/)).toHaveTextContent("leases"),
-    );
+    expect(screen.getByText(/Some wave sources could not be read/)).toHaveTextContent("leases");
   });
 
-  it("shows an empty state when there are no active leases or rejections", async () => {
-    vi.mocked(api.fetchWaves).mockResolvedValue(view({ leases: [], last_rejections: [], events: [] }));
+  it("shows an empty state when there are no active leases or rejections", () => {
+    render(<WavesPanel data={view({ leases: [], last_rejections: [], events: [] })} onReload={() => {}} />);
 
-    render(<WavesPanel />);
-
-    await waitFor(() => expect(screen.getByText("No active leases")).toBeInTheDocument());
+    expect(screen.getByText("No active leases")).toBeInTheDocument();
     expect(screen.getByText("No rejections recorded")).toBeInTheDocument();
     expect(screen.getByText("No wave events recorded")).toBeInTheDocument();
   });
 
-  it("shows an error with a retry action when the request fails", async () => {
-    // Bendras klientas neok atsakymą paverčia metimu (`assertOk`), tad panelė mato Error, ne Response.
-    vi.mocked(api.fetchWaves).mockRejectedValue(new Error("HTTP 500: internal"));
+  it("shows a loading placeholder when there is no data yet", () => {
+    render(<WavesPanel data={null} loading onReload={() => {}} />);
 
-    render(<WavesPanel />);
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument());
+  it("shows an error with a retry action when there is no data yet", () => {
+    const onReload = vi.fn();
+    render(<WavesPanel data={null} error="HTTP 500: internal" onReload={onReload} />);
 
-    vi.mocked(api.fetchWaves).mockResolvedValue(view());
+    expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 500: internal/)).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-
-    await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
+    expect(onReload).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps showing the last successful data as a banner when a later poll fails", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      vi.mocked(api.fetchWaves).mockResolvedValueOnce(view());
-      render(<WavesPanel />);
-      await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
+  it("keeps showing the last successful data as a banner when a later poll fails", () => {
+    render(<WavesPanel data={view()} error="HTTP 503: waves snapshot unreadable" onReload={() => {}} />);
 
-      vi.mocked(api.fetchWaves).mockRejectedValueOnce(new Error("HTTP 503: waves snapshot unreadable"));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
-      });
-
-      // Klaida rodoma JUOSTA virš duomenų, o ne vietoj jų — paskutinė sėkminga eilutė lieka matoma.
-      await waitFor(() => expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument());
-      expect(screen.getByText("w1")).toBeInTheDocument();
-      expect(screen.getByText("0900-example")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    // Klaida rodoma JUOSTA virš duomenų, o ne vietoj jų — paskutinė sėkminga eilutė lieka matoma.
+    expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument();
+    expect(screen.getByText("w1")).toBeInTheDocument();
+    expect(screen.getByText("0900-example")).toBeInTheDocument();
   });
 
-  it("disables the retry button and shows a loading label while a retry is in flight", async () => {
-    vi.mocked(api.fetchWaves).mockRejectedValueOnce(new Error("HTTP 500: internal"));
-    render(<WavesPanel />);
-    await waitFor(() => expect(screen.getByText(/Failed to load waves/)).toBeInTheDocument());
+  it("disables the retry button and shows a loading label while a retry is in flight", () => {
+    render(<WavesPanel data={view()} error="HTTP 500: internal" loading onReload={() => {}} />);
 
-    let resolveRetry!: (value: ReturnType<typeof view>) => void;
-    vi.mocked(api.fetchWaves).mockReturnValueOnce(new Promise((resolve) => { resolveRetry = resolve; }));
+    expect(screen.getByRole("button", { name: "Loading..." })).toBeDisabled();
+  });
+
+  it("calls onReload when the retry button is clicked", () => {
+    const onReload = vi.fn();
+    render(<WavesPanel data={view()} error="HTTP 500: internal" onReload={onReload} />);
+
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-
-    await waitFor(() => expect(screen.getByRole("button", { name: "Loading..." })).toBeDisabled());
-
-    resolveRetry(view());
-    await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
-  });
-
-  it("polls again after 30 seconds", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      vi.mocked(api.fetchWaves).mockResolvedValue(view());
-      render(<WavesPanel />);
-      await waitFor(() => expect(api.fetchWaves).toHaveBeenCalledTimes(1));
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
-      });
-      expect(api.fetchWaves).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(onReload).toHaveBeenCalledTimes(1);
   });
 
   // Task 1228: kai serveris grąžina `slots`, operatorius mato būseną, o ne vien lease'o eilutę.
-  it("renders slot rows with state, heartbeat and failure reason when the server sends slots", async () => {
-    vi.mocked(api.fetchWaves).mockResolvedValue(
-      view({
-        slots: [
-          slot(),
-          slot({
-            worker_id: "w2",
-            task_id: "0901-other",
-            state: "failed",
-            stale: true,
-            heartbeat_age_ms: 3_600_000,
-            last_failure: { ts: "2026-08-11T10:02:00Z", task_id: "0901-other", reason: "dispatch exited 75" },
-          }),
-        ],
-      }),
+  it("renders slot rows with state, heartbeat and failure reason when the server sends slots", () => {
+    const { container } = render(
+      <WavesPanel
+        data={view({
+          slots: [
+            slot(),
+            slot({
+              worker_id: "w2",
+              task_id: "0901-other",
+              state: "failed",
+              stale: true,
+              heartbeat_age_ms: 3_600_000,
+              last_failure: { ts: "2026-08-11T10:02:00Z", task_id: "0901-other", reason: "dispatch exited 75" },
+            }),
+          ],
+        })}
+        onReload={() => {}}
+      />,
     );
-
-    const { container } = render(<WavesPanel />);
-
-    await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
 
     // Viena lentelė, ne dvi: lease'o eilutė gyvena slot'o eilutėje, tad workeris rodomas vienąkart.
     expect(screen.getAllByText("w1")).toHaveLength(1);
@@ -188,12 +140,8 @@ describe("WavesPanel", () => {
     expect(screen.queryByText("Status")).not.toBeInTheDocument();
   });
 
-  it("keeps the legacy lease table when the server sends no slots", async () => {
-    vi.mocked(api.fetchWaves).mockResolvedValue(view());
-
-    const { container } = render(<WavesPanel />);
-
-    await waitFor(() => expect(screen.getByText("w1")).toBeInTheDocument());
+  it("keeps the legacy lease table when the server sends no slots", () => {
+    const { container } = render(<WavesPanel data={view()} onReload={() => {}} />);
 
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();

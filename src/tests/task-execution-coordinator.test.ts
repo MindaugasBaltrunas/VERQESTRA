@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
 import type { CheapFinishPort, PreflightFailureMemoPort } from "../application/task-execution/run-coordinator-ports.js";
+import type { PreservedWorkReviewPorts } from "../application/task-execution/preserved-work-review-model.js";
 import type { PreflightFailureMemoRecord } from "../application/quality-gates/preflight-memo-schema.js";
 import { createFakeTaskRunEnv, fakeBucketPath, type FakeTaskRunEnv } from "./helpers/fake-task-run-ports.js";
 
@@ -222,6 +223,85 @@ test("cheap finish: pre-repair paruošimas + dispatch'as, o pakartotinis repair 
   assert.ok(!env.cliCalls.some((args) => args[0] === "rollback-stable"), "dalinis darbas nesunaikinamas");
   assert.ok(!env.cliCalls.some((args) => args[0] === "retry-guard"), "cheap finish aplenkia repair ratą pre-repair taške");
   assert.ok(env.files.has(fakeBucketPath("human-review", TASK_MD)));
+});
+
+// --- 063-c-04: preservedWorkReview portas prakišamas per createRunCoordinator opcijas -------
+
+const PRESERVED_REF = "refs/verqestra/preserved/deadbeef";
+const PRESERVED_TASK_BODY = `# Task
+
+## Failai
+Leidžiama:
+- \`src/x.ts\`
+
+## Patikra
+- \`pnpm typecheck\`
+`;
+
+/**
+ * `done` verdiktas be naujo commit'o + purvinas medis → rollback preserved'ina darbą ir
+ * išspausdina `ROLLBACK PRESERVED: … ref=<ref>`. Būtent ant šios eilutės verify kelias
+ * kviečia preserved-work review, jei portas iki jo atkeliavo.
+ */
+function preservedRollbackEnv(): { env: FakeTaskRunEnv; activeFile: string } {
+  const env = createFakeTaskRunEnv();
+  const activeFile = fakeBucketPath("active", TASK_MD);
+  env.files.set(activeFile, PRESERVED_TASK_BODY);
+  env.ports.state.readResumeState = async () => ({
+    status: "ok",
+    value: { task_id: TASK, phase: "verify", status: "started" },
+  });
+  env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
+  env.behavior.git.productDirtyCount = 1;
+  env.behavior.git.committedProductWorkSha = undefined;
+  env.behavior.cli = (args) =>
+    args[0] === "rollback-stable"
+      ? {
+          code: 0,
+          output: `ROLLBACK PRESERVED: task=${TASK} ref=${PRESERVED_REF} commit=deadbeef paths=1 record=/vq/state/rollback-preserved/${TASK}.json`,
+        }
+      : 0;
+  return { env, activeFile };
+}
+
+test("preservedWorkReview: coordinator opcija pasiekia verify kelią ir žalias verdiktas uždaro done", async () => {
+  const { env, activeFile } = preservedRollbackEnv();
+  const checked: Array<[string, string]> = [];
+  const preservedWorkReview: PreservedWorkReviewPorts = {
+    materialize: async (ref) => {
+      assert.equal(ref, PRESERVED_REF, "portas gauna būtent rollback'o paskelbtą ref'ą");
+      return {
+        ok: true,
+        work: { worktreePath: "/worktrees/preserved/deadbeef", changedPaths: ["src/x.ts"], dispose: async () => {} },
+      };
+    },
+    runCheck: async (worktreePath, command) => {
+      checked.push([worktreePath, command]);
+      return { exitCode: 0, output: "ok" };
+    },
+  };
+
+  const coordinator = createRunCoordinator(env.ports, { preservedWorkReview });
+  const result = await coordinator.resume("active", activeFile);
+
+  assert.equal(result, true, "atkurtas preserved darbas uždaro task'ą, o ne parkuoja");
+  assert.deepEqual(checked, [["/worktrees/preserved/deadbeef", "pnpm typecheck"]], "`## Patikra` paleista worktree'je");
+  assert.ok(env.files.has(fakeBucketPath("done", TASK_MD)), "failas terminaliniame done bucket'e");
+  assert.ok(!env.files.has(fakeBucketPath("human-review", TASK_MD)));
+});
+
+test("preservedWorkReview: be porto — tas pats bėgimas parkuojamas kaip iki 063 (backward compat)", async () => {
+  const { env, activeFile } = preservedRollbackEnv();
+
+  const coordinator = createRunCoordinator(env.ports);
+  const result = await coordinator.resume("active", activeFile);
+
+  assert.equal(result, false);
+  assert.ok(env.files.has(fakeBucketPath("human-review", TASK_MD)));
+  assert.ok(
+    env.logs.some((line) => line.includes(`preserved_work=${PRESERVED_REF}`)),
+    "priežastis lieka nepakitusi preserved_work eilutė",
+  );
 });
 
 test("integracijos vartai: advisory režimas užregistruoja verdiktą ir praleidžia done", async () => {

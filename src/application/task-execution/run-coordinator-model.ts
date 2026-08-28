@@ -13,6 +13,7 @@ import type {
   IntegrationRunResult,
   TaskDecision,
 } from "./run-coordinator-ports.js";
+import type { PreservedWorkReviewPorts } from "./preserved-work-review-model.js";
 
 /**
  * Cheap finish bandymo baigtis verifikacijos ciklui:
@@ -66,4 +67,12 @@ export type RunCoordinator = {
 export type RunCoordinatorOptions = {
   preflightCmd?: string;
   diagnoseCmd?: string;
+  /**
+   * Preserved-work review portai (063-a/063-b), kuriuos koordinatorius prakiša į `verifyTask`.
+   *
+   * Neprivalomi: be jų verifikacijos kelias lieka baitas-į-baitą toks pat, koks buvo iki 063-b
+   * (preserved ref'as virsta `preserved_work=<ref>` human-review priežastimi). Realų adapterį
+   * pririša composition sluoksnis — application čia git/worktree nemato.
+   */
+  preservedWorkReview?: PreservedWorkReviewPorts;
 };

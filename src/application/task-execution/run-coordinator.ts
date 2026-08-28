@@ -46,6 +46,10 @@ export type { RunCoordinator, RunCoordinatorOptions } from "./run-coordinator-mo
 export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinatorOptions = {}): RunCoordinator {
   const preflightCmd = options.preflightCmd ?? "claude-preflight";
   const diagnoseCmd = options.diagnoseCmd ?? "claude-diagnose";
+  // `exactOptionalPropertyTypes`: portas keliauja į verifyTask per sąlyginį spread'ą, kad
+  // jo nebuvimas liktų „lauko nėra", o ne `preservedWorkReview: undefined`.
+  const preservedWorkReviewOption =
+    options.preservedWorkReview === undefined ? {} : { preservedWorkReview: options.preservedWorkReview };
   let activeRun: TaskRunState | undefined;
 
   function currentRun(): TaskRunState {
@@ -150,7 +154,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
    */
   async function runVerificationLoop(state: TaskRunState): Promise<boolean> {
     while (true) {
-      const verdict = await verifyTask(state, ports, { diagnoseCmd });
+      const verdict = await verifyTask(state, ports, { diagnoseCmd, ...preservedWorkReviewOption });
       if (verdict.kind === "infrastructure") {
         return await stopRun(ports, state, verdict.stage, verdict.exitCode);
       }

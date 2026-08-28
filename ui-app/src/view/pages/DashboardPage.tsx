@@ -50,8 +50,15 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
     actions,
   } = useDashboardController();
   const [proposalRefreshToken, setProposalRefreshToken] = useState(0);
+  // Token'as turi VIENĄ skaitytoją — `PolicyProposalsPanel`, montuojamą tik `#/reviews` šakoje
+  // (žr. žemiau). Kituose maršrutuose panelės DOM'e nėra, tad didinimas būtų state pakeitimas be
+  // skaitytojo: re-renderis, kurio niekas nepamato. Praleisti jo negalima tik ten, kur panelė jau
+  // stovi ekrane — įeinant į `#/reviews` ji kraunasi pati per mount `useEffect`.
+  // Jei prireiktų atnaujinti ją ir iš kito maršruto, ta sąlyga keičiama KARTU su montavimo vieta.
   const refreshAll = () => {
-    setProposalRefreshToken((value) => value + 1);
+    if (activeRoute === "reviews") {
+      setProposalRefreshToken((value) => value + 1);
+    }
     void actions.reload();
   };
 

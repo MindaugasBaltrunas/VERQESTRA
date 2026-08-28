@@ -79,8 +79,10 @@ export const LoopStreamCards = memo(function LoopStreamCards({
     // Srautai atrodo simetriški, bet `w1` nėra lygiavertis: paleidimo sąlyga tikrina veikiančių
     // srautų PREFIKSĄ, tad jį sustabdžius lieka 0 slot'ų ir ciklo procesas baigiasi. Sakinys
     // rodomas VISADA, o ne tik po sustabdymo: jo reikia PRIEŠ paspaudimą, ir jis pataiso
-    // `drainNote` frazę „šiam srautui".
-    const loopGateNote = slot.workerId === "w1"
+    // `drainNote` frazę „šiam srautui". Ta pati riba nurodo, ar `drain` turi reikalauti
+    // patvirtinimo (žr. `stopsWholeLoop` žemiau).
+    const stopsWholeLoop = slot.workerId === "w1";
+    const loopGateNote = stopsWholeLoop
       ? fill(t("Stream {stream} gates the whole loop: stopping it stops the loop process, not just this stream."), {
           stream: slot.index,
         })
@@ -99,15 +101,47 @@ export const LoopStreamCards = memo(function LoopStreamCards({
     const fixBusy = fixableTaskId !== null && pendingActions.has(fixActionId(fixableTaskId));
 
     /**
-     * Ar srautas apskritai turi ką stabdyti (2026-08-24, operatoriaus nurodymas).
+     * Ar srautas apskritai turi vykdomą bandymą.
      *
-     * `drain` ir `abort` veikia VYKDOMĄ bandymą: pirmas jo neužbaigia anksčiau, antras nenutraukia
-     * iš karto — abu tik nebeduoda naujo darbo. Tuščiam srautui jie nekeičia NIEKO, tad aktyvus
-     * mygtukas žada veiksmą, kurio vienintelė galima pasekmė yra tyla. Aktyvus lieka tik
-     * „Tęsti", nes juo atrakinamas anksčiau sustabdytas srautas — ir tai yra veiksmas net tada,
-     * kai užduoties nėra.
+     * Iki 2026-08-28 šis rinkinys uždarydavo IR `drain`, IR `abort` tuščiam srautui — argumentas
+     * buvo, kad abu veikia tik vykdomą bandymą, tad tuščiam srautui jie nekeičia nieko. Tai buvo
+     * neteisinga `drain` atžvilgiu: `desired: "drain"` yra NORIMOS būsenos įrašas (žr. toliau),
+     * kuris uždraudžia slot'ui imti KITĄ užduotį — prasminga net kai dabar jis tuščias. Task 050
+     * (audito radinys) tą sąlygą nuima nuo `drain`. `abort` ją išlaiko: kol jis lieka atskiras
+     * pavadinimas tam pačiam poveikiui (žr. `ConfirmButton` žemiau), keisti jo elgesį reikštų
+     * spėlioti apie kontraktą, kurio ši užduotis nekeičia.
      */
     const hasWork = slot.taskId !== null;
+
+    // `drain` tuščiam slot'ui nuo 2026-08-28 lieka aktyvus (žr. `hasWork` komentarą aukščiau) —
+    // sąlyga nebepriklauso nuo `hasWork`.
+    const drainDisabled = !onStopSlot || slot.desired !== "run" || drainBusy;
+    /**
+     * `w1` sustabdymas sustabdo VISĄ ciklą, ne tik šį srautą (`loopGateNote` aukščiau) — tad jam
+     * vieno paspaudimo `drain` yra pavojingas patvirtinimo trūkumas (audito radinys, task 050).
+     * Kitiems srautams `drain` paliečia TIK juos, tad vieno paspaudimo elgesys lieka teisingas.
+     */
+    const drainButton = stopsWholeLoop ? (
+      <ConfirmButton
+        label={t("Stop stream (drain)")}
+        confirmLabel={t("Confirm: stops the whole loop")}
+        cancelLabel={t("Cancel")}
+        tone="ghost"
+        disabled={drainDisabled}
+        busy={drainBusy}
+        onConfirm={() => onStopSlot?.(slot.workerId)}
+      />
+    ) : (
+      <button
+        className="button ghost small-button" type="button"
+        disabled={drainDisabled}
+        aria-busy={drainBusy || undefined}
+        onClick={() => onStopSlot?.(slot.workerId)}
+      >
+        {t("Stop stream (drain)")}
+        {drainBusy && <span className="button-spinner" aria-hidden="true" />}
+      </button>
+    );
 
     return (
       <>
@@ -115,16 +149,7 @@ export const LoopStreamCards = memo(function LoopStreamCards({
         {waveNote && <p className="runtime-explanation">{waveNote}</p>}
         {loopGateNote && <p className="runtime-explanation">{loopGateNote}</p>}
         <div className="toolbar">
-          <button
-            className="button ghost small-button" type="button"
-            disabled={!onStopSlot || slot.desired !== "run" || drainBusy || !hasWork}
-            aria-busy={drainBusy || undefined}
-            title={hasWork ? undefined : t("The stream has no running task")}
-            onClick={() => onStopSlot?.(slot.workerId)}
-          >
-            {t("Stop stream (drain)")}
-            {drainBusy && <span className="button-spinner" aria-hidden="true" />}
-          </button>
+          {drainButton}
           <button
             className="button ghost small-button" type="button"
             disabled={!onResumeSlot || slot.desired === "run" || resumeBusy}
@@ -150,12 +175,17 @@ export const LoopStreamCards = memo(function LoopStreamCards({
             </button>
           )}
           {/* Nutraukimas patvirtinamas DVIEM paspaudimais toje pačioje vietoje, kur jis vykdomas:
-              modalinis `window.confirm` būtų ir netestuojamas, ir atitrūkęs nuo srauto, kurį liečia. */}
+              modalinis `window.confirm` būtų ir netestuojamas, ir atitrūkęs nuo srauto, kurį liečia.
+              `tone="danger"` čia BUVO klaidinantis (audito radinys, task 050): mygtukas žadėjo
+              realų priverstinį nutraukimą, kurio nėra — panelės paantraštė žemiau tai jau
+              paaiškina. Pavadinimo NEkeičiame: `RuntimePanel.test.tsx` (šios užduoties `## Failai`
+              ribos NEAPIMA) ieško mygtuko būtent pagal šį tekstą, tad tekstinis pervadinimas jį
+              nutylomis nulaužtų. Sprendimas — nuimti tik `tone`, palikti neutralų `ghost`. */}
           <ConfirmButton
             label={t("Abort stream")}
             confirmLabel={t("Confirm abort")}
             cancelLabel={t("Cancel")}
-            tone="danger"
+            tone="ghost"
             disabled={!onAbortSlot || !hasWork}
             busy={abortBusy}
             onConfirm={() => onAbortSlot?.(slot.workerId)}

@@ -114,10 +114,11 @@ describe("LoopStreamCards with slot progress", () => {
     expect(onStopSlot).toHaveBeenCalledWith("w2");
   });
 
-  // 2026-08-24, operatoriaus nurodymas: „Išjungti srauto stabdymą bei nutraukimą, kai srautas
-  // tuščias." `drain` ir `abort` veikia VYKDOMĄ bandymą — tuščiam srautui jie nekeičia nieko, tad
-  // aktyvus mygtukas žada veiksmą, kurio vienintelė galima pasekmė yra tyla.
-  it("tuščiame sraute stabdymas ir nutraukimas IŠJUNGTI, o tęsimas lieka", () => {
+  // 2026-08-28, audito radinys (task 050): `desired: "drain"` yra NORIMOS būsenos įrašas, kuris
+  // uždraudžia slot'ui imti KITĄ užduotį — prasminga net kai jis dabar tuščias. Iki šiol `drain`
+  // buvo uždarytas kartu su `abort` tuščiam srautui; dabar lieka aktyvus TIK `drain`, nes `abort`
+  // (tas pats poveikis kitu vardu) savo elgesio ši užduotis nekeičia.
+  it("tuščiame sraute stabdymas (drain) leidžiamas, o nutraukimas (abort) lieka išjungtas", () => {
     const control = loopControl();
     const onStopSlot = vi.fn();
     render(
@@ -131,14 +132,41 @@ describe("LoopStreamCards with slot progress", () => {
     );
 
     const drain = stream(2).getByRole("button", { name: "Stop stream (drain)" });
-    expect(drain).toBeDisabled();
+    expect(drain).toBeEnabled();
     expect(stream(2).getByRole("button", { name: "Abort stream" })).toBeDisabled();
-    // Priežastis pasiekiama, o ne nutylima: išjungtas mygtukas be paaiškinimo yra mįslė.
-    // Be `I18nProvider` `t()` grąžina patį raktą — tai numatytoji anglų kalba, ne trūkstamas vertimas.
-    expect(drain).toHaveAttribute("title", "The stream has no running task");
 
     fireEvent.click(drain);
+    expect(onStopSlot).toHaveBeenCalledWith("w2");
+  });
+
+  // 2026-08-28, audito radinys (task 050): `w1` sustabdymas sustabdo VISĄ ciklą, ne tik šį srautą
+  // (žr. „warns on Stream 1..." testą žemiau), tad jam vieno paspaudimo `drain` buvo pavojingas
+  // patvirtinimo trūkumas. Kitiems srautams (pvz. `w2` aukščiau) vieno paspaudimo elgesys lieka.
+  it("stabdant Stream 1 reikalaujama patvirtinimo, nes tai sustabdo visą ciklą", () => {
+    const control = loopControl();
+    const onStopSlot = vi.fn();
+    render(<LoopStreamCards loopControl={control} slotProgress={progressFor(control)} onStopSlot={onStopSlot} />);
+
+    fireEvent.click(stream(1).getByRole("button", { name: "Stop stream (drain)" }));
     expect(onStopSlot).not.toHaveBeenCalled();
+
+    fireEvent.click(stream(1).getByRole("button", { name: "Confirm: stops the whole loop" }));
+    expect(onStopSlot).toHaveBeenCalledWith("w1");
+  });
+
+  // Task 050, (c) bullet'as taikomas net kai Stream 1 yra TUŠČIAS: `drain` lieka aktyvus, o
+  // patvirtinimas — kadangi jis stovi ant `w1` — lieka privalomas abiem atvejais.
+  it("tuščias Stream 1 taip pat leidžia drain'inti, bet su tuo pačiu patvirtinimu", () => {
+    const control = loopControl({ slots: [slot()] });
+    const onStopSlot = vi.fn();
+    render(<LoopStreamCards loopControl={control} slotProgress={progressFor(control)} onStopSlot={onStopSlot} />);
+
+    const drain = stream(1).getByRole("button", { name: "Stop stream (drain)" });
+    expect(drain).toBeEnabled();
+
+    fireEvent.click(drain);
+    fireEvent.click(stream(1).getByRole("button", { name: "Confirm: stops the whole loop" }));
+    expect(onStopSlot).toHaveBeenCalledWith("w1");
   });
 
   it("dirbantis srautas lieka valdomas — taisyklė liečia TIK tuščią", () => {

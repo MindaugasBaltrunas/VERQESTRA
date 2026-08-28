@@ -3,7 +3,6 @@ import { PolicyProposalsPanel } from "../../App";
 import { useDashboardController } from "../../controller/useDashboardController";
 import { useWavesController } from "../../controller/useWavesController";
 import { fixableTaskIds } from "../../model/loopControlsViewModel";
-import { buildQueuePipeline } from "../../model/queuePipelineViewModel";
 import { buildSlotProgressViews, correlateActivity } from "../../model/slotProgressViewModel";
 import { AgentChainProgress } from "../components/AgentChainProgress";
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
@@ -14,7 +13,6 @@ import { HumanReviewPanel } from "../components/HumanReviewPanel";
 import { LearningPanel } from "../components/LearningPanel";
 import { OverviewPanel } from "../components/OverviewPanel";
 import { PolicyControlsPanel } from "../components/PolicyControlsPanel";
-import { QueuePipelineBoard } from "../components/QueuePipelineBoard";
 import { RuntimePanel } from "../components/RuntimePanel";
 import { SlotStreamsOverview } from "../components/SlotStreamsOverview";
 import { ToastStack } from "../components/ToastStack";
@@ -90,21 +88,6 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
   // `Set` per `useMemo`: naujas rinkinys kiekvienam renderiui panaikintų `memo` naudą visoje
   // srautų kortelių šakoje.
   const fixable = useMemo(() => fixableTaskIds(dashboard?.humanReview ?? []), [dashboard?.humanReview]);
-
-  const pipeline = useMemo(
-    () => dashboard === null
-      ? null
-      : buildQueuePipeline({
-          now: Date.now(),
-          buckets: dashboard.buckets,
-          loopSlots: dashboard.loopControl.slots,
-          waveSlots: waves?.slots,
-          humanReview: dashboard.humanReview,
-          rejections: waves?.last_rejections ?? [],
-          refillDecisions: waves?.refill_decisions ?? [],
-        }),
-    [dashboard, waves],
-  );
 
   // Kurio srauto grandinė rodoma. Dvi užduotys tuo pačiu vardu reiškia, kad priskirti NEĮMANOMA.
   // Nutrūkęs gyvas srautas priskyrimą irgi panaikina: kortelės tada rodo „srautas nežinomas", ir
@@ -294,13 +277,9 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
             onFixTask={(taskId) => void actions.fixSlotTask(taskId)}
           />
         )}
-        {/* Eilės lenta yra ATSKIRA sekcija, o ne `WavesPanel` vidus: jos duomenys ateina daugiausia
-            iš `/api/dashboard`, tad paslėpta už bangų klaidos/įkėlimo ji dingtų dėl svetimo
-            endpoint'o gedimo, o įspėjimas „bangų duomenų nėra" niekada nepasiektų ekrano. */}
         {/* Biudžetas ir diagnostika gyvena `#/system`, nes abu atsako į klausimą „kodėl sistema
             elgiasi taip, kaip elgiasi". Iki 2026-08-24 abiejų duomenys buvo siunčiami ir numetami. */}
         {activeRoute === "system" && raw && <TokenBudgetPanel budget={raw.controlPlane?.token_budget} />}
-        {activeRoute === "system" && pipeline && <QueuePipelineBoard board={pipeline} />}
         {activeRoute === "system" && (
           <WavesPanel data={waves} error={wavesError} onReload={() => void reloadWaves()} />
         )}

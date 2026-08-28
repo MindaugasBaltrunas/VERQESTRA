@@ -7,17 +7,26 @@
 //   2. gyvybė tikrinama per PROCESO HANDLE (`isRunning`), o ne per PID sąrašą: PID'ai
 //      perpanaudojami, ir svetimas procesas tuo pačiu numeriu atrodytų kaip mūsų loop'as.
 
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import type {
   ProcessLifecycleFsPort,
   ProcessLifecyclePorts,
   SpawnedProcess,
 } from "../../interfaces/http/process-lifecycle-ports.js";
 import { UI_AUTOSTART_ENV } from "../../interfaces/http/ui-lifecycle.js";
+import {
+  UI_REBUILD_ARGS,
+  UI_REBUILD_COMMAND,
+  UI_REBUILD_OUTPUT_TAIL_MAX_CHARS,
+  type UiRebuildExit,
+  type UiRebuildProcess,
+  type UiRebuildProcessPorts,
+} from "../../interfaces/http/ui-rebuild.js";
 import type { HookIo } from "../../interfaces/hooks/protocol.js";
 import type { LoopRuntimePorts } from "../../interfaces/hooks/loop-runtime-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { isProcessAlive } from "../../infrastructure/process/process-tree.js";
+import { packageManagerExecutable } from "../../infrastructure/process/run-process.js";
 import { cliEntryPath } from "../runtime/context.js";
 
 /** Gyvavimo ciklo FS pjūvis: skaitymai, du rašymai ir šalinimas, kuris SAKO, ar failas buvo. */
@@ -118,6 +127,98 @@ export function processLifecyclePorts(input: UiLifecycleAdapterInput): ProcessLi
     processIsAlive: (pid) => isProcessAlive(pid),
     env: (name) => process.env[name],
     ...(input.io === undefined ? {} : { io: input.io }),
+  };
+}
+
+/** Minimalus pjūvis, kurio reikia rebuild vaikui: leidžia testams stub'inti `spawn` be viso `ChildProcess`. */
+export type UiRebuildOutputStream = { on(event: "data", listener: (chunk: Buffer) => void): unknown } | null;
+export type UiRebuildSpawnedChild = {
+  pid?: number | undefined;
+  stdout: UiRebuildOutputStream;
+  stderr: UiRebuildOutputStream;
+  on(event: "exit", listener: (code: number | null) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  unref(): unknown;
+};
+export type UiRebuildSpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => UiRebuildSpawnedChild;
+
+/**
+ * Paleidžia `UI_REBUILD_COMMAND`/`UI_REBUILD_ARGS` (etalonas: `run-process.ts#runProcess`
+ * Windows .cmd/.bat pastaba — Node ≥18.20/20.12/22 atsisako spawn'inti `.cmd` tiesiogiai
+ * (CVE-2024-27980), o `shell: true` savo ruožtu neescape'ina argumentų (DEP0190). Saugu — per
+ * `cmd.exe /d /s /c`, kur args lieka atskiri argv elementai.
+ *
+ * Skirtingai nuo `spawnDetachedCli`, čia reikia IŠVESTIES: `failed` baigtis operatoriui neturėtų
+ * ką parodyti be jos. Buferis apkarpomas iki `UI_REBUILD_OUTPUT_TAIL_MAX_CHARS` — tiek pat, kiek
+ * `ui-rebuild.ts` vis tiek nukirstų prieš rašydamas įrašą, tad platesnis buferis nieko neduotų.
+ *
+ * `spawnFn` INJEKUOJAMAS (numatyta — tikras `spawn`): produkcijoje visada tikras procesas, o
+ * testas paduoda stub'ą, kad `pnpm --dir ui-app build` niekada realiai nepasileistų.
+ */
+export function spawnUiRebuildProcess(projectRoot: string, spawnFn: UiRebuildSpawnFn = spawn): UiRebuildProcess {
+  const resolvedCommand = packageManagerExecutable(UI_REBUILD_COMMAND);
+  const isWindowsBatch = process.platform === "win32" && /\.(cmd|bat)$/i.test(resolvedCommand);
+  const spawnCommand = isWindowsBatch ? "cmd.exe" : resolvedCommand;
+  const spawnArgs = isWindowsBatch ? ["/d", "/s", "/c", resolvedCommand, ...UI_REBUILD_ARGS] : [...UI_REBUILD_ARGS];
+
+  const child = spawnFn(spawnCommand, spawnArgs, {
+    cwd: projectRoot,
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+
+  let exited = false;
+  let output = "";
+  const appendOutput = (chunk: Buffer): void => {
+    output += chunk.toString("utf8");
+    if (output.length > UI_REBUILD_OUTPUT_TAIL_MAX_CHARS) {
+      output = output.slice(-UI_REBUILD_OUTPUT_TAIL_MAX_CHARS);
+    }
+  };
+  child.stdout?.on("data", appendOutput);
+  child.stderr?.on("data", appendOutput);
+
+  const exitCallbacks: Array<(exit: UiRebuildExit) => void | Promise<void>> = [];
+  const finish = (code: number | null): void => {
+    if (exited) return;
+    exited = true;
+    const exit: UiRebuildExit = { code, tail: output };
+    for (const callback of exitCallbacks) void callback(exit);
+  };
+  child.on("exit", (code) => finish(code));
+  child.on("error", () => finish(null));
+
+  return {
+    pid: child.pid,
+    isRunning: () => !exited,
+    detach: () => child.unref(),
+    onExit: (callback) => exitCallbacks.push(callback),
+  };
+}
+
+/**
+ * UI bundle rebuild portai (task 058-4): komanda fiksuota `ui-rebuild.ts`, čia — tik jos
+ * paleidimas. `spawnFn` antras argumentas egzistuoja TIK testams — produkcinis kvietėjas
+ * (`router-adapters.ts`) jo niekada nepaduoda, tad gauna tikrą `spawn`.
+ */
+export function uiRebuildProcessPorts(
+  input: UiLifecycleAdapterInput,
+  spawnFn?: UiRebuildSpawnFn,
+): UiRebuildProcessPorts {
+  return {
+    fs: processLifecycleFs,
+    spawnUiRebuild: () =>
+      Promise.resolve(
+        spawnFn === undefined
+          ? spawnUiRebuildProcess(input.projectRoot)
+          : spawnUiRebuildProcess(input.projectRoot, spawnFn),
+      ),
+    processIsAlive: (pid) => isProcessAlive(pid),
   };
 }
 

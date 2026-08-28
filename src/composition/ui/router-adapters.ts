@@ -19,6 +19,7 @@ import { loadWorkflowBuckets, loadWorkflowBucketTasks, openTaskBucketFolder } fr
 import { applyTaskTriage } from "../../interfaces/http/ui-task-actions.js";
 import { uploadQueueMarkdownFiles } from "../../interfaces/http/task-upload.js";
 import { ensureLoopRunning, requestLoopStop } from "../../interfaces/http/loop-lifecycle.js";
+import { ensureUiRebuildRunning } from "../../interfaces/http/ui-rebuild.js";
 import type { BundleMtimeFacts, UiRouterPorts } from "../../interfaces/http/ui-router.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
@@ -38,7 +39,7 @@ import { recordLlmCallReset } from "../../application/token-governance/tool-budg
 import { learningFs, taskLedgerStore, taskStateStore, tokenBudgetPorts } from "../runtime/node-adapters.js";
 import { contextPackFs } from "../quality/readiness-adapters.js";
 import { schedulingFs } from "../loop/adapters.js";
-import { processLifecyclePorts } from "./lifecycle-adapters.js";
+import { processLifecyclePorts, uiRebuildProcessPorts } from "./lifecycle-adapters.js";
 import { dashboardViewPorts } from "./dashboard-adapters.js";
 import { benchmarkReport, reliabilityAnalytics, tokenAnalytics, tokenUsageQuery, uiLogs } from "./analytics-adapters.js";
 import { decidePolicyProposal, listPolicyProposals, proposePolicyChange } from "./policy-adapters.js";
@@ -187,6 +188,11 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
 
     ensureLoopRunning: () => ensureLoopRunning(lifecycle),
     requestLoopStop: () => requestLoopStop(lifecycle),
+    // Komanda fiksuota `ui-rebuild.ts` (`UI_REBUILD_COMMAND`/`UI_REBUILD_ARGS`) — čia tik
+    // proceso paleidimas ir tos pačios serializacijos grandinės perdavimas kaip loop startui.
+    uiRebuild: {
+      start: () => ensureUiRebuildRunning({ ports: uiRebuildProcessPorts(input), runtimeRoot: input.runtimeRoot }),
+    },
     // „Stop" ir „Start" liečia DU dalykus: proceso vėliavą ir slot'ų valdiklį. Palikus valdiklį
     // nepaliestą, po „Stop" srautai ekrane liktų `run`, o po „Start" senas `drain` priverstų ką
     // tik paleistą loop'ą atsisakyti pirmo task'o.

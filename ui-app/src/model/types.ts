@@ -742,7 +742,7 @@ export type CompressionView = {
 
 /* ---- `GET /api/waves` (`interfaces/http/ui-waves-view.ts#UiWavesView`) -----------------------
  * DTO gyvena čia, o ne kontroleryje: bangų duomenis dabar skaito ir model sluoksnis
- * (`slotProgressViewModel`, `queuePipelineViewModel`), o modelis kontrolerio importuoti negali —
+ * (`slotProgressViewModel`), o modelis kontrolerio importuoti negali —
  * tai apverstų sluoksnių kryptį. Kontroleris šiuos tipus re-eksportuoja, kad seni importai veiktų.
  */
 export type UiWaveEvent = {

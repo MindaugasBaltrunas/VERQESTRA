@@ -39,8 +39,7 @@ type Props = {
 
 /**
  * `#/system` bangų vaizdas (task 1208/1207/1228/1233): slot'ų būsenos, atmetimų priežastys ir
- * wave-events uodega. Eilės srauto lenta yra ATSKIRA sekcija (`QueuePipelineBoard`), nes jos
- * duomenys ateina daugiausia iš `/api/dashboard` ir neturi dingti dėl bangų endpoint'o gedimo.
+ * wave-events uodega.
  * Read-only — čia nėra jokio veiksmo, kuris keistų bangos ar lease'o būseną; ta logika lieka
  * `application/scheduling/*`.
  *

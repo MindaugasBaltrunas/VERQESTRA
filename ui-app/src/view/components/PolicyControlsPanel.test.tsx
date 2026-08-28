@@ -149,6 +149,62 @@ describe("PolicyControlsPanel", () => {
     ));
   });
 
+  // Klaviatūros kelias tikrinamas FORMOS kontekste, ne izoliuotai: būtent čia reikšmė pereina
+  // `parseFormValue`, ir būtent čia matyti, ar `onPropose` gauna tikrą `boolean`, ar eilutę
+  // `"false"`. Izoliuotas SelectMenu testas to parodyti negali — jis mato tik `onChange("false")`.
+  it("picks a boolean value with the keyboard and sends it as a real boolean, not a string", async () => {
+    const onPropose = vi.fn().mockResolvedValue(undefined);
+    render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);
+
+    openForm(1);
+    const trigger = screen.getByRole("combobox", { name: "Griežtas režimas New value" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    const listbox = screen.getByRole("listbox");
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    fireEvent.keyDown(listbox, { key: "Enter" });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onPropose).toHaveBeenCalledTimes(1));
+    const [, , requestedValue] = onPropose.mock.calls[0]!;
+    expect(typeof requestedValue).toBe("boolean");
+    expect(requestedValue).toBe(false);
+  });
+
+  // Kortelė yra apribotas dėklas: kol popover'is buvo `position: absolute` jos viduje, bet kuris
+  // `overflow` protėvis jį nukirpdavo. Tikrinama tėvystė, nes tik ji to nebeleidžia.
+  it("opens the dropdown outside the policy card so no ancestor can clip it", () => {
+    render(<PolicyControlsPanel groups={groups} onPropose={vi.fn()} />);
+
+    openForm(2);
+    fireEvent.click(screen.getByRole("combobox", { name: "Griežtumas New value" }));
+
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.closest(".policy-control-card")).toBeNull();
+    expect(listbox.closest(".policy-change-form")).toBeNull();
+    expect(listbox.parentElement).toBe(document.body);
+  });
+
+  it("closes the dropdown on Escape inside the card and keeps the form open", () => {
+    render(<PolicyControlsPanel groups={groups} onPropose={vi.fn()} />);
+
+    openForm(2);
+    const trigger = screen.getByRole("combobox", { name: "Griežtumas New value" });
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
   it("hands the value chosen in the dropdown to onPropose and tags the recommended option", async () => {
     const onPropose = vi.fn().mockResolvedValue(undefined);
     render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);

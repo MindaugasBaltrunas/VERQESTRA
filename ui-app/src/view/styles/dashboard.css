@@ -3183,6 +3183,13 @@ header .muted {
 .policy-change-form .select-menu {
   width: 100%;
 }
+/* Trigger'is turi tempti iki lauko pločio ATSKIRAI: nuo 2026-08-29 popover'io plotis matuojamas
+   iš trigger'io stačiakampio (jis gyvena portale, tad `min-width: 100%` nebeturi į ką atsiremti).
+   Be šitos eilutės trigger'is liktų `min-width: 160px` platus, o su juo susitrauktų ir sąrašas —
+   nors laukas kortelėje užima visą plotį. */
+.policy-change-form .select-menu-trigger {
+  width: 100%;
+}
 .policy-form-actions {
   justify-content: flex-end;
 }
@@ -4629,6 +4636,19 @@ main {
   }
 }
 
+/* Vertimas į viršų turi savo kryptį: žemyn atsidarančio sąrašo animacija, paleista aukštyn
+   atsidarančiam, atrodo kaip trūkčiojimas link trigger'io, o ne nuo jo. */
+@keyframes select-menu-in-above {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .select-menu {
   position: relative;
   display: inline-block;
@@ -4693,12 +4713,17 @@ main {
   border-color: var(--accent);
 }
 
+/* Sąrašas renderinamas PORTALE prie `<body>` ir pozicionuojamas FIKSUOTAI pagal trigger'io
+   koordinates (2026-08-29). Anksčiau jis buvo `position: absolute` kortelės viduje — tada bet
+   kuris protėvis su `overflow: hidden|auto` jį apkirpdavo, o bet kuris `transform` būtų įkalinęs
+   ir `position: fixed`. Koordinatės (`top`/`bottom`/`left`/`min-width`/`max-height`) ateina
+   inline iš `measurePanel`: jos matuojamos iš tikro elemento, ir CSS jų žinoti negali.
+
+   `z-index: 90` — virš viso dashboard'o (aukščiausias kitas sluoksnis yra 60), bet po
+   `.skip-link` (100): klaviatūros praleidimo nuoroda lieka viršuje visada. */
 .select-menu-panel {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 60;
-  min-width: 100%;
+  position: fixed;
+  z-index: 90;
   max-height: 280px;
   overflow: auto;
   margin: 0;
@@ -4713,6 +4738,13 @@ main {
   animation: select-menu-in 120ms var(--ease-out-soft);
 }
 
+.select-menu-panel-above {
+  animation-name: select-menu-in-above;
+}
+
+/* Pats sąrašas fokuso žiedo neturi SĄMONINGAI: fokusas fiziškai stovi ant jo, bet vartotojui
+   svarbi vieta yra aktyvus variantas (`aria-activedescendant`), ir du žiedai vienu metu rodytų
+   į dvi skirtingas vietas. */
 .select-menu-panel:focus-visible,
 .select-menu-panel:focus {
   outline: none;
@@ -4732,6 +4764,16 @@ main {
 .select-menu-option:hover,
 .select-menu-option.active {
   background: var(--surface-2);
+}
+
+/* Aktyvus variantas yra KLAVIATŪROS fokusas, todėl jam reikia žiedo, o ne atspalvio: tamsioje
+   temoje `--surface-2` (#161f30) ant `--surface` (#121927) skiriasi keliais procentais šviesumo,
+   ir naršant rodyklėmis nesimato, kur esi. `--accent` temizuotas abiejose temose, tad žiedas
+   matomas ir šviesioje, ir tamsioje. `outline-offset: -2px` — kad žiedas tilptų sąrašo viduje ir
+   nebūtų nukirstas `overflow: auto`. */
+.select-menu-option.active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .select-menu-option[aria-selected="true"] {

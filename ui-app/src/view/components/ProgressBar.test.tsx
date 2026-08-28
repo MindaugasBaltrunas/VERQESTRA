@@ -42,6 +42,14 @@ describe("ProgressBar", () => {
     expect(element).toHaveAttribute("aria-label", "Progress unknown");
   });
 
+  it("renders no infinite animation for an indeterminate bar", () => {
+    const element = bar({ signal: "indeterminate" });
+
+    // Jokios begalinės animacijos klasės ar pieštino užpildo — būsena lieka statinė.
+    expect(element?.className.split(/\s+/)).not.toContain("progress-bar--indeterminate");
+    expect(element?.querySelector(".progress-bar__fill")).toBeNull();
+  });
+
   it("says the progress is unknown in words, not only through motion", () => {
     // Sustabdžius animaciją (prefers-reduced-motion) vien juosta atrodytų kaip įvykdytas darbas.
     bar({ signal: "indeterminate" }, null);

@@ -34,20 +34,17 @@ export const ProgressBar = memo(function ProgressBar({ progress, label }: Props)
   if (progress.signal === "indeterminate") {
     // Be `aria-valuenow`: reikšmės NĖRA, o bet koks skaičius čia būtų prasimanytas.
     //
-    // Užrašas rodomas ir tekstu, o ne vien judesiu: prašant mažiau judesio animacija sustoja, ir
-    // vien juosta tada atrodytų kaip įvykdytas progresas. Judesys NIEKADA nėra vienintelis
-    // informacijos nešėjas.
+    // Jokios begalinės animacijos: judesys niekada nebuvo vienintelis informacijos nešėjas, o
+    // dabar jo nebelieka visai — sąžininga būsena lieka vien statiniu tekstu.
     const unknownLabel = t("Progress unknown");
     return (
       <>
         <div
-          className="progress-bar progress-bar--indeterminate"
+          className="progress-bar"
           role="progressbar"
           aria-label={unknownLabel}
           title={unknownLabel}
-        >
-          <span className="progress-bar__fill" />
-        </div>
+        />
         {label !== undefined ? <p className="progress-bar__label"><span>{label ?? unknownLabel}</span></p> : null}
       </>
     );

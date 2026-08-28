@@ -22,7 +22,7 @@ export const policyProposalSchema = z.strictObject({
   setting_id: z.string().min(1),
   old_value: z.unknown().optional(),
   requested_value: z.unknown(),
-  reason: z.string().min(1),
+  reason: z.string(),
   timestamp: z.string().min(1),
   routing: z.enum(POLICY_ROUTINGS),
 });

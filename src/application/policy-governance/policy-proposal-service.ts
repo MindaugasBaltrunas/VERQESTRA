@@ -108,7 +108,7 @@ export async function buildPolicyProposal(
   group: PolicyProposalGroup,
   setting_id: string,
   requested_value: unknown,
-  reason: string,
+  reason?: string,
 ): Promise<PolicyProposal> {
   const entry = requirePolicyGroupEntry(group);
   const current = (await entry.load(ports.fs, runtimeRoot)) as Record<string, unknown>;
@@ -120,7 +120,7 @@ export async function buildPolicyProposal(
     setting_id,
     old_value: current[setting_id],
     requested_value,
-    reason,
+    reason: reason ?? "",
     timestamp: new Date().toISOString(),
     routing: await entry.resolveRouting(ports.fs, runtimeRoot),
   };

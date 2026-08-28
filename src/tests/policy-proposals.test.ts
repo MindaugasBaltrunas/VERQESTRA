@@ -81,6 +81,32 @@ test("buildPolicyProposal: dabartinė reikšmė, schema validacija ir routing i�
   );
 });
 
+test("buildPolicyProposal: reason neprivalomas — nepaduotas tampa \"\", senas tekstinis reason lieka validus", async () => {
+  const ports = makePorts();
+  const withoutReason = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "enforcement",
+    "require_tests_for_code_changes",
+    true,
+  );
+  assert.equal(withoutReason.reason, "");
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, withoutReason);
+
+  const withReason = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "enforcement",
+    "require_tests_for_code_changes",
+    false,
+    "sena priežastis",
+  );
+  assert.equal(withReason.reason, "sena priežastis");
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, withReason);
+
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 2);
+});
+
 test("apply vartai: be approve — klaida; approved + human-review be markerio — klaida; su markeriu — failas įrašomas", async () => {
   const ports = makePorts();
   const proposal = await buildPolicyProposal(

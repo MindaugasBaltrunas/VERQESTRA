@@ -58,12 +58,55 @@ describe("WavesPanel", () => {
     expect(screen.getByText(/Some wave sources could not be read/)).toHaveTextContent("leases");
   });
 
-  it("shows an empty state when there are no active leases or rejections", () => {
+  it("shows an empty state when there are no rejections or wave events", () => {
     render(<WavesPanel data={view({ leases: [], last_rejections: [], events: [] })} onReload={() => {}} />);
 
-    expect(screen.getByText("No active leases")).toBeInTheDocument();
     expect(screen.getByText("No rejections recorded")).toBeInTheDocument();
-    expect(screen.getByText("No wave events recorded")).toBeInTheDocument();
+    expect(screen.getByText(/entries appear as waves start, retry, or complete/)).toBeInTheDocument();
+  });
+
+  // Task 059-b-03: tuščia lease'ų lentelė turi paaiškinti KODĖL, ne tik KAD lease'ų nėra.
+  it("explains the empty lease table when worktree isolation is off", () => {
+    render(
+      <WavesPanel
+        data={view({
+          leases: [],
+          worktree_policy: { enabled: false, config_path: "vq/config/worktree-policy.json" },
+        })}
+        onReload={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Worktree isolation is off")).toBeInTheDocument();
+    expect(screen.getByText("vq/config/worktree-policy.json")).toBeInTheDocument();
+    expect(screen.getByText(/a second execution stream will not start/)).toBeInTheDocument();
+  });
+
+  it("explains the empty lease table when worktree isolation is on but no lease exists yet", () => {
+    render(
+      <WavesPanel
+        data={view({
+          leases: [],
+          worktree_policy: { enabled: true, config_path: "vq/config/worktree-policy.json" },
+        })}
+        onReload={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Worktree isolation is on — no leases have been acquired yet")).toBeInTheDocument();
+  });
+
+  it("explains the empty lease table as unknown when the worktree policy source is degraded", () => {
+    render(
+      <WavesPanel
+        data={view({ leases: [], degraded: ["worktree_policy"] })}
+        onReload={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText("Worktree policy status is unknown — the policy file could not be read"),
+    ).toBeInTheDocument();
   });
 
   it("shows a loading placeholder when there is no data yet", () => {

@@ -820,6 +820,12 @@ export type UiWaveRefillDecision = {
   rejected: UiWaveRejection[];
 };
 
+export type UiWaveWorktreePolicy = {
+  enabled: boolean;
+  /** Projektui reliatyvus POSIX kelias, niekada absoliutus. */
+  config_path: string;
+};
+
 export type UiWavesView = {
   events: UiWaveEvent[];
   leases: UiWaveLease[];
@@ -828,6 +834,11 @@ export type UiWavesView = {
   last_rejections: UiWaveRejection[];
   /** Neprivalomas dėl tos pačios priežasties: senas `dist` papildymo sprendimų nesiunčia. */
   refill_decisions?: UiWaveRefillDecision[];
+  /**
+   * Trūksta, kai šaltinis įrašytas į `degraded` kaip `"worktree_policy"` — nežinoma reikšmė
+   * neturi apsimesti „išjungta", tad laukas tada tiesiog praleidžiamas.
+   */
+  worktree_policy?: UiWaveWorktreePolicy;
   degraded: string[];
 };
 

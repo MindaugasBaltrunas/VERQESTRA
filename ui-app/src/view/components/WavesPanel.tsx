@@ -1,5 +1,5 @@
-import { memo } from "react";
-import type { UiWaveSlot, UiWaveSlotState, UiWavesView } from "../../model/types";
+import { memo, type ReactNode } from "react";
+import type { UiWaveSlot, UiWaveSlotState, UiWaveWorktreePolicy, UiWavesView } from "../../model/types";
 import { formatAge } from "../../model/slotProgressFormat";
 import { useI18n } from "../../i18n/I18nContext";
 
@@ -23,6 +23,30 @@ function sortSlots(slots: readonly UiWaveSlot[]): UiWaveSlot[] {
   return [...slots].sort((left, right) =>
     STATE_ORDER[left.state] - STATE_ORDER[right.state] || left.worker_id.localeCompare(right.worker_id),
   );
+}
+
+/**
+ * Tuščia lease'ų lentelė pati savaime nesako, ar antro slot'o tiesiog dar nebuvo, ar jo NIEKADA
+ * nebus (politika išjungta), ar tai nežinoma (politikos šaltinis `degraded`). Trys skirtingos
+ * priežastys, trys skirtingi tekstai — tylus „No active leases" jas visas paslėpdavo.
+ */
+function emptyLeasesReason(
+  policy: UiWaveWorktreePolicy | undefined,
+  degraded: readonly string[],
+  t: (text: string) => string,
+): ReactNode {
+  if (!policy || degraded.includes("worktree_policy")) {
+    return t("Worktree policy status is unknown — the policy file could not be read");
+  }
+  if (!policy.enabled) {
+    return (
+      <>
+        <span>{t("Worktree isolation is off")}</span> (<code>{policy.config_path}</code>) —{" "}
+        <span>{t("a second execution stream will not start")}</span>
+      </>
+    );
+  }
+  return t("Worktree isolation is on — no leases have been acquired yet");
 }
 
 type Props = {
@@ -148,7 +172,7 @@ export const WavesPanel = memo(function WavesPanel({ data = null, error = null, 
             </thead>
             <tbody>
               {data.leases.length === 0 ? (
-                <tr><td colSpan={5}>{t("No active leases")}</td></tr>
+                <tr><td colSpan={5}>{emptyLeasesReason(data.worktree_policy, data.degraded, t)}</td></tr>
               ) : (
                 data.leases.map((lease) => (
                   <tr key={lease.worker_id}>
@@ -206,7 +230,9 @@ export const WavesPanel = memo(function WavesPanel({ data = null, error = null, 
         <div>
           <h3>{t("Wave events")}</h3>
           {data.events.length === 0 ? (
-            <p className="panel-subtitle">{t("No wave events recorded")}</p>
+            <p className="panel-subtitle">
+              {t("No wave events recorded yet — entries appear as waves start, retry, or complete")}
+            </p>
           ) : (
             <ul className="system-signal-list">
               {data.events.map((event, index) => (

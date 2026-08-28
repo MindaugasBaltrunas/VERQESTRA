@@ -963,8 +963,12 @@ const lt: Record<string, string> = {
   "Stale lease": "Pasenęs lease'as",
   "Provisioned": "Paruoštas",
   "Released": "Atlaisvintas",
-  "No active leases": "Aktyvių lease'ų nėra",
   "No slot activity": "Slot'ų veiklos nėra",
+  "Worktree isolation is off": "Worktree izoliacija išjungta",
+  "a second execution stream will not start": "antras vykdymo srautas nepasileis",
+  "Worktree isolation is on — no leases have been acquired yet": "Worktree izoliacija įjungta — lease'ų dar nėra",
+  "Worktree policy status is unknown — the policy file could not be read":
+    "Worktree politikos būsena nežinoma — politikos failo nepavyko perskaityti",
   "Yes": "Taip",
   "No": "Ne",
   // Srautų progreso kortelės ir eilės srautas (task 1233). Raktai, kurie žodyne JAU yra
@@ -1039,7 +1043,8 @@ const lt: Record<string, string> = {
   "Wave events": "Bangų įvykiai",
   "Recent rejections": "Paskutiniai atmetimai",
   "No rejections recorded": "Atmetimų nėra",
-  "No wave events recorded": "Bangų įvykių nėra",
+  "No wave events recorded yet — entries appear as waves start, retry, or complete":
+    "Bangų įvykių dar nėra — įrašai atsiras, kai banga prasidės, bus kartojama arba baigsis",
   // Grandinės legendos ir `aria-label` būsenos (`AgentChainProgress`). Raktai MAŽOSIOMIS raidėmis
   // sąmoningai: „Done", „Error", „Pending" ir „Idle" jau priklauso kitiems ekranams, o `t()` skiria
   // raidžių dydį — taip legenda gauna savo vertimą nė vieno esamo neperrašydama.

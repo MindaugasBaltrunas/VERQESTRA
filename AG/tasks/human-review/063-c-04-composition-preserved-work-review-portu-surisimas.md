@@ -11,9 +11,14 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 # Task
 
-Pastaba (2026-08-28): pirmas bandymas krito preflight'e dėl aplinkos —
-„code index rebuild did not produce a fresh index" (lenktynės su
-lygiagrečiu procesu, ne task'o problema). Perleidžiama be turinio pakeitimų.
+Pastaba (2026-08-28, po 2 bandymo): darbo KODE DAR NĖRA — `src/composition/loop`
+neturi nė vienos „preserved" nuorodos (grep patikrinta 19:20). Use case'as
+`application/task-execution/preserved-work-review.ts` ir git adapteris
+`infrastructure/git/preserved-work.ts` jau egzistuoja — šio task'o darbas yra
+juos SURIŠTI composition sluoksnyje. Ankstesnis bėgimas grąžino „checks passed"
+be jokio Write/Edit ir buvo pagrįstai atmestas. NEskelbk ALREADY_IMPLEMENTED,
+nebent pateiksi konkrečią composition/loop failo eilutę su surišimu — jos
+šiandien nėra. Darbą atlik Write/Edit įrankiais ŠIAME bėgime.
 
 ## Spec source
 openspec/changes/verqestra-backlog-v1/

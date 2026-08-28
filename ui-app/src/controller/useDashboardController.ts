@@ -431,9 +431,9 @@ export function useDashboardController() {
   }, []);
 
   const proposePolicy = useCallback(
-    async (route: string, settingId: string, requestedValue: unknown, reason: string) => {
+    async (route: string, settingId: string, requestedValue: unknown) => {
       try {
-        await api.proposePolicy(route, { setting_id: settingId, requested_value: requestedValue, reason });
+        await api.proposePolicy(route, { setting_id: settingId, requested_value: requestedValue });
         setNotice(null);
         void load();
       } catch (proposeError) {

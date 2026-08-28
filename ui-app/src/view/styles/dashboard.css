@@ -3180,7 +3180,6 @@ header .muted {
   background: var(--surface);
 }
 .policy-change-form input,
-.policy-change-form textarea,
 .policy-change-form .select-menu {
   width: 100%;
 }
@@ -3958,8 +3957,6 @@ main {
   font-weight: 600;
   color: var(--muted);
 }
-.policy-required { font-weight: 400; color: var(--danger, #b91c1c); }
-.policy-form-help { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
 .filter-field-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--faint); }
 
 /* Kaina ir kartojimo priežastys: kodai monospace, kad juos būtų galima nukopijuoti į žurnalo

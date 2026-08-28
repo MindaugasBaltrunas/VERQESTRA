@@ -96,9 +96,6 @@ describe("PolicyControlsPanel", () => {
     // Prieinamas vardas tebeturi valdiklio vardą, tik dabar jį duoda MATOMOS etiketės
     // (`aria-labelledby`), o ne nematomas `aria-label`: placeholder dingdavo vos pradėjus rašyti.
     fireEvent.change(screen.getByLabelText("Maksimalūs bandymai New value"), { target: { value: "7" } });
-    fireEvent.change(screen.getByLabelText(/Maksimalūs bandymai Change reason/), {
-      target: { value: "Didesnė tolerancija" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
@@ -106,9 +103,34 @@ describe("PolicyControlsPanel", () => {
         "/api/policies/runtime/proposals",
         "max_retries",
         7,
-        "Didesnė tolerancija",
       );
     });
+  });
+
+  // Priežasties lauko nebėra (2026-08-28): forma yra reikšmės pasirinkimas ir Send/Cancel, o Send
+  // niekada nebūna užrakintas dėl neužpildyto teksto. Tikrinama ir tai, kad laukas dingo, ir tai,
+  // kad pasiūlymas nusiunčiamas jo neužpildžius — kitaip lauką būtų galima grąžinti nepastebėtai.
+  it("submits without a change reason field in the form", async () => {
+    const onPropose = vi.fn().mockResolvedValue(undefined);
+    render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);
+
+    openForm(0);
+    expect(screen.queryByText("Change reason")).toBeNull();
+    expect(screen.queryByText("(required)")).toBeNull();
+    expect(screen.queryByText("Enter a reason for the change")).toBeNull();
+    expect(document.querySelector(".policy-change-form textarea")).toBeNull();
+
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send).toBeEnabled();
+    fireEvent.click(send);
+
+    await waitFor(() => expect(onPropose).toHaveBeenCalledWith(
+      "/api/policies/runtime/proposals",
+      "max_retries",
+      3,
+    ));
+    // Sėkmingas siuntimas uždaro formą — kortelė vėl siūlo ją atidaryti.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Propose change" }).length).toBe(3));
   });
 
   it("sends a real boolean when the value is picked from the dropdown", async () => {
@@ -118,16 +140,12 @@ describe("PolicyControlsPanel", () => {
     openForm(1);
     fireEvent.click(screen.getByRole("combobox", { name: "Griežtas režimas New value" }));
     fireEvent.click(screen.getByRole("option", { name: "No" }));
-    fireEvent.change(screen.getByLabelText(/Griežtas režimas Change reason/), {
-      target: { value: "Laikinas pakeitimas" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(onPropose).toHaveBeenCalledWith(
       "/api/policies/runtime/proposals",
       "strict_mode",
       false,
-      "Laikinas pakeitimas",
     ));
   });
 
@@ -141,16 +159,12 @@ describe("PolicyControlsPanel", () => {
     expect(screen.getByRole("option", { name: "warn Recommended" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("option", { name: "block" }));
-    fireEvent.change(screen.getByLabelText(/Griežtumas Change reason/), {
-      target: { value: "Griežtinam" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(onPropose).toHaveBeenCalledWith(
       "/api/policies/runtime/proposals",
       "strictness",
       "block",
-      "Griežtinam",
     ));
   });
 });

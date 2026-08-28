@@ -417,19 +417,16 @@ const lt: Record<string, string> = {
   "Send": "Siųsti",
   "Policy governance": "Politikų valdymas",
   "Propose": "Siūlyti",
-  "Change reason": "Pakeitimo priežastis",
   // Trys raktai, kuriuos 2026-08-24 rado `i18n/coverage.test.ts`. „Value" buvo diagnostikos
   // lentelės stulpelis — būtent tas angliškas pavadinimas, kurį pamatė operatorius.
   "Value": "Reikšmė",
   "Failed to load human review tasks": "Nepavyko įkelti žmogaus peržiūros užduočių",
   "Tasks that automation cannot resolve without a human decision":
     "Užduotys, kurių automatika neišsprendžia be žmogaus sprendimo",
-  "(required)": "(privaloma)",
   // Du SKIRTINGI dydžiai — nustatymai ir pasiūlymai — nebeturi to paties vardo.
   "settings awaiting a decision": "nustatymai laukia sprendimo",
   "{count} proposals for this setting; the newest is shown.":
     "Šiam nustatymui laukia {count} pasiūlymai; rodomas naujausias.",
-  "Enter a reason for the change": "Įrašykite pakeitimo priežastį — be jos pasiūlymas nesiunčiamas",
   "Cancel": "Atšaukti",
   "Read-only": "Tik skaitymui",
   "Live data": "Gyvi duomenys",

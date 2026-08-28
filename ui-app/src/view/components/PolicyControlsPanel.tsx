@@ -7,7 +7,7 @@ import { useI18n } from "../../i18n/I18nContext";
 
 type Props = {
   groups: UiPolicyGroup[];
-  onPropose?: (route: string, settingId: string, requestedValue: unknown, reason: string) => Promise<void>;
+  onPropose?: (route: string, settingId: string, requestedValue: unknown) => Promise<void>;
 };
 
 type PolicyFilter = "all" | "editable" | "pending";
@@ -86,15 +86,10 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
   const { t } = useI18n();
   const [openFormId, setOpenFormId] = useState<string | null>(null);
   const [formValue, setFormValue] = useState("");
-  const [formReason, setFormReason] = useState("");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PolicyFilter>("all");
-  // VIENA sąlyga trims vietoms — mygtuko išjungimui, jo `title` ir paaiškinimui. Trys atskiros
-  // kopijos anksčiau ar vėliau nesutartų, ir mygtukas būtų išjungtas be paaiškinimo arba
-  // atvirkščiai.
-  const reasonMissing = formReason.trim() === "";
   const controls = groups.flatMap((group) => group.controls);
   const editableCount = controls.filter((control) => control.editable).length;
   const pendingCount = controls.filter((control) => control.pending_proposal).length;
@@ -118,14 +113,12 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
   function openForm(control: UiPolicyControl) {
     setOpenFormId(control.id);
     setFormValue(String(recommendedValue(control)));
-    setFormReason("");
     setFormError("");
   }
 
   function closeForm() {
     setOpenFormId(null);
     setFormValue("");
-    setFormReason("");
     setFormError("");
   }
 
@@ -139,7 +132,7 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
       // neapdorota promise rejection (`void handleSubmit(...)`), forma likdavo atidaryta ir
       // NIEKO nevykdavo: nei pranešimo, nei užklausos. Atrodė kaip pakibęs mygtukas.
       const requestedValue = parseFormValue(currentValue, formValue);
-      await onPropose(route, settingId, requestedValue, formReason);
+      await onPropose(route, settingId, requestedValue);
       closeForm();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : String(error));
@@ -291,22 +284,9 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                         disabled={submitting}
                       />
                     )}
-                    {/* Priežastis pažymėta privaloma TEN, kur ji prašoma. Iki šiol vienintelis
-                        ženklas, kad jos trūksta, buvo išjungtas mygtukas — reikalavimas, kurį
-                        operatorius turėjo atspėti. */}
-                    <label className="policy-field-label" id={`${control.id}-reason-label`} htmlFor={`${control.id}-reason`}>
-                      {t("Change reason")} <span className="policy-required">{t("(required)")}</span>
-                    </label>
-                    <textarea
-                      id={`${control.id}-reason`}
-                      aria-labelledby={`${control.id}-name ${control.id}-reason-label`}
-                      value={formReason}
-                      onChange={(e) => setFormReason(e.target.value)}
-                      rows={2}
-                      required
-                      aria-describedby={reasonMissing ? `${control.id}-reason-help` : undefined}
-                      disabled={submitting}
-                    />
+                    {/* Priežasties lauko čia NĖRA (2026-08-28, operatoriaus sprendimas): pasiūlymą
+                        rašo ir tvirtina tas pats žmogus, tad prievolė pagrįsti pakeitimą sau pačiam
+                        buvo tik trintis. Serveris priežasties nebereikalauja, forma — irgi. */}
                     <p className="policy-form-preview">
                       <span>{t("Proposed change")}</span>
                       <strong>{formatValue(control.value, t)} → {previewValue || "—"}</strong>
@@ -320,10 +300,7 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                       <button
                         className="button small-button"
                         type="submit"
-                        disabled={submitting || reasonMissing}
-                        // Išjungtas mygtukas privalo pasakyti KODĖL: kitaip jis neatskiriamas nuo
-                        // sugedusio. Priežastis pasiekiama ir užvedus, ir tekstu žemiau.
-                        title={reasonMissing ? t("Enter a reason for the change") : undefined}
+                        disabled={submitting}
                       >
                         {submitting ? t("Sending...") : t("Send")}
                       </button>
@@ -336,11 +313,6 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                         {t("Cancel")}
                       </button>
                     </div>
-                    {reasonMissing && (
-                      <p className="policy-form-help" id={`${control.id}-reason-help`}>
-                        {t("Enter a reason for the change")}
-                      </p>
-                    )}
                   </form>
                 )}
                 <div className="policy-control-footer">

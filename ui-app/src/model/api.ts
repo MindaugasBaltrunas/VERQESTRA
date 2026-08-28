@@ -198,7 +198,7 @@ export async function openFolder(bucket: string): Promise<void> {
 
 export async function proposePolicy(
   route: string,
-  payload: { setting_id: string; requested_value: unknown; reason: string },
+  payload: { setting_id: string; requested_value: unknown },
 ): Promise<void> {
   const r = await post(route, {
     headers: { "content-type": "application/json" },

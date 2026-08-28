@@ -57,6 +57,7 @@ import { cliEntryPath, type RuntimeRoots } from "../runtime/context.js";
 import { createWaveIntegrationAdapters } from "./wave-integration-adapters.js";
 import { taskRunPorts } from "./coordinator-execution-adapters.js";
 import { cliChildRunner } from "./coordinator-adapters.js";
+import { preservedWorkReviewPort } from "./preserved-work-adapters.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
 import { createCheapFinishEnvOverlay } from "../quality/cheap-finish-adapters.js";
 import {
@@ -220,6 +221,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           cheapFinishOverlay,
           ...cliChildRunner(projectRoot, cheapFinishOverlay),
         }),
+        { preservedWorkReview: preservedWorkReviewPort({ projectRoot }) },
       ).start(absoluteFile),
     runChild: async (slot, worktreeAbs) => {
       // Task failas perduodamas RELIATYVUS: vaikas jį išsprendžia prieš savo darbo katalogą, tad

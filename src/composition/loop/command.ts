@@ -228,6 +228,22 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
         cwd: worktreeAbs,
         env: buildChildEnvironment(deps.env ?? process.env, "CLAUDE_PROJECT_DIR", worktreeAbs, slot.attempt_ref),
       });
+      if (result.code !== 0) {
+        // Vaiko lūžis be pėdsako yra nediagnozuojamas: worktree vaiko stderr/stdout niekur kitur
+        // nepatenka (jo paties vq/logs miršta kartu su procesu ankstyvo lūžio atveju), tad
+        // uodega log'inama ČIA — vienintelėje vietoje, kuri išgyvena vaiką. Uodega ribojama,
+        // kad vienas išsiliejęs stack trace nepaskandintų orchestrator.log.
+        const tailOf = (label: string, text: string): string => {
+          const trimmed = text.trim();
+          if (trimmed === "") return "";
+          return `\n--- child ${label} (tail) ---\n${trimmed.slice(-4000)}`;
+        };
+        await deps.log(
+          `WAVE SLOT CHILD EXIT ${result.code}: slot=${slot.worker_id} task=${slot.task_id}` +
+            tailOf("stderr", result.stderr) +
+            tailOf("stdout", result.stdout),
+        );
+      }
       return result.code === 0;
     },
     resolveWorktree: (worktreePath) => path.resolve(projectRoot, worktreePath),

@@ -11,6 +11,8 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 # Task
 
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 operatoriaus cleanup nurodymas — blokas šalinamas pilnai, įskaitant failų trynimą
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 
@@ -22,6 +24,10 @@ Privaloma grandinė: readme-guard -> coder -> reviewer -> tester
 
 ## Failai
 Leidžiama:
+- `ui-app/src/view/components/QueuePipelineBoard.tsx` (TRINAMAS — liko po 057)
+- `ui-app/src/view/components/QueuePipelineBoard.test.tsx` (TRINAMAS, jei egzistuoja)
+- `ui-app/src/model/queuePipelineViewModel.ts` (TRINAMAS — liko po 057)
+- `ui-app/src/model/queuePipelineViewModel.test.ts` (TRINAMAS — liko po 057)
 - `ui-app/src/view/styles/dashboard.css`
 - `ui-app/src/i18n/I18nContext.tsx`
 - `ui-app/src/view/components/WavesPanel.tsx` (TIK pasenęs komentaras ~42 eil.)
@@ -35,6 +41,7 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
+- PIRMIAUSIA ištrinti likusius komponento failus (057 juos paliko): `QueuePipelineBoard.tsx`, `queuePipelineViewModel.ts` ir jų testus. Operatoriaus cleanup mandatas — 2026-08-28 nurodymas pašalinti bloką PILNAI (HUMAN-REVIEW-APPROVED žemiau). Prieš trinant grep'u patikrinti, kad jų niekas nebeimportuoja.
 - `dashboard.css`: prieš trinant grep'u patikrinti, kad `pipeline-*` klasių nenaudoja joks TSX, tada išimti „Queue pipeline board" sekciją (~1758–1833) ir responsive taisykles `.pipeline-board` (~3589, ~3600).
 - `I18nContext.tsx`: išimti raktus, kuriuos naudojo TIK QueuePipelineBoard („Queue pipeline" ir stulpelių pavadinimai) — kiekvieną prieš trinant patikrinti grep'u, kad jo nenaudoja kitas komponentas.
 - Pasenusius komentarus `WavesPanel.tsx` (~42 eil.) ir `types.ts` (~738 eil.) perrašyti arba pašalinti, kad neliktų nuorodos į nebeegzistuojantį komponentą; pabaigoje paleisti `pnpm --dir ui-app build`.

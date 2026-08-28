@@ -1,5 +1,7 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 operatorius patvirtino pokalbyje („tvirtinu 056")
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 

@@ -11,6 +11,8 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 # Task
 
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 out-of-scope failai legalizuoti — ciklo mygtukai realiai gyvena LoopControls/ConfirmButton, pirminis sąrašas buvo per siauras
+
 ## Spec source
 `openspec/changes/verqestra-backlog-v1/`
 
@@ -24,6 +26,9 @@ Privaloma grandinė: `readme-guard -> coder -> reviewer -> i18n -> tester`.
 Leidžiama:
 - `ui-app/src/view/components/RuntimePanel.tsx`
 - `ui-app/src/view/components/RuntimePanel.test.tsx`
+- `ui-app/src/view/components/LoopControls.tsx`
+- `ui-app/src/view/components/LoopControls.test.tsx`
+- `ui-app/src/view/components/ConfirmButton.tsx`
 - `ui-app/src/i18n/I18nContext.tsx`
 - `ui-app/src/view/styles/dashboard.css`
 

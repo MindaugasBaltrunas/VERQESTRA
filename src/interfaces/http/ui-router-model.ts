@@ -115,6 +115,12 @@ export type UiRouterPorts = {
   uploadQueueFiles(rawBody: string): Promise<string[]>;
   ensureLoopRunning(): Promise<unknown>;
   requestLoopStop(): Promise<unknown>;
+  /**
+   * UI bundle rebuild paleidimas (`pnpm --dir ui-app build`, task 058-3). Optional TAIP PAT kaip
+   * `bundle`: composition adapteris realiam spawn'ui sujungiamas atskiroje užduotyje, o iki tol
+   * lauko tiesiog nėra, ir `/api/ui/rebuild` atsako `disabled`, ne 500.
+   */
+  uiRebuild?: { start(): Promise<unknown> };
   /** VISI slot'ai į `drain` po „Stop": kitaip valdiklis rodytų `run`, o vėliava jau įrašyta. */
   drainAllSlots(): Promise<unknown>;
   /** Valdiklio atstatymas prieš startą: likusi `drain` vėliava priverstų ką tik paleistą loop'ą atsisakyti pirmo task'o. */

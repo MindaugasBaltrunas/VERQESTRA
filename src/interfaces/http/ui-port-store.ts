@@ -59,6 +59,60 @@ export function uiServerRecordFile(stateDir: string): string {
   return path.join(stateDir, "ui-server.json");
 }
 
+export const UI_REBUILD_RECORD_SCHEMA_VERSION = 1;
+
+/**
+ * `/api/ui/rebuild` būsenos įrašas (task 058-3). `running` gyvumą įrodo tik kartu su
+ * `processIsAlive(pid)` patikra — pats įrašas liudija tik paskutinę ŽINOMĄ būseną.
+ */
+export const uiRebuildRecordSchema = z.strictObject({
+  schema_version: z.literal(UI_REBUILD_RECORD_SCHEMA_VERSION),
+  pid: z.number().int().min(1),
+  status: z.enum(["running", "ok", "failed"]),
+  started_at: z.string().min(1),
+  finished_at: z.string().min(1).optional(),
+  /** Tik `failed` baigtyje: operatoriui reikia matyti KODĖL, o ne vien tai, kad nepavyko. */
+  output_tail: z.string().optional(),
+});
+export type UiRebuildRecord = z.infer<typeof uiRebuildRecordSchema>;
+
+export function uiRebuildRecordFile(stateDir: string): string {
+  return path.join(stateDir, "ui-rebuild.json");
+}
+
+/** Tas pats „niekada nemeta" elgesys kaip `readUiServerRecord`: sugadintas įrašas = „nežinome". */
+export async function readUiRebuildRecord(
+  fs: UiPortFsPort,
+  stateDir: string,
+): Promise<UiRebuildRecord | undefined> {
+  let raw: string | undefined;
+  try {
+    raw = await fs.readTextFileIfExists(uiRebuildRecordFile(stateDir));
+  } catch {
+    return undefined;
+  }
+  if (!raw?.trim()) return undefined;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+
+  const result = uiRebuildRecordSchema.safeParse(payload);
+  return result.success ? result.data : undefined;
+}
+
+export async function writeUiRebuildRecord(
+  fs: UiPortFsPort,
+  stateDir: string,
+  record: UiRebuildRecord,
+): Promise<void> {
+  await fs.makeDirectory(stateDir);
+  await fs.writeTextFileAtomic(uiRebuildRecordFile(stateDir), toPrettyJson(record));
+}
+
 /** `KEY=value` eilučių skaitymas iš konfigo failo; komentarai ir tuščios eilutės praleidžiamos. */
 export function parseEnvFile(content: string): Record<string, string> {
   const values: Record<string, string> = {};

@@ -132,6 +132,8 @@ export async function handlePost(
 
   if (pathname === "/api/runtime/loop/start") return await startLoopWithWorkers(deps, request, withJsonBody);
 
+  if (pathname === "/api/ui/rebuild") return await startUiRebuild(deps);
+
   const policyGroup = POLICY_GROUP_ROUTE.exec(pathname);
   if (policyGroup?.[1]) return await proposePolicyChange(deps, policyGroup[1] as PolicyProposalGroup, withJsonBody);
 
@@ -238,6 +240,21 @@ async function startLoopWithWorkers(
       return mapped(deps, error, mapRuntimeControlError);
     }
   });
+}
+
+/**
+ * UI bundle rebuild paleidimas. Kūno neskaito — komanda fiksuota kode (`ui-rebuild.ts`), tad
+ * request'e nėra ką validuoti. Portas OPTIONAL: composition realaus spawn'o adapterį suriša
+ * sekanti užduotis, iki tol maršrutas atsako `disabled`, o ne 500.
+ */
+async function startUiRebuild(deps: UiRouterDeps): Promise<UiRouteResponse> {
+  if (!deps.ports.uiRebuild) return json({ status: "disabled" });
+  try {
+    return json(await deps.ports.uiRebuild.start());
+  } catch (error) {
+    deps.ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
+    return toResponse(INTERNAL_ERROR_RESPONSE);
+  }
 }
 
 /**

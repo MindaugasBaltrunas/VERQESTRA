@@ -30,6 +30,7 @@ import { nodeFsAdapter } from "../../fs/node-fs-adapter.js";
 import { gitResolveCommit } from "../git-client.js";
 import { run, type CommandResult } from "../../process/run-process.js";
 import { findOrphanWorktrees, reapOrphanWorktree, type OrphanWorktree } from "./worktree-reaper.js";
+import { cleanupWorktreeRegistrations } from "./worktree-registration-cleanup.js";
 import type { WorktreeOwnerMarker } from "./worktree-state-classifier.js";
 import type { WorkerLease } from "../../../domain/scheduling/worker-lease-rules.js";
 
@@ -129,7 +130,10 @@ async function escalateOrphanRemoval(input: {
   branch: string | undefined;
   primaryRef: string;
   unlock: boolean;
-}): Promise<{ status: "reaped"; archivePath: string } | { status: "failed" }> {
+}): Promise<
+  | { status: "reaped"; archivePath: string; registrationCleanupError?: string }
+  | { status: "failed" }
+> {
   const { projectRoot, worktreePath, branch, primaryRef, unlock } = input;
   try {
     if (unlock) {
@@ -152,14 +156,20 @@ async function escalateOrphanRemoval(input: {
     );
 
     if (directoryPresent && !(await forceRemoveWorktree(projectRoot, worktreePath))) return { status: "failed" };
-    await run("git", ["-C", projectRoot, "worktree", "prune"], { cwd: projectRoot });
+    // Plikas `git worktree prune` paliktų negyvą registraciją su pasenusiu `index.lock`
+    // (GeoGravity 1179) — `cleanupWorktreeRegistrations` prune'ą jau apima.
+    const registrationCleanup = await cleanupWorktreeRegistrations({ projectRoot });
 
     if (branch !== undefined) {
       const deleted = await run("git", ["-C", projectRoot, "branch", "-D", branch], { cwd: projectRoot });
       if (deleted.code !== 0 && !/not found/i.test(deleted.stderr)) return { status: "failed" };
     }
 
-    return { status: "reaped", archivePath: orphanLogPath(projectRoot, archivePath) };
+    return {
+      status: "reaped",
+      archivePath: orphanLogPath(projectRoot, archivePath),
+      ...(registrationCleanup.error !== undefined ? { registrationCleanupError: registrationCleanup.error } : {}),
+    };
   } catch {
     return { status: "failed" };
   }
@@ -174,7 +184,10 @@ async function tryEscalate(input: {
   now: Date;
   primaryRef: string;
   unlock: boolean;
-}): Promise<{ branch: string; leaseId: string; archivePath: string } | undefined> {
+}): Promise<
+  | { branch: string; leaseId: string; archivePath: string; registrationCleanupError?: string }
+  | undefined
+> {
   const owner = input.orphan.owner;
   if (owner === undefined) return undefined;
   if (!(await isEscalationEligible(input.agRoot, owner, input.now))) return undefined;
@@ -188,7 +201,16 @@ async function tryEscalate(input: {
     primaryRef: input.primaryRef,
     unlock: input.unlock,
   });
-  return result.status === "reaped" ? { branch, leaseId: owner.lease_id, archivePath: result.archivePath } : undefined;
+  return result.status === "reaped"
+    ? {
+        branch,
+        leaseId: owner.lease_id,
+        archivePath: result.archivePath,
+        ...(result.registrationCleanupError !== undefined
+          ? { registrationCleanupError: result.registrationCleanupError }
+          : {}),
+      }
+    : undefined;
 }
 
 export type ReapOrphanWorktreesInput = {
@@ -262,6 +284,11 @@ export async function reapOrphanWorktrees(input: ReapOrphanWorktreesInput): Prom
         lines.push(
           `ORPHAN REAPED: path=${logPath} branch=${escalated.branch} leaseId=${escalated.leaseId} archive=${escalated.archivePath}`,
         );
+        if (escalated.registrationCleanupError !== undefined) {
+          lines.push(
+            `ORPHAN REGISTRATION CLEANUP FAILED: path=${logPath} error=${escalated.registrationCleanupError}`,
+          );
+        }
         continue;
       }
 

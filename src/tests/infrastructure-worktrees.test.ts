@@ -3,7 +3,7 @@
 // ir integration-branch plumbing kelias (pagrindinė šaka niekada nejuda).
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -26,6 +26,7 @@ import { readWorktreeQuarantine, readWorktreeOwner } from "../infrastructure/git
 import { createTaskWorktree, inspectTaskWorktree } from "../infrastructure/git/worktrees/worktree-provision.js";
 import { removeTaskWorktree } from "../infrastructure/git/worktrees/worktree-removal.js";
 import { findOrphanWorktrees, reapOrphanWorktree } from "../infrastructure/git/worktrees/worktree-reaper.js";
+import { reapOrphanWorktrees } from "../infrastructure/git/worktrees/orphan-worktree-reaper.js";
 
 const root = await mkdtemp(path.join(tmpdir(), "vq-wt-"));
 after(async () => {
@@ -224,4 +225,87 @@ test("integration-branch plumbing: planas taikomas į izoliuotą ref'ą, pirmin�
   const rerun = await applyIntegrationPlan(root, plan);
   assert.equal(rerun.status, "applied");
   if (rerun.status === "applied") assert.equal(rerun.applied[0]?.reused, true);
+});
+
+test("orphan reap eskalacija: negyva git worktree registracija su stale index.lock issivalo po reap'o, gyva islieka", async () => {
+  const escRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-escalate-"));
+  try {
+    async function escGit(...args: string[]): Promise<{ code: number; stdout: string }> {
+      const result = await run("git", ["-C", escRoot, ...args]);
+      assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+      return result;
+    }
+    await escGit("init");
+    await escGit("config", "user.email", "test@example.com");
+    await escGit("config", "user.name", "Test");
+    await escGit("config", "commit.gpgsign", "false");
+    await escGit("config", "core.autocrlf", "false");
+    await nodeFsAdapter.writeTextFile(path.join(escRoot, ".gitignore"), ".ag/\n");
+    await nodeFsAdapter.writeTextFile(path.join(escRoot, "src", "a.ts"), "pradinis\n");
+    await escGit("add", "--all");
+    await escGit("commit", "-m", "pradinis");
+
+    const escIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-esc", attempt: 1 };
+    const created = await createTaskWorktree({
+      projectRoot: escRoot,
+      identity: escIdentity,
+      lease: lease({ lease_id: "lease-esc", fencing_token: 9, task_id: "t-esc" }),
+      baseRef: "HEAD",
+    });
+    assert.equal(created.status, "created", JSON.stringify(created));
+    if (created.status !== "created") return;
+
+    // Necommit'intas failas -> "uncommitted-changes" kept priežastis, kuri YRA eskaluojama.
+    await nodeFsAdapter.writeTextFile(path.join(created.layout.path, "src", "dirty.ts"), "darbas\n");
+
+    // Negyva registracija su pasenusiu index.lock — ta pati grėsmė kaip GeoGravity 1179.
+    const worktreesDir = path.join(escRoot, ".git", "worktrees");
+    const deadDir = path.join(worktreesDir, "dead-registration");
+    await nodeFsAdapter.makeDirectory(deadDir);
+    await nodeFsAdapter.writeTextFile(path.join(deadDir, "gitdir"), path.join(escRoot, "gone", ".git"));
+    const deadLockPath = path.join(deadDir, "index.lock");
+    await nodeFsAdapter.writeTextFile(deadLockPath, "");
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(deadLockPath, stale, stale);
+
+    // Gyva registracija: jos lock privalo likti neliestas.
+    const liveGitdirTarget = path.join(escRoot, "live-worktree", ".git");
+    await nodeFsAdapter.makeDirectory(liveGitdirTarget);
+    const liveDir = path.join(worktreesDir, "live-registration");
+    await nodeFsAdapter.makeDirectory(liveDir);
+    await nodeFsAdapter.writeTextFile(path.join(liveDir, "gitdir"), liveGitdirTarget);
+    const liveLockPath = path.join(liveDir, "index.lock");
+    await nodeFsAdapter.writeTextFile(liveLockPath, "");
+    await utimes(liveLockPath, stale, stale);
+
+    const runtimeRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-runtime-"));
+    const agRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-agroot-"));
+    try {
+      // Dirbtinai toli ateityje: amžiaus vartas (ORPHAN_ESCALATION_MIN_AGE_MS = 24h) praeina
+      // be poreikio realiai laukti parą.
+      const escalationNow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+
+      const lines = await reapOrphanWorktrees({
+        projectRoot: escRoot,
+        runtimeRoot,
+        agRoot,
+        leases: [],
+        now: escalationNow,
+      });
+
+      assert.ok(
+        lines.some((line) => line.startsWith("ORPHAN REAPED") && line.includes("branch=")),
+        lines.join("\n"),
+      );
+      assert.equal(await nodeFsAdapter.exists(created.layout.path), false);
+      assert.equal(await nodeFsAdapter.exists(deadLockPath), false, "negyvos registracijos lock privalo issivalyti");
+      assert.equal(await nodeFsAdapter.exists(liveLockPath), true, "gyvos registracijos lock neturi buti liestas");
+      assert.ok(!lines.some((line) => line.includes("REGISTRATION CLEANUP FAILED")), lines.join("\n"));
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+      await rm(agRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+  } finally {
+    await rm(escRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
 });

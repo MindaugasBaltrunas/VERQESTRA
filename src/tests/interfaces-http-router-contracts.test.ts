@@ -208,10 +208,20 @@ test("`/api/policies/<grupė>/set` egzistuoja ir paduoda TIK kliento laukus", as
   });
 });
 
-test("pasiūlymas be `reason` — 400, o `routing` iš kliento NEPRIIMAMAS", async () => {
+test("pasiūlymas be `setting_id` — 400, `reason` neprivalomas, o `routing` iš kliento NEPRIIMAMAS", async () => {
   const state = world();
-  assert.equal((await post(state, "/api/policies/enforcement/set", { setting_id: "dry" })).status, 400);
+  assert.equal((await post(state, "/api/policies/enforcement/set", { requested_value: true })).status, 400);
   assert.equal(state.calls.length, 0);
+
+  // `reason` NUSTOJO būti privalomas (operatoriaus patvirtintas kontrakto pakeitimas, 2026-08-28):
+  // trūkstamas virsta `""` dar maršrute, tad use-case'as visada gauna tris laukus — vienas
+  // kontraktas vietoj „kartais be `reason`".
+  const noReason = world();
+  assert.equal((await post(noReason, "/api/policies/enforcement/set", { setting_id: "dry" })).status, 200);
+  assert.deepEqual(called(noReason, "propose")?.payload, {
+    group: "enforcement",
+    input: { setting_id: "dry", requested_value: undefined, reason: "" },
+  });
 
   // Suklastotas `routing` niekada nepasiekia use-case'o: maršrutas perduoda tik tris laukus, tad
   // human-review vartų prie `apply` apeiti neįmanoma.

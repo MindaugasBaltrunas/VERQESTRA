@@ -260,9 +260,15 @@ async function startUiRebuild(deps: UiRouterDeps): Promise<UiRouteResponse> {
 /**
  * Politikos pakeitimo pasiūlymas.
  *
- * Klientas paduoda TIK `setting_id`, `requested_value` ir `reason`. `old_value`, `timestamp` ir
- * — svarbiausia — `routing` nustato SERVERIS: suklastotas `routing: "queue"` apeitų human-review
- * vartus prie `apply`, o pasiūlymo žurnalas taptų pasakojimu, ne įrodymu.
+ * Klientas paduoda TIK `setting_id`, `requested_value` ir — NEPRIVALOMAI — `reason`. `old_value`,
+ * `timestamp` ir — svarbiausia — `routing` nustato SERVERIS: suklastotas `routing: "queue"` apeitų
+ * human-review vartus prie `apply`, o pasiūlymo žurnalas taptų pasakojimu, ne įrodymu.
+ *
+ * `reason` privalomumo nebeliko (operatoriaus patvirtintas kontrakto pakeitimas, 2026-08-28):
+ * trūkstamas ar tuščias virsta `""`, kaip jau daro application sluoksnis (`buildPolicyProposal`
+ * priima `reason?`). Priverstinis laukas nedavė audito vertės — jį buvo galima užpildyti bet kuo,
+ * o vienintelė reali pasekmė buvo 400 operatoriui, spustelėjusiam politikos valdiklį. VIENINTELIS
+ * 400 čia lieka dėl `setting_id`: be jo pasiūlymas neturi objekto.
  */
 async function proposePolicyChange(
   deps: UiRouterDeps,
@@ -271,8 +277,8 @@ async function proposePolicyChange(
 ): Promise<UiRouteResponse> {
   return await withJsonBody(async (body) => {
     const settingId = requiredText(body, "setting_id");
-    const reason = requiredText(body, "reason");
-    if (!settingId || !reason) return badRequest("setting_id and reason are required non-empty strings");
+    if (!settingId) return badRequest("setting_id is a required non-empty string");
+    const reason = requiredText(body, "reason") ?? "";
     const requestedValue = (body as Record<string, unknown>)["requested_value"];
     try {
       return json(

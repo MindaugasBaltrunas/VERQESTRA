@@ -178,6 +178,52 @@ test("netinkama siūloma reikšmė yra 400 su paaiškinimu, o ne 500", async () 
   }
 });
 
+/**
+ * `reason` NEBEPRIVALOMAS propose šakoje (operatoriaus patvirtintas kontrakto pakeitimas,
+ * 2026-08-28). Tikrinama per TIKRĄ srautą, o ne per fake portą: teiginys yra ne „maršrutas
+ * praleido", o „žurnale atsirado įrašas su `reason: ""`" — schema (`policyProposalSchema`)
+ * validuoja PRIEŠ rašymą, tad 200 be žurnalo įrašo būtų tuščias sėkmės pranešimas.
+ *
+ * `setting_id` lieka vienintelis privalomas laukas: be jo pasiūlymas neturi objekto.
+ */
+test("pasiūlymas be `reason` priimamas ir įrašomas kaip tuščias, o be `setting_id` — 400", async () => {
+  const sandbox = await makeSandbox({ humanReview: false });
+  try {
+    const proposed = await route(sandbox, "POST", "/api/policies/coding-principles/set", {
+      setting_id: "dry",
+      requested_value: "block",
+    });
+    assert.equal(statusOf(proposed), 200);
+    assert.equal((jsonData(proposed)["proposal"] as Record<string, unknown>)["reason"], "");
+
+    // Tuščias tekstas yra tas pats atvejis, kaip trūkstamas laukas — abu virsta `""`.
+    const blank = await route(sandbox, "POST", "/api/policies/coding-principles/set", {
+      setting_id: "dry",
+      requested_value: "warn",
+      reason: "   ",
+    });
+    assert.equal(statusOf(blank), 200);
+    assert.equal((jsonData(blank)["proposal"] as Record<string, unknown>)["reason"], "");
+
+    // Append-only žurnalas — ne tik atsakymas — turi abu įrašus su tuščia priežastimi.
+    const journal = await readFile(path.join(sandbox.runtimeRoot, "state", "policy", "proposals.jsonl"), "utf8");
+    const rows = journal.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(rows.length, 2);
+    assert.deepEqual(rows.map((row) => row["reason"]), ["", ""]);
+
+    // `setting_id` vartai NEATLAISVINTI: 400 ir NIEKO naujo žurnale.
+    const missing = await route(sandbox, "POST", "/api/policies/coding-principles/set", {
+      requested_value: "block",
+      reason: "auditas",
+    });
+    assert.equal(statusOf(missing), 400);
+    assert.match(JSON.stringify(jsonData(missing)), /setting_id/);
+    assert.equal((jsonData(await route(sandbox, "GET", "/api/policies/proposals"))["proposals"] as unknown[]).length, 2);
+  } finally {
+    await rm(sandbox.projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("nežinomas policy failas yra 400, o ne 500", async () => {
   const sandbox = await makeSandbox();
   try {

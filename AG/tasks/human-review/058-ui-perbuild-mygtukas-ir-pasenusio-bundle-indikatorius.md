@@ -8,7 +8,8 @@ openspec/changes/verqestra-backlog-v1
 ## Priklausomybės
 - 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
 - 061-w2-vaiko-stderr-log-orchestrator-log
-- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+- 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
+- 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei serveris turi `POST /api/ui/rebuild` endpoint'ą, kuris paleidžia

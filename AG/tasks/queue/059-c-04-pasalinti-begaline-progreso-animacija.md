@@ -6,7 +6,8 @@
 ## Priklausomybės
 - 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
 - 061-w2-vaiko-stderr-log-orchestrator-log
-- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+- 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
+- 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
 
 ## Tikslas
 `#/system` puslapyje amžinai „laksto linija" — indeterminate progress animacija (tikėtina slot progress / ETA juosta), kuri be realių duomenų sukasi be pabaigos. Pakeisti sąžininga būsena: realus progresas, kai duomenys yra; statinė tekstinė būsena, kai jų nėra. Jokių amžinų animacijų.

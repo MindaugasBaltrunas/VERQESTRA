@@ -6,7 +6,8 @@
 ## Priklausomybės
 - 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
 - 061-w2-vaiko-stderr-log-orchestrator-log
-- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+- 062-a-02-kompozicija-perduoda-visa-vq-config-kataloga
+- 062-b-03-testas-dengia-rekursyvia-config-katalogo-kopija
 
 ## Tikslas
 „User Claude terminal" blokas `#/system` puslapyje atrodo kaip sugedęs pultas — monitorius be valdiklių. Kai sesijos nėra, blokas arba slepiamas už išskleidimo, arba aiškiai pasako: „stebėjimo blokas: rodys tavo paleistą Claude sesiją; dabar jos nėra". Jokių elementų, kurie atrodo spaudžiami, bet nieko nedaro.

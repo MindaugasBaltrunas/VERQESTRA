@@ -111,6 +111,38 @@ describe("LoopControls", () => {
     ).toBeInTheDocument();
   });
 
+  it("marks W2 unavailable (not disabled-as-selected) when the environment caps the loop at one worker", () => {
+    const onSetWorkers = vi.fn();
+    render(
+      <LoopControls
+        loopStatus="running"
+        workerControl={workerControl({ requested: 1, max: 1 })}
+        onSetWorkers={onSetWorkers}
+      />,
+    );
+
+    const w1 = screen.getByRole("button", { name: "W1" });
+    const w2 = screen.getByRole("button", { name: "W2" });
+
+    // W1 lieka realiai paspaudžiamas net kai jis jau yra pasirinkimas — pažymėjimas yra būsena,
+    // ne priežastis išjungti.
+    expect(w1).toBeEnabled();
+    expect(w1).toHaveAttribute("aria-pressed", "true");
+    expect(w1).toHaveAttribute(
+      "title",
+      "The base stream — always on while the loop runs. Click to keep only W1.",
+    );
+
+    expect(w2).toBeDisabled();
+    expect(w2).toHaveAttribute(
+      "title",
+      "This worker count is unavailable: the environment limits this loop to 1 worker(s).",
+    );
+
+    fireEvent.click(w2);
+    expect(onSetWorkers).not.toHaveBeenCalled();
+  });
+
   it("disables the worker control when the environment owns the value", () => {
     const onSetWorkers = vi.fn();
     render(

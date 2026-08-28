@@ -806,6 +806,8 @@ const lt: Record<string, string> = {
     "Paspaudus W2 atleidžiamas — sustos baigęs dabartinį task'ą.",
   "Click to start W2 — the loop picks it up on the next wave.":
     "Paspaudus W2 paleidžiamas — loop'as jį pakels kitoje bangoje.",
+  "This worker count is unavailable: the environment limits this loop to {max} worker(s).":
+    "Šis workerių kiekis neprieinamas: aplinka riboja šį ciklą iki {max} worker(ių).",
   "Controlled by the AG_MAX_WORKERS environment variable in this UI process; the on-screen control is disabled.":
     "Reikšmę valdo šio UI proceso AG_MAX_WORKERS aplinkos kintamasis; ekrano valdiklis išjungtas.",
   "No wave has planned a worker pool yet.": "Nė viena banga dar nesuplanavo workerių pool'o.",

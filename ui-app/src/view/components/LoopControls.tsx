@@ -4,6 +4,7 @@ import { fill } from "../../model/fillTemplate";
 import {
   buildLoopControlsView,
   startStreamCount,
+  workerChoices,
   workersActionId,
   type LoopControlsView,
   type LoopRunState,
@@ -17,7 +18,6 @@ import { ConfirmButton } from "./ConfirmButton";
  * W1 yra bazinis srautas: jis „paspaustas" visada, o jo paspaudimas reiškia „palikti tik W1".
  * W2 yra perjungiklis: paspaudimas įjungia antrą srautą (requested=2) arba jį atleidžia (1).
  */
-const WORKER_CHOICES = [1, 2] as const;
 
 /** Tuščias rinkinys yra pastovus: naujas `Set` kiekvienam renderiui griautų `memo` prasmę. */
 const NO_PENDING: ReadonlySet<string> = new Set<string>();
@@ -75,7 +75,10 @@ export const LoopControls = memo(function LoopControls({
     });
   // Vykdomas VIENO workerių skaičiaus prašymas užrakina abu mygtukus: kol serveris neatsakė, kuris
   // skaičius įsigaliojo, antras paspaudimas būtų prašymas spėlioti.
-  const workersPending = WORKER_CHOICES.some((count) => pendingActions.has(workersActionId(count)));
+  const choices = workerChoices(workerControl);
+  const workersPending = choices.some((choice) => pendingActions.has(workersActionId(choice.count)));
+  const w1Available = choices.find((choice) => choice.count === 1)?.available ?? true;
+  const w2Available = choices.find((choice) => choice.count === 2)?.available ?? true;
 
   return (
     <section className="panel" aria-labelledby="loop-controls-title">
@@ -92,9 +95,17 @@ export const LoopControls = memo(function LoopControls({
               type="button"
               className="active"
               aria-pressed="true"
-              title={t("The base stream — always on while the loop runs. Click to keep only W1.")}
+              title={
+                !workerControl.canEdit
+                  ? t("Controlled by the AG_MAX_WORKERS environment variable in this UI process; the on-screen control is disabled.")
+                  : !w1Available
+                    ? fill(t("This worker count is unavailable: the environment limits this loop to {max} worker(s)."), {
+                        max: workerControl.max,
+                      })
+                    : t("The base stream — always on while the loop runs. Click to keep only W1.")
+              }
               aria-busy={pendingActions.has(workersActionId(1)) || undefined}
-              disabled={!workerControl.canEdit || !onSetWorkers || workersPending || workerControl.requested === 1}
+              disabled={!workerControl.canEdit || !onSetWorkers || workersPending || !w1Available}
               onClick={() => onSetWorkers?.(1)}
             >
               W1
@@ -104,12 +115,23 @@ export const LoopControls = memo(function LoopControls({
               className={workerControl.requested >= 2 ? "active" : ""}
               aria-pressed={workerControl.requested >= 2}
               title={
-                workerControl.requested >= 2
-                  ? t("Click to release W2 — it stops after its current task.")
-                  : t("Click to start W2 — the loop picks it up on the next wave.")
+                !workerControl.canEdit
+                  ? t("Controlled by the AG_MAX_WORKERS environment variable in this UI process; the on-screen control is disabled.")
+                  : workerControl.requested >= 2
+                    ? t("Click to release W2 — it stops after its current task.")
+                    : !w2Available
+                      ? fill(t("This worker count is unavailable: the environment limits this loop to {max} worker(s)."), {
+                          max: workerControl.max,
+                        })
+                      : t("Click to start W2 — the loop picks it up on the next wave.")
               }
               aria-busy={pendingActions.has(workersActionId(workerControl.requested >= 2 ? 1 : 2)) || undefined}
-              disabled={!workerControl.canEdit || !onSetWorkers || workersPending}
+              disabled={
+                !workerControl.canEdit ||
+                !onSetWorkers ||
+                workersPending ||
+                (workerControl.requested < 2 && !w2Available)
+              }
               onClick={() => onSetWorkers?.(workerControl.requested >= 2 ? 1 : 2)}
             >
               W2

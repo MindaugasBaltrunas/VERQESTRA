@@ -1,5 +1,9 @@
 # Task
 
+Pastaba (2026-08-28): pirmas bandymas krito preflight'e dėl aplinkos —
+„code index rebuild did not produce a fresh index" (lenktynės su
+lygiagrečiu procesu, ne task'o problema). Perleidžiama be turinio pakeitimų.
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

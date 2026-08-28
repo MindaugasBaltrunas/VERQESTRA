@@ -13,10 +13,19 @@ import type {
   TaskRunPorts,
 } from "./run-coordinator-ports.js";
 import { decisionInvalidMarker } from "./run-coordinator-ports.js";
+import { reviewPreservedWork } from "./preserved-work-review.js";
+import type { PreservedWorkReviewPorts } from "./preserved-work-review-model.js";
 import type { TaskRunState } from "./task-run-state.js";
 
+/**
+ * Commit žinutės žyma, kai preserved-work review verdiktas leidžia užbaigti task'ą be
+ * pakartotinio dispatch'o (063-b). Kompozicijos sluoksnis (sekanti užduotis) ją įrašo į
+ * realią commit žinutę; čia tik nešama reikšmė toliau su ref'u.
+ */
+export const PRESERVED_WORK_RECOVERED_TAG = "PRESERVED-WORK-RECOVERED";
+
 export type VerifyTaskResult =
-  | { kind: "done" }
+  | { kind: "done"; preservedWorkRecovered?: { ref: string; tag: typeof PRESERVED_WORK_RECOVERED_TAG } }
   /** `skip-dispatch` čia nepasiekiamas: pre-dispatch vartai nutinka anksčiau už verifikaciją. */
   | { kind: "done-already-implemented"; via: Exclude<AlreadyImplementedVia, "skip-dispatch"> }
   | { kind: "human-review"; reason: string }
@@ -27,7 +36,7 @@ export type VerifyTaskResult =
 export async function verifyTask(
   state: TaskRunState,
   ports: TaskRunPorts,
-  options: { diagnoseCmd: string },
+  options: { diagnoseCmd: string; preservedWorkReview?: PreservedWorkReviewPorts },
 ): Promise<VerifyTaskResult> {
   const qualityGateExit = await ports.cli.run(["quality-gates"]);
   state.lastQualityGateExitCode = qualityGateExit;
@@ -57,7 +66,7 @@ export async function verifyTask(
 
   const decision = decisionResult.decision;
   if (decision.verdict === "done") {
-    return await classifyDoneVerdict(state, ports);
+    return await classifyDoneVerdict(state, ports, options);
   }
   if (decision.verdict === "repair") {
     return { kind: "repair" };
@@ -88,7 +97,11 @@ function stopEvidenceOrigin(snapshot: StopStatusSnapshot): "attempt" | "legacy" 
  * „done" verdiktas dar nėra užbaigimas — jis tikrinamas prieš nepriklausomus įrodymus:
  * quality gates, Claude stop status, ir realų produkto pakeitimų pėdsaką.
  */
-async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Promise<VerifyTaskResult> {
+async function classifyDoneVerdict(
+  state: TaskRunState,
+  ports: TaskRunPorts,
+  options: { preservedWorkReview?: PreservedWorkReviewPorts },
+): Promise<VerifyTaskResult> {
   if (state.lastQualityGateExitCode !== 0) {
     return {
       kind: "human-review",
@@ -192,6 +205,26 @@ async function classifyDoneVerdict(state: TaskRunState, ports: TaskRunPorts): Pr
         ? "Claude did not create a new commit"
         : "no verified product changes (non-git project)";
   const preservedRef = /^ROLLBACK PRESERVED: .*\bref=(\S+)/m.exec(rollback.output)?.[1];
+  // 063-b: preserved ref be review porto ARBA be turinio (materializavimas nepavyko) elgiasi
+  // kaip iki šiol — review use-case'as tikrina TIK kai turi ką tikrinti. Detali priežastis su
+  // patikrų uodega pasirodo tik tada, kai materializavimas pavyko, bet verdiktas vis tiek
+  // `needs-human` (checks arba allowlist nepraėjo).
+  if (preservedRef !== undefined && options.preservedWorkReview !== undefined && state.taskBodySnapshot !== undefined) {
+    const verdict = await reviewPreservedWork(
+      { ref: preservedRef, taskMarkdown: state.taskBodySnapshot },
+      options.preservedWorkReview,
+    );
+    if (verdict.verdict === "recovered") {
+      return { kind: "done", preservedWorkRecovered: { ref: preservedRef, tag: PRESERVED_WORK_RECOVERED_TAG } };
+    }
+    if (!verdict.reason.startsWith("preserved_work_materialize_failed=")) {
+      return {
+        kind: "human-review",
+        reason: `TASK NOT DONE: ${state.taskId} ${noCompletionSignalReason} ${verdict.reason}`,
+      };
+    }
+  }
+
   const preservedSuffix = preservedRef === undefined ? "" : ` preserved_work=${preservedRef}`;
   return { kind: "human-review", reason: `TASK NOT DONE: ${state.taskId} ${noCompletionSignalReason}${preservedSuffix}` };
 }

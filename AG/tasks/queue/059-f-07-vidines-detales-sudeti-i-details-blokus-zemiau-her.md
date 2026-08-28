@@ -3,6 +3,11 @@
 ## Spec source
 `openspec/changes/verqestra-backlog-v1/`
 
+## Priklausomybės
+- 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
+- 061-w2-vaiko-stderr-log-orchestrator-log
+- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+
 ## Tikslas
 `#/system` viršuje turi likti žmogiška santrauka, o vidiniai mechanizmai — lease'ai, bangų įvykiai, hash'ai ir diagnostika — nukeliami žemiau hero į išskleidžiamus `details` blokus. Nieko nešalinti: ekspertui pasiekiama, žmogui netrukdo.
 

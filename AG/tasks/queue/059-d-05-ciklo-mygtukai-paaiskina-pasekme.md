@@ -3,6 +3,11 @@
 ## Spec source
 `openspec/changes/verqestra-backlog-v1/`
 
+## Priklausomybės
+- 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
+- 061-w2-vaiko-stderr-log-orchestrator-log
+- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+
 ## Tikslas
 `#/system` ciklo mygtukai neaiškina pasekmių. „Stabdyti" drain semantikos pastraipą perkelti prie paties mygtuko (subtekstas arba tooltip), o kiekvienas išjungtas mygtukas privalo turėti `title` su priežastimi, kodėl neaktyvus. Vienas šablonas visiems trims ciklo mygtukams.
 

@@ -5,6 +5,11 @@ HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 operatoriaus nurodymas — build v
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 
+## Priklausomybės
+- 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
+- 061-w2-vaiko-stderr-log-orchestrator-log
+- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei serveris turi `POST /api/ui/rebuild` endpoint'ą, kuris paleidžia
 `pnpm --dir ui-app build`, ir UI view atsakyme yra `bundle_stale` /

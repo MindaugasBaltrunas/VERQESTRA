@@ -3,6 +3,11 @@
 ## Spec source
 `openspec/changes/verqestra-backlog-v1/`
 
+## Priklausomybės
+- 060-uzbaigimo-sargas-priima-already-implemented-be-rasymu
+- 061-w2-vaiko-stderr-log-orchestrator-log
+- 062-worktree-bootstrap-kopijuoja-visa-vq-config-kataloga
+
 ## Tikslas
 Workerių lease lentelė `#/system` puslapyje tuščia VISADA, kol worktree politika išjungta, bet UI to įvardyti negali — serveris tos būsenos negrąžina. Pridėti į waves view atsakymą vieną lauką su worktree politikos būsena (įjungta/išjungta ir konfigūracijos kelias `vq/config/worktree-policy.json`), kad UI galėtų parodyti tuščios lentelės PRIEŽASTĮ vietoj „lease'ų nėra".
 

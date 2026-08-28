@@ -802,6 +802,79 @@ tbody tr:hover {
   margin-top: 3px;
   font-size: 20px;
 }
+
+/* ---- SystemStatusHero (task 059) --------------------------------------
+   `#/system` puslapio viršus: kas vyksta DABAR ir ko reikia iš operatoriaus. Sąmoningai atskira
+   nuo `.system-health-hero` (procesų pasiekiamumas žemiau) — čia atsakoma į KITĄ klausimą. */
+.system-status-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 24px;
+  margin: 0 0 4px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 32%),
+    var(--surface);
+}
+.system-status-hero--warning {
+  border-left-color: var(--warning);
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--warning) 11%, transparent), transparent 32%),
+    var(--surface);
+}
+.system-status-hero--neutral {
+  border-left-color: var(--border);
+  background: var(--surface);
+}
+.system-status-hero-primary h2 {
+  margin: 3px 0 5px;
+  font-size: 24px;
+}
+.system-status-hero-primary p {
+  margin: 0;
+  color: var(--muted);
+}
+.system-status-hero-primary .button {
+  margin-top: 14px;
+}
+.system-status-hero-stats {
+  display: flex;
+  gap: 8px;
+}
+.system-status-hero-stat {
+  min-width: 112px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+  text-align: left;
+}
+button.system-status-hero-stat-link {
+  cursor: pointer;
+  transition: border-color var(--speed) var(--ease);
+}
+button.system-status-hero-stat-link:hover {
+  border-color: var(--accent);
+}
+.system-status-hero-stat span,
+.system-status-hero-stat strong {
+  display: block;
+}
+.system-status-hero-stat span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.system-status-hero-stat strong {
+  margin-top: 3px;
+  font-size: 20px;
+}
+
 .system-signal-list {
   display: grid;
   gap: 8px;
@@ -4409,8 +4482,15 @@ main {
     grid-template-columns: 1fr;
   }
   .system-health-hero,
+  .system-status-hero,
   .system-project-card {
     grid-template-columns: 1fr;
+  }
+  .system-status-hero-stats {
+    width: 100%;
+  }
+  .system-status-hero-stat {
+    flex: 1;
   }
   .system-health-metrics {
     width: 100%;

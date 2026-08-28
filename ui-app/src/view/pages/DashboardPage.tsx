@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { PolicyProposalsPanel } from "../../App";
-import { useDashboardController } from "../../controller/useDashboardController";
+import { LOOP_RESUME_ACTION, useDashboardController } from "../../controller/useDashboardController";
 import { useWavesController } from "../../controller/useWavesController";
 import { fixableTaskIds } from "../../model/loopControlsViewModel";
 import { buildSlotProgressViews, correlateActivity } from "../../model/slotProgressViewModel";
@@ -15,6 +15,7 @@ import { OverviewPanel } from "../components/OverviewPanel";
 import { PolicyControlsPanel } from "../components/PolicyControlsPanel";
 import { RuntimePanel } from "../components/RuntimePanel";
 import { SlotStreamsOverview } from "../components/SlotStreamsOverview";
+import { SystemStatusHero } from "../components/SystemStatusHero";
 import { ToastStack } from "../components/ToastStack";
 import { WavesPanel } from "../components/WavesPanel";
 import { WorkflowBoard } from "../components/WorkflowBoard";
@@ -252,6 +253,23 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
               </button>
             </div>
           ))}
+        {/* Vienintelis atsakymas į „kas vyksta DABAR ir ko reikia iš manęs" — VIRŠUJE, prieš
+            visas kitas `#/system` panelias. Duomenys: `dashboard.buckets` (eilė, žmogaus peržiūra),
+            `raw.currentTaskId` (vykdoma užduotis) ir tas pats `loopControls.canResume`/`LOOP_RESUME_ACTION`
+            šaltinis, kuriuo remiasi Header'io „Paleisti" mygtukas — antra kopija čia meluotų taip
+            pat, kaip meluodavo 048 audito radinys. */}
+        {activeRoute === "system" && (
+          <SystemStatusHero
+            loopRunState={loopRunState}
+            currentTaskId={raw?.currentTaskId ?? null}
+            queueCount={dashboard.buckets.find((bucket) => bucket.name === "queue")?.totalTasks ?? 0}
+            humanReviewCount={dashboard.buckets.find((bucket) => bucket.name === "human-review")?.totalTasks ?? 0}
+            canStartLoop={loopControls.canResume}
+            startLoopBusy={pendingActions.has(LOOP_RESUME_ACTION)}
+            onStartLoop={() => void actions.resumeLoop()}
+            onGoToReviews={() => onNavigate("reviews")}
+          />
+        )}
         {activeRoute === "system" && (
           <RuntimePanel
             processes={dashboard.runtime}

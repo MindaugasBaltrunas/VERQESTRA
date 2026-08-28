@@ -14,17 +14,21 @@ import { useI18n } from "../../i18n/I18nContext";
  * Bendras skaičius, sudėtas iš dviejų laiko taškų, meluotų apie abu.
  */
 
-const NUMBER = new Intl.NumberFormat("lt-LT");
-
 /** `null` reiškia „neribota" — tai KITAS faktas nei „nežinoma", tad rodomas savo ženklu. */
-function limitText(value: number | null | undefined, unlimited: string, unknown: string): string {
+function limitText(
+  value: number | null | undefined,
+  unlimited: string,
+  unknown: string,
+  numberFormat: Intl.NumberFormat,
+): string {
   if (value === null) return unlimited;
   if (value === undefined) return unknown;
-  return NUMBER.format(value);
+  return numberFormat.format(value);
 }
 
 export function TokenBudgetPanel({ budget }: { budget: UiTokenBudget | undefined }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const NUMBER = new Intl.NumberFormat(locale);
   const enforcement = budget?.budget_enforcement;
   const authorization = budget?.llm_call_authorization;
 
@@ -70,7 +74,7 @@ export function TokenBudgetPanel({ budget }: { budget: UiTokenBudget | undefined
               <span>{t("LLM calls")}</span>
               <strong>
                 {NUMBER.format(enforcement.total_llm_calls ?? 0)} /{" "}
-                {limitText(enforcement.limits?.max_total_llm_calls, t("unlimited"), t("unknown"))}
+                {limitText(enforcement.limits?.max_total_llm_calls, t("unlimited"), t("unknown"), NUMBER)}
               </strong>
             </div>
             <div>
@@ -80,7 +84,7 @@ export function TokenBudgetPanel({ budget }: { budget: UiTokenBudget | undefined
               <span>{t("Billable tokens")}</span>
               <strong>
                 {NUMBER.format(enforcement.billable_tokens ?? 0)} /{" "}
-                {limitText(enforcement.limits?.max_total_tokens, t("unlimited"), t("unknown"))}
+                {limitText(enforcement.limits?.max_total_tokens, t("unlimited"), t("unknown"), NUMBER)}
               </strong>
             </div>
             {enforcement.profile && (
@@ -109,11 +113,11 @@ export function TokenBudgetPanel({ budget }: { budget: UiTokenBudget | undefined
             </div>
             <div>
               <span>{t("Remaining calls")}</span>
-              <strong>{limitText(authorization.remaining_total_llm_calls, t("unlimited"), t("unknown"))}</strong>
+              <strong>{limitText(authorization.remaining_total_llm_calls, t("unlimited"), t("unknown"), NUMBER)}</strong>
             </div>
             <div>
               <span>{t("Remaining tokens")}</span>
-              <strong>{limitText(authorization.remaining_total_tokens, t("unlimited"), t("unknown"))}</strong>
+              <strong>{limitText(authorization.remaining_total_tokens, t("unlimited"), t("unknown"), NUMBER)}</strong>
             </div>
           </div>
         </div>

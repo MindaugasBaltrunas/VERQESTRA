@@ -13,9 +13,9 @@ import { useI18n } from "../../i18n/I18nContext";
  * nepasako, o kartu jie parodo, ar įrodymai apskritai švieži.
  */
 
-function formatBytes(bytes: number | null | undefined): string {
+function formatBytes(bytes: number | null | undefined, locale: string): string {
   if (bytes === null || bytes === undefined) return "—";
-  return new Intl.NumberFormat("lt-LT", { notation: "compact", maximumFractionDigits: 1 }).format(bytes) + " B";
+  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(bytes) + " B";
 }
 
 function formatStamp(iso: string | null | undefined, locale: string): string {
@@ -132,7 +132,7 @@ export function DiagnosticsPanel({ data }: { data: DashboardData }) {
         <h3>{t("Executor log")}</h3>
         <div className="budget-grid">
           <div><span>{t("Updated")}</span><strong>{formatStamp(data.claudeLogUpdatedAt, locale)}</strong></div>
-          <div><span>{t("Size")}</span><strong>{formatBytes(data.claudeLogBytes)}</strong></div>
+          <div><span>{t("Size")}</span><strong>{formatBytes(data.claudeLogBytes, locale)}</strong></div>
           {/* `legacy` reiškia, kad antspaudas gali priklausyti KITAM task'ui — kilmė rodoma. */}
           <div><span>{t("Source")}</span><strong>{data.claudeLogSource ?? "—"}</strong></div>
         </div>
@@ -201,7 +201,7 @@ export function DiagnosticsPanel({ data }: { data: DashboardData }) {
                 // kitas faktas nei „įrašo nėra".
                 <tr key={file.name} className={file.present ? undefined : "state-file-missing"}>
                   <th scope="row"><code>{file.name}</code></th>
-                  <td>{file.present ? formatBytes(file.bytes) : t("missing")}</td>
+                  <td>{file.present ? formatBytes(file.bytes, locale) : t("missing")}</td>
                   <td>{formatStamp(file.updatedAt, locale)}</td>
                 </tr>
               ))}

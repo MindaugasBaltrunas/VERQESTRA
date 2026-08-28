@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardData } from "../../model/types";
+import { I18nProvider, useI18n } from "../../i18n/I18nContext";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { TokenBudgetPanel } from "./TokenBudgetPanel";
 
@@ -129,6 +130,44 @@ describe("DiagnosticsPanel", () => {
     expect(screen.getByRole("status").textContent).toContain("README neįvardija karkaso");
     // Automatikos politika irgi matoma — iki šio rato `config_controls` neturėjo NĖ VIENOS panelės.
     expect(screen.getByText("Auto push")).toBeInTheDocument();
+  });
+
+  describe("baitų formatavimas ir locale", () => {
+    beforeEach(() => localStorage.clear());
+
+    function LanguageSwitch() {
+      const { setLanguage } = useI18n();
+      return (
+        <button type="button" onClick={() => setLanguage("en")}>
+          switch-to-en
+        </button>
+      );
+    }
+
+    it("baitų atvaizdavimas seka aktyvų locale, ne prikaltą lt-LT", () => {
+      // 053: anksčiau `formatBytes` naudojo modulio lygio `Intl.NumberFormat("lt-LT")`, nors
+      // datos tame pačiame faile jau ėjo per aktyvų `locale`.
+      const bytes = 1536;
+      const ltFormatted =
+        new Intl.NumberFormat("lt-LT", { notation: "compact", maximumFractionDigits: 1 }).format(bytes) + " B";
+      const enFormatted =
+        new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(bytes) + " B";
+      expect(ltFormatted).not.toBe(enFormatted);
+
+      const { container } = render(
+        <I18nProvider>
+          <LanguageSwitch />
+          <DiagnosticsPanel data={{ ...base, claudeLogUpdatedAt: null, claudeLogBytes: bytes }} />
+        </I18nProvider>,
+      );
+
+      expect(container.textContent).toContain(ltFormatted);
+
+      fireEvent.click(container.querySelector("button")!);
+
+      expect(container.textContent).toContain(enFormatted);
+      expect(container.textContent).not.toContain(ltFormatted);
+    });
   });
 
   /**

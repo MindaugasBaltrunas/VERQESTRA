@@ -22,6 +22,7 @@ import { ensureLoopRunning, requestLoopStop } from "../../interfaces/http/loop-l
 import { ensureUiRebuildRunning } from "../../interfaces/http/ui-rebuild.js";
 import type { BundleMtimeFacts, UiRouterPorts } from "../../interfaces/http/ui-router.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
+import { loadWorktreePolicy } from "../../application/scheduling/worktree-policy.js";
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
 import { readWaveSnapshot, waveSnapshotExists } from "../../infrastructure/state/wave-snapshot-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
@@ -163,6 +164,11 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
           readWaveSnapshot: (dir) => readWaveSnapshot(dir),
           waveSnapshotExists: (dir) => waveSnapshotExists(dir),
           homeDir: () => homedir(),
+          readWorktreePolicyEnabled: (absoluteConfigFile) =>
+            loadWorktreePolicy(
+              { readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath) },
+              absoluteConfigFile,
+            ).then((policy) => policy.enabled),
           logError: (message) => input.logError(message),
         },
         projectRoot: input.projectRoot,

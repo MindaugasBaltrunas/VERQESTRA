@@ -22,6 +22,7 @@ const ROOT = path.resolve("/repo");
 const RUNTIME = path.join(ROOT, "vq");
 const EVENTS = path.join(RUNTIME, "logs", "wave-events.jsonl");
 const ORCHESTRATOR_LOG = path.join(RUNTIME, "logs", "orchestrator.log");
+const WORKTREE_POLICY_FILE = path.join(RUNTIME, "config", "worktree-policy.json");
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 
 type WavesWorld = {
@@ -30,6 +31,7 @@ type WavesWorld = {
   leases: WavesViewLease[];
   snapshot?: WavesViewSnapshot;
   snapshotExists: boolean;
+  worktreePolicyEnabled: boolean;
   errors: string[];
   failing: Set<string>;
 };
@@ -42,6 +44,7 @@ function wavesWorld(): WavesWorld {
     errors,
     leases: [],
     snapshotExists: false,
+    worktreePolicyEnabled: false,
     failing: new Set<string>(),
     ports: {
       readTailLines: (file) =>
@@ -51,6 +54,10 @@ function wavesWorld(): WavesWorld {
       readWaveSnapshot: () => Promise.resolve(world.snapshot),
       waveSnapshotExists: () => Promise.resolve(world.snapshotExists),
       homeDir: () => "/home/ana",
+      readWorktreePolicyEnabled: (absoluteConfigFile) =>
+        world.failing.has(absoluteConfigFile)
+          ? Promise.reject(new Error("neperskaitoma politika"))
+          : Promise.resolve(world.worktreePolicyEnabled),
       now: () => NOW,
       logError: (message) => errors.push(message),
     },
@@ -228,4 +235,31 @@ test("buildWavesView: lease'ų šaltinio lūžis palieka vaizdą su tuščiais s
   assert.deepEqual(view.slots, []);
   assert.deepEqual(view.leases, []);
   assert.deepEqual(view.degraded, ["leases"]);
+});
+
+test("buildWavesView: worktree politika įjungta matoma vaizde su projektui reliatyviu keliu", async () => {
+  const world = wavesWorld();
+  world.worktreePolicyEnabled = true;
+
+  const view = await buildWavesView({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME });
+  assert.deepEqual(view.worktree_policy, { enabled: true, config_path: "vq/config/worktree-policy.json" });
+  assert.deepEqual(view.degraded, []);
+});
+
+test("buildWavesView: worktree politika išjungta arba failo nėra irgi matoma, tik su enabled: false", async () => {
+  const world = wavesWorld();
+
+  const view = await buildWavesView({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME });
+  assert.deepEqual(view.worktree_policy, { enabled: false, config_path: "vq/config/worktree-policy.json" });
+  assert.deepEqual(view.degraded, []);
+});
+
+test("buildWavesView: neperskaitomas worktree politikos failas žymimas degraded, o laukas praleidžiamas", async () => {
+  const world = wavesWorld();
+  world.failing.add(WORKTREE_POLICY_FILE);
+
+  const view = await buildWavesView({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME });
+  assert.equal(view.worktree_policy, undefined);
+  assert.deepEqual(view.degraded, ["worktree_policy"]);
+  assert.match(world.errors.join("\n"), /waves view source 'worktree_policy' failed/);
 });

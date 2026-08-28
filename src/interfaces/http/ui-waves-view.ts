@@ -31,6 +31,7 @@ import {
   type WaveSlotLease,
 } from "../ui-model/wave-slot-model.js";
 import { sanitizeFreeText } from "./free-text-redaction.js";
+import { normalizeProjectPath } from "../../shared/paths.js";
 
 export type UiWaveEvent = {
   ts: string;
@@ -73,12 +74,20 @@ export type UiWaveRefillDecision = {
   rejected: UiWaveRejection[];
 };
 
+export type UiWaveWorktreePolicy = {
+  enabled: boolean;
+  /** Projektui reliatyvus POSIX kelias (`vq/config/worktree-policy.json`), niekada absoliutus. */
+  config_path: string;
+};
+
 export type UiWavesView = {
   events: UiWaveEvent[];
   leases: UiWaveLease[];
   slots: UiWaveSlot[];
   last_rejections: UiWaveRejection[];
   refill_decisions: UiWaveRefillDecision[];
+  /** Trūksta, kai šaltinis `degraded`: nežinoma reikšmė niekada neapsimeta „išjungta". */
+  worktree_policy?: UiWaveWorktreePolicy;
   /** Šaltiniai, kurių nepavyko perskaityti. Tuščias sąrašas reiškia „viskas perskaityta". */
   degraded: string[];
 };
@@ -148,6 +157,8 @@ export type WavesViewPorts = {
   waveSnapshotExists(stateDir: string): Promise<boolean>;
   /** Naudotojo namų katalogas — viena iš redaguojamų šaknų. */
   homeDir(): string;
+  /** Ar worktree izoliacijos politika įjungta pagal `<runtimeRoot>/config/worktree-policy.json`. */
+  readWorktreePolicyEnabled(absoluteConfigFile: string): Promise<boolean>;
   now?: () => Date;
   /** Degradavusio šaltinio pranešimas; be jo gedimas lieka tik `degraded` sąraše. */
   logError?(message: string): void;
@@ -295,8 +306,9 @@ export async function buildWavesView(input: BuildWavesViewInput): Promise<UiWave
   const sanitize = (text: string): string => sanitizeFreeText(text, roots);
   const now = ports.now?.() ?? new Date();
   const degraded: string[] = [];
+  const worktreePolicyFile = path.join(runtimeRoot, "config", "worktree-policy.json");
 
-  const [eventTail, leases, snapshot, failures] = await Promise.all([
+  const [eventTail, leases, snapshot, failures, worktreePolicyEnabled] = await Promise.all([
     readSource(ports, "events", [] as UiWaveEvent[], () => readWaveEventTail(ports, logsDir, sanitize), degraded),
     readSource(ports, "leases", [] as WaveSlotLease[], () => readLeases(ports, root), degraded),
     // Šaltinio vardas lieka `rejections`: jis jau yra `degraded` kontrakte, o skaitomas failas tas
@@ -313,6 +325,14 @@ export async function buildWavesView(input: BuildWavesViewInput): Promise<UiWave
       "slot_failures",
       [] as UiWaveSlotFailureEntry[],
       () => readSlotFailures(ports, logsDir, sanitize),
+      degraded,
+    ),
+    // Fallback `undefined`, ne `false`: nesėkmė turi PRALEISTI lauką, ne apsimesti „išjungta".
+    readSource(
+      ports,
+      "worktree_policy",
+      undefined as boolean | undefined,
+      () => ports.readWorktreePolicyEnabled(worktreePolicyFile),
       degraded,
     ),
   ]);
@@ -332,6 +352,14 @@ export async function buildWavesView(input: BuildWavesViewInput): Promise<UiWave
     slots,
     last_rejections: snapshot.last_rejections,
     refill_decisions: snapshot.refill_decisions,
+    ...(worktreePolicyEnabled !== undefined
+      ? {
+          worktree_policy: {
+            enabled: worktreePolicyEnabled,
+            config_path: normalizeProjectPath(root, worktreePolicyFile),
+          },
+        }
+      : {}),
     degraded,
   };
 }

@@ -562,6 +562,14 @@ tbody tr:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow);
 }
+/* Ši kortelė neturi jokio onClick — hover pakėlimas be paskirties atrodytų kaip paspaudžiamas
+   elementas. Taisyklė veikia abiejose temose, nes remiasi tais pačiais kintamaisiais kaip bazinė
+   `.runtime-card`, tik grąžina juos į ramybės būseną. */
+.runtime-card.runtime-card-passive:hover {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: none;
+}
 .runtime-card-top {
   display: flex;
   align-items: flex-start;

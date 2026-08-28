@@ -70,6 +70,70 @@ describe("RuntimePanel", () => {
     expect(screen.queryByRole("heading", { name: "Operator interface unavailable" })).not.toBeInTheDocument();
   });
 
+  // Task 059-e: kortelė be onClick, bet su hover pakėlimu atrodė kaip paspaudžiama, o be sesijos
+  // rodė bendrinį „būsena nepatvirtinta" tekstą, nors realiai tai stebėjimo blokas, kurio
+  // vartotojas dar nepaleido — ne gedimas, kurio negalima paaiškinti.
+  it("explains the Claude terminal card as an idle observer, not a generic unknown status, and drops its hover affordance", () => {
+    const noSession: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "unknown", detail: "PID not recorded", variant: "warning" },
+    ];
+
+    render(<RuntimePanel processes={noSession} root="D:/project" />);
+
+    const card = screen.getByText("User Claude terminal").closest("article")!;
+    expect(
+      within(card).getByText(
+        "This block observes a Claude terminal session that you start yourself; none is currently active.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(card).queryByText("The process state could not be confirmed.")).not.toBeInTheDocument();
+    expect(card).toHaveClass("runtime-card-passive");
+
+    // Kitos kortelės (AG UI, AG loop) hover elgesio nepraranda — tik šitai kortelei jis neturi
+    // paskirties, nes ji niekada neturėjo onClick.
+    const agUiCard = screen.getByText("AG UI").closest("article")!;
+    expect(agUiCard).not.toHaveClass("runtime-card-passive");
+  });
+
+  it("gives the same idle-observer explanation when the terminal is confirmed stopped", () => {
+    const stoppedSession: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "stopped", detail: "pid unknown", variant: "neutral" },
+    ];
+
+    render(<RuntimePanel processes={stoppedSession} root="D:/project" />);
+
+    const card = screen.getByText("User Claude terminal").closest("article")!;
+    expect(
+      within(card).getByText(
+        "This block observes a Claude terminal session that you start yourself; none is currently active.",
+      ),
+    ).toBeInTheDocument();
+    expect(card).toHaveClass("runtime-card-passive");
+  });
+
+  it("shows the normal availability text for an active Claude terminal session and still has no hover affordance", () => {
+    const activeSession: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "running", detail: "pid 30", variant: "good" },
+    ];
+
+    render(<RuntimePanel processes={activeSession} root="D:/project" />);
+
+    const card = screen.getByText("User Claude terminal").closest("article")!;
+    expect(within(card).getByText("Process is available and responding.")).toBeInTheDocument();
+    expect(
+      within(card).queryByText(
+        "This block observes a Claude terminal session that you start yourself; none is currently active.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(card).toHaveClass("runtime-card-passive");
+  });
+
   it("keeps the operator interface critical only on a confirmed stop", () => {
     const uiStopped: RuntimeProcessView[] = [
       { name: "AG UI", status: "stopped", detail: "pid 10", variant: "neutral" },

@@ -83,7 +83,17 @@ const PROCESS_PURPOSE: Record<string, string> = {
   "User Claude terminal": "Tracks the user-controlled Claude terminal session.",
 };
 
+/**
+ * Šis procesas neturi „start" veiksmo — jį paleidžia pats vartotojas terminale, ne UI. Kortelė
+ * todėl (a) be sesijos gauna paaiškinimą, kad tai stebėjimo, o ne valdymo blokas, ir (b) niekada
+ * neturi hover pakėlimo, nes paspaudimas jos niekur neveda.
+ */
+const CLAUDE_TERMINAL_PROCESS = "User Claude terminal";
+
 function statusDescription(process: RuntimeProcessView): string {
+  if (process.name === CLAUDE_TERMINAL_PROCESS && process.status !== "running") {
+    return "This block observes a Claude terminal session that you start yourself; none is currently active.";
+  }
   if (process.status === "running") return "Process is available and responding.";
   if (process.status === "stopped") return "Process is not running.";
   return "The process state could not be confirmed.";
@@ -429,7 +439,10 @@ export const RuntimePanel = memo(function RuntimePanel({
         </div>
         <div className="runtime-grid">
           {processes.map((process) => (
-            <article key={process.name} className={`runtime-card runtime-${process.status}`}>
+            <article
+              key={process.name}
+              className={`runtime-card runtime-${process.status}${process.name === CLAUDE_TERMINAL_PROCESS ? " runtime-card-passive" : ""}`}
+            >
               <div className="runtime-card-top">
                 <div><h3>{process.name}</h3><p>{t(PROCESS_PURPOSE[process.name] ?? "Runtime process")}</p></div>
                 <Badge text={t(process.status)} variant={process.variant} />

@@ -187,6 +187,7 @@ const lt: Record<string, string> = {
   "Process is available and responding.": "Procesas pasiekiamas ir atsako.",
   "Process is not running.": "Procesas šiuo metu neveikia.",
   "The process state could not be confirmed.": "Proceso būsenos patvirtinti nepavyko.",
+  "This block observes a Claude terminal session that you start yourself; none is currently active.": "Šis blokas stebi paties vartotojo paleidžiamą Claude terminalo sesiją; dabar jos nėra.",
   "Process identity": "Proceso tapatybė",
   "running": "Veikia",
   "stopped": "Sustabdytas",

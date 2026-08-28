@@ -316,10 +316,25 @@ export type DashboardData = {
    * perskaityta", todėl kontroleris jį verčia tuščiu sąrašu tik po `?? []`.
    */
   degraded?: string[];
+  /**
+   * Bundle mtime vs šaltinių mtime (`ui-router.ts#bundleStalenessFields`, task 058). Neprivalomas
+   * dėl senesnio `dist`, kuris šio lauko dar nesiunčia — jo nebuvimas reiškia „nežinome", ne
+   * „šviežia".
+   */
+  bundle_stale?: boolean;
+  /** `null`, kai bundle dar niekada nesukurtas. */
+  bundle_built_at?: string | null;
 };
 
 export type LoopResult = {
   status: "already-running" | "started" | "failed";
+  pid?: number;
+  reason?: string;
+};
+
+/** `POST /api/ui/rebuild` atsakymas (`ui-rebuild.ts#UiRebuildStartResult`, task 058). */
+export type UiRebuildResult = {
+  status: "already-running" | "started" | "failed" | "disabled";
   pid?: number;
   reason?: string;
 };

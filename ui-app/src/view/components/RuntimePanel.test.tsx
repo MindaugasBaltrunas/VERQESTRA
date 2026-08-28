@@ -1,12 +1,17 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   LoopControlView,
   LoopSlotView,
   RuntimeProcessView,
   WorkerControlView,
 } from "../../model/dashboardViewModel";
+import * as api from "../../model/api";
 import { RuntimePanel } from "./RuntimePanel";
+
+vi.mock("../../model/api", () => ({
+  rebuildUiBundle: vi.fn(),
+}));
 
 const processes: RuntimeProcessView[] = [
   { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
@@ -595,5 +600,106 @@ describe("RuntimePanel loop streams", () => {
       screen.getByText(/The loop control file is unreadable; every stream defaults to run\./),
     ).toBeInTheDocument();
     expect(screen.getByText(/Stop requested/)).toBeInTheDocument();
+  });
+});
+
+// Task 058-b: dashboard bundle rebuild mygtukas ir pasenusio bundle įspėjimas.
+describe("RuntimePanel bundle rebuild", () => {
+  afterEach(() => {
+    vi.mocked(api.rebuildUiBundle).mockReset();
+  });
+
+  it("warns about a stale bundle and drops the all-clear banner even when every process is known", () => {
+    const allKnown: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "running", detail: "pid 30", variant: "good" },
+    ];
+
+    render(<RuntimePanel processes={allKnown} root="D:/project" loopRunState="running" bundleStale={true} />);
+
+    expect(screen.getByText("Dashboard bundle is stale")).toBeInTheDocument();
+    expect(screen.queryByText("No runtime issues detected")).not.toBeInTheDocument();
+  });
+
+  it("shows the all-clear banner once the bundle is confirmed fresh", () => {
+    const allKnown: RuntimeProcessView[] = [
+      { name: "AG UI", status: "running", detail: "pid 10", variant: "good" },
+      { name: "AG loop", status: "running", detail: "pid 20", variant: "good" },
+      { name: "User Claude terminal", status: "running", detail: "pid 30", variant: "good" },
+    ];
+
+    render(<RuntimePanel processes={allKnown} root="D:/project" loopRunState="running" bundleStale={false} />);
+
+    expect(screen.queryByText("Dashboard bundle is stale")).not.toBeInTheDocument();
+    expect(screen.getByText("No runtime issues detected")).toBeInTheDocument();
+  });
+
+  it("omits the stale-bundle warning when the server has not reported bundle freshness", () => {
+    render(<RuntimePanel processes={processes} root="D:/project" loopRunState="running" />);
+
+    expect(screen.queryByText("Dashboard bundle is stale")).not.toBeInTheDocument();
+  });
+
+  it("disables the rebuild button while the request is running and treats 'already-running' as in progress, not as an error", async () => {
+    vi.mocked(api.rebuildUiBundle).mockResolvedValue({ status: "already-running", pid: 123 });
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+    fireEvent.click(screen.getByRole("button", { name: "Rebuild dashboard" }));
+
+    expect(screen.getByRole("button", { name: "Rebuild dashboard" })).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        screen.getByText("Rebuild is running in the background; this can take a moment."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Rebuild failed/)).not.toBeInTheDocument();
+  });
+
+  it("reports success and offers a reload once the next dashboard poll confirms a fresh bundle", async () => {
+    vi.mocked(api.rebuildUiBundle).mockResolvedValue({ status: "started", pid: 456 });
+
+    const { rerender } = render(
+      <RuntimePanel processes={processes} root="D:/project" bundleStale={true} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Rebuild dashboard" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rebuild dashboard" })).toBeDisabled());
+
+    // Tas pats `/api/dashboard` pollingas, kurį jau vykdo tėvas — ne antras, panelės savas.
+    rerender(<RuntimePanel processes={processes} root="D:/project" bundleStale={false} />);
+
+    expect(screen.getByText("Rebuild finished.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rebuild dashboard" })).toBeEnabled();
+  });
+
+  it("shows the server's failure reason", async () => {
+    vi.mocked(api.rebuildUiBundle).mockResolvedValue({ status: "failed", reason: "spawn ENOENT pnpm" });
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+    fireEvent.click(screen.getByRole("button", { name: "Rebuild dashboard" }));
+
+    expect(await screen.findByText("Rebuild failed: spawn ENOENT pnpm")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rebuild dashboard" })).toBeEnabled();
+  });
+
+  it("reports the port as unavailable rather than as a failure when composition has not wired it", async () => {
+    vi.mocked(api.rebuildUiBundle).mockResolvedValue({ status: "disabled" });
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+    fireEvent.click(screen.getByRole("button", { name: "Rebuild dashboard" }));
+
+    expect(await screen.findByText("Rebuild is not available in this deployment.")).toBeInTheDocument();
+  });
+
+  it("shows the request error when the POST itself rejects", async () => {
+    vi.mocked(api.rebuildUiBundle).mockRejectedValue(new Error("Request timed out after 15s: /api/ui/rebuild"));
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+    fireEvent.click(screen.getByRole("button", { name: "Rebuild dashboard" }));
+
+    expect(
+      await screen.findByText("Rebuild failed: Request timed out after 15s: /api/ui/rebuild"),
+    ).toBeInTheDocument();
   });
 });

@@ -194,6 +194,18 @@ const lt: Record<string, string> = {
   "Runtime context": "Vykdymo kontekstas",
   "Connected project": "Prijungtas projektas",
   "The repository currently controlled by this VERQESTRA instance.": "Repository, kurį šiuo metu valdo šis VERQESTRA egzempliorius.",
+  // Task 058-b: dashboard bundle rebuild mygtukas ir pasenusio bundle įspėjimas.
+  "Dashboard bundle is stale": "Dashboard'o bundle pasenęs",
+  "The dashboard you are viewing is older than its sources.": "Rodomas dashboard'as senesnis už šaltinius.",
+  "Rebuild dashboard": "Perbuild'inti dashboard'ą",
+  "Dashboard bundle": "Dashboard'o bundle",
+  "Rebuild the UI bundle from the latest source (pnpm --dir ui-app build).":
+    "Perstato UI bundle iš naujausio šaltinio (pnpm --dir ui-app build).",
+  "Rebuild is running in the background; this can take a moment.": "Perbuild'as vyksta fone; tai gali užtrukti.",
+  "Rebuild finished.": "Perbuild'as baigtas.",
+  "Reload page": "Perkrauti puslapį",
+  "Rebuild failed": "Perbuild'as nepavyko",
+  "Rebuild is not available in this deployment.": "Šiame diegime perbuild'as neįjungtas.",
   // Task 059: `#/system` viršutinis blokas — atsakymas į „kas vyksta DABAR ir ko reikia iš manęs".
   "System status": "Sistemos būsena",
   "Loop is running": "Ciklas vykdomas",

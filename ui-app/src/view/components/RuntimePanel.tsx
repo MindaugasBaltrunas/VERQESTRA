@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { DASHBOARD_RELOAD_ACTION } from "../../controller/useDashboardController";
 import type {
   LoopControlView,
@@ -12,11 +12,14 @@ import {
   type LoopRunState,
 } from "../../model/loopControlsViewModel";
 import type { SlotProgressView } from "../../model/slotProgressViewModel";
+import { rebuildUiBundle } from "../../model/api";
 import type { LoopWorkerId } from "../../model/types";
 import { Badge } from "./Badge";
 import { LoopControls } from "./LoopControls";
 import { LoopStreamCards } from "./LoopStreamCards";
 import { useI18n } from "../../i18n/I18nContext";
+
+type UiRebuildState = "idle" | "running" | "succeeded" | "failed" | "unavailable";
 
 type Props = {
   processes: RuntimeProcessView[];
@@ -64,6 +67,11 @@ type Props = {
   pendingActions?: ReadonlySet<string>;
   fixableTaskIds?: ReadonlySet<string>;
   onFixTask?: (taskId: string) => void;
+  /**
+   * Bundle senumo požymis iš `/api/dashboard` (`bundle_stale`, task 058). NEPRIVALOMAS: senesnis
+   * `dist` šio lauko dar nesiunčia, o be jo įspėjimas tiesiog nerodomas — nežinojimas nėra „šviežia".
+   */
+  bundleStale?: boolean;
 };
 
 /** Tuščias rinkinys yra pastovus: naujas `Set` kiekvienam renderiui griautų vaikų `memo` prasmę. */
@@ -99,8 +107,39 @@ export const RuntimePanel = memo(function RuntimePanel({
   pendingActions = NO_PENDING,
   fixableTaskIds,
   onFixTask,
+  bundleStale,
 }: Props) {
   const { t } = useI18n();
+  const [rebuildState, setRebuildState] = useState<UiRebuildState>("idle");
+  const [rebuildReason, setRebuildReason] = useState<string | undefined>(undefined);
+
+  // `bundle_stale` ateina iš tėvo periodinio `/api/dashboard` polling'o (jis JAU vyksta kas 30 s) —
+  // antras pollingas ČIA reikštų dvi lenktynėse esančias tiesos versijas tam pačiam laukui. Kai
+  // vykstantis perbuild'as pamato, kad tėvas atsiuntė šviežų bundle'ą, tai IR YRA sėkmės įrodymas.
+  useEffect(() => {
+    if (rebuildState === "running" && bundleStale === false) setRebuildState("succeeded");
+  }, [bundleStale, rebuildState]);
+
+  const triggerUiRebuild = () => {
+    setRebuildState("running");
+    setRebuildReason(undefined);
+    void rebuildUiBundle()
+      .then((result) => {
+        if (result.status === "started" || result.status === "already-running") {
+          // „Jau vyksta" NĖRA klaida — tai tas pats vykdomas darbas, kurio operatorius jau paprašė.
+          setRebuildState("running");
+        } else if (result.status === "disabled") {
+          setRebuildState("unavailable");
+        } else {
+          setRebuildState("failed");
+          setRebuildReason(result.reason);
+        }
+      })
+      .catch((error: unknown) => {
+        setRebuildState("failed");
+        setRebuildReason(error instanceof Error ? error.message : String(error));
+      });
+  };
   // Ciklo mygtukų matrica skaičiuojama VIENĄ kartą ir maitina abu ekrano įėjimo taškus: „Automatika
   // laukia" kortelę ir ciklo valdymo juostą. Du skaičiavimai reikštų du atsakymus tam pačiam
   // klausimui — būtent tai ir buvo 1235 review radinys.
@@ -218,10 +257,64 @@ export const RuntimePanel = memo(function RuntimePanel({
               )}
             </article>
           )}
-          {loopRunState !== "stopped" && unknown.length === 0 && (
+          {/* Vienas veiksmas, viena vieta: mygtukas gyvena TIK „Dashboard'o bundle" sekcijoje
+              žemiau (ta pati taisyklė kaip 052 review — N kopijų to paties veiksmo yra blogiau
+              už jo nebuvimą), ši kortelė tik įvardija faktą ir nukreipia į jį. */}
+          {bundleStale === true && (
+            <article className="system-signal signal-warning">
+              <span className="signal-icon" aria-hidden="true">⟳</span>
+              <div>
+                <strong>{t("Dashboard bundle is stale")}</strong>
+                <p>{t("The dashboard you are viewing is older than its sources.")}</p>
+              </div>
+            </article>
+          )}
+          {loopRunState !== "stopped" && unknown.length === 0 && bundleStale !== true && (
             <div className="system-all-clear"><span>✓</span><div><strong>{t("No runtime issues detected")}</strong><p>{t("All observable processes report a known state.")}</p></div></div>
           )}
         </div>
+      </section>
+
+      {/* Bundle rebuild (task 058) — savarankiškas veiksmas, ne per kontrolerį: šis mygtukas
+          POST'ina `/api/ui/rebuild` TIESIOGIAI, kad panelė nepriklausytų nuo eilinio dispatch'o. */}
+      <section className="panel" aria-labelledby="system-rebuild-title">
+        <div className="panel-header">
+          <div>
+            <h2 id="system-rebuild-title">{t("Dashboard bundle")}</h2>
+            <p className="panel-subtitle">
+              {t("Rebuild the UI bundle from the latest source (pnpm --dir ui-app build).")}
+            </p>
+          </div>
+          <button
+            className="button ghost small-button"
+            type="button"
+            onClick={triggerUiRebuild}
+            disabled={rebuildState === "running"}
+            aria-busy={rebuildState === "running" || undefined}
+          >
+            {t("Rebuild dashboard")}
+          </button>
+        </div>
+        {rebuildState === "running" && (
+          <p className="runtime-explanation">{t("Rebuild is running in the background; this can take a moment.")}</p>
+        )}
+        {rebuildState === "succeeded" && (
+          <p className="notice" role="status">
+            {t("Rebuild finished.")}{" "}
+            <button className="button ghost small-button" type="button" onClick={() => window.location.reload()}>
+              {t("Reload page")}
+            </button>
+          </p>
+        )}
+        {rebuildState === "failed" && (
+          <p className="notice notice-error" role="alert">
+            {t("Rebuild failed")}
+            {rebuildReason ? `: ${rebuildReason}` : ""}
+          </p>
+        )}
+        {rebuildState === "unavailable" && (
+          <p className="runtime-explanation">{t("Rebuild is not available in this deployment.")}</p>
+        )}
       </section>
 
       {/* Ciklo valdymas (task 1235) stovi PRIEŠ srautus: pirma sprendimas „ar ciklas apskritai veikia

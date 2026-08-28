@@ -13,6 +13,7 @@ import type {
   TokenAnalyticsResponse,
   TokenUsageQueryResponse,
   TokenUsageServerFilter,
+  UiRebuildResult,
   UiWavesView,
   WorkerRequestState,
   WorkflowBucket,
@@ -241,6 +242,23 @@ export async function startLoopWithWorkers(workers: 1 | 2): Promise<LoopResult> 
   });
   await assertOk(r);
   return requireLoopEnvelope<LoopResult>(await r.json(), "/api/runtime/loop/start");
+}
+
+const UI_REBUILD_STATUSES = ["already-running", "started", "failed", "disabled"] as const;
+
+/**
+ * UI bundle rebuild paleidimas (`pnpm --dir ui-app build`, task 058). Kūno nesiunčia — komanda
+ * fiksuota serveryje. `disabled` reiškia, kad composition adapteris dar nesurištas, ne klaidą.
+ */
+export async function rebuildUiBundle(): Promise<UiRebuildResult> {
+  const r = await post("/api/ui/rebuild");
+  await assertOk(r);
+  const payload = (await r.json()) as { status?: unknown };
+  const statuses: readonly string[] = UI_REBUILD_STATUSES;
+  if (typeof payload.status !== "string" || !statuses.includes(payload.status)) {
+    throw new Error("/api/ui/rebuild: serverio atsakyme nėra žinomo 'status' lauko — perkrauk VERQESTRA UI serverį");
+  }
+  return payload as UiRebuildResult;
 }
 
 /**

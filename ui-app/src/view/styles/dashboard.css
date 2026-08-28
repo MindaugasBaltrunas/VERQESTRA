@@ -2954,8 +2954,7 @@ header .muted {
 }
 .policy-control-topline,
 .policy-control-footer,
-.policy-form-actions,
-.policy-field-with-help {
+.policy-form-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2966,25 +2965,6 @@ header .muted {
   color: var(--faint);
   font-size: 10px;
 }
-.policy-value-guide {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.35fr) minmax(0, 1.2fr);
-  gap: 8px;
-  margin: 14px 0;
-}
-.policy-value-guide > div {
-  min-width: 0;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
-}
-.policy-value-guide .recommended {
-  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
-  background: color-mix(in srgb, var(--success) 6%, var(--surface));
-}
-.policy-value-guide span,
-.policy-pending-change span,
 .policy-form-preview span {
   display: block;
   color: var(--faint);
@@ -2993,46 +2973,12 @@ header .muted {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
-.policy-value-guide strong,
-.policy-pending-change strong,
 .policy-form-preview strong {
   display: block;
   margin-top: 4px;
   overflow-wrap: anywhere;
   color: var(--text-strong);
   font-size: 14px;
-}
-.policy-value-guide small {
-  display: block;
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.35;
-}
-.policy-value-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-.policy-value-options code {
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 10px;
-}
-.policy-pending-change {
-  margin: -4px 0 12px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
-}
-.policy-pending-change i {
-  color: var(--accent);
-  font-style: normal;
 }
 .policy-value-flow {
   display: grid;
@@ -3070,10 +3016,24 @@ header .muted {
 }
 .policy-value-flow .pending {
   border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
 }
+.policy-value-flow small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+/* Rodyklė yra ŽENKLAS, o ne etiketė: bendra `.policy-value-flow span` taisyklė ją paverstų
+   9px versaliuku bloku, tad tas keturias savybes ji privalo atstatyti pati. */
 .policy-flow-arrow {
+  display: inline;
   color: var(--accent);
+  font-size: 15px;
   font-weight: 800;
+  letter-spacing: normal;
+  text-transform: none;
 }
 .policy-control-footer {
   padding-top: 10px;
@@ -3095,15 +3055,9 @@ header .muted {
   background: var(--surface);
 }
 .policy-change-form input,
-.policy-change-form select,
-.policy-change-form textarea {
+.policy-change-form textarea,
+.policy-change-form .select-menu {
   width: 100%;
-}
-.policy-field-with-help {
-  justify-content: flex-start;
-}
-.policy-field-with-help select {
-  flex: 1;
 }
 .policy-form-actions {
   justify-content: flex-end;
@@ -3478,52 +3432,6 @@ body.has-expanded-log::after {
 .agent-legend-item {
   font-size: 11px;
   color: var(--faint);
-}
-
-/* ---- Help popover ------------------------------------------------------ */
-.help-popover {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.help-popover-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 700;
-  cursor: help;
-}
-.help-popover-text {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: 220px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1.4;
-  box-shadow: var(--shadow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--speed) var(--ease);
-  z-index: 5;
-}
-.help-popover:hover .help-popover-text,
-.help-popover:focus-visible .help-popover-text,
-.help-popover:focus-within .help-popover-text {
-  opacity: 1;
 }
 
 /* ---- Motion / responsive --------------------------------------------- */
@@ -4493,7 +4401,6 @@ main {
     flex: 1;
   }
   .policy-controls-grid,
-  .policy-value-guide,
   .proposal-context {
     grid-template-columns: 1fr;
   }

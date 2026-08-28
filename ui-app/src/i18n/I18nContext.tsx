@@ -77,12 +77,10 @@ const lt: Record<string, string> = {
   "Change history": "Pakeitimų istorija",
   "No policy change history": "Politikų pakeitimų istorijos nėra",
   "Applied and rejected changes will appear here.": "Čia bus rodomi pritaikyti ir atmesti pakeitimai.",
+  // „Rekomenduojama" nuo 2026-08-28 yra `SelectMenu` varianto ženklelis, o ne sakinys kortelėje:
+  // kartu su juo iš žodyno išeina „Available values" ir keturi aiškinamieji sakiniai, kurių
+  // vienintelis skaitytojas buvo pašalintas komentarų blokas.
   "Recommended": "Rekomenduojama",
-  "Available values": "Galimos reikšmės",
-  "Keep the current value unless a planned architecture change requires otherwise.": "Palikite dabartinę reikšmę, nebent suplanuotas architektūros keitimas.",
-  "Balanced best-practice default for quality and safe delivery.": "Subalansuota geroji praktika kokybei ir saugiam pakeitimų pristatymui.",
-  "Enter a numeric limit.": "Įveskite skaitinę ribą.",
-  "Enter a custom value.": "Įveskite individualią reikšmę.",
   "Pending proposal": "Laukiantis pasiūlymas",
   "Proposed change": "Siūlomas pakeitimas",
   "true": "Taip",

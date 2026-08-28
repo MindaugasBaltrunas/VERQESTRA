@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from "react";
 import type { UiPolicyControl, UiPolicyGroup } from "../../model/types";
 import { fill } from "../../model/fillTemplate";
 import { Badge } from "./Badge";
+import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import { useI18n } from "../../i18n/I18nContext";
 
 type Props = {
@@ -11,8 +12,10 @@ type Props = {
 
 type PolicyFilter = "all" | "editable" | "pending";
 
-function formatValue(value: boolean | string | number): string {
-  if (typeof value === "boolean") return value ? "taip" : "ne";
+type Translate = (text: string) => string;
+
+function formatValue(value: boolean | string | number, t: Translate): string {
+  if (typeof value === "boolean") return value ? t("Yes") : t("No");
   return String(value);
 }
 
@@ -60,17 +63,23 @@ function availableValues(control: UiPolicyControl): string[] {
   return [];
 }
 
-const CODING_PRINCIPLES_GROUP = "coding-principles";
-const CODING_PRINCIPLES_HELP =
-  "advisory = tik rekomendacija, nevykdo prievarta; warn = review signalas peržiūrai; block = griežtas vykdymas, pažeidimas stabdo užduotį.";
-
-function HelpPopover({ text }: { text: string }) {
-  return (
-    <span className="help-popover" tabIndex={0}>
-      <span className="help-popover-icon" aria-hidden="true">?</span>
-      <span className="help-popover-text" role="tooltip">{text}</span>
-    </span>
-  );
+/**
+ * Vienintelis pasirinkimo kanalas (2026-08-28). Anksčiau ta pati informacija ekrane kartojosi
+ * trimis pavidalais: „Available values" kodų juostelė, „Recommended" sakinys ir tik po to laukas,
+ * į kurį reikšmė realiai įvedama. Dabar variantai gyvena TEN, kur renkami — `SelectMenu` sąraše —
+ * o rekomendacija yra varianto `tag` ženklelis, ne atskiras aiškinamasis sakinys šalia kortelės.
+ *
+ * Boolean nustatymai eina tuo pačiu keliu: variantai yra `"true"`/`"false"` eilutės, o tikru
+ * boolean'u reikšmė virsta `parseFormValue`, prieš pat siunčiant. Etiketė imama iš `formatValue`,
+ * tad dabartinė reikšmė kortelėje ir pasirinkimas sąraše rašomi vienodai.
+ */
+function valueOptions(control: UiPolicyControl, t: Translate): SelectMenuOption[] {
+  const recommended = String(recommendedValue(control));
+  return availableValues(control).map((value) => ({
+    value,
+    label: typeof control.value === "boolean" ? formatValue(value === "true", t) : t(value),
+    ...(value === recommended ? { tag: t("Recommended") } : {}),
+  }));
 }
 
 export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, onPropose }: Props) {
@@ -203,7 +212,11 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
         >
           <summary><span>{t(group.label)}</span><b>{group.controls.length} {t("settings")}</b></summary>
           <div className="policy-controls-grid">
-            {group.controls.map((control) => (
+            {group.controls.map((control) => {
+              const options = valueOptions(control, t);
+              const valueFieldName = `${t(control.label)} ${t("New value")}`;
+              const previewValue = options.find((option) => option.value === formValue)?.label ?? formValue;
+              return (
               <article key={control.id} className={`policy-control-card${control.pending_proposal ? " is-pending" : ""}`}>
                 <div className="policy-control-topline">
                   <div>
@@ -216,49 +229,32 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                   </div>
                   <Badge text={control.editable ? t("Editable") : t("Read-only")} variant="neutral" />
                 </div>
-                <div className="policy-value-guide">
-                  {/* Vardo neturi sąmoningai: išvaizdą duoda `.policy-value-guide > div`, o vietą
-                      — tinklelio stulpelis. Klasė `current` čia buvo be taisyklės ir be
-                      skaitytojo, o tokiu bendriniu vardu globaliame lape ji laukia susidūrimo. */}
-                  <div><span>{t("Current value")}</span><strong>{formatValue(control.value)}</strong></div>
-                  <div className="recommended">
-                    <span>{t("Recommended")}</span>
-                    <strong>{formatValue(recommendedValue(control))}</strong>
-                    <small>{t(RECOMMENDED_VALUES[control.id] === undefined ? "Keep the current value unless a planned architecture change requires otherwise." : "Balanced best-practice default for quality and safe delivery.")}</small>
-                  </div>
+                {/* Viena eilutė „dabartinė → laukianti", o ne trys stulpeliai su aiškinimais.
+                    Be laukiančio pasiūlymo dešinės pusės NĖRA: `:only-child` išplečia dabartinę
+                    reikšmę per visą plotį, ir kortelė nelieka su tuščiu langeliu. */}
+                <div className="policy-value-flow">
                   <div>
-                    <span>{t("Available values")}</span>
-                    {availableValues(control).length > 0 ? (
-                      <div className="policy-value-options">
-                        {availableValues(control).map((value) => <code key={value}>{t(value)}</code>)}
+                    <span>{t("Current value")}</span>
+                    <strong>{formatValue(control.value, t)}</strong>
+                  </div>
+                  {control.pending_proposal && (
+                    <>
+                      <span className="policy-flow-arrow" aria-hidden="true">→</span>
+                      <div className="pending">
+                        <span>{t("Pending proposal")}</span>
+                        <strong>{formatPendingProposal(control.pending_proposal)}</strong>
+                        {/* Suspaudimas iki naujausio ĮVARDIJAMAS: be to eilėje matomi keli to
+                            paties nustatymo įrašai atrodo kaip dublikatas, o čia rodoma
+                            reikšmė — kaip vienintelė. */}
+                        {control.pending_proposal_count !== undefined && control.pending_proposal_count > 1 && (
+                          <small>
+                            {fill(t("{count} proposals for this setting; the newest is shown."), {
+                              count: control.pending_proposal_count,
+                            })}
+                          </small>
+                        )}
                       </div>
-                    ) : (
-                      <small>{t(typeof control.value === "number" ? "Enter a numeric limit." : "Enter a custom value.")}</small>
-                    )}
-                  </div>
-                </div>
-                {control.pending_proposal && (
-                  <div className="policy-pending-change">
-                    <span>{t("Pending proposal")}</span>
-                    <strong>{formatValue(control.value)} <i aria-hidden="true">→</i> {formatPendingProposal(control.pending_proposal)}</strong>
-                    {/* Suspaudimas iki naujausio ĮVARDIJAMAS: be to eilėje matomi keli to paties
-                        nustatymo įrašai atrodo kaip dublikatas, o čia rodoma reikšmė — kaip
-                        vienintelė. */}
-                    {control.pending_proposal_count !== undefined && control.pending_proposal_count > 1 && (
-                      <small>
-                        {fill(t("{count} proposals for this setting; the newest is shown."), {
-                          count: control.pending_proposal_count,
-                        })}
-                      </small>
-                    )}
-                  </div>
-                )}
-                <div className="policy-control-footer">
-                  <span>{t("Source")}: <code>{control.source}</code></span>
-                  {control.editable && onPropose && control.route && openFormId !== control.id && (
-                    <button className="button ghost small-button" type="button" onClick={() => openForm(control)}>
-                      {control.pending_proposal ? t("Propose another change") : t("Propose change")}
-                    </button>
+                    </>
                   )}
                 </div>
                 {openFormId === control.id && control.route && (
@@ -272,27 +268,19 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                         Placeholder dingsta vos pradėjus rašyti, tad laukas, į kurį jau kažkas
                         įvesta, nebeturi vardo — o būtent tada jo reikia, tikrinant prieš siunčiant.
                         `aria-label` tą vardą duodavo tik ekrano skaitytuvui; regintis operatorius
-                        jo neturėjo. `<label for>` aptarnauja abu, tad `aria-label` nebereikia. */}
+                        jo neturėjo. `<label for>` aptarnauja abu. */}
                     <label className="policy-field-label" id={`${control.id}-value-label`} htmlFor={`${control.id}-value`}>
                       {t("New value")}
                     </label>
-                    {availableValues(control).length > 0 ? (
-                      <div className="policy-field-with-help">
-                        <select
-                          id={`${control.id}-value`}
-                          aria-labelledby={`${control.id}-name ${control.id}-value-label`}
-                          value={formValue}
-                          onChange={(e) => setFormValue(e.target.value)}
-                          disabled={submitting}
-                        >
-                          {availableValues(control).map((allowedValue) => (
-                            <option key={allowedValue} value={allowedValue}>
-                              {t(allowedValue)}
-                            </option>
-                          ))}
-                        </select>
-                        {group.group === CODING_PRINCIPLES_GROUP && <HelpPopover text={CODING_PRINCIPLES_HELP} />}
-                      </div>
+                    {options.length > 0 ? (
+                      <SelectMenu
+                        id={`${control.id}-value`}
+                        value={formValue}
+                        onChange={setFormValue}
+                        options={options}
+                        disabled={submitting}
+                        aria-label={valueFieldName}
+                      />
                     ) : (
                       <input
                         id={`${control.id}-value`}
@@ -321,7 +309,7 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                     />
                     <p className="policy-form-preview">
                       <span>{t("Proposed change")}</span>
-                      <strong>{formatValue(control.value)} → {formValue || "—"}</strong>
+                      <strong>{formatValue(control.value, t)} → {previewValue || "—"}</strong>
                     </p>
                     {formError ? (
                       <p className="policy-form-error" role="alert">
@@ -355,8 +343,17 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                     )}
                   </form>
                 )}
+                <div className="policy-control-footer">
+                  <span>{t("Source")}: <code>{control.source}</code></span>
+                  {control.editable && onPropose && control.route && openFormId !== control.id && (
+                    <button className="button ghost small-button" type="button" onClick={() => openForm(control)}>
+                      {control.pending_proposal ? t("Propose another change") : t("Propose change")}
+                    </button>
+                  )}
+                </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </details>
       ))}

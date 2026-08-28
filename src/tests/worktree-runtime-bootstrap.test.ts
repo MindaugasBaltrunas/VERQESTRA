@@ -172,6 +172,31 @@ test("konfigas kopijuojamas, o nesantis optional junction'as tik LOG'inamas", as
   }
 });
 
+test("configDirs kopijuoja VISĄ konfigų katalogą, ne po failą", async () => {
+  const { root, worktree } = await primaryTree();
+  const parent = path.dirname(root);
+  try {
+    // GeoGravity 2026-08-28: vaikas be `tool-budget.json` lūžo iškart po delegavimo, nes
+    // bootstrap'as kopijavo tik `local.env`. Katalogo kopija dengia ir dar neegzistuojančius
+    // ateities konfigus be atskiro sąrašo priežiūros.
+    await writeFile(path.join(root, "vq", "config", "tool-budget.json"), '{"limit":1}', "utf8");
+    await mkdir(path.join(root, "vq", "config", "policy"), { recursive: true });
+    await writeFile(path.join(root, "vq", "config", "policy", "nested.json"), "{}", "utf8");
+
+    await ensureWorktreeRuntime({
+      projectRoot: root,
+      worktreeAbs: worktree,
+      layout: { ...LAYOUT, configDirs: ["vq/config"] },
+    });
+
+    assert.equal(await readFile(path.join(worktree, "vq", "config", "tool-budget.json"), "utf8"), '{"limit":1}');
+    assert.equal(await readFile(path.join(worktree, "vq", "config", "policy", "nested.json"), "utf8"), "{}");
+    assert.equal(await readFile(path.join(worktree, "vq", "config", "local.env"), "utf8"), "MODEL=x\n");
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
 test("pakartotinis kvietimas nieko negriauna", async () => {
   const { root, worktree } = await primaryTree();
   const parent = path.dirname(root);

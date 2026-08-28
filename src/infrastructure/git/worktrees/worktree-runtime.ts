@@ -71,6 +71,14 @@ export type WorktreeRuntimeLayout = {
   nodeModulesDir: string;
   /** Gitignored konfigo failai, kopijuojami dėl pariteto su pirminiu medžiu. */
   configFiles: readonly string[];
+  /**
+   * Gitignored konfigo KATALOGAI, kopijuojami ištisai (pvz. `vq/config`).
+   *
+   * Benchmark 2026-08-22 ir GeoGravity 2026-08-28 pamoka ta pati: kopijuojant po vieną failą
+   * kiekvienas praleistas konfigas (`tool-budget.json`, policy failai) atrandamas tik kitame
+   * MOKAMAME vaiko paleidime kaip beveidis lūžis. Aprūpinama visa aibė, ne po failą.
+   */
+  configDirs?: readonly string[];
   /** Junction'ai, kurių nebuvimas pirminiame medyje NĖRA klaida (pvz. dar nebuild'inta UI). */
   optionalJunctions: readonly string[];
 };
@@ -306,6 +314,17 @@ export async function ensureWorktreeRuntime(input: EnsureWorktreeRuntimeInput): 
     const target = path.join(worktreeAbs, ...segments);
     await mkdir(path.dirname(target), { recursive: true });
     await copyFile(source, target);
+  }
+
+  for (const relative of layout.configDirs ?? []) {
+    const segments = relative.split("/");
+    const source = path.join(projectRoot, ...segments);
+    if (!(await pathEntryExists(source))) continue;
+    const target = path.join(worktreeAbs, ...segments);
+    await mkdir(target, { recursive: true });
+    // `force: false` čia netinka: pakartotinis bootstrap'as (perimta kopija, retry) privalo
+    // atnaujinti konfigus iki pirminio medžio būsenos, kaip ir pavieniai `configFiles`.
+    await cp(source, target, { recursive: true });
   }
 
   // Produkto deps — PO runtime žingsnių: jei jau šie krito, install'o laukti nėra prasmės, o

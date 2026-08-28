@@ -264,6 +264,10 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           distDir: "dist",
           nodeModulesDir: "node_modules",
           configFiles: [path.relative(projectRoot, path.join(runtimeRoot, "config", "local.env")).split(path.sep).join("/")],
+          // VISAS runtime konfigų katalogas, ne po failą: vaikas kopijoje be `tool-budget.json`
+          // (ir kitų policy failų) lūžta iškart po delegavimo — GeoGravity 2026-08-28, ta pati
+          // pamoka kaip benchmark-loop-cell 2026-08-22.
+          configDirs: [path.relative(projectRoot, path.join(runtimeRoot, "config")).split(path.sep).join("/")],
           optionalJunctions: [],
         },
         log: deps.log,

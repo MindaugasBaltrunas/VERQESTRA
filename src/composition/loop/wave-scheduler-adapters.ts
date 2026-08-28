@@ -104,12 +104,12 @@ export async function ledgerDuplicate(deps: WaveInputAdapterDeps, taskId: string
 }
 
 /** Aprūpinimo git pusė: politika, gitignore ir darbo kopijos kūrimas. */
-export function waveWorktreePort(deps: { projectRoot: string; agRoot: string }): WaveWorktreePort {
+export function waveWorktreePort(deps: { projectRoot: string; runtimeRoot: string }): WaveWorktreePort {
   return {
     policyEnabled: async () => {
       const policy = await loadWorktreePolicy(
         { readTextFileIfExists: (file) => nodeFsAdapter.readTextFileIfExists(file) },
-        path.join(deps.agRoot, "config", "worktree-policy.json"),
+        path.join(deps.runtimeRoot, "config", "worktree-policy.json"),
       );
       return policy.enabled;
     },

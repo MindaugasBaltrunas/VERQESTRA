@@ -110,7 +110,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       // Proceso tapatybė paduodama, ne skaitoma application viduje.
       ownerId: `loop-${process.pid}`,
       leaseStore,
-      worktree: waveWorktreePort({ projectRoot, agRoot }),
+      worktree: waveWorktreePort({ projectRoot, runtimeRoot }),
       now,
       // Aprūpinimas yra ANTRAS koordinatorius, surišamas ne planuoklyje, tad jis turi gauti tą
       // patį saugų žurnalą (2026-08-23): iki tol jo `deps.log` buvo neapsaugotas, ir žurnalo

@@ -11,16 +11,18 @@ ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 # Task
 
-HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 out-of-scope failai legalizuoti — ciklo mygtukai realiai gyvena LoopControls/ConfirmButton, pirminis sąrašas buvo per siauras
+## Žingsnis 0 — ar jau įgyvendinta?
+Prieš keisdamas kodą patikrink, ar ## Tikslas ir ## Patikra jau tenkinami esamame kode. Jei taip — NEDARYK jokių pakeitimų ir galutinę ataskaitą pradėk atskira eilute:
+ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
 
 ## Spec source
-`openspec/changes/verqestra-backlog-v1/`
+`AG/openspec/changes/verqestra-backlog-v1/`
 
 ## Tikslas
-`#/system` ciklo mygtukai neaiškina pasekmių. „Stabdyti" drain semantikos pastraipą perkelti prie paties mygtuko (subtekstas arba tooltip), o kiekvienas išjungtas mygtukas privalo turėti `title` su priežastimi, kodėl neaktyvus. Vienas šablonas visiems trims ciklo mygtukams.
+`#/system` ciklo mygtukai (Start/Stop/Restart) privalo turėti vieną bendrą šabloną: Stop drain semantikos paaiškinimas prie paties mygtuko (visada matomas subtekstas), o kiekvienas išjungtas mygtukas — `title` su priežastimi.
 
 ## Agentai
-Privaloma grandinė: `readme-guard -> coder -> reviewer -> i18n -> tester`.
+readme-guard -> coder -> reviewer -> i18n -> tester
 
 ## Failai
 Leidžiama:
@@ -39,9 +41,9 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
-- Coder: vienas bendras mygtuko šablonas su subtekstu ir `title` priežastimi; visi tekstai per `t(...)`.
-- Coder: kiekviena nauja className turi taisyklę `dashboard.css`, abi temos.
-- Tester: testai tvirtina `title` priežastį kiekvienam išjungtam mygtukui ir drain subtekstą prie „Stabdyti".
+- Patikrink `LoopControls.tsx`: bendras `LoopActionButton` šablonas, `title` išjungtiems mygtukams, Stop subtekstas — jei visa tai jau yra (patikrink `LoopActionButton` funkciją ir `LoopControls.test.tsx` testą su komentaru "Task 059-d"), pažymėk ALREADY_IMPLEMENTED ir nieko nekeisk.
+- Jei ko nors trūksta, papildyk minimaliai laikydamasis to paties šablono visiems trims mygtukams ir pridėk trūkstamą `dashboard.css` taisyklę bei testą.
+- Nekeisk `ui-app/src/controller/**` ar `src/**`.
 
 ## Patikra
 - `pnpm typecheck`
@@ -49,7 +51,7 @@ Draudžiama:
 - `pnpm --dir ui-app build`
 
 ## Stop
-Commit'ink, kai patikros žalios. Stop ir klausk, jei mygtuko išjungimo priežastis nepasiekiama be controller pakeitimo.
+Commit'ink tik jei buvo realus pakeitimas ir patikros žalios. Jei ALREADY_IMPLEMENTED — nieko necommitink, tik ataskaita.
 
 ## Neįtraukta
 Kiti System puslapio defektai.

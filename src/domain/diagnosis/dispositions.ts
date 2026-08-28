@@ -207,8 +207,10 @@ export type NoCommitDoneInputs = {
   hasWorkEvidence: boolean;
   /**
    * Skaitytojo (E3/E5) paduotas vykdytojo rašymo aktyvumas. Neprivalomas, kad esami
-   * kvietėjai liktų kompiliuojami; default `"unknown"`. Naudoja tik
-   * `resolveNoCommitReviewReason` — `resolveNoCommitDisposition` reikšmių nekeičia (task 032).
+   * kvietėjai liktų kompiliuojami; default `"unknown"`. Iki task 060 naudojo tik
+   * `resolveNoCommitReviewReason`; nuo task 060 `resolveNoCommitDisposition` jį taip pat
+   * skaito, bet TIK siauroje `hasAlreadyImplementedMarker && !hasWorkEvidence` šakoje —
+   * žr. komentarą ten.
    */
   writeActivity?: ExecutorWriteActivity;
 };
@@ -222,6 +224,9 @@ export type NoCommitDisposition = "done" | "rollback" | "human-review";
  *
  * done kai:
  *   - yra ALREADY_IMPLEMENTED markeris IR darbo įrodymas istorijoje, ARBA
+ *   - yra ALREADY_IMPLEMENTED markeris IR darbo įrodymo istorijoje NĖRA, bet skaitytojas
+ *     PATVIRTINO nulinį rašymo aktyvumą (`writeActivity === "no-writes"`) IR medis švarus
+ *     nuo produkto pakeitimų (task 060 — žr. žemiau), ARBA
  *   - working tree švarus nuo PRODUKTO pakeitimų (productDirtyCount === 0) IR yra darbo
  *     įrodymas istorijoje (`hasWorkEvidence`) — deliverable jau užcommitintas ankstesnio
  *     bandymo, tad naujo commit'o nėra ko kurti.
@@ -240,7 +245,20 @@ export function resolveNoCommitDisposition(inputs: NoCommitDoneInputs): NoCommit
   // įrodymo istorijoje (`hasWorkEvidence` — task'o commit'as su produkto keliais) nebeuždaro
   // task'o: jis keliauja į human-review, kur operatorius patvirtina per task-move į done.
   // Tikrai anksčiau įgyvendintiems task'ams evidence egzistuoja, tad jų kaštas nepakinta.
-  if (inputs.hasAlreadyImplementedMarker) return inputs.hasWorkEvidence ? "done" : "human-review";
+  if (inputs.hasAlreadyImplementedMarker) {
+    if (inputs.hasWorkEvidence) return "done";
+    // Task 060: 054-b-03 ir 057-a-02 (2026-08-28) buvo parkuoti į human-review su priežastimi
+    // "executor made no write-tool calls", nors Žingsnis 0 sąžiningai nustatė
+    // ALREADY_IMPLEMENTED — read-only sesija PAGAL APIBRĖŽIMĄ neturi git deliverable, tad
+    // `hasWorkEvidence` čia visada bus false ir epidemijos vartai (aukščiau) tai klaidingai
+    // laikė svetimu atsukimu. Išimtis siaura ir reikalauja DVIGUBO įrodymo: (1) vykdytojo
+    // žodis (markeris) IR (2) NEPRIKLAUSOMAS skaitytojo signalas, kad rašymų tikrai nebuvo
+    // (`writeActivity === "no-writes"`, task 032 — tikslesnis nei tylos prielaida). Produkto
+    // dirty įrašai (nesuderinami su "nulis rašymų") tebedengiami: jei jų yra, lieka
+    // human-review, ne tylus "done".
+    if (inputs.writeActivity === "no-writes" && inputs.productDirtyCount === 0) return "done";
+    return "human-review";
+  }
   if (inputs.productDirtyCount > 0) return "rollback";
   return inputs.hasWorkEvidence ? "done" : "human-review";
 }

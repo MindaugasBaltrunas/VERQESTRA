@@ -131,7 +131,12 @@ export const SlotProgressCard = memo(function SlotProgressCard({ view, variant, 
         <ProgressBar progress={view.progress} label={progressLabelOf(view.progress, t)} />
       )}
 
-      <EtaBadge eta={view.eta} />
+      {/* `DashboardPage` sąmoningai neturi ETA šaltinio (tokio endpoint'o dar nėra), tad
+          `view.eta.state` visada bus `unavailable`. Sąlyga suvienodina elgesį su `compact`
+          variantu aukščiau ir jau paruošia kelią realiam šaltiniui: kai jis atsiras, ženkliukas
+          pradės rodytis be jokio pakeitimo čia. Alternatyva — visai išimti `EtaBadge` — reikštų
+          antrą tašką, kurį reikėtų grąžinti atgal, kai backend'as atsiras. */}
+      {view.eta.state === "available" && <EtaBadge eta={view.eta} />}
 
       <div className="slot-card__row"><span>{t("Worktree")}</span><strong>{t(WORKTREE_LABEL[view.worktree])}</strong></div>
 

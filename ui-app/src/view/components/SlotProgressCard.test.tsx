@@ -70,19 +70,20 @@ describe("SlotProgressCard", () => {
     expect(card().getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
   });
 
-  it("shows the forecast range with its confidence, and says so when there is none", () => {
-    const { unmount } = render(<SlotProgressCard view={view()} variant="full" />);
+  it("shows the forecast range with its confidence when ETA data is available", () => {
+    render(<SlotProgressCard view={view()} variant="full" />);
     expect(card().getByText(/4–7m/)).toBeInTheDocument();
     expect(card().getByText("Estimate confidence: medium")).toBeInTheDocument();
-    unmount();
+  });
 
+  it("stays quiet about a forecast it does not have, instead of drawing a dead placeholder", () => {
     render(
       <SlotProgressCard
         view={view({ eta: { state: "unavailable", reason: "not-enough-data" } })}
         variant="full"
       />,
     );
-    expect(card().getByText("ETA: not enough data")).toBeInTheDocument();
+    expect(card().queryByText("ETA: not enough data")).toBeNull();
   });
 
   it("reports the worktree and the heartbeat of a known lease", () => {

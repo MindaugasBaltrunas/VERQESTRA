@@ -103,9 +103,34 @@ export function loopRunStateOf(data: DashboardData): LoopRunState {
   );
 }
 
-/** Kiek srautų siūlo paleisti mygtukas: tiek, kiek jų PRAŠOMA. Nežinomybė reiškia vieną srautą. */
+export type WorkerChoice = {
+  count: 1 | 2;
+  available: boolean;
+  /** Mašininė priežastis, kodėl pasirinkimas uždarytas; komponentas verčia per savo `t(...)`. */
+  unavailableReason?: "exceeds-max";
+};
+
+/**
+ * Kiek srautų operatorius gali pasirinkti paleidimui. `max === 0` reiškia „nežinoma" (jokia banga
+ * dar nesuplanavo pool'o, žr. dashboardViewModel.ts `adaptWorkerControl` komentarą prie `max`) —
+ * tada pasirinkimai NEribojami, kitaip valdiklis liktų be mygtukų. Žinomas `max` uždaro pasirinkimus,
+ * kurie jį viršija.
+ */
+export function workerChoices(workerControl?: WorkerControlView): WorkerChoice[] {
+  const max = workerControl?.max ?? 0;
+  const limited = max > 0;
+  return [1, 2].map((count) => ({
+    count: count as 1 | 2,
+    available: !limited || count <= max,
+    ...(limited && count > max ? { unavailableReason: "exceeds-max" as const } : {}),
+  }));
+}
+
+/** Kiek srautų siūlo paleisti mygtukas: tiek, kiek jų PRAŠOMA, bet neviršijant žinomo `max`. */
 export function startStreamCount(workerControl?: WorkerControlView): 1 | 2 {
-  return workerControl?.requested === 2 ? 2 : 1;
+  const requested = workerControl?.requested === 2 ? 2 : 1;
+  const max = workerControl?.max ?? 0;
+  return max > 0 && requested > max ? 1 : requested;
 }
 
 /** Srauto numeris ekrane. `w1`/`w2` yra vidiniai vardai; operatorius mato 1 ir 2. */

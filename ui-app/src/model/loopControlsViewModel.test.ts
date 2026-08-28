@@ -6,6 +6,7 @@ import {
   loopRunStateOf,
   startStreamCount,
   streamIndexOf,
+  workerChoices,
   LOOP_RESTART_ACTION,
   LOOP_START_ACTION,
   LOOP_STOP_ACTION,
@@ -111,8 +112,8 @@ describe("loopRunStateOf", () => {
   });
 });
 
-function workerControl(requested: number): WorkerControlView {
-  return { requested, source: "state", canEdit: true, lastWaveKnown: false, granted: 0, grantedOf: 1, max: 0, rejected: [] };
+function workerControl(requested: number, max = 0): WorkerControlView {
+  return { requested, source: "state", canEdit: true, lastWaveKnown: max > 0, granted: 0, grantedOf: 1, max, rejected: [] };
 }
 
 describe("startStreamCount", () => {
@@ -129,6 +130,48 @@ describe("startStreamCount", () => {
     // Sugadintas prašymo failas gali atnešti bet kokį skaičių; paleidimas priima tik 1 arba 2.
     expect(startStreamCount(workerControl(7))).toBe(1);
     expect(startStreamCount(workerControl(0))).toBe(1);
+  });
+
+  it("does not cap when max is unknown (0)", () => {
+    expect(startStreamCount(workerControl(2, 0))).toBe(2);
+  });
+
+  it("caps at max=1 even when 2 is requested", () => {
+    expect(startStreamCount(workerControl(2, 1))).toBe(1);
+  });
+
+  it("allows 2 when max=2", () => {
+    expect(startStreamCount(workerControl(2, 2))).toBe(2);
+  });
+});
+
+describe("workerChoices", () => {
+  it("leaves both choices available when workerControl is missing", () => {
+    expect(workerChoices(undefined)).toEqual([
+      { count: 1, available: true },
+      { count: 2, available: true },
+    ]);
+  });
+
+  it("leaves both choices available when max is unknown (0, no wave yet)", () => {
+    expect(workerChoices(workerControl(1, 0))).toEqual([
+      { count: 1, available: true },
+      { count: 2, available: true },
+    ]);
+  });
+
+  it("closes stream 2 when max=1", () => {
+    expect(workerChoices(workerControl(1, 1))).toEqual([
+      { count: 1, available: true },
+      { count: 2, available: false, unavailableReason: "exceeds-max" },
+    ]);
+  });
+
+  it("leaves both choices available when max=2", () => {
+    expect(workerChoices(workerControl(1, 2))).toEqual([
+      { count: 1, available: true },
+      { count: 2, available: true },
+    ]);
   });
 });
 

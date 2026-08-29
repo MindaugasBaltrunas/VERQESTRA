@@ -111,6 +111,16 @@ grep -rcaP '\x00|\r' src | grep -v ':0$' # NUL ir CRLF
 `AG/tasks`, `AG/openspec`, `AG/spec/changes` ir `AG/benchmark` lieka `AG/…` (eilės ir paketo
 kontraktai).
 
+## Užduočių kūrimas — PRIVALOMA per etaloną
+
+Kiekvienas `AG/tasks` failas kuriamas, perrašomas ar skeliamas TIK pagal
+`AG/tasks/examples/000-etalonas.md` — pirmas žingsnis visada yra jo perskaitymas, ne rašymas
+iš atminties. Interaktyviame kelyje naudok `task-author` agentą (`.claude/agents/task-author.md`)
+arba laikykis jo darbo eigos pats: kiekvienas `## Failai` kelias patikrintas Glob/Grep prieš
+deklaruojant, priklausomybės tik į queue/done, skėlimo vaikų scope nepersidengia,
+`HUMAN-REVIEW-APPROVED` — tik su operatoriaus citata. 2026-08-28 penki task'ai parkavosi
+human-review vien dėl iš atminties rašytų `## Failai` sąrašų — etalonas yra tos paros kaina.
+
 ## Užduočių `## Failai` konvencija
 
 `## Failai / Leidžiama` yra ne tik rašymo riba — tai vienintelis įėjimas, iš kurio

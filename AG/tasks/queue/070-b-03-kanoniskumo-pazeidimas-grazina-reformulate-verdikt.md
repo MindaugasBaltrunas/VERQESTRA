@@ -1,0 +1,38 @@
+# Task
+
+## Spec source
+openspec/changes/verqestra-backlog-v1
+
+## Tikslas
+Surišti vaike 2 sukurtas kanoniškumo taisykles su verdiktu: `src/interfaces/cli/dispatch/claude-preflight/preflight-validate.ts` esant pažeidimui grąžina `reformulate`, o ne `dispatch`, ir žinutėje cituoja konkrečią pažeistą etalono taisyklę.
+
+## Agentai
+Privaloma grandinė, būtent šia tvarka: readme-guard -> architect -> coder -> reviewer -> tester.
+
+## Failai
+Leidžiama:
+- `src/interfaces/cli/dispatch/claude-preflight/preflight-validate.ts`
+- `src/tests/interfaces-cli-preflight.test.ts`
+
+Draudžiama:
+- `src/application/quality-gates/preflight-fastpath.ts`
+- `src/domain/tasks/sections.ts`
+- `src/interfaces/cli/dispatch/claude-preflight/preflight-llm.ts`
+- `AG/tasks/examples/000-etalonas.md`
+- `dist/**`
+- `node_modules/**`
+
+## Veiksmas
+- Architect: nustatyti, kurioje verdikto šakoje pažeidimai turi virsti `reformulate` ir kaip jie nekonfliktuoja su esamais fastpath praėjimo keliais.
+- Coder: perduoti pažeidimų sąrašą į verdiktą; reformulate priežastis turi turėti taisyklės citatą, ne bendrinį tekstą.
+- Tester: task'as su pažeidimu → `reformulate` su citata; etaloną atitinkantis task'as → esamas verdiktas nepakitęs (regresijos testas).
+
+## Patikra
+- `pnpm build`
+- `pnpm test`
+
+## Stop
+Commit'ink, kai patikros žalios. Stop ir klausk, jei surišimas reikalautų keisti `preflight-fastpath.ts` public kontraktą.
+
+## Neįtraukta
+Pačios taisyklės (vaikas 2), generatorių prompt'ai (vaikas 4), `sections.ts` keitimas.

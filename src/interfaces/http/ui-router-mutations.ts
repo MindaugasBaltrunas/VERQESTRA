@@ -9,6 +9,7 @@
 // atrodo kaip `undefined`, ir jis parodo sėkmę ten, kur jos nebuvo. 2026-08-23 UI audito antras
 // ratas rado būtent tai keturiuose maršrutuose.
 
+import path from "node:path";
 import {
   INTERNAL_ERROR_RESPONSE,
   mapJsonBodyError,
@@ -29,9 +30,11 @@ import {
   type UiRouterDeps,
 } from "./ui-router-model.js";
 import { InvalidCompressionRequestError } from "./ui-compression-mutation.js";
+import { setWorktreePolicyEnabled } from "./ui-worktree-policy.js";
 import type { PolicyProposalGroup } from "../../application/policy-governance/policy-file-registry.js";
 import type { TaskTriageAction } from "./ui-task-actions.js";
 
+const WORKTREE_POLICY_ROUTE = "/api/runtime/worktree-policy";
 const POLICY_GROUP_ROUTE = /^\/api\/policies\/(architecture-style|coding-principles|enforcement)\/set$/;
 const PROPOSAL_DECISION_ROUTE = /^\/api\/policies\/proposals\/(approve|reject|apply|cancel)$/;
 const SLOT_MODE_ROUTE = /^\/api\/runtime\/loop\/slots\/([^/]+)$/;
@@ -132,6 +135,8 @@ export async function handlePost(
   }
 
   if (pathname === "/api/runtime/loop/start") return await startLoopWithWorkers(deps, request, withJsonBody);
+
+  if (pathname === WORKTREE_POLICY_ROUTE) return await setWorktreePolicy(deps, withJsonBody);
 
   if (pathname === "/api/ui/rebuild") return await startUiRebuild(deps);
 
@@ -256,6 +261,45 @@ async function startUiRebuild(deps: UiRouterDeps): Promise<UiRouteResponse> {
     deps.ports.logError(`[ui] request failed: ${error instanceof Error ? error.message : String(error)}`);
     return toResponse(INTERNAL_ERROR_RESPONSE);
   }
+}
+
+/**
+ * Worktree izoliacijos politikos PERJUNGIMAS.
+ *
+ * Kūnas yra lygiai vienas laukas — `{ "enabled": true|false }`. Nei kelio, nei jokio kito lauko
+ * maršrutas iš request'o NEIMA: konfigo vieta yra `<projectRoot>/vq/config/worktree-policy.json`,
+ * o `.gitignore` — `<projectRoot>/.gitignore`; abu keliai gimsta serveryje. Kliento paduotas kelias
+ * čia reikštų rašymą į laisvos formos vietą per lokalų dashboard'ą.
+ *
+ * Nežinomas laukas yra 400, o ne tyliai ignoruojamas: `setWorktreePolicyEnabled` sąmoningai
+ * perneša VISUS kitus konfigo laukus (`root`, `branchPrefix`) nepaliestus, tad `{ enabled, root }`
+ * su 200 klientui atrodytų kaip pritaikytas `root`, kurio niekas nepritaikė.
+ */
+async function setWorktreePolicy(
+  deps: UiRouterDeps,
+  withJsonBody: WithJsonBody,
+): Promise<UiRouteResponse | undefined> {
+  const worktreePolicy = deps.ports.worktreePolicy;
+  if (!worktreePolicy) return undefined;
+  return await withJsonBody(async (body) => {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return badRequest("body must be an object with a single boolean field: enabled");
+    }
+    const fields = body as Record<string, unknown>;
+    const unknownField = Object.keys(fields).find((key) => key !== "enabled");
+    if (unknownField !== undefined) return badRequest(`unknown field: ${unknownField} (only enabled is accepted)`);
+    const enabled = fields["enabled"];
+    if (typeof enabled !== "boolean") return badRequest("enabled is a required boolean");
+    // Klaida čia (nesamas ar sugadintas konfigas) yra SERVERIO gedimas, ne kliento: ją į 500 su
+    // žurnalo eilute paverčia `withJsonBody`, kaip ir visose kitose mutacijose.
+    return json(
+      await setWorktreePolicyEnabled(worktreePolicy, {
+        runtimeRoot: path.join(deps.projectRoot, "vq"),
+        projectRoot: deps.projectRoot,
+        enabled,
+      }),
+    );
+  });
 }
 
 /**

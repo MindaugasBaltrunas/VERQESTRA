@@ -8,6 +8,7 @@ import type { HttpErrorResponse } from "./ui-error-mapping.js";
 import type { PolicyProposalGroup } from "../../application/policy-governance/policy-file-registry.js";
 import type { RequestHeaders } from "./ui-security.js";
 import type { TaskTriageAction } from "./ui-task-actions.js";
+import type { WorktreePolicyPorts } from "./ui-worktree-policy.js";
 
 export type UiRouteRequest = {
   method: string;
@@ -128,6 +129,14 @@ export type UiRouterPorts = {
    * lauko tiesiog nėra, ir `/api/ui/rebuild` atsako `disabled`, ne 500.
    */
   uiRebuild?: { start(): Promise<unknown> };
+  /**
+   * Worktree politikos perjungimo fs portai (`setWorktreePolicyEnabled`). OPCIONALŪS TA PAČIA
+   * prasme kaip `bundle` ir `uiRebuild` bei `WavesViewPorts.readWorktreeGitignoreOk`
+   * (`ui-waves-view.ts:174`): composition fs adapterius suriša ATSKIRA užduotis, o iki tol
+   * maršruto tiesiog NĖRA — `/api/runtime/worktree-policy` krenta į 404 kaip bet kuris
+   * neregistruotas kelias. Tylus `{ ok: true }` be įrašyto konfigo būtų blogiau už 404.
+   */
+  worktreePolicy?: WorktreePolicyPorts;
   /** VISI slot'ai į `drain` po „Stop": kitaip valdiklis rodytų `run`, o vėliava jau įrašyta. */
   drainAllSlots(): Promise<unknown>;
   /** Valdiklio atstatymas prieš startą: likusi `drain` vėliava priverstų ką tik paleistą loop'ą atsisakyti pirmo task'o. */

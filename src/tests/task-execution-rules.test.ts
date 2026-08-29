@@ -7,7 +7,9 @@ import {
   composeCheapFinishPrompt,
   infrastructureFailureDisposition,
   looksLikeRepairDispatchPrompt,
+  preflightMemoExpired,
   preflightRetryWithoutChange,
+  PREFLIGHT_MEMO_MAX_AGE_MS,
   PREFLIGHT_START_FAILURE_CLASS,
 } from "../application/task-execution/run-coordinator-guards.js";
 import {
@@ -42,7 +44,12 @@ test("infrastructureFailureDisposition: preserve tik error bucket'e su repair pr
 });
 
 test("preflightRetryWithoutChange: hit tik ant to paties task/hash/klasės", () => {
-  const expected = { taskId: "0042", contentHash: "abc123", failureClass: PREFLIGHT_START_FAILURE_CLASS };
+  const expected = {
+    taskId: "0042",
+    contentHash: "abc123",
+    failureClass: PREFLIGHT_START_FAILURE_CLASS,
+    nowMs: Date.parse(memoRecord.failed_at),
+  };
   assert.equal(preflightRetryWithoutChange(memoRecord, expected), true);
   assert.equal(preflightRetryWithoutChange(undefined, expected), false, "be įrašo — ne hit");
   assert.equal(
@@ -52,6 +59,54 @@ test("preflightRetryWithoutChange: hit tik ant to paties task/hash/klasės", () 
   );
   assert.equal(preflightRetryWithoutChange(memoRecord, { ...expected, contentHash: "kitas" }), false);
   assert.equal(preflightRetryWithoutChange(memoRecord, { ...expected, taskId: "0001" }), false);
+});
+
+test("preflightRetryWithoutChange: 24h senėjimo taisyklė", () => {
+  const failedAtMs = Date.parse(memoRecord.failed_at);
+  const expected = {
+    taskId: memoRecord.task_id,
+    contentHash: memoRecord.content_hash,
+    failureClass: PREFLIGHT_START_FAILURE_CLASS,
+  };
+  assert.equal(
+    preflightRetryWithoutChange(memoRecord, { ...expected, nowMs: failedAtMs + 1_000 }),
+    true,
+    "šviežias memo (1s) dengia",
+  );
+  assert.equal(
+    preflightRetryWithoutChange(memoRecord, { ...expected, nowMs: failedAtMs + PREFLIGHT_MEMO_MAX_AGE_MS + 1 }),
+    false,
+    "25h senumo memo nebedengia",
+  );
+  assert.equal(
+    preflightRetryWithoutChange(
+      { ...memoRecord, failed_at: "ne-data" },
+      { ...expected, nowMs: failedAtMs },
+    ),
+    false,
+    "sugadintas failed_at nedengia (fail-open į brangesnę pusę)",
+  );
+  assert.equal(
+    preflightRetryWithoutChange(memoRecord, { ...expected, contentHash: "kitas", nowMs: failedAtMs + 1_000 }),
+    false,
+    "pakitęs hash nedengia ir toliau, net kai memo šviežias",
+  );
+});
+
+test("preflightMemoExpired: riba ties PREFLIGHT_MEMO_MAX_AGE_MS ir fail-open kraštiniai atvejai", () => {
+  const failedAtMs = Date.parse(memoRecord.failed_at);
+  assert.equal(preflightMemoExpired(memoRecord, failedAtMs + PREFLIGHT_MEMO_MAX_AGE_MS), false, "lygiai riba dar dengia");
+  assert.equal(preflightMemoExpired(memoRecord, failedAtMs + PREFLIGHT_MEMO_MAX_AGE_MS + 1), true, "riba + 1ms nebedengia");
+  assert.equal(
+    preflightMemoExpired(memoRecord, failedAtMs - 1_000),
+    true,
+    "ateities failed_at (nowMs < failed_at) laikomas pasenusiu",
+  );
+  assert.equal(
+    preflightMemoExpired({ ...memoRecord, failed_at: "ne-data" }, failedAtMs),
+    true,
+    "neparsinamas failed_at laikomas pasenusiu",
+  );
 });
 
 test("preflight memo schema: strict — nežinomas laukas ar klasė atmetami", () => {

@@ -135,15 +135,17 @@ test("trūkstamas pirminis dist yra FAIL-CLOSED klaida", async () => {
   }
 });
 
-test("dist be `.buildstamp` sustabdo bootstrap'ą", async () => {
+test("dist be šaltinio `.buildstamp` NELŪŽTA — žyma sukuriama kopijoje", async () => {
   const { root, worktree } = await primaryTree();
   const parent = path.dirname(root);
   try {
+    // GeoGravity 2026-08-29: 21/44 w2 slot'ų žuvo TIK dėl trūkstamos žymos, nors pats dist
+    // pilnas — bootstrap'as neturi lūžti dėl žymos nebuvimo, o sukurti ją kopijoje.
     await rm(path.join(root, "dist", ".buildstamp"), { force: true });
-    await assert.rejects(
-      () => ensureWorktreeRuntime({ projectRoot: root, worktreeAbs: worktree, layout: LAYOUT }),
-      /buildstamp/,
-    );
+    await ensureWorktreeRuntime({ projectRoot: root, worktreeAbs: worktree, layout: LAYOUT });
+
+    const stamp = await stat(path.join(worktree, "dist", ".buildstamp"));
+    assert.ok(Date.now() - stamp.mtimeMs < 60_000, "sukurta žyma yra šviežia");
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
@@ -271,36 +273,114 @@ test("sutampantys lockfile hash'ai duoda junction'us, ne install'ą", async () =
   }
 });
 
-test("pasikeitęs lockfile paleidžia install'ą, o jo nesėkmė STABDO", async () => {
+/** Paruošia lockfile pakeitimą kopijoje — junction'as meluotų, tad install'as privalo suktis. */
+async function primaryTreeWithChangedLockfile(): Promise<{ root: string; worktree: string }> {
   const { root, worktree } = await primaryTree();
+  await writeFile(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n", "utf8");
+  await writeFile(path.join(root, "package.json"), '{"workspaces":["packages/*"]}', "utf8");
+  await writeFile(path.join(worktree, "pnpm-lock.yaml"), "lockfileVersion: 9\n# kitas\n", "utf8");
+  await writeFile(path.join(worktree, "package.json"), '{"workspaces":["packages/*"]}', "utf8");
+  await mkdir(path.join(worktree, "packages", "alpha"), { recursive: true });
+  await writeFile(path.join(worktree, "packages", "alpha", "package.json"), "{}", "utf8");
+  return { root, worktree };
+}
+
+/**
+ * `npm_execpath` yra ambient — priklauso nuo to, KUO paleistas testų procesas. Kad testai
+ * liktų deterministiniai nepaisant aplinkos, kiekvienas iš trijų žemiau esančių ją eksplicitiškai
+ * nustato ir grąžina originalią reikšmę `finally` bloke.
+ */
+function withNpmExecpath<T>(value: string | undefined, run: () => Promise<T>): Promise<T> {
+  const original = process.env["npm_execpath"];
+  if (value === undefined) delete process.env["npm_execpath"];
+  else process.env["npm_execpath"] = value;
+  return run().finally(() => {
+    if (original === undefined) delete process.env["npm_execpath"];
+    else process.env["npm_execpath"] = original;
+  });
+}
+
+test("pasikeitęs lockfile paleidžia install'ą, o jo nesėkmė STABDO", async () => {
+  const { root, worktree } = await primaryTreeWithChangedLockfile();
   const parent = path.dirname(root);
   const requests: ProductInstallRequest[] = [];
   try {
-    await writeFile(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n", "utf8");
-    await writeFile(path.join(root, "package.json"), '{"workspaces":["packages/*"]}', "utf8");
-    // Kopijoje kitas lockfile: junction'as meluotų.
-    await writeFile(path.join(worktree, "pnpm-lock.yaml"), "lockfileVersion: 9\n# kitas\n", "utf8");
-    await writeFile(path.join(worktree, "package.json"), '{"workspaces":["packages/*"]}', "utf8");
-    await mkdir(path.join(worktree, "packages", "alpha"), { recursive: true });
-    await writeFile(path.join(worktree, "packages", "alpha", "package.json"), "{}", "utf8");
-
-    await assert.rejects(
-      () =>
-        ensureWorktreeRuntime({
-          projectRoot: root,
-          worktreeAbs: worktree,
-          layout: LAYOUT,
-          runProductInstall: (request) => {
-            requests.push(request);
-            return Promise.resolve(1);
-          },
-        }),
-      /exit 1/,
+    // Be `npm_execpath` žymos elgesys lieka toks pat kaip iki GeoGravity taisymo — plika komanda.
+    await withNpmExecpath(undefined, () =>
+      assert.rejects(
+        () =>
+          ensureWorktreeRuntime({
+            projectRoot: root,
+            worktreeAbs: worktree,
+            layout: LAYOUT,
+            runProductInstall: (request) => {
+              requests.push(request);
+              return Promise.resolve(1);
+            },
+          }),
+        /exit 1/,
+      ),
     );
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0]?.cwd, worktree, "install'as VISADA kopijoje, ne pirminiame medyje");
+    assert.equal(requests[0]?.command, "pnpm", "be npm_execpath — plika komanda kaip anksčiau");
     assert.deepEqual(requests[0]?.args, ["install", "--frozen-lockfile"], "lockfile-neutrali komanda");
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("npm_execpath nurodo neegzistuojantį pnpm kelią — aiški klaida vietoj plikos 127", async () => {
+  const { root, worktree } = await primaryTreeWithChangedLockfile();
+  const parent = path.dirname(root);
+  const missingExecpath = path.join(root, "..", "no-such-pnpm", "pnpm.cjs");
+  try {
+    await withNpmExecpath(missingExecpath, () =>
+      assert.rejects(
+        () =>
+          ensureWorktreeRuntime({
+            projectRoot: root,
+            worktreeAbs: worktree,
+            layout: LAYOUT,
+            runProductInstall: () => Promise.resolve(0),
+          }),
+        new RegExp(`pnpm nerastas: ${missingExecpath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+      ),
+    );
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("npm_execpath rodo į esamą pnpm skriptą — install'as kviečiamas per node interpretatorių", async () => {
+  const { root, worktree } = await primaryTreeWithChangedLockfile();
+  const parent = path.dirname(root);
+  const execpath = path.join(root, "..", "pnpm-shim", "pnpm.cjs");
+  const requests: ProductInstallRequest[] = [];
+  try {
+    await mkdir(path.dirname(execpath), { recursive: true });
+    await writeFile(execpath, "// pnpm shim\n", "utf8");
+
+    await withNpmExecpath(execpath, () =>
+      ensureWorktreeRuntime({
+        projectRoot: root,
+        worktreeAbs: worktree,
+        layout: LAYOUT,
+        runProductInstall: (request) => {
+          requests.push(request);
+          return Promise.resolve(0);
+        },
+      }),
+    );
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.command, process.execPath, "skriptas paleidžiamas per node, ne tiesiogiai");
+    assert.deepEqual(
+      requests[0]?.args,
+      [execpath, "install", "--frozen-lockfile"],
+      "sėkmingas kelias — komanda absoliuti, argumentai nepakitę",
+    );
   } finally {
     await rm(parent, { recursive: true, force: true });
   }

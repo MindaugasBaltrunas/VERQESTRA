@@ -101,6 +101,38 @@ async function lstatOrUndefined(target: string): Promise<Stats | undefined> {
   }
 }
 
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT";
+}
+
+/**
+ * Absoliutus pnpm kelias iš TĖVO proceso aplinkos (`npm_execpath` — skriptas, kuriuo pats
+ * orchestratorius buvo paleistas), o ne plika PATH paieška.
+ *
+ * GeoGravity 2026-08-29: 20/44 w2 slot'ų žuvo su „exit 127" — tai reiškia „komanda nerasta"
+ * vaiko aplinkoje, ne install'o klaidą. `npm_execpath` yra vienintelis DETERMINISTINIS pnpm
+ * vietos šaltinis, nes jis paveldimas iš proceso, kuris jau sėkmingai paleido patį loop'ą.
+ *
+ * Jei aplinkoje šios žymos nėra arba ji nesusijusi su pnpm (kitas paketų valdiklis paleido
+ * orchestratorių), grįžtama prie senos plikos PATH paieškos — elgesys nesikeičia ten, kur jis
+ * jau veikė.
+ */
+async function resolvePnpmExecutable(): Promise<{ command: string; args: string[] }> {
+  const execpath = process.env["npm_execpath"];
+  if (typeof execpath !== "string" || execpath.length === 0 || !path.basename(execpath).toLowerCase().includes("pnpm")) {
+    return { command: "pnpm", args: [] };
+  }
+  if (!(await pathEntryExists(execpath))) {
+    throw new Error(`pnpm nerastas: ${execpath}`);
+  }
+  // `npm_execpath` paprastai rodo į pnpm CLI SKRIPTĄ (.cjs/.js/.mjs), ne į vykdomąjį failą — jam
+  // paleisti reikia to paties node interpretatoriaus, kuriuo jau veikia šis procesas.
+  if (/\.(c|m)?js$/i.test(execpath)) {
+    return { command: process.execPath, args: [execpath] };
+  }
+  return { command: execpath, args: [] };
+}
+
 async function pathEntryExists(target: string): Promise<boolean> {
   return (await lstatOrUndefined(target)) !== undefined;
 }
@@ -210,12 +242,16 @@ async function ensureProductDependencies(input: EnsureWorktreeRuntimeInput): Pro
   // Pasenę junction'ai šalinami TIK dabar — tik tada, kai jų vietoje tikrai bus install'as.
   for (const target of staleJunctions) await unlink(target);
 
+  // Bare "pnpm" pasikliauna vaiko PATH — GeoGravity 2026-08-29 rodo, kad kopijos aplinkoje jo
+  // dažnai nėra (20/44 w2 slot'ų su exit 127). Kiti valdikliai (npm/yarn/bun) šio defekto
+  // neįrodė, tad jų kelias lieka nepakitęs.
+  const executable = detected.packageManager === "pnpm" ? await resolvePnpmExecutable() : { command: detected.packageManager, args: [] };
   const request: ProductInstallRequest = {
     cwd: worktreeAbs,
     roots: needInstall,
     packageManager: detected.packageManager,
-    command: detected.packageManager,
-    args: detected.installArgs,
+    command: executable.command,
+    args: [...executable.args, ...detected.installArgs],
   };
   const commandLine = `${request.command} ${request.args.join(" ")}`;
   await log?.(`WORKTREE BOOTSTRAP: produkto deps install kopijos viduje (${commandLine}) šaknims: ${needInstall.join(", ")}`);
@@ -274,11 +310,18 @@ export async function ensureWorktreeRuntime(input: EnsureWorktreeRuntimeInput): 
     try {
       await utimes(stampTarget, now, now);
     } catch (error) {
-      throw new Error(
-        `kopijuotas dist neturi ${BUILD_STAMP} (${stampTarget}) — be šviežio stamp'o vaiko hook'ai kiekvieną ` +
-          `veiksmą matytų kaip stale dist: ${describe(error)}`,
-        { cause: error },
-      );
+      if (!isEnoent(error)) {
+        throw new Error(
+          `kopijuotas dist neturi ${BUILD_STAMP} (${stampTarget}) — be šviežio stamp'o vaiko hook'ai kiekvieną ` +
+            `veiksmą matytų kaip stale dist: ${describe(error)}`,
+          { cause: error },
+        );
+      }
+      // Šaltinio `dist` pats neturėjo ${BUILD_STAMP} (cp jau baigėsi sėkmingai, medis pilnas) —
+      // žymos nebuvimas negali lūžti bootstrap'o. Sukuriama kopijoje, šviežia kaip tik dabar
+      // pabaigtas kopijavimas.
+      await writeFile(stampTarget, `${now.toISOString()}\n`, "utf8");
+      await utimes(stampTarget, now, now);
     }
   }
 

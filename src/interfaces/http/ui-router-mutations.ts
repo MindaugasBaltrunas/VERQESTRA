@@ -23,6 +23,7 @@ import {
   requiredText,
   toResponse,
   type PolicyDecisionRequest,
+  type UiPolicyDecisionVerb,
   type UiRouteRequest,
   type UiRouteResponse,
   type UiRouterDeps,
@@ -32,7 +33,7 @@ import type { PolicyProposalGroup } from "../../application/policy-governance/po
 import type { TaskTriageAction } from "./ui-task-actions.js";
 
 const POLICY_GROUP_ROUTE = /^\/api\/policies\/(architecture-style|coding-principles|enforcement)\/set$/;
-const PROPOSAL_DECISION_ROUTE = /^\/api\/policies\/proposals\/(approve|reject|apply)$/;
+const PROPOSAL_DECISION_ROUTE = /^\/api\/policies\/proposals\/(approve|reject|apply|cancel)$/;
 const SLOT_MODE_ROUTE = /^\/api\/runtime\/loop\/slots\/([^/]+)$/;
 const COMPRESSION_FEATURE_ROUTE = /^\/api\/compression\/features\/([^/]+)$/;
 const TASK_TRIAGE_ROUTE = /^\/api\/tasks\/(requeue|complete)\/(.+)$/;
@@ -138,7 +139,7 @@ export async function handlePost(
   if (policyGroup?.[1]) return await proposePolicyChange(deps, policyGroup[1] as PolicyProposalGroup, withJsonBody);
 
   const decision = PROPOSAL_DECISION_ROUTE.exec(pathname);
-  if (decision?.[1]) return await decidePolicyProposal(deps, decision[1] as "approve" | "reject" | "apply", withJsonBody);
+  if (decision?.[1]) return await decidePolicyProposal(deps, decision[1] as UiPolicyDecisionVerb, withJsonBody);
 
   // Kelias yra KLIENTO kontraktas, ne serverio skonis: `ui-app/src/model/api.ts` kviečia būtent
   // `/api/runtime/loop/slots/<workerId>`, ir tą patį daro etalonas. VQ-503 metu čia buvo atsiradęs
@@ -295,15 +296,20 @@ async function proposePolicyChange(
 }
 
 /**
- * Pasiūlymo sprendimas (approve / reject / apply).
+ * Pasiūlymo sprendimas (approve / reject / apply / cancel).
  *
  * `actor` čia NEPRIIMAMAS iš kliento: serveris gali sąžiningai paliudyti tik tiek, kad sprendimas
  * atėjo per lokalų UI. Append-only audito žurnalas, kuriame bet kas gali pasirašyti bet kokiu
  * vardu, nėra auditas.
+ *
+ * `cancel` čia NIEKUO neišsiskiria: leistinos pradinės būsenos (`pending`/`approved`) yra
+ * application taisyklė, o ne maršruto — router'is tik perduoda verbą portui ir atvaizduoja
+ * `ProposalCancelConflictError` į 409 per tą patį `mapPolicyDecisionError`. Būsenos tikrinimas
+ * čia reikštų dvi tiesos vietas, iš kurių HTTP pusė pasentų tyliai.
  */
 async function decidePolicyProposal(
   deps: UiRouterDeps,
-  verb: "approve" | "reject" | "apply",
+  verb: UiPolicyDecisionVerb,
   withJsonBody: WithJsonBody,
 ): Promise<UiRouteResponse> {
   return await withJsonBody(async (body) => {

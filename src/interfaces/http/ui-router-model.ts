@@ -36,6 +36,13 @@ export type PolicyProposalInput = {
   reason: string;
 };
 
+/**
+ * Sprendimo verbas HTTP kontrakte. Sąrašas pakartotas čia, o ne importuotas iš application
+ * `PolicyDecisionVerb`, sąmoningai: portas yra KLIENTO kontraktas, tad naujas application verbas
+ * neturi savaime atsirasti maršrute — jis atveriamas atskiru sprendimu (`cancel`, 2026-08-29).
+ */
+export type UiPolicyDecisionVerb = "approve" | "reject" | "apply" | "cancel";
+
 /** Sprendimo įvestis. `actor` čia NĖRA sąmoningai: jį nustato serveris (žr. `decidePolicyChange`). */
 export type PolicyDecisionRequest = {
   policy_file: string;
@@ -79,7 +86,7 @@ export type UiRouterPorts = {
    * paduoti negali, nes suklastotas `routing: "queue"` apeitų human-review vartus prie `apply`.
    */
   proposePolicyChange(group: PolicyProposalGroup, input: PolicyProposalInput): Promise<unknown>;
-  decidePolicyProposal(verb: "approve" | "reject" | "apply", input: PolicyDecisionRequest): Promise<unknown>;
+  decidePolicyProposal(verb: UiPolicyDecisionVerb, input: PolicyDecisionRequest): Promise<unknown>;
   tokenUsage(query: URLSearchParams): Promise<unknown>;
   /**
    * Vieno žurnalo uodega (`?log=claude|orchestrator|checks&lines=N`).

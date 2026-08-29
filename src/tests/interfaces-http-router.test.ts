@@ -16,6 +16,7 @@ import {
 import { UI_IDENTITY_ROUTE, UI_IDENTITY_SERVICE, projectFingerprint } from "../interfaces/http/ui-port-rules.js";
 import { UI_TOKEN_HEADER } from "../interfaces/http/ui-security.js";
 import { InvalidUploadError } from "../interfaces/http/task-upload.js";
+import { ProposalCancelConflictError } from "../application/policy-governance/policy-proposal-service.js";
 import { TaskNotFoundError } from "../interfaces/http/ui-task-actions.js";
 import { UnknownTaskBucketError } from "../interfaces/http/workflow-buckets.js";
 
@@ -327,4 +328,91 @@ test("/api/tasks: be parametro — apžvalga, ?bucket= — vieno bucket'o sąra�
 
   const unknown = await handleUiRequest(world.deps, request({ url: "/api/tasks?bucket=nope" }));
   assert.deepEqual(unknown, { kind: "json", status: 400, data: { error: "invalid task bucket" } });
+});
+
+const decisionBody = { policy_file: "coding-principles.md", setting_id: "max-file-lines", reason: "nebeaktualu" };
+
+// Task 067 (2/3): `cancel` atveriamas per TĄ PATĮ sprendimo maršrutą. Verbo sąrašas gyvena
+// maršruto regex'e, tad testas pin'ina abu galus: kad `cancel` pro jį praeina, ir kad sąrašas
+// liko baigtinis — nežinomas verbas nevirsta „bet kas, ką portas suvirškins".
+test("sprendimo maršrutas: `cancel` pasiekia portą su ta pačia įvestimi kaip kiti verbai", async () => {
+  const world = routerWorld();
+
+  const response = await handleUiRequest(
+    world.deps,
+    request({
+      method: "POST",
+      url: "/api/policies/proposals/cancel",
+      readJsonBody: () => Promise.resolve(decisionBody),
+    }),
+  );
+
+  assert.equal(response.kind === "json" ? response.status : 0, 200);
+  assert.deepEqual(jsonBody(response), { verb: "cancel", input: decisionBody });
+  assert.deepEqual(world.calls, ["decide:cancel"]);
+  // `pending`/`approved` leistinumas yra application taisyklė: portui pavykus, maršrutas atsako
+  // sėkme lygiai taip pat, kaip approve/reject/apply.
+  assert.deepEqual(world.errors, []);
+});
+
+test("`cancel` iš galutinės būsenos: 409 su paaiškinimu, o ne 500", async () => {
+  for (const status of ["applied", "rejected"] as const) {
+    const world = routerWorld();
+    world.failures.set(
+      "decide:cancel",
+      new ProposalCancelConflictError(decisionBody.policy_file, decisionBody.setting_id, status),
+    );
+
+    const response = await handleUiRequest(
+      world.deps,
+      request({
+        method: "POST",
+        url: "/api/policies/proposals/cancel",
+        readJsonBody: () => Promise.resolve(decisionBody),
+      }),
+    );
+
+    assert.deepEqual(response, {
+      kind: "json",
+      status: 409,
+      data: {
+        error: `Policy proposal cannot be cancelled from status "${status}": ${decisionBody.policy_file}/${decisionBody.setting_id}`,
+      },
+    });
+    // Būsenos konfliktas yra VARTOTOJO klaida: jos priežastis jau keliauja klientui, tad į
+    // serverio žurnalą ji nerašoma — ten lieka tik neatpažinti gedimai.
+    assert.deepEqual(world.errors, []);
+  }
+});
+
+test("sprendimo verbų sąrašas lieka baigtinis: nežinomas verbas ir toliau atmetamas", async () => {
+  const world = routerWorld();
+
+  const response = await handleUiRequest(
+    world.deps,
+    request({
+      method: "POST",
+      url: "/api/policies/proposals/cancell",
+      readJsonBody: () => Promise.resolve(decisionBody),
+    }),
+  );
+
+  assert.deepEqual(response, { kind: "json", status: 404, data: { error: "not found" } });
+  assert.deepEqual(world.calls, [], "nežinomas verbas saugyklos neliečia");
+});
+
+test("`cancel` be privalomų laukų yra 400, kaip ir kiti verbai", async () => {
+  const world = routerWorld();
+
+  const response = await handleUiRequest(
+    world.deps,
+    request({
+      method: "POST",
+      url: "/api/policies/proposals/cancel",
+      readJsonBody: () => Promise.resolve({ policy_file: "coding-principles.md" }),
+    }),
+  );
+
+  assert.equal(response.kind === "json" ? response.status : 0, 400);
+  assert.deepEqual(world.calls, []);
 });

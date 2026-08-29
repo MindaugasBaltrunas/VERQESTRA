@@ -60,6 +60,41 @@ export async function findOrphanWorktrees(input: {
   return orphans.sort((left, right) => left.entry.path.localeCompare(right.entry.path));
 }
 
+export type UnregisteredWorktreeDir = {
+  /** Absoliutus kelias iki worker-task-attempt katalogo. */
+  path: string;
+  /** `run_id` katalogas virš jo — reikalingas, kad tuščias `run_id` katalogas irgi būtų pašalintas. */
+  parentRunDir: string;
+};
+
+/**
+ * `.ag/worktrees/<run_id>/*` katalogai, kurių NĖRA `git worktree list` (task 079 auditas:
+ * 40 tokių katalogų, 1+ GB, niekada nebuvo pašalinti, nes `findOrphanWorktrees` mato TIK git
+ * registracijas). Jie gimsta retai — nutrūkęs provizionavimas prieš `git worktree add`,
+ * arba `removeWorktreeDirectory` fallback-3 likutis, kai `worktree prune` po jo nerado ką
+ * valyti. Grąžinama TIK sąrašas; amžiaus patikra ir šalinimas — iškvietėjo pusėje, kad ši
+ * funkcija liktų gryna ir testuojama be laiko mock'inimo.
+ */
+export async function findUnregisteredWorktreeDirectories(input: {
+  projectRoot: string;
+}): Promise<UnregisteredWorktreeDir[]> {
+  const projectRoot = path.resolve(input.projectRoot);
+  const namespace = path.resolve(projectRoot, WORKTREE_ROOT_DIR);
+  const registered = (await gitWorktreeList(projectRoot)).map((entry) => path.resolve(entry.path));
+
+  const result: UnregisteredWorktreeDir[] = [];
+  for (const runId of await nodeFsAdapter.listSubdirectories(namespace)) {
+    const parentRunDir = path.join(namespace, runId);
+    for (const child of await nodeFsAdapter.listSubdirectories(parentRunDir)) {
+      const childPath = path.join(parentRunDir, child);
+      if (!registered.some((entry) => samePath(entry, childPath))) {
+        result.push({ path: childPath, parentRunDir });
+      }
+    }
+  }
+  return result.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 /** `lease_id` reikšmė, kai savininko žymos nebėra — eilutė vis tiek turi lauką, ir jis nemeluoja. */
 export const ORPHAN_MISSING_LEASE_ID = "missing";
 

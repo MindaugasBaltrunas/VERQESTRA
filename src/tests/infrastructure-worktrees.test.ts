@@ -494,3 +494,6 @@ test("reapOrphanWorktree: negyva registracija su stale index.lock issivalo po no
     await rm(reapRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 });
+
+// Task 079 (branch-blocked mirties spiralė, FS-lygio GC ir limito eilė) turi savo failą:
+// src/tests/infrastructure-orphan-reaper.test.ts — šis failas jau buvo prie 500 eilučių ribos.

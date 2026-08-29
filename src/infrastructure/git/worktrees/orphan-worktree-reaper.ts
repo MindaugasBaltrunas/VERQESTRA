@@ -8,28 +8,50 @@
 // task'as dar gyvas, ir nereikalinga, kai jis jau `done` arba iš viso dingo.
 //
 // Šis modulis prideda tik tai, ko primityvai neturi: apimtį, limitą, eskalaciją ir žurnalo
-// eilutes. Eskalacija turi TRIS nepriklausomus vartus, ir kiekvienas jų yra atskiras
+// eilutes. Eskalacija turi DU nepriklausomus vartus, ir kiekvienas jų yra atskiras
 // atsisakymas prarasti darbą:
-//   1. AMŽIUS — kopija jaunesnė nei para paliekama, nes „gal dar dirba" tebėra tikėtina;
-//   2. TASK'O BŪSENA — eskaluojama tik `done` arba jau dingusio task'o kopija;
-//   3. PRIEŽASTIS — kelios priežastys (`outside-project`, `locked`, `branch-mismatch`, …)
+//   1. AMŽIUS ARBA TASK'O BŪSENA — kopija tampa eskalacijai tinkama, kai ji sena bent tiek,
+//      kiek gali gyvuoti bet kuris lease (paprastam dirty/check-failed keliui — lease TTL;
+//      rizikingesniam unlock/karantino keliui — senasis 24 h ORPHAN_ESCALATION_MIN_AGE_MS),
+//      ARBA kai jos task'as jau `done`/dingęs. Iki 2026-08-29 (task 079) šios dvi sąlygos
+//      buvo IR, ne ARBA, su viena 24 h amžiaus riba VISIEMS keliams — tai kūrė mirties
+//      spiralę (GeoGravity auditas): task'as niekada nepasiekia `done`, kol jo našlaitė
+//      kopija laiko šakos/kelio vardą, o kopija niekada neeskaluojama, kol task'as nėra
+//      `done`. Saugumą nuo per ankstyvo pašalinimo dabar užtikrina PATS archyvavimas
+//      (žemiau) ir 074-b merge-base sargas prieš `branch -D`, o ne task'o gyvavimo ciklas —
+//      tad bucket'o sąlyga liko tik kaip papildomas KELIAS, ne būtina sąlyga.
+//   2. PRIEŽASTIS — kelios priežastys (`outside-project`, `locked`, `branch-mismatch`, …)
 //      NIEKADA neeskaluojamos: jos reiškia, kad mes nesuprantame, ką matome.
-// Ir net praėjus visus tris, darbas pirma ARCHYVUOJAMAS kaip diff'as, ir tik tada šalinama.
+// Ir net praėjus abu, darbas pirma ARCHYVUOJAMAS kaip diff'as, ir tik tada šalinama su
+// `--force`. `ORPHAN KEPT` lieka TIK atvejams, kur pats archyvavimas ar šalinimas nepavyko.
 //
 // Grąžinamos EILUTĖS, o ne rašoma tiesiai į žurnalą: taip verdiktus mato testai be ambient IO.
 // Lease saugykla neliečiama — našlaičio lease įrašas yra fencing skaitiklio atmintis.
+//
+// Šis failas taip pat atlieka DVI papildomas higienos pakopas (task 079), abi po
+// registracijomis paremto praėjimo: FS-lygio GC katalogams be jokios git registracijos
+// (`reapUnregisteredWorktreeDirectories`), ir limitą viršijusių kandidatų eilė kitam
+// praėjimui (`readDeferredQueue`/`writeDeferredQueue`), kad `ORPHAN_WORKTREE_REAP_LIMIT`
+// nepaliktų tos pačios uodegos amžinai laukti.
 
 import path from "node:path";
 import {
   ORPHAN_ARCHIVE_DIR,
   ORPHAN_ESCALATION_MIN_AGE_MS,
   ORPHAN_WORKTREE_REAP_LIMIT,
+  WAVE_SLOT_LEASE_TTL_MS,
 } from "../../../application/scheduling/loop-runtime-config.js";
 import { taskBuckets } from "../../../domain/tasks/buckets.js";
 import { nodeFsAdapter } from "../../fs/node-fs-adapter.js";
 import { gitResolveCommit } from "../git-client.js";
 import { run, type CommandResult } from "../../process/run-process.js";
-import { findOrphanWorktrees, reapOrphanWorktree, type OrphanWorktree } from "./worktree-reaper.js";
+import {
+  findOrphanWorktrees,
+  findUnregisteredWorktreeDirectories,
+  reapOrphanWorktree,
+  type OrphanWorktree,
+} from "./worktree-reaper.js";
+import { removeIfEmptyDir } from "./worktree-removal.js";
 import { cleanupWorktreeRegistrations } from "./worktree-registration-cleanup.js";
 import type { WorktreeOwnerMarker } from "./worktree-state-classifier.js";
 import type { WorkerLease } from "../../../domain/scheduling/worker-lease-rules.js";
@@ -69,13 +91,40 @@ async function resolvedTaskBucket(agRoot: string, taskId: string): Promise<strin
   return undefined;
 }
 
-/** Trys eskalacijos vartai: amžius ir task'o būsena (priežastis tikrinama atskirai). */
-async function isEscalationEligible(agRoot: string, owner: WorktreeOwnerMarker, now: Date): Promise<boolean> {
+/**
+ * Kopija pakankamai sena, kad JOKS lease, galėjęs ją teisėtai laikyti pagal lease store
+ * apskaitą, dabar nebegalėtų būti aktyvus — nepriklausomai nuo to, ar orphan detekcija jį
+ * jau pažymėjo neaktyviu. Naudojama TIK paprastam dirty/check-failed keliui (žr.
+ * `isEscalationEligible`); trumpesnis už `ORPHAN_ESCALATION_MIN_AGE_MS` SĄMONINGAI — kai
+ * turinys jau archyvuojamas prieš šalinant (žr. `escalateOrphanRemoval`), ilgas laukimas
+ * nebeapsaugo nieko, ko neapsaugotų pats archyvas.
+ */
+const PRESERVE_FORCE_MIN_AGE_MS = WAVE_SLOT_LEASE_TTL_MS;
+
+/**
+ * Du nepriklausomi eskalacijos KELIAI (priežastis tikrinama atskirai, žr. isEscalatableReason):
+ * arba kopija jau sena bent tiek, kiek gali gyvuoti lease, arba jos task'as jau `done`/dingęs.
+ * ARBA, ne IR — žr. failo antraštės pastabą 2026-08-29 (task 079) dėl mirties spiralės,
+ * kurią sukėlė ankstesnė IR sąlyga.
+ *
+ * Amžiaus riba PRIKLAUSO nuo kelio: paprastam dirty/check-failed turiniui užtenka
+ * `PRESERVE_FORCE_MIN_AGE_MS` (lease TTL), nes archyvas jau apsaugo turinį. `unlock` keliui
+ * (karantinas: unmerged-paths, detached-head) būsena yra NEAIŠKI ta prasme, kad automatas
+ * pats atrakina užraktą prieš šalindamas — tam paliekamas senasis, konservatyvesnis
+ * `ORPHAN_ESCALATION_MIN_AGE_MS` (24 h).
+ */
+async function isEscalationEligible(
+  agRoot: string,
+  owner: WorktreeOwnerMarker,
+  now: Date,
+  ageFloorMs: number,
+): Promise<boolean> {
   const createdAt = Date.parse(owner.created_at);
-  if (!Number.isFinite(createdAt) || now.getTime() - createdAt < ORPHAN_ESCALATION_MIN_AGE_MS) return false;
+  const ageEligible = Number.isFinite(createdAt) && now.getTime() - createdAt >= ageFloorMs;
+  if (ageEligible) return true;
   const bucket = await resolvedTaskBucket(agRoot, owner.task_id);
   // Dingęs task'as arba `done` — darbas nebereikalingas. Bet koks kitas bucket'as reiškia
-  // gyvą task'ą, ir jo kopija lieka stovėti.
+  // gyvą task'ą; jo kopija lieka stovėti TIK jei ji dar ir jauna.
   return bucket === undefined || bucket === "done";
 }
 
@@ -207,7 +256,8 @@ async function tryEscalate(input: {
 > {
   const owner = input.orphan.owner;
   if (owner === undefined) return undefined;
-  if (!(await isEscalationEligible(input.agRoot, owner, input.now))) return undefined;
+  const ageFloorMs = input.unlock ? ORPHAN_ESCALATION_MIN_AGE_MS : PRESERVE_FORCE_MIN_AGE_MS;
+  if (!(await isEscalationEligible(input.agRoot, owner, input.now, ageFloorMs))) return undefined;
 
   const branch = input.orphan.entry.branch?.replace(/^refs\/heads\//, "") ?? owner.branch;
   const result = await escalateOrphanRemoval({
@@ -229,6 +279,65 @@ async function tryEscalate(input: {
           : {}),
       }
     : undefined;
+}
+
+/** Katalogas be git registracijos laikomas prieš šalinant — apsauga nuo dar vykstančio provizionavimo. */
+const UNREGISTERED_DIR_MIN_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * FS-lygio GC: `.ag/worktrees/<run_id>/*` katalogai be jokios `git worktree list` registracijos.
+ * Niekada nešalina to, ką `git worktree list` mato — `findUnregisteredWorktreeDirectories` jau
+ * garantuoja disjoint'ą su registracijomis; čia lieka tik amžiaus patikra ir šalinimas.
+ */
+async function reapUnregisteredWorktreeDirectories(input: { projectRoot: string; now: Date }): Promise<string[]> {
+  const lines: string[] = [];
+  const candidates = await findUnregisteredWorktreeDirectories({ projectRoot: input.projectRoot });
+  const touchedParents = new Set<string>();
+
+  for (const candidate of candidates) {
+    const mtime = await nodeFsAdapter.directoryModifiedAtMs(candidate.path);
+    if (mtime === undefined || input.now.getTime() - mtime < UNREGISTERED_DIR_MIN_AGE_MS) continue;
+    await nodeFsAdapter.removeDirectory(candidate.path);
+    touchedParents.add(candidate.parentRunDir);
+    lines.push(`ORPHAN DIR REMOVED: ${orphanLogPath(input.projectRoot, candidate.path)} (no registration)`);
+  }
+
+  for (const parent of touchedParents) await removeIfEmptyDir(parent);
+  return lines;
+}
+
+type DeferredQueueState = { deferred: string[] };
+
+/** Mažas state failas kitam praėjimui — ne archyvo katalogas, tad savo raktas, ne ORPHAN_ARCHIVE_DIR. */
+const DEFERRED_QUEUE_FILE = ["state", "orphan-reap-deferred.json"] as const;
+
+/** Sugadintas ar nesamas failas — tuščia eilė, ne klaida: kito praėjimo alfabetinė tvarka lieka teisinga. */
+async function readDeferredQueue(runtimeRoot: string): Promise<string[]> {
+  const raw = await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, ...DEFERRED_QUEUE_FILE));
+  if (raw === undefined) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const deferred =
+      typeof parsed === "object" && parsed !== null && "deferred" in parsed
+        ? (parsed as DeferredQueueState).deferred
+        : undefined;
+    return Array.isArray(deferred) ? deferred.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeDeferredQueue(runtimeRoot: string, deferred: readonly string[]): Promise<void> {
+  const state: DeferredQueueState = { deferred: [...deferred] };
+  await nodeFsAdapter.writeTextFile(path.join(runtimeRoot, ...DEFERRED_QUEUE_FILE), JSON.stringify(state, null, 2));
+}
+
+/** Praėjusio praėjimo nukirptieji keliauja į sąrašo PRADŽIĄ — kitaip alfabetinė tvarka juos badautų amžinai. */
+function prioritizeDeferred(orphans: readonly OrphanWorktree[], deferredPaths: readonly string[]): OrphanWorktree[] {
+  const deferredSet = new Set(deferredPaths.map((entry) => path.resolve(entry)));
+  const prioritized = orphans.filter((orphan) => deferredSet.has(path.resolve(orphan.entry.path)));
+  const rest = orphans.filter((orphan) => !deferredSet.has(path.resolve(orphan.entry.path)));
+  return [...prioritized, ...rest];
 }
 
 export type ReapOrphanWorktreesInput = {
@@ -254,15 +363,17 @@ export async function reapOrphanWorktrees(input: ReapOrphanWorktreesInput): Prom
     const limit = input.limit ?? ORPHAN_WORKTREE_REAP_LIMIT;
     const now = input.now ?? new Date();
     const primaryRef = input.primaryRef ?? "HEAD";
-    const orphans = await findOrphanWorktrees({ projectRoot: input.projectRoot, leases: input.leases, now });
+    const foundOrphans = await findOrphanWorktrees({ projectRoot: input.projectRoot, leases: input.leases, now });
+    const deferredFromLastPass = await readDeferredQueue(input.runtimeRoot);
+    const orphans = prioritizeDeferred(foundOrphans, deferredFromLastPass);
 
     let removals = 0;
-    let deferred = 0;
+    const deferredPaths: string[] = [];
     for (const orphan of orphans) {
       // Limitas tikrinamas PRIEŠ darbą: praėjimas su dešimtimis kopijų kitaip taptų minučių
       // operacija kiekvienos bangos pradžioje.
       if (removals >= limit) {
-        deferred += 1;
+        deferredPaths.push(path.resolve(orphan.entry.path));
         continue;
       }
 
@@ -319,8 +430,17 @@ export async function reapOrphanWorktrees(input: ReapOrphanWorktreesInput): Prom
       }
     }
 
-    if (deferred > 0) {
-      lines.push(`ORPHAN REAP TRUNCATED: removed=${removals} limit=${limit}; liko ${deferred} kitam praėjimui`);
+    if (deferredPaths.length > 0) {
+      lines.push(
+        `ORPHAN REAP TRUNCATED: removed=${removals} limit=${limit}; liko ${deferredPaths.length} kitam praėjimui`,
+      );
+    }
+    await writeDeferredQueue(input.runtimeRoot, deferredPaths);
+
+    try {
+      lines.push(...(await reapUnregisteredWorktreeDirectories({ projectRoot: input.projectRoot, now })));
+    } catch (error: unknown) {
+      lines.push(`ORPHAN DIR GC FAILED: ${error instanceof Error ? error.message : String(error)}`);
     }
   } catch (error: unknown) {
     lines.push(`ORPHAN REAP FAILED: ${error instanceof Error ? error.message : String(error)}`);

@@ -8,10 +8,16 @@
  * lygiagrečiai. Etalone šios funkcijos buvo `createRunCoordinator` closure'e; VERQESTRA jos
  * yra laisvos funkcijos su eksplicitiniais (ports, state) parametrais — elgesys tas pats.
  */
-import type { TaskRunPorts, TerminalTaskBucket } from "./run-coordinator-ports.js";
+import type { TaskDecision, TaskRunPorts, TerminalTaskBucket } from "./run-coordinator-ports.js";
 import { taskFileBasename, type TaskRunState } from "./task-run-state.js";
 import { infrastructureFailureDisposition } from "./run-coordinator-guards.js";
 import type { TerminalTransition } from "./run-coordinator-model.js";
+import { DISPATCH_TIMEOUT_EXIT_CODE } from "../../shared/exit-codes.js";
+import { evaluateRuntimeOversizeDisposition } from "../../domain/diagnosis/dispositions.js";
+import { measureTaskSize } from "../../domain/tasks/size.js";
+import { buildTaskSplitPlan, type TaskSplitPlan } from "./task-splitting.js";
+import { DEFAULT_PREFLIGHT_LIMITS } from "../policy-governance/preflight-limits-policy.js";
+import { extractSection } from "../../shared/markdown.js";
 
 // Terminalinis bucket perėjimas su visų šio task'o žinomų failų sutvarkymu.
 //
@@ -270,4 +276,142 @@ export async function stopRun(
     `LOOP ABORT (infrastruktura): stage=${stage} exit=${exitCode} task=${state.taskId}${suffix} returned_to_queue=${taskFileBasename(moved)}`,
   );
   throw ports.failure.infrastructureError(message, { taskReturnedToQueue: true, exitCode });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Runtime-oversize dispatch timeout routing (task 066-b-03, GeoGravity 1178).
+//
+// `evaluateRuntimeOversizeDisposition` (domain/diagnosis/dispositions.ts, task 066-a-02) says
+// WHAT to do; this module says WHERE the decision plugs in — the one place, right before an
+// infrastructure abort, that both dispatch call sites (initial/resumed dispatch via
+// `run-coordinator.ts#runDispatch`, and the repair-cycle dispatch via `repair-task.ts#repairTask`)
+// already funnel through. Both produce the same `{ stage, exitCode, detail? }` shape on a
+// dispatch-stage timeout, so one router serves both without either caller growing.
+// ---------------------------------------------------------------------------------------------
+
+/** Structural shape shared by `DispatchTaskResult`'s and `RepairTaskResult`'s `infrastructure` variants. */
+export type InfrastructureFailureDescriptor = { stage: string; exitCode: number; detail?: string };
+
+/**
+ * Kartojimo skaitiklis — TAS PATS durabilus `vq/state/retry-counts.json` skaitiklis, kurį jau
+ * naudoja retry-limit kelias (`cheap-finish-adapters.ts#retryBudget`). Jokio naujo porto: kai
+ * `cheapFinish` neprijungtas, `attempts` lieka `0` ir maršrutas visada krenta į `undefined`
+ * (nepakitęs `stopRun` elgesys).
+ */
+async function routeRuntimeOversizeTimeout(
+  ports: TaskRunPorts,
+  state: TaskRunState,
+  exitCode: number,
+  taskTextOverride?: string,
+): Promise<boolean | undefined> {
+  const attempts = (await ports.cheapFinish?.retryBudget(state.taskId))?.count ?? 0;
+  const currentFile = await state.resolveCurrentTaskFile();
+  // Repair kelyje failo kūnas yra repair PROMPT'as (repair-task.ts jį perrašė paruošdama
+  // dispatch'ą) — dalomumas ir split planas vertinami iš kvietėjo paduoto ORIGINALAUS
+  // teksto, kitaip kiekvienas repair timeout'as atrodytų nedalomas ir keliautų human-review.
+  const taskText = taskTextOverride?.trim()
+    ? taskTextOverride
+    : await ports.tasks.readTaskBody(currentFile).catch(() => "");
+  const metrics = measureTaskSize(taskText);
+  const isDivisible = metrics.actionBullets > 1 || metrics.allowedPaths > 1;
+  const verdict = evaluateRuntimeOversizeDisposition({ exitCode, repeatedSignatureAttempts: attempts, isDivisible });
+
+  if (verdict === "repair") return undefined;
+  if (verdict === "human-review") {
+    return await applyTerminal(ports, state, {
+      kind: "human-review",
+      reason: `TASK HUMAN REVIEW: ${state.taskId} runtime_oversize_indivisible=1 attempts=${attempts}`,
+    });
+  }
+
+  const plan = buildTaskSplitPlan(taskText, state.taskId, DEFAULT_PREFLIGHT_LIMITS);
+  return await applySplitSupersede(ports, state, { taskText, plan, attempts });
+}
+
+/**
+ * VIENINTELĖ vieta prieš infrastruktūros abort'ą — patikrina, ar tai pasikartojantis
+ * runtime-oversize dispatch timeout'as; kitaip (arba pirmas šios signatūros bandymas) elgesys
+ * nepakitęs — `stopRun`, kaip ir anksčiau.
+ */
+export async function routeRepairInfrastructureFailure(
+  ports: TaskRunPorts,
+  state: TaskRunState,
+  failure: InfrastructureFailureDescriptor,
+  options?: { taskText?: string },
+): Promise<boolean> {
+  if (failure.stage === "dispatch" && failure.exitCode === DISPATCH_TIMEOUT_EXIT_CODE) {
+    const routed = await routeRuntimeOversizeTimeout(ports, state, failure.exitCode, options?.taskText);
+    if (routed !== undefined) return routed;
+  }
+  return await stopRun(ports, state, failure.stage, failure.exitCode, failure.detail);
+}
+
+/**
+ * Tėvas žymimas `# Superseded` stub'u ir keliauja į `done` (archyvas — `backlog-audit.ts` jį
+ * jau atpažįsta kaip nebeaktyvų per `isSupersededStub`, `done/` jam netaiko numerių higienos).
+ * Vaikai — TAS PATS `ports.completion.enqueueChildTasks` kelias, kurį naudoja LLM-driven
+ * `delegateToClaude` split'as; nesėkmės šaka (nevalidūs vaikai, gylio limitas) elgiasi
+ * identiškai jam.
+ */
+async function applySplitSupersede(
+  ports: TaskRunPorts,
+  state: TaskRunState,
+  input: { taskText: string; plan: TaskSplitPlan; attempts: number },
+): Promise<boolean> {
+  const { plan, attempts } = input;
+  // Tėvas superseduojamas VISIŠKAI (ne pratęsiamas kaip preflight'o `first_task` kelyje), tad
+  // ir pirmoji dalis tampa vaiku — kitaip jos apimtis dingtų niekur neįrašyta.
+  const decision: TaskDecision = {
+    child_tasks: [{ title: firstPartTitle(plan.first_task), claude_task: plan.first_task }, ...plan.child_tasks],
+  };
+  const childOutcome = await ports.completion.enqueueChildTasks(state.taskId, decision);
+  if (!childOutcome.ok) {
+    if ("depth_exceeded" in childOutcome) {
+      return await applyTerminal(ports, state, {
+        kind: "human-review",
+        reason:
+          `TASK HUMAN REVIEW: ${state.taskId} split_depth_exceeded=` +
+          `${childOutcome.depth_exceeded.parent_depth + 1}>${childOutcome.depth_exceeded.max_depth}`,
+      });
+    }
+    const detail = childOutcome.invalid
+      .map((child) => `${child.title || "<untitled>"}:[${child.missingSections.join(",")}]`)
+      .join("; ");
+    return await applyTerminal(ports, state, {
+      kind: "human-review",
+      reason: `TASK HUMAN REVIEW: ${state.taskId} invalid_child_tasks=${detail}`,
+    });
+  }
+
+  const currentFile = await state.resolveCurrentTaskFile();
+  const supersededBody = [
+    "# Superseded",
+    "",
+    `Split into ${plan.parts} parts after ${attempts} repeated runtime-oversize timeouts.`,
+    "",
+    input.taskText.trimEnd(),
+    "",
+  ].join("\n");
+  await ports.tasks.writeTaskBody(currentFile, supersededBody);
+  const moved = await finishKnownTaskState(ports, state, currentFile, "done");
+  await ports.ledger.recordState(state.taskId, state.taskName, "superseded", moved, await ports.tasks.fingerprint(moved));
+  await ports.journal.recordEvent({
+    task_id: state.taskId,
+    to_state: "superseded",
+    reason: `split parts=${plan.parts} after ${attempts} timeouts`,
+  });
+  await ports.log.write(
+    `TASK SPLIT (runtime-oversize): parent=${state.taskId} parts=${plan.parts} po ${attempts} timeout`,
+  );
+  await ports.completion.cascadeBlockedDependents(state.taskId);
+  return false;
+}
+
+/** `## Tikslas` pirma neturia eilutė iš skaidymo dalies — tas pats tekstas, kurį `renderTaskPart` įrašė. */
+function firstPartTitle(taskText: string): string {
+  const goal = extractSection(taskText, "## Tikslas")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return goal ?? "Split part 1";
 }

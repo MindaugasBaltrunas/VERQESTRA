@@ -26,14 +26,14 @@ import {
   type PreflightFailureMemoRecord,
 } from "../quality-gates/preflight-memo-schema.js";
 import type { ResumeStateSnapshot, TaskRunPorts } from "./run-coordinator-ports.js";
-import { decisionInvalidMarker } from "./run-coordinator-ports.js";
+import { handlePreflightVerdict } from "./run-coordinator-delegate.js";
 import { createTaskRunState, type TaskRunState } from "./task-run-state.js";
 import { PREFLIGHT_START_FAILURE_CLASS, preflightMemoAgeMs, preflightMemoExpired, preflightRetryWithoutChange } from "./run-coordinator-guards.js";
 import { dispatchTask } from "./dispatch-task.js";
 import { repairTask } from "./repair-task.js";
 import { confirmSkippedDispatch, probeWorkEvidence } from "./skip-dispatch.js";
 import { verifyTask } from "./verify-task.js";
-import { applyTerminal, stopRun } from "./run-coordinator-terminal.js";
+import { applyTerminal, routeRepairInfrastructureFailure, stopRun } from "./run-coordinator-terminal.js";
 import { tryCheapFinish } from "./run-coordinator-cheap-finish.js";
 import { runDoneIntegrationGate, runIntegrationReview } from "./run-coordinator-integration.js";
 import type { RunCoordinator, RunCoordinatorOptions } from "./run-coordinator-model.js";
@@ -66,84 +66,12 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
   async function runDispatch(state: TaskRunState, promptFile: string, fromTaskFile: string, isRepair: boolean): Promise<boolean> {
     const result = await dispatchTask(state, ports, { promptFile, fromTaskFile, isRepair });
     if (result.kind === "infrastructure") {
-      return await stopRun(ports, state, result.stage, result.exitCode, result.detail);
+      return await routeRepairInfrastructureFailure(ports, state, result);
     }
     if (result.kind === "human-review") {
       return await applyTerminal(ports, state, { kind: "human-review", reason: result.reason });
     }
     return true;
-  }
-
-  async function delegateToClaude(state: TaskRunState): Promise<boolean> {
-    const decisionResult = await ports.state.readDecision(state.taskId);
-    if (decisionResult.status === "invalid") {
-      return await applyTerminal(ports, state, {
-        kind: "human-review",
-        reason: `TASK HUMAN REVIEW: ${state.taskId} ${decisionInvalidMarker(decisionResult)}`,
-      });
-    }
-
-    const childOutcome = await ports.completion.enqueueChildTasks(state.taskId, decisionResult.decision);
-    if (!childOutcome.ok) {
-      if ("depth_exceeded" in childOutcome) {
-        return await applyTerminal(ports, state, {
-          kind: "human-review",
-          reason: `TASK HUMAN REVIEW: ${state.taskId} split_depth_exceeded=${childOutcome.depth_exceeded.parent_depth + 1}>${childOutcome.depth_exceeded.max_depth}`,
-        });
-      }
-      const detail = childOutcome.invalid
-        .map((child) => `${child.title || "<untitled>"}:[${child.missingSections.join(",")}]`)
-        .join("; ");
-      return await applyTerminal(ports, state, {
-        kind: "human-review",
-        reason: `TASK HUMAN REVIEW: ${state.taskId} invalid_child_tasks=${detail}`,
-      });
-    }
-
-    await ports.tasks.installReformulatedTask(state.activeFile);
-    state.remember(state.activeFile);
-    const preSplitFingerprint = await ports.tasks.fingerprint(state.activeFile);
-     
-    state.fingerprint = preSplitFingerprint;
-    const movedDelegatedFile = await ports.tasks.move(state.activeFile, "delegated", state.taskName);
-    state.delegatedFile = state.remember(movedDelegatedFile);
-    await ports.ledger.recordState(state.taskId, state.taskName, "delegated", state.delegatedFile, state.fingerprint);
-    await ports.journal.recordCheckpoint({
-      actor: "supervisor",
-      phase: "delegated",
-      status: "waiting",
-      task_id: state.taskId,
-      task_file: state.delegatedFile,
-      log_file: ports.state.logPath("orchestrator.log"),
-      next_action: "Wait for Claude to finish this delegated task",
-    });
-    await ports.log.write(`TASK DELEGATED TO CLAUDE: ${state.taskId}`);
-    return true;
-  }
-
-  async function handlePreflightVerdict(state: TaskRunState): Promise<boolean> {
-    const decisionResult = await ports.state.readDecision(state.taskId);
-    if (decisionResult.status === "invalid") {
-      return await applyTerminal(ports, state, {
-        kind: "human-review",
-        reason: `TASK HUMAN REVIEW: ${state.taskId} ${decisionInvalidMarker(decisionResult)}`,
-      });
-    }
-
-    const verdict = decisionResult.decision.verdict;
-    if (verdict === "delegate" || verdict === "reformulate_delegate") {
-      return await delegateToClaude(state);
-    }
-    if (verdict === "human_review" || verdict === "reject") {
-      return await applyTerminal(ports, state, {
-        kind: "human-review",
-        reason: `TASK HUMAN REVIEW: ${state.taskId} preflight_verdict=${verdict}`,
-      });
-    }
-    return await applyTerminal(ports, state, {
-      kind: "human-review",
-      reason: `UNKNOWN PREFLIGHT VERDICT: ${verdict ?? ""} task=${state.taskId}`,
-    });
   }
 
   /**
@@ -199,12 +127,18 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
         return beforeRepair.result;
       }
 
+      // Originalus task tekstas nuskaitomas PRIEŠ repairTask: jis perrašo failą repair
+      // prompt'u, o runtime-oversize maršrutizatorius (066-b-03) dalomumą ir split planą
+      // privalo vertinti iš REALIOS užduoties, ne iš "# Repair Task" šablono.
+      const preRepairTaskText = await ports.tasks
+        .readTaskBody(await state.resolveCurrentTaskFile())
+        .catch(() => "");
       const repair = await repairTask(state, ports);
       if (repair.kind === "redispatched") {
         continue;
       }
       if (repair.kind === "infrastructure") {
-        return await stopRun(ports, state, repair.stage, repair.exitCode, repair.detail);
+        return await routeRepairInfrastructureFailure(ports, state, repair, { taskText: preRepairTaskText });
       }
       if (repair.kind === "retry-limit") {
         return await applyTerminal(ports, state, { kind: "retry-limit-human-review" });
@@ -260,7 +194,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
       });
     }
 
-    if (!(await handlePreflightVerdict(state))) {
+    if (!(await handlePreflightVerdict(ports, state))) {
       return false;
     }
     if (!(await runDispatch(state, state.delegatedFile, state.delegatedFile, false))) {
@@ -467,7 +401,7 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
       // Žalias preflight'as = turinys pajudėjo arba priežastis dingo: memo nebegalioja.
       await ports.preflightMemo?.clear(state.taskId);
 
-      if (!(await handlePreflightVerdict(state))) {
+      if (!(await handlePreflightVerdict(ports, state))) {
         return false;
       }
       if (!(await runDispatch(state, state.delegatedFile, state.delegatedFile, false))) {

@@ -5,9 +5,6 @@ HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-29 operatoriaus užsakytas w1/w2 audi
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 
-## Priklausomybės
-- 073-registraciju-valymas-visuose-worktree-salinimo-keliuose
-
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei baigto, bet dar neintegruoto slot'o būsena išgyvena proceso perkrovimą
 (persistinama, ne tik `Map` atmintyje) IR orphan eskalacija atsisako

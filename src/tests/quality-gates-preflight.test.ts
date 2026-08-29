@@ -42,12 +42,12 @@ import {
 } from "../application/quality-gates/preflight.js";
 import { classifyTask } from "../domain/policies/task-classification.js";
 import type { AgentPolicy } from "../domain/policies/agent-selection.js";
-
+import { evaluateEtalonasRuleViolations } from "../application/quality-gates/preflight-fastpath.js";
+import fs from "node:fs/promises";
 function fakeFs(files: Record<string, string>): { readTextFileIfExists: (p: string) => Promise<string | undefined> } {
   const map = new Map(Object.entries(files));
   return { readTextFileIfExists: async (p) => map.get(p.replace(/\\/g, "/")) };
 }
-
 test("architecture/coding/enforcement loaderiai: trūkstamas failas → default'ai, blogas JSON → klaida", async () => {
   const empty = fakeFs({});
   const style = await loadArchitectureStylePolicy(empty, "/repo/vq");
@@ -58,10 +58,8 @@ test("architecture/coding/enforcement loaderiai: trūkstamas failas → default'
   const enforcement = await loadEnforcementPolicy(empty, "/repo/vq");
   assert.equal(enforcement.max_files_per_task, 10);
   assert.equal(enforcement.broad_scope_requires_human_review, true);
-
   const broken = fakeFs({ "/repo/vq/architecture/enforcement-policy.json": "{ blogas" });
   await assert.rejects(() => loadEnforcementPolicy(broken, "/repo/vq"), /not valid JSON/);
-
   const configured = fakeFs({
     "/repo/vq/architecture/architecture-style.json": JSON.stringify({
       strictness: "block",
@@ -91,13 +89,11 @@ test("preflight-limits: present/absent, nežinomas raktas = PolicyConfigError, t
   const absent = await readPreflightLimitsFile(fakeFs({}), "/repo/vq");
   assert.deepEqual(absent, { present: false, values: {} });
   assert.deepEqual(await loadPreflightLimits(fakeFs({}), "/repo/vq"), DEFAULT_PREFLIGHT_LIMITS);
-
   const partial = mergePreflightLimits({ maxLines: 50, turnLimits: { small: 5 } });
   assert.equal(partial.maxLines, 50);
   assert.equal(partial.maxAllowedPaths, DEFAULT_PREFLIGHT_LIMITS.maxAllowedPaths);
   assert.equal(partial.turnLimits?.small, 5);
   assert.equal(partial.turnLimits?.repair, DEFAULT_TURN_LIMITS.repair, "dalinis turnLimits nepalieka NaN");
-
   await assert.rejects(
     () => readPreflightLimitsFile(fakeFs({ "/repo/vq/config/preflight-limits.json": '{"nežinomas": 1}' }), "/repo/vq"),
     (error: unknown) => error instanceof PolicyConfigError,
@@ -125,7 +121,6 @@ test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos lar
     "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos",
   );
 });
-
 // 016-a-02 (2026-08-25): CONFIG DRIFT VARTAS. Testas aukščiau pin'ina KODO default'us, bet
 // realų dispatch langą lemia DISKE gulintis konfigas: `min(turnLimits.large, dispatchMaxTurns)`.
 // Būtent tylus `dispatchMaxTurns: 120` prieš `large: 180` anuliavo 0033 kalibraciją, ir varto
@@ -136,12 +131,10 @@ const DRIFT_REASON =
   "žemesnės lubos anuliuoja kalibraciją be jokio signalo — nukirsta sesija sudegina visą " +
   "kontekstą ir vis tiek virsta repair/human-review ratu. Taisymas: KELK dispatchMaxTurns " +
   "(arba 0 = be ribos), o NE mažink turnLimits.large.";
-
 /** `0` yra dokumentuotas „be ribos" opt-out: jis kalibracijos nekerta, tad varto neliečia. */
 function ceilingCoversLarge(ceiling: number, large: number): boolean {
   return ceiling === 0 || ceiling >= large;
 }
-
 function assertCeilingCoversLarge(source: string, ceiling: number, large: number): void {
   assert.ok(
     ceilingCoversLarge(ceiling, large),
@@ -156,7 +149,6 @@ test("preflight-limits: kodo default'ų lubos nekerta kalibruotos turnLimits.lar
     DEFAULT_TURN_LIMITS.large,
   );
 });
-
 // `vq/` yra runtime katalogas ir git'e jo gali nebūti: tada `loadPreflightLimits` teisėtai
 // grąžina default'us ir vartas tikrina tą pačią invariantą ant jų (ne flaky, ne praleidimas).
 // `templates/vq/` git'e YRA — tai konfigas, kurį gauna kiekvienas naujas projektas.
@@ -215,10 +207,8 @@ test("preflight-limits: config-drift vartas kanda — 120 lubos prieš large=180
   const drifted = await withCeiling(120);
   assert.equal(drifted.large, DEFAULT_TURN_LIMITS.large, "trūkstamas turnLimits užpildomas iš kalibruotos lentelės");
   assert.equal(ceilingCoversLarge(drifted.ceiling, drifted.large), false, "120 lubos nukerta large=180 — vartas krenta");
-
   const optedOut = await withCeiling(0);
   assert.equal(ceilingCoversLarge(optedOut.ceiling, optedOut.large), true, "0 = be ribos: kalibracija nenukertama");
-
   // Simetriškas atvejis: lubos NEPAKEISTOS, bet pakelta kanoninė `token-budget.json` lentelė.
   // Be šio įrodymo vartas tikrintų tik legacy sluoksnį ir pakeltą lentelę praleistų tyliai.
   const raisedTable = fakeFs({
@@ -240,7 +230,6 @@ test("preflight-limits: config-drift vartas kanda — 120 lubos prieš large=180
 });
 
 const CLASSIFICATION_FEATURE = classifyTask("implement feature x", ["src/commands/x.ts"], defaultTaskClassificationPolicy);
-
 test("architektūros/enforcement vartai: trijų pakopų įrodymai ir enforcement taisyklės", () => {
   const base = {
     taskText: "# Task\nDaryk.",
@@ -263,7 +252,6 @@ test("architektūros/enforcement vartai: trijų pakopų įrodymai ir enforcement
   });
   assert.equal(blocked.invalidReasons.length, 1);
   assert.match(blocked.invalidReasons[0]!, /architecture block: .* \(evidence: confirmed\)/);
-
   // confirmed + warn → review.
   const warned = evaluateArchitectureAndPolicyGates({
     ...base,
@@ -271,7 +259,6 @@ test("architektūros/enforcement vartai: trijų pakopų įrodymai ir enforcement
   });
   assert.equal(warned.invalidReasons.length, 0);
   assert.match(warned.reviewReasons[0]!, /architecture warn/);
-
   // possible (tik teksto paminėjimas) → review net esant block.
   const possible = evaluateArchitectureAndPolicyGates({
     ...base,
@@ -281,7 +268,6 @@ test("architektūros/enforcement vartai: trijų pakopų įrodymai ir enforcement
   });
   assert.equal(possible.invalidReasons.length, 0);
   assert.match(possible.reviewReasons[0]!, /evidence: possible/);
-
   // require_tests be test komandos → invalid; max_files + broad scope + contract → review.
   const enforcement = evaluateArchitectureAndPolicyGates({
     ...base,
@@ -329,13 +315,11 @@ Sustoti, kai patikros praeina.
 ## Neįtraukta
 - Kita.
 `;
-
 const AGENT_POLICY: AgentPolicy = {
   version: "1",
   default_role: "coder",
   roles: { coder: { allowed_adapters: ["claude"], default_model_hint: "sonnet", can_write_code: true } },
 };
-
 function makePreflightPorts(taskText: string): {
   ports: PreflightPorts;
   decisions: PreflightDecision[];
@@ -493,4 +477,24 @@ ${CANONICAL_TASK}`;
 test("stripVerificationPreamble: tekstas be preambulės grįžta nepakitęs", () => {
   assert.equal(stripVerificationPreamble(CANONICAL_TASK), CANONICAL_TASK);
   assert.equal(stripVerificationPreamble(""), "");
+});
+
+// 070-a-02: evaluateEtalonasRuleViolations grąžina etalono pažeidimų sąrašą su citata (single-line
+// fixtures + viena sujungta test'o funkcija taupo failo eilučių biudžetą, nes architecture-gates
+// file-length vartas veikia be baseline).
+test("070-a-02: wildcard be pagrindimo, UI be I18nContext, etaloną atitinkantis task'as ir VISI queue/*.md", async () => {
+  const wildcard = evaluateEtalonasRuleViolations("# Task\n\n## Failai\nLeidžiama:\n- `src/tests/**`\n\n## Patikra\n- `pnpm test`\n").find((v) => v.ruleId === "wildcard-scope-without-justification");
+  assert.ok(wildcard, "wildcard pažeidimas privalo būti radinių sąraše");
+  assert.match(wildcard.citation, /Katalogo wildcard'as/);
+  const missingI18n = evaluateEtalonasRuleViolations("# Task\n\n## Failai\nLeidžiama:\n- `ui-app/src/view/components/SomePanel.tsx`\n- `ui-app/src/view/styles/dashboard.css`\n\n## Patikra\n- `pnpm test`\n").find((v) => v.ruleId === "ui-file-without-i18n-context");
+  assert.ok(missingI18n, "trūkstamo I18nContext pažeidimas privalo būti radinių sąraše");
+  assert.match(missingI18n.citation, /I18nContext\.tsx/);
+  const ok = "# Task\n\n## Failai\nLeidžiama:\n- `src/application/quality-gates/preflight-fastpath.ts`\n- `src/tests/quality-gates-preflight.test.ts`\n\n## Patikra\n- `pnpm test`\n";
+  assert.deepEqual(evaluateEtalonasRuleViolations(ok), []);
+  const queueDir = "AG/tasks/queue";
+  const files = (await fs.readdir(queueDir)).filter((name) => name.endsWith(".md"));
+  assert.ok(files.length > 0, "sanity: queue turi bent vieną task'ą šiam regresijos testui");
+  for (const name of files) {
+    assert.deepEqual(evaluateEtalonasRuleViolations(await fs.readFile(`${queueDir}/${name}`, "utf8")), [], name);
+  }
 });

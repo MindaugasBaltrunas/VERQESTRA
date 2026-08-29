@@ -25,6 +25,11 @@ openspec/changes/<change-katalogas>
 > ir užblokuoja VISĄ eilę. Placeholder'iai („none", „-") draudžiami — arba
 > tikras id, arba sekcijos nėra. Skeliant tėvą, UI vaikas priklauso nuo
 > serverio vaiko, ne atvirkščiai.
+> KIEKVIENA priklausomybė kainuoja w2 slot'ą: deklaruok ją TIK realiam
+> tvarkos reikalavimui (kontraktas, kurio antras task'as negali statyti
+> nesulaukęs) arba realiam failų persidengimui — NE „dėl visa ko".
+> Atsargumo priklausomybė tarp nepriklausomų task'ų = tyčinis lygiagretumo
+> atsisakymas.
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei <konkreti, grep'u/Read patikrinama sąlyga su failų keliais> —
@@ -79,6 +84,17 @@ Draudžiama:
 >    (`interfaces-http-router-contracts.test.ts` ir pan.).
 > 6. Draudžiama sekcija įvardija tai, kas NETYČIA pakliūtų: gretimas
 >    sluoksnis, svetimas modulis, `dist/**`, `node_modules/**`.
+> 7. W1/W2 LYGIAGRETUMAS: kurdamas KELIS task'us vienu metu, patikrink jų
+>    porų sankirtas — du task'ai be tarpusavio priklausomybės NEGALI
+>    dalintis nė vienu keliu (planuoklė kertantį porą serializuoja ir
+>    antras slot'as lieka tuščias). Bendras failas → arba sąmoninga
+>    `## Priklausomybės` eilutė, arba bendras pakeitimas iškeliamas į
+>    atskirą smulkų task'ą, nuo kurio abu priklauso.
+> 8. HOTSPOT failai, kurie serializuoja beveik visus UI task'us:
+>    `ui-app/src/i18n/I18nContext.tsx`, `ui-app/src/view/styles/dashboard.css`,
+>    `ui-app/src/model/types.ts`, `ui-app/src/model/api.ts`. Planuok UI
+>    task'ų partijas taip, kad vienu metu eilėje stovėtų daugiausia VIENAS
+>    hotspot'us liečiantis task'as, o kiti tuo metu — be jų.
 
 ## Veiksmas
 - <žingsnis su vieta kode: failas, funkcija, ką keisti>

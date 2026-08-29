@@ -49,16 +49,27 @@ readme-guard -> architect -> schedule-domain -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `src/application/task-execution/task-splitting.ts`
-- `src/application/task-execution/` (diagnozės->split maršrutas)
-- `src/domain/diagnosis/` (jei verdiktų aibė pildosi 'split')
-- `src/domain/tasks/`
-- `src/tests/`
+- `src/application/task-execution/run-coordinator.ts` (diagnozės->split
+  maršrutas; jei jis gyvena kitame task-execution faile — tas failas
+  vietoje šio, įrašyti į ataskaitą)
+- `src/application/task-execution/run-coordinator-terminal.ts`
+- `src/domain/diagnosis/dispositions.ts` (jei verdiktų aibė pildosi 'split')
+- `src/domain/tasks/sections.ts` (TIK jei commit_log header laukui reikia
+  schema v2 skaitytojo; kitu atveju neliesti)
+- `src/tests/task-execution-orchestration.test.ts`
+- `src/tests/task-execution-rules.test.ts`
+- `src/tests/characterization-diagnosis.test.ts`
+- `src/tests/task-execution-runtime-split.test.ts` (numatomas naujas)
 
 Draudžiama:
-- `src/interfaces/**` (išskyrus žurnalo eilutę, jei ji ten gimsta)
+- `src/interfaces/**` (išskyrus žurnalo eilutę, jei ji ten gimsta — tada
+  konkretų failą įrašyti į ataskaitą kaip nukrypimą)
 - `dist/**`
 - `node_modules/**`
 - `ui-app/**`
+
+> Scope sukonkretintas 2026-08-29 (buvo katalogų wildcard'ai — jie kirstųsi
+> su visų kitų queue task'ų testais ir atimtų w1/w2 lygiagretumą).
 
 ## Veiksmas
 - Architect: nustatyti, kur gyvena „repeated error signature" sprendimas

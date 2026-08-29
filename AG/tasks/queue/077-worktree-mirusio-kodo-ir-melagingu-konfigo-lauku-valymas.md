@@ -7,7 +7,6 @@ openspec/changes/verqestra-backlog-v1
 
 ## Priklausomybės
 - 073-registraciju-valymas-visuose-worktree-salinimo-keliuose
-- 074-neintegruoto-w2-darbo-apsauga-po-proceso-luzio
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `WorktreePolicy` turi tik realiai skaitomus laukus, o

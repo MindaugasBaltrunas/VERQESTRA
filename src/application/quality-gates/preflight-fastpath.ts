@@ -15,6 +15,9 @@
 // quality gates + diagnose tikrina rezultatą PO dispatch'o.
 
 import { parseAgentChain } from "../../domain/policies/agent-selection.js";
+import { allowedPaths as allowedPathsInternal } from "../../domain/tasks/allowed-paths.js";
+import { extractSection as extractSectionInternal } from "../../shared/markdown.js";
+import { parseBacktickChecks } from "./preflight-rules.js";
 
 // Sankcionuoti interfaces → application → domain tiltai preflight CLI adapteriui (tas pats
 // šablonas kaip evaluateRepeatedErrorEscalation retry-repair.ts): adapteris grynas domain
@@ -120,4 +123,187 @@ export function evaluateDeterministicPreflight(signals: DeterministicPreflightSi
     reason: "task already canonical: sections complete, size within limits, chain valid, scoped paths present",
     chain,
   };
+}
+
+// --- Etalono kanoniškumo taisyklės (070-a-02) -------------------------------------------
+//
+// `evaluateDeterministicPreflight` sprendžia TIK ar saugu praleisti LLM preflight'ą; ji
+// tyliai praleidžia task'ą, kuris formaliai turi visas sekcijas, bet pažeidžia etalono
+// (`AG/tasks/examples/000-etalonas.md`) turinio taisykles — pvz. katalogo wildcard'ą be
+// pagrindimo, ar UI failus be I18nContext/dashboard.css. Šis rinkinys yra GRYNAS ir
+// ADITYVUS: jis tik SKAIČIUOJA pažeidimus su konkrečios etalono taisyklės citata; verdikto
+// (fastPath/dispatch/reformulate) jis nepriima — surišimą daro kvietėjas (070-b-03).
+
+export type EtalonasRuleId =
+  | "wildcard-scope-without-justification"
+  | "production-file-without-test"
+  | "ui-file-without-i18n-context"
+  | "ui-file-without-dashboard-css"
+  | "patikra-without-backtick-check"
+  | "priklausomybes-placeholder";
+
+export type EtalonasRuleViolation = {
+  ruleId: EtalonasRuleId;
+  /** Žmogui skaitoma citata iš `000-etalonas.md`, įvardijanti pažeistą taisyklę. */
+  citation: string;
+  /** Konkretus radinys šiame task'e (kelias/eilutė), pagrindžiantis pažeidimą. */
+  detail: string;
+};
+
+const BROAD_SCOPE_PATH = /^(\*\*|.+\/\*\*)$/;
+const TEST_LIKE_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+const TEST_DIR_SEGMENT = /(^|\/)tests?(\/|$)/i;
+const SOURCE_FILE_EXTENSION = /\.(m|c)?[jt]sx?$/i;
+
+const I18N_CONTEXT_PATH = "ui-app/src/i18n/I18nContext.tsx";
+const DASHBOARD_CSS_PATH = "ui-app/src/view/styles/dashboard.css";
+
+function isTestLikePath(path: string): boolean {
+  return TEST_LIKE_FILE.test(path) || TEST_DIR_SEGMENT.test(path);
+}
+
+/** Backend produkcinis failas (`src/**`, ne `ui-app/**`) — konkretus, ne testas, ne wildcard'as. */
+function isBackendProductionFile(path: string): boolean {
+  return (
+    path.startsWith("src/") &&
+    !path.startsWith("ui-app/") &&
+    !path.includes("*") &&
+    SOURCE_FILE_EXTENSION.test(path) &&
+    !isTestLikePath(path)
+  );
+}
+
+/** UI komponento/puslapio failas — ne pats I18nContext, ne testas. */
+function isUiComponentFile(path: string): boolean {
+  return (
+    path.startsWith("ui-app/") &&
+    path.endsWith(".tsx") &&
+    path !== I18N_CONTEXT_PATH &&
+    !isTestLikePath(path)
+  );
+}
+
+/** `## Failai` sekcijos žalios eilutės — reikalingos wildcard pagrindimo (trailing text) patikrai. */
+function failaiSectionLines(taskText: string): string[] {
+  return extractSectionInternal(taskText ?? "", "## Failai").split(/\r?\n/);
+}
+
+/** Ar backtick'uotas `path` toje eilutėje turi bent kiek teksto po jo (pagrindimas šalia). */
+function hasTrailingJustification(line: string, path: string): boolean {
+  const marker = `\`${path}\``;
+  const idx = line.indexOf(marker);
+  if (idx === -1) return false;
+  return line.slice(idx + marker.length).trim().length > 0;
+}
+
+function evaluateWildcardScopeRule(taskText: string, paths: string[]): EtalonasRuleViolation[] {
+  const lines = failaiSectionLines(taskText);
+  const violations: EtalonasRuleViolation[] = [];
+  for (const path of paths) {
+    if (!BROAD_SCOPE_PATH.test(path)) continue;
+    const line = lines.find((candidate) => candidate.includes(`\`${path}\``));
+    if (line && hasTrailingJustification(line, path)) continue;
+    violations.push({
+      ruleId: "wildcard-scope-without-justification",
+      citation:
+        "000-etalonas.md ## Failai (1): \"Katalogo wildcard'as (`src/tests/**`, `components/`) atima " +
+        "lygiagretumą, veda preflight'ą į skėlimą ir yra leidžiamas TIK visos apimties migracijai su " +
+        "pagrindimu šalia.\"",
+      detail: `\`${path}\` neturi pagrindimo eilutės šalia`,
+    });
+  }
+  return violations;
+}
+
+function evaluateProductionFileTestRule(paths: string[]): EtalonasRuleViolation[] {
+  const hasBackendProductionFile = paths.some(isBackendProductionFile);
+  const hasTestLikePath = paths.some(isTestLikePath);
+  if (!hasBackendProductionFile || hasTestLikePath) return [];
+  return [
+    {
+      ruleId: "production-file-without-test",
+      citation:
+        "000-etalonas.md ## Failai (2): \"KIEKVIENAS produkcinis failas ateina su savo testo failu " +
+        'sąraše. Nežinai vardo — įrašyk numatomą su išlyga... klaidingas konkretus kelias pastebimas, ' +
+        'wildcard\'as — ne."',
+      detail: "## Failai turi produkcinį src/** failą, bet nė vieno testo kelio sąraše",
+    },
+  ];
+}
+
+function evaluateUiCoverageRule(paths: string[]): EtalonasRuleViolation[] {
+  if (!paths.some(isUiComponentFile)) return [];
+  const violations: EtalonasRuleViolation[] = [];
+  const citationPrefix =
+    "000-etalonas.md ## Failai (3): \"UI task'as VISADA įtraukia `ui-app/src/i18n/I18nContext.tsx` " +
+    "(nauji tekstai) ir `ui-app/src/view/styles/dashboard.css` (naujos className — CSS dengiamumo " +
+    'vartas)."';
+  if (!paths.includes(I18N_CONTEXT_PATH)) {
+    violations.push({
+      ruleId: "ui-file-without-i18n-context",
+      citation: citationPrefix,
+      detail: `## Failai turi UI komponentą, bet ne \`${I18N_CONTEXT_PATH}\``,
+    });
+  }
+  if (!paths.includes(DASHBOARD_CSS_PATH)) {
+    violations.push({
+      ruleId: "ui-file-without-dashboard-css",
+      citation: citationPrefix,
+      detail: `## Failai turi UI komponentą, bet ne \`${DASHBOARD_CSS_PATH}\``,
+    });
+  }
+  return violations;
+}
+
+function evaluatePatikraBacktickRule(taskText: string): EtalonasRuleViolation[] {
+  const section = extractSectionInternal(taskText ?? "", "## Patikra").trim();
+  if (section.length === 0 || parseBacktickChecks(taskText).length > 0) return [];
+  return [
+    {
+      ruleId: "patikra-without-backtick-check",
+      citation:
+        '000-etalonas.md ## Patikra: patikros komandos visada rašomos backtick formatu ' +
+        "(`pnpm build`, `pnpm test`) — be backtick'ų diagnose/context-pack jų nemato.",
+      detail: "## Patikra neturi nė vienos backtick komandos",
+    },
+  ];
+}
+
+const DEPENDENCY_PLACEHOLDER_TOKENS = new Set(["none", "-", "n/a", "na", "tbd", "nera", "nėra"]);
+
+function evaluateDependencyPlaceholderRule(taskText: string): EtalonasRuleViolation[] {
+  const bullets = extractSectionInternal(taskText ?? "", "## Priklausomybės")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[-*]\s*/, "").trim())
+    .filter((line) => line.length > 0);
+  const violations: EtalonasRuleViolation[] = [];
+  for (const bullet of bullets) {
+    const normalized = bullet.toLowerCase().replace(/[.]+$/, "");
+    if (!DEPENDENCY_PLACEHOLDER_TOKENS.has(normalized)) continue;
+    violations.push({
+      ruleId: "priklausomybes-placeholder",
+      citation:
+        '000-etalonas.md ## Priklausomybės: "Placeholder\'iai („none", „-") draudžiami — arba tikras ' +
+        'id, arba sekcijos nėra."',
+      detail: `Priklausomybė "${bullet}" yra placeholder, ne tikras task id`,
+    });
+  }
+  return violations;
+}
+
+/**
+ * Etalono kanoniškumo taisyklių rinkinys — pilnas `taskText` grąžina pažeidimų sąrašą (tuščia =
+ * nulis pažeidimų). Grynas skaičiavimas: NEI FS, NEI verdikto sprendimo — tik radiniai su
+ * citatomis, kad kvietėjas (070-b-03) galėtų juos surišti su dispatch/reformulate verdiktu.
+ */
+export function evaluateEtalonasRuleViolations(taskText: string): EtalonasRuleViolation[] {
+  const text = taskText ?? "";
+  const paths = allowedPathsInternal(text);
+  return [
+    ...evaluateWildcardScopeRule(text, paths),
+    ...evaluateProductionFileTestRule(paths),
+    ...evaluateUiCoverageRule(paths),
+    ...evaluatePatikraBacktickRule(text),
+    ...evaluateDependencyPlaceholderRule(text),
+  ];
 }

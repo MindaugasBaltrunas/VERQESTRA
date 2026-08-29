@@ -232,6 +232,78 @@ test("buildTaskSplitPlan: be dirExists predikato (fail-open default) — nė vie
   assert.match(secondChild!.claude_task, /- `src\/a\/three\.ts`/);
 });
 
+const TASK_WITH_MANY_ACTIONS = `# Task
+
+## Spec source
+openspec/changes/demo
+
+## Tikslas
+Didelis darbas su daug veiksmų.
+
+## Failai
+Leidžiama:
+- \`src/a/one.ts\`
+
+## Veiksmas
+- pirmas
+- antras
+- trecias
+- ketvirtas
+- penktas
+- sestas
+- septintas
+- astuntas
+- devintas
+- desimtas
+
+## Patikra
+- \`pnpm test\`
+
+## Stop
+Commit'ink, kai patikros praeina. Įrašyk žinutę į \`logs/commit-msg.md\` ir sustok.
+`;
+
+function commitLogPathsOf(childTasks: { claude_task: string }[]): (string | undefined)[] {
+  return childTasks.map((child) => child.claude_task.match(/logs\/tasks\/[^\s`]*commit-msg\.md/)?.[0]);
+}
+
+test("buildTaskSplitPlan: kiekvienas vaikas gauna unikalų commit-msg kelią savo Stop ir Failai sekcijose", () => {
+  const limits = { maxLines: 10, maxAllowedPaths: 10, maxDomains: 1, maxActionBullets: 3 };
+  const plan = buildTaskSplitPlan(TASK_WITH_MANY_ACTIONS, "0042", limits);
+
+  assert.equal(plan.parts, 4, "10 veiksmų / 3 chunk'ai duoda 4 dalis (1 pirma + 3 vaikai)");
+  assert.equal(plan.child_tasks.length, 3);
+
+  const commitPaths = commitLogPathsOf(plan.child_tasks);
+  assert.ok(
+    commitPaths.every((path): path is string => path !== undefined),
+    "kiekvienas vaikas turi commit-msg kelią savo tekste",
+  );
+  assert.equal(new Set(commitPaths).size, 3, "visi trys keliai skirtingi");
+
+  plan.child_tasks.forEach((child, index) => {
+    const path = commitPaths[index]!;
+    const stopSection = extractStopSection(child.claude_task);
+    assert.ok(stopSection.includes(path), `vaikas #${index + 2} Stop sekcijoje turi savo kelią`);
+    assert.doesNotMatch(stopSection, /logs\/commit-msg\.md/, "tėvo bendras kelias pakeistas, ne paliktas šalia");
+    const failaiSection = extractFailaiSection(child.claude_task);
+    assert.ok(failaiSection.includes(path), `vaikas #${index + 2} allowlist'e turi savo commit-msg kelią`);
+  });
+
+  assert.doesNotMatch(plan.first_task, /logs\/tasks\//, "pirma dalis (first_task) nekeičiama, tėvo kelias paliktas");
+  assert.match(plan.first_task, /logs\/commit-msg\.md/, "pirma dalis vis dar nurodo tėvo kelią");
+});
+
+function extractStopSection(task: string): string {
+  const match = /## Stop\n([\s\S]*?)(?=\n## |$)/.exec(task);
+  return match?.[1] ?? "";
+}
+
+function extractFailaiSection(task: string): string {
+  const match = /## Failai\n([\s\S]*?)(?=\n## |$)/.exec(task);
+  return match?.[1] ?? "";
+}
+
 test("bucket-transition: taskBucketDir forma ir terminal vartas finishTaskInBucket", async () => {
   assert.match(taskBucketDir("/repo/AG", "queue"), /AG[\\/]tasks[\\/]queue$/);
   const calls: string[] = [];

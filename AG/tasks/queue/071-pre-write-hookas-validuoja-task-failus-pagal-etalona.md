@@ -7,6 +7,11 @@ openspec/changes/verqestra-backlog-v1
 
 ## Priklausomybės
 - 070-etalonas-maitina-generatorius-ir-preflight-varta
+- 073-registraciju-valymas-visuose-worktree-salinimo-keliuose
+- 074-neintegruoto-w2-darbo-apsauga-po-proceso-luzio
+- 078-worktree-bootstrap-buildstamp-ir-pnpm-path-spragos
+- 079-orphan-valymas-iveikia-untracked-failus-ir-fs-liekanas
+- 080-vaiko-exit-visada-palieka-diagnoze-ir-stderr
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei pre-write hook'as, gavęs rašymą į `AG/tasks/{queue,active,delegated}/

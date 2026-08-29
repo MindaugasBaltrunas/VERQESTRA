@@ -74,7 +74,7 @@ export function buildTaskSplitPlan(
   const childTaskTexts = taskParts.slice(1).map((claudeTask, index) => {
     const flagged = detectHallucinatedAllowedPaths(claudeTask, dirExists);
     if (flagged.length === 0 || !sections.files) return claudeTask;
-    const patched = withOriginalFailaiSection(claudeTask, sections.files);
+    const patched = withOriginalFailaiSection(claudeTask, sections.files, childCommitLogPath(parentTaskId, index + 2));
     if (patched === claudeTask) return claudeTask;
     warnings.push(
       `TASK SPLIT: parent=${parentTaskId} part=${index + 2} hallucinated-allowed-path: referenced ` +
@@ -103,11 +103,33 @@ export function buildTaskSplitPlan(
  * skaidymo chunk'ai kilę iš PAČIO tėvo `allowedPaths(taskText)`, tad hallucinated kelias čia
  * reiškia, kad tėvas jau turėjo įrodytai sugalvotą kelią PRIEŠ skaidymą.
  */
-function withOriginalFailaiSection(claudeTask: string, originalFailaiBody: string): string {
+function withOriginalFailaiSection(claudeTask: string, originalFailaiBody: string, commitLogPath: string): string {
   const lines = claudeTask.split(/\r?\n/);
   const bounds = findSectionBounds(lines, (line) => line.trim() === "## Failai");
   if (bounds === undefined) return claudeTask;
-  return [...lines.slice(0, bounds.start + 1), originalFailaiBody, "", ...lines.slice(bounds.end)].join("\n");
+  const restoredBody = `${originalFailaiBody}\n- \`${commitLogPath}\``;
+  return [...lines.slice(0, bounds.start + 1), restoredBody, "", ...lines.slice(bounds.end)].join("\n");
+}
+
+/**
+ * Vaiko unikalus commit-msg kelias (066): `renderTaskPart` anksčiau kopijuodavo tėvo `## Stop`
+ * tekstą su tėvo commit-msg keliu į kiekvieną dalį nepakeistą, tad visi vienos šeimos vaikai
+ * dalinosi VIENU keliu ir jų write set'ai kirtosi vien dėl to (GeoGravity 1150-a/b/c) — pats
+ * splitter'is blokavo savo vaikų lygiagretumą. `partIndex` (2..partCount) garantuoja unikalumą
+ * tarp brolių iš to paties skaidymo.
+ */
+function childCommitLogPath(parentTaskId: string, partIndex: number): string {
+  return `logs/tasks/${parentTaskId}-${partIndex}-commit-msg.md`;
+}
+
+const COMMIT_LOG_PATH_PATTERN = /[\w./-]*commit-msg\.md/g;
+
+/** Pakeičia commit-msg kelią tėvo Stop tekste; jei kelio nėra, jis pridedamas prie teksto pabaigos. */
+function withUniqueCommitLogPath(stopText: string, commitLogPath: string): string {
+  const replaced = stopText.replace(COMMIT_LOG_PATH_PATTERN, commitLogPath);
+  if (replaced !== stopText) return replaced;
+  const suffix = `Kai baigsi, įrašyk commit žinutę į \`${commitLogPath}\` ir sustok.`;
+  return stopText ? `${stopText}\n${suffix}` : suffix;
 }
 
 function parseTaskSections(taskText: string): TaskSections {
@@ -156,8 +178,12 @@ function renderTaskPart(args: {
 }): string {
   const title = splitTitle(args.sections.goal, args.partIndex);
   const dependencies = args.partIndex === 1 ? "" : `\n## Dependencies\n- blocked_by: ${args.parentTaskId}\n`;
-  const allowed =
-    args.allowedPaths.length > 0 ? args.allowedPaths.map((item) => `- \`${item}\``).join("\n") : "- `AG/**`";
+  const commitLogPath = args.partIndex > 1 ? childCommitLogPath(args.parentTaskId, args.partIndex) : undefined;
+  const baseStop = args.sections.stop || "Sustoti, kai patikros praeina.";
+  const stop = commitLogPath === undefined ? baseStop : withUniqueCommitLogPath(baseStop, commitLogPath);
+  const baseAllowedPaths = args.allowedPaths.length > 0 ? args.allowedPaths : ["AG/**"];
+  const allowedPathList = commitLogPath === undefined ? baseAllowedPaths : [...baseAllowedPaths, commitLogPath];
+  const allowed = allowedPathList.map((item) => `- \`${item}\``).join("\n");
   const excluded = [
     args.sections.excluded,
     `Original oversized task split into ${args.partCount} parts. This part is ${args.partIndex}/${args.partCount}.`,
@@ -165,7 +191,7 @@ function renderTaskPart(args: {
     .filter(Boolean)
     .join("\n");
 
-  return `# Task\n\n## Spec source\n${args.sections.specSource || "openspec/changes/unknown"}\n\n## Tikslas\n${title}.\n${dependencies}\n## Agentai\n${args.sections.agents || "coder"}\n\n## Failai\nLeidžiama:\n${allowed}\n\n## Veiksmas\n${args.actions.map((action) => `- ${action}`).join("\n")}\n\n## Patikra\n${args.sections.checks || "- `npm run test`"}\n\n## Stop\n${args.sections.stop || "Sustoti, kai patikros praeina."}\n\n## Neįtraukta\n${excluded}\n`;
+  return `# Task\n\n## Spec source\n${args.sections.specSource || "openspec/changes/unknown"}\n\n## Tikslas\n${title}.\n${dependencies}\n## Agentai\n${args.sections.agents || "coder"}\n\n## Failai\nLeidžiama:\n${allowed}\n\n## Veiksmas\n${args.actions.map((action) => `- ${action}`).join("\n")}\n\n## Patikra\n${args.sections.checks || "- `npm run test`"}\n\n## Stop\n${stop}\n\n## Neįtraukta\n${excluded}\n`;
 }
 
 function splitTitle(goal: string, partIndex: number): string {

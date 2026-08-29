@@ -5,6 +5,11 @@ HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-29 operatoriaus užsakytas w1/w2 audi
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 
+## Priklausomybės
+- 078-worktree-bootstrap-buildstamp-ir-pnpm-path-spragos
+- 079-orphan-valymas-iveikia-untracked-failus-ir-fs-liekanas
+- 080-vaiko-exit-visada-palieka-diagnoze-ir-stderr
+
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `taskScopeRestorePaths` be sesijos nonce NEgrąžina svetimų sesijų kelių
 į atstatymo aibę (arba juos grąžina atskirtus ir kvietėjas jų neliečia be

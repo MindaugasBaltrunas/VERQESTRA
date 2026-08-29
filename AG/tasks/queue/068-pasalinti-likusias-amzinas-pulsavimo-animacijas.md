@@ -6,6 +6,11 @@ HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-28 operatoriaus reikalavimas — joki
 openspec/changes/verqestra-backlog-v1
 
 ## Priklausomybės
+- 073-registraciju-valymas-visuose-worktree-salinimo-keliuose
+- 074-neintegruoto-w2-darbo-apsauga-po-proceso-luzio
+- 078-worktree-bootstrap-buildstamp-ir-pnpm-path-spragos
+- 079-orphan-valymas-iveikia-untracked-failus-ir-fs-liekanas
+- 080-vaiko-exit-visada-palieka-diagnoze-ir-stderr
 - 065-b-ui-w2-slotas-dashboardo-blokuose
 - 066-policy-forma-be-privalomos-priezasties-ir-selectmenu-poliravimas
 - 067-sprendimu-eileje-pasiulyma-galima-atsaukti

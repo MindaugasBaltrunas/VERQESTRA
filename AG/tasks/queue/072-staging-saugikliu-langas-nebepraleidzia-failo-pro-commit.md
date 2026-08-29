@@ -5,6 +5,13 @@ HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-29 operatoriaus užsakytas w1/w2 audi
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 
+## Priklausomybės
+- 073-registraciju-valymas-visuose-worktree-salinimo-keliuose
+- 074-neintegruoto-w2-darbo-apsauga-po-proceso-luzio
+- 078-worktree-bootstrap-buildstamp-ir-pnpm-path-spragos
+- 079-orphan-valymas-iveikia-untracked-failus-ir-fs-liekanas
+- 080-vaiko-exit-visada-palieka-diagnoze-ir-stderr
+
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `session-stage-planning.ts` ledger-gap saugiklis veikia ir esant
 galiojančiam savo baseline (t. y. `attemptStartKnown === true` jo nebeišjungia),

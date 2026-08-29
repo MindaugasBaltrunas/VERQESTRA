@@ -7,6 +7,9 @@ openspec/changes/verqestra-backlog-v1
 
 ## Priklausomybės
 - 073-registraciju-valymas-visuose-worktree-salinimo-keliuose
+- 078-worktree-bootstrap-buildstamp-ir-pnpm-path-spragos
+- 079-orphan-valymas-iveikia-untracked-failus-ir-fs-liekanas
+- 080-vaiko-exit-visada-palieka-diagnoze-ir-stderr
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `WorktreePolicy` turi tik realiai skaitomus laukus, o

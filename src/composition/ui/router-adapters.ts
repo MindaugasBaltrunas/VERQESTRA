@@ -80,6 +80,28 @@ const workflowBucketPorts = {
 };
 
 /**
+ * TA PATI eilutė, kurią `setWorktreePolicyEnabled` (ui-worktree-policy.ts) prideda įjungdamas
+ * politiką — laikoma čia atskirai, nes tas modulis rašo į `.gitignore`, o šis tik skaito, ir
+ * abu turi sutarti dėl to paties „padengta" apibrėžimo be tarpusavio importo.
+ */
+const WORKTREE_GITIGNORE_LINE = ".ag/worktrees/";
+
+function isWorktreeGitignoreCovered(content: string): boolean {
+  return content.split(/\r?\n/).some((line) => line.trim() === WORKTREE_GITIGNORE_LINE);
+}
+
+/**
+ * Ar projekto `.gitignore` jau dengia worktree katalogą. Nesantis failas — `false` (nepadengta),
+ * ne klaida: `nodeFsAdapter.readTextFileIfExists` praleidžia ENOENT/EISDIR/ENOTDIR ir grąžina
+ * `undefined`. Kitos skaitymo klaidos (pvz. teisių) MESTOS toliau — jas pagauna `readSource`
+ * `ui-waves-view.ts` viduje ir degraduoja `worktree_gitignore` šaltinį, nepaliesdamas politikos.
+ */
+async function readWorktreeGitignoreOk(absoluteGitignoreFile: string): Promise<boolean> {
+  const content = await nodeFsAdapter.readTextFileIfExists(absoluteGitignoreFile);
+  return content === undefined ? false : isWorktreeGitignoreCovered(content);
+}
+
+/**
  * Bundle senumo faktai: `ui-app/dist/index.html` mtime prieš naujausią `ui-app/src` failo
  * mtime. Trūkstamas dist (dar nesukurtas bundle) grąžina `null`, o ne meta klaidą — `/api/dashboard`
  * tada tiesiog rodo `bundle_built_at: null` (žr. `bundleStalenessFields`), ne 500.
@@ -169,6 +191,7 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
               { readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath) },
               absoluteConfigFile,
             ).then((policy) => policy.enabled),
+          readWorktreeGitignoreOk: (absoluteGitignoreFile) => readWorktreeGitignoreOk(absoluteGitignoreFile),
           logError: (message) => input.logError(message),
         },
         projectRoot: input.projectRoot,

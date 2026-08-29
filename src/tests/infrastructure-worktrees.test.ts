@@ -51,6 +51,26 @@ await nodeFsAdapter.writeTextFile(path.join(root, "src", "a.ts"), "pradinis\n");
 await git("add", "--all");
 await git("commit", "-m", "pradinis");
 
+/** Izoliuota repo laikinam kataloge, ta pati pradinė būsena kaip `root` — eskalacijos testams. */
+async function initEphemeralRepo(prefix: string): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), prefix));
+  async function initGit(...args: string[]): Promise<{ code: number; stdout: string }> {
+    const result = await run("git", ["-C", dir, ...args]);
+    assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+    return result;
+  }
+  await initGit("init");
+  await initGit("config", "user.email", "test@example.com");
+  await initGit("config", "user.name", "Test");
+  await initGit("config", "commit.gpgsign", "false");
+  await initGit("config", "core.autocrlf", "false");
+  await nodeFsAdapter.writeTextFile(path.join(dir, ".gitignore"), ".ag/\n");
+  await nodeFsAdapter.writeTextFile(path.join(dir, "src", "a.ts"), "pradinis\n");
+  await initGit("add", "--all");
+  await initGit("commit", "-m", "pradinis");
+  return dir;
+}
+
 function lease(overrides: Partial<WorkerLease> = {}): WorkerLease {
   const future = new Date(Date.now() + 3_600_000).toISOString();
   return {
@@ -277,23 +297,10 @@ test("provision: negyva registracija isvaloma pries add - be kolizijos sufikso; 
 });
 
 test("orphan reap eskalacija: negyva git worktree registracija su stale index.lock issivalo po reap'o, gyva islieka", async () => {
-  const escRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-escalate-"));
+  const escRoot = await initEphemeralRepo("vq-wt-escalate-");
+  const runtimeRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-runtime-"));
+  const agRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-agroot-"));
   try {
-    async function escGit(...args: string[]): Promise<{ code: number; stdout: string }> {
-      const result = await run("git", ["-C", escRoot, ...args]);
-      assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
-      return result;
-    }
-    await escGit("init");
-    await escGit("config", "user.email", "test@example.com");
-    await escGit("config", "user.name", "Test");
-    await escGit("config", "commit.gpgsign", "false");
-    await escGit("config", "core.autocrlf", "false");
-    await nodeFsAdapter.writeTextFile(path.join(escRoot, ".gitignore"), ".ag/\n");
-    await nodeFsAdapter.writeTextFile(path.join(escRoot, "src", "a.ts"), "pradinis\n");
-    await escGit("add", "--all");
-    await escGit("commit", "-m", "pradinis");
-
     const escIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-esc", attempt: 1 };
     const created = await createTaskWorktree({
       projectRoot: escRoot,
@@ -327,56 +334,71 @@ test("orphan reap eskalacija: negyva git worktree registracija su stale index.lo
     await nodeFsAdapter.writeTextFile(liveLockPath, "");
     await utimes(liveLockPath, stale, stale);
 
-    const runtimeRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-runtime-"));
-    const agRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-agroot-"));
-    try {
-      // Dirbtinai toli ateityje: amžiaus vartas (ORPHAN_ESCALATION_MIN_AGE_MS = 24h) praeina
-      // be poreikio realiai laukti parą.
-      const escalationNow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+    // Dirbtinai toli ateityje: amžiaus vartas (ORPHAN_ESCALATION_MIN_AGE_MS = 24h) praeina.
+    const escalationNow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+    const lines = await reapOrphanWorktrees({ projectRoot: escRoot, runtimeRoot, agRoot, leases: [], now: escalationNow });
 
-      const lines = await reapOrphanWorktrees({
-        projectRoot: escRoot,
-        runtimeRoot,
-        agRoot,
-        leases: [],
-        now: escalationNow,
-      });
-
-      assert.ok(
-        lines.some((line) => line.startsWith("ORPHAN REAPED") && line.includes("branch=")),
-        lines.join("\n"),
-      );
-      assert.equal(await nodeFsAdapter.exists(created.layout.path), false);
-      assert.equal(await nodeFsAdapter.exists(deadLockPath), false, "negyvos registracijos lock privalo issivalyti");
-      assert.equal(await nodeFsAdapter.exists(liveLockPath), true, "gyvos registracijos lock neturi buti liestas");
-      assert.ok(!lines.some((line) => line.includes("REGISTRATION CLEANUP FAILED")), lines.join("\n"));
-    } finally {
-      await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
-      await rm(agRoot, { recursive: true, force: true }).catch(() => undefined);
-    }
+    assert.ok(
+      lines.some((line) => line.startsWith("ORPHAN REAPED") && line.includes("branch=")),
+      lines.join("\n"),
+    );
+    assert.equal(await nodeFsAdapter.exists(created.layout.path), false);
+    assert.equal(await nodeFsAdapter.exists(deadLockPath), false, "negyvos registracijos lock privalo issivalyti");
+    assert.equal(await nodeFsAdapter.exists(liveLockPath), true, "gyvos registracijos lock neturi buti liestas");
+    assert.ok(!lines.some((line) => line.includes("REGISTRATION CLEANUP FAILED")), lines.join("\n"));
   } finally {
     await rm(escRoot, { recursive: true, force: true }).catch(() => undefined);
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+    await rm(agRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
+// Integruotos šakos eskalacijos kelias (merge-base OK) yra "orphan reap eskalacija" testas
+// aukščiau — jo dirty.ts niekada netampa commit'u, tad šaka jau pasiekiama iš HEAD ir ją
+// eskalacija sėkmingai REAPina. Čia tikrinamas priešingas kelias: šaka SU commit'u ahead.
+test("orphan reap eskalacija: saka su neintegruotu commit'u NEtrinama - parkuojama, saka islieka gyva", async () => {
+  const parkRoot = await initEphemeralRepo("vq-wt-park-");
+  const runtimeRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-park-runtime-"));
+  const agRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-park-agroot-"));
+  try {
+    // Dirbtinai toli ateityje: amžiaus vartas (ORPHAN_ESCALATION_MIN_AGE_MS = 24h) praeina.
+    const escalationNow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+    const unintegratedIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-unint", attempt: 1 };
+    const unintegrated = await createTaskWorktree({
+      projectRoot: parkRoot,
+      identity: unintegratedIdentity,
+      lease: lease({ lease_id: "lease-unint", fencing_token: 30, task_id: "t-unint" }),
+      baseRef: "HEAD",
+    });
+    assert.equal(unintegrated.status, "created", JSON.stringify(unintegrated));
+    if (unintegrated.status !== "created") return;
+    const unintegratedBranch = unintegrated.layout.branch;
+    const unintWt = unintegrated.layout.path;
+    await nodeFsAdapter.writeTextFile(path.join(unintWt, "src", "unint.ts"), "neintegruotas darbas\n");
+    assert.equal((await run("git", ["-C", unintWt, "add", "--all"])).code, 0);
+    assert.equal((await run("git", ["-C", unintWt, "commit", "-m", "neintegruotas commit"])).code, 0);
+
+    const lines = await reapOrphanWorktrees({ projectRoot: parkRoot, runtimeRoot, agRoot, leases: [], now: escalationNow });
+
+    const parkedLine = lines.find((line) => line.startsWith("ORPHAN INTEGRATION PARKED"));
+    assert.ok(parkedLine, lines.join("\n"));
+    assert.ok(parkedLine?.includes(`branch=${unintegratedBranch}`), parkedLine);
+    assert.ok(!lines.some((line) => line.startsWith("ORPHAN KEPT") && line.includes(unintegratedBranch)), lines.join("\n"));
+
+    // Šaka su neintegruotu darbu LIEKA git'e — `branch -D` niekada nebuvo pasiektas.
+    const branchStillExists = await run("git", ["-C", parkRoot, "rev-parse", "--verify", `refs/heads/${unintegratedBranch}`]);
+    assert.equal(branchStillExists.code, 0, "neintegruota saka neturi buti istrinta");
+    assert.equal(await nodeFsAdapter.exists(unintWt), false, "worktree katalogas vis tiek turi buti pasalintas");
+  } finally {
+    await rm(parkRoot, { recursive: true, force: true }).catch(() => undefined);
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+    await rm(agRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 });
 
 test("removeTaskWorktree: negyva registracija su stale index.lock issivalo po normalaus salinimo, gyva islieka", async () => {
-  const remRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-remove-cleanup-"));
+  const remRoot = await initEphemeralRepo("vq-wt-remove-cleanup-");
   try {
-    async function remGit(...args: string[]): Promise<{ code: number; stdout: string }> {
-      const result = await run("git", ["-C", remRoot, ...args]);
-      assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
-      return result;
-    }
-    await remGit("init");
-    await remGit("config", "user.email", "test@example.com");
-    await remGit("config", "user.name", "Test");
-    await remGit("config", "commit.gpgsign", "false");
-    await remGit("config", "core.autocrlf", "false");
-    await nodeFsAdapter.writeTextFile(path.join(remRoot, ".gitignore"), ".ag/\n");
-    await nodeFsAdapter.writeTextFile(path.join(remRoot, "src", "a.ts"), "pradinis\n");
-    await remGit("add", "--all");
-    await remGit("commit", "-m", "pradinis");
-
     const remIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-remove", attempt: 1 };
     const remLease = lease({ lease_id: "lease-remove", fencing_token: 20, task_id: "t-remove" });
     const created = await createTaskWorktree({
@@ -424,23 +446,8 @@ test("removeTaskWorktree: negyva registracija su stale index.lock issivalo po no
 });
 
 test("reapOrphanWorktree: negyva registracija su stale index.lock issivalo po normalaus reap'o (ne eskalacija), gyva islieka", async () => {
-  const reapRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-reap-cleanup-"));
+  const reapRoot = await initEphemeralRepo("vq-wt-reap-cleanup-");
   try {
-    async function reapGit(...args: string[]): Promise<{ code: number; stdout: string }> {
-      const result = await run("git", ["-C", reapRoot, ...args]);
-      assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
-      return result;
-    }
-    await reapGit("init");
-    await reapGit("config", "user.email", "test@example.com");
-    await reapGit("config", "user.name", "Test");
-    await reapGit("config", "commit.gpgsign", "false");
-    await reapGit("config", "core.autocrlf", "false");
-    await nodeFsAdapter.writeTextFile(path.join(reapRoot, ".gitignore"), ".ag/\n");
-    await nodeFsAdapter.writeTextFile(path.join(reapRoot, "src", "a.ts"), "pradinis\n");
-    await reapGit("add", "--all");
-    await reapGit("commit", "-m", "pradinis");
-
     const reapIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-reap", attempt: 1 };
     const created = await createTaskWorktree({
       projectRoot: reapRoot,

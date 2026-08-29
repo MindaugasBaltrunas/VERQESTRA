@@ -132,6 +132,7 @@ async function escalateOrphanRemoval(input: {
   unlock: boolean;
 }): Promise<
   | { status: "reaped"; archivePath: string; registrationCleanupError?: string }
+  | { status: "parked"; archivePath: string; branch: string; registrationCleanupError?: string }
   | { status: "failed" }
 > {
   const { projectRoot, worktreePath, branch, primaryRef, unlock } = input;
@@ -161,6 +162,22 @@ async function escalateOrphanRemoval(input: {
     const registrationCleanup = await cleanupWorktreeRegistrations({ projectRoot });
 
     if (branch !== undefined) {
+      // Neigiamas/klaidos kodas reiškia, kad `branch` turi commit'ų, kurių nėra `primaryHead`
+      // istorijoje — tokia šaka NIEKADA netrinama, net praėjus visus kitus eskalacijos vartus.
+      const integrated = await run(
+        "git",
+        ["-C", projectRoot, "merge-base", "--is-ancestor", branch, primaryHead],
+        { cwd: projectRoot },
+      );
+      if (integrated.code !== 0) {
+        return {
+          status: "parked",
+          archivePath: orphanLogPath(projectRoot, archivePath),
+          branch,
+          ...(registrationCleanup.error !== undefined ? { registrationCleanupError: registrationCleanup.error } : {}),
+        };
+      }
+
       const deleted = await run("git", ["-C", projectRoot, "branch", "-D", branch], { cwd: projectRoot });
       if (deleted.code !== 0 && !/not found/i.test(deleted.stderr)) return { status: "failed" };
     }
@@ -185,7 +202,7 @@ async function tryEscalate(input: {
   primaryRef: string;
   unlock: boolean;
 }): Promise<
-  | { branch: string; leaseId: string; archivePath: string; registrationCleanupError?: string }
+  | { status: "reaped" | "parked"; branch: string; leaseId: string; archivePath: string; registrationCleanupError?: string }
   | undefined
 > {
   const owner = input.orphan.owner;
@@ -201,8 +218,9 @@ async function tryEscalate(input: {
     primaryRef: input.primaryRef,
     unlock: input.unlock,
   });
-  return result.status === "reaped"
+  return result.status === "reaped" || result.status === "parked"
     ? {
+        status: result.status,
         branch,
         leaseId: owner.lease_id,
         archivePath: result.archivePath,
@@ -281,8 +299,9 @@ export async function reapOrphanWorktrees(input: ReapOrphanWorktreesInput): Prom
 
       if (escalated !== undefined) {
         removals += 1;
+        const verb = escalated.status === "parked" ? "ORPHAN INTEGRATION PARKED" : "ORPHAN REAPED";
         lines.push(
-          `ORPHAN REAPED: path=${logPath} branch=${escalated.branch} leaseId=${escalated.leaseId} archive=${escalated.archivePath}`,
+          `${verb}: path=${logPath} branch=${escalated.branch} leaseId=${escalated.leaseId} archive=${escalated.archivePath}`,
         );
         if (escalated.registrationCleanupError !== undefined) {
           lines.push(

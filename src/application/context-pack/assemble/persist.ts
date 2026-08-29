@@ -123,7 +123,13 @@ export async function persistContextPack(input: {
   // `codeContextSymbolState` uses, so a flag-off pack (no explicit `tier`) still reports its
   // real SIG weight (signature text was already read from the index, no extra I/O) and its
   // real — genuinely zero — SRC weight, instead of omitting the pair.
-  const { symbolSourceChars, symbolSignatureChars } = measureSymbolTierChars(symbolFragments);
+  const { symbolSourceChars: measuredSourceChars, symbolSignatureChars } = measureSymbolTierChars(symbolFragments);
+  // Task 089: `code_context.symbol_hypothetical_src_chars` carries what the demoted symbols
+  // (no `source` left after the overflow ladder) WOULD have cost as SRC, measured at gather
+  // time and riding the pack itself — so a cache HIT reports the same total as the miss it
+  // replaced, with no hit/miss branch here. Absent on an old or SRC-only pack (nothing was
+  // demoted): falls back to exactly the pre-089 `measuredSourceChars` value.
+  const symbolSourceChars = measuredSourceChars + (codeContext?.symbol_hypothetical_src_chars ?? 0);
 
   // The execution context is derived from the persisted pack only (no extra retrieval, no
   // clock, no randomness), so re-running assembly over an unchanged repository rewrites a

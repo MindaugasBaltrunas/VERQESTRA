@@ -28,6 +28,12 @@ const qualityCheckSchema = z.union([
     .object({
       cmd: nonEmptyString,
       args: stringList.default([]),
+      /**
+       * Per-check timeout ms (1s..2h). Be jo galioja runner'io numatytasis (30 min).
+       * Reikalingas lėtoms suite'ėms (GeoGravity apps/web pilnas vitest ~25+ min šaltu turbo
+       * cache — 30 min gate ribą kirsdavo 124 ir loop'as korektiškai, bet amžinai abort'uodavo).
+       */
+      timeoutMs: z.number().int().min(1000).max(7_200_000).optional(),
     })
     .passthrough(),
 ]);
@@ -52,7 +58,7 @@ export type StructuredQualityCommand = {
 };
 export type ResolvedQualityCheck =
   | { kind: "shell"; display: string }
-  | { kind: "spawn"; display: string; cmd: string; args: string[] };
+  | { kind: "spawn"; display: string; cmd: string; args: string[]; timeoutMs?: number };
 
 export function qualityPolicyPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, "config", "quality-policy.json");
@@ -92,7 +98,13 @@ export function resolveQualityChecks(policy: QualityPolicy, scope: QualityScope)
     if (typeof check === "string") {
       return { kind: "shell", display: check };
     }
-    return { kind: "spawn", display: formatQualityCommand(check), cmd: check.cmd, args: check.args.slice() };
+    return {
+      kind: "spawn",
+      display: formatQualityCommand(check),
+      cmd: check.cmd,
+      args: check.args.slice(),
+      ...(check.timeoutMs === undefined ? {} : { timeoutMs: check.timeoutMs }),
+    };
   });
 }
 

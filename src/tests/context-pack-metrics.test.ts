@@ -397,6 +397,54 @@ test("persistContextPack: symbol_source_chars/symbol_signature_chars are 0 (pres
   assert.equal(record["symbol_signature_chars"], 0);
 });
 
+// Task 089-a-02: the overflow ladder strips `source` before encoding, so `measureSymbolTierChars`
+// alone reads a true zero for demoted symbols even though gather-time read real SRC text for
+// them. `code_context.symbol_hypothetical_src_chars` (task 089) carries that gap on the pack
+// itself, so a cache HIT (same encoded pack, persisted twice below) must report the SAME total
+// as the miss that produced it — no hit/miss branch in persist.ts.
+test("persistContextPack: symbol_source_chars adds the pack's hypothetical SRC field, identically across repeated persists of the same pack", async () => {
+  const pack = {
+    ...packFor("089a02-hypothetical", "Task su SIG simboliais, demote'intais iš SRC.", ["src/module/a.ts"], []),
+    code_context: {
+      symbol_fragments: [
+        { id: "sym-sig", file: "src/module/a.ts", name: "sig-symbol", reason: "exported", tier: "SIG", signature: "function sigSymbol(): void" },
+      ],
+      symbol_hypothetical_src_chars: 321,
+    },
+  };
+  const encoded = JSON.stringify(pack);
+
+  const readRecord = async (runtimeRoot: string): Promise<Record<string, unknown>> => {
+    const fs = memoryFs();
+    await persistContextPack({
+      fs,
+      runtimeRoot,
+      taskText: "kažkoks task tekstas",
+      encoded,
+      maxContextChars: 20_000,
+      cacheStatus: "bypass",
+      droppedItemCount: 0,
+      specDroppedCount: 0,
+      codeContextDroppedCount: 0,
+      codeContextRebuilt: false,
+      canaryFeatures: [],
+      canarySizeFallback: false,
+    });
+    const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
+    return JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+  };
+
+  // Two independent calls over the SAME encoded pack stand in for the miss that assembled it
+  // and the hit that later serves it back unchanged from `lookup.entry.context_pack_json`.
+  const missRecord = await readRecord(path.resolve("vq-test-root-089a02-miss"));
+  const hitRecord = await readRecord(path.resolve("vq-test-root-089a02-hit"));
+
+  assert.equal(missRecord["symbol_signature_chars"], "function sigSymbol(): void".length);
+  assert.equal(missRecord["symbol_source_chars"], 321);
+  assert.equal(hitRecord["symbol_source_chars"], missRecord["symbol_source_chars"]);
+  assert.equal(hitRecord["symbol_signature_chars"], missRecord["symbol_signature_chars"]);
+});
+
 // Task 086-a-02: `worker_prompt_chars` now HAS a writer (dispatch finalize, task 0086) even
 // though this module never sets it itself. Proves the shape that writer produces is exactly
 // what `joinPostRunTruth` (task 0042) needs to stop dropping every context-size record.

@@ -201,7 +201,10 @@ export async function runQualityGates(
       continue;
     }
 
-    const result = await ports.runner(check, projectRoot, 30 * 60 * 1000, gateEnv);
+    // Per-check `timeoutMs` iš policy (spawn forma) nugali numatytąjį 30 min — lėtos suite'ės
+    // (pvz. pilnas web vitest) deklaruoja savo ribą vietoj amžino 124 abort ciklo.
+    const timeoutMs = check.kind === "spawn" && check.timeoutMs !== undefined ? check.timeoutMs : 30 * 60 * 1000;
+    const result = await ports.runner(check, projectRoot, timeoutMs, gateEnv);
     if (infrastructureExit === undefined && result.code !== 0 && isInfrastructureExitCode(result.code)) {
       infrastructureExit = result.code;
     }

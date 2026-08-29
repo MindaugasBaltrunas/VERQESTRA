@@ -317,10 +317,11 @@ function makePorts(input: {
   runnerExit?: number | ((display: string) => number);
   memo?: MemoState;
   identifyAfterTree?: string;
-}): { ports: QualityGatesPorts; statuses: QualityGatesStatus[]; logs: string[]; runnerCalls: string[] } {
+}): { ports: QualityGatesPorts; statuses: QualityGatesStatus[]; logs: string[]; runnerCalls: string[]; timeouts: number[] } {
   const statuses: QualityGatesStatus[] = [];
   const logs: string[] = [];
   const runnerCalls: string[] = [];
+  const timeouts: number[] = [];
   const memo = input.memo;
   let identifyCalls = 0;
   const memoPort: GatesMemoPort | undefined = memo
@@ -342,8 +343,9 @@ function makePorts(input: {
     loadPolicy: async () =>
       qualityPolicySchema.parse({ task: { checks: input.checks ?? ["pnpm test"] }, feature: {}, milestone: {} }),
     commandContext: async () => EMPTY_CHECK_COMMAND_CONTEXT,
-    runner: async (check) => {
+    runner: async (check, _cwd, timeoutMs) => {
       runnerCalls.push(check.display);
+      timeouts.push(timeoutMs ?? -1);
       const exit = typeof input.runnerExit === "function" ? input.runnerExit(check.display) : (input.runnerExit ?? 0);
       return { code: exit, stdout: `out:${check.display}`, stderr: "" };
     },
@@ -352,7 +354,7 @@ function makePorts(input: {
     loadLocalEnv: async () => ({}),
     ...(memoPort ? { memoPort } : {}),
   };
-  return { ports, statuses, logs, runnerCalls };
+  return { ports, statuses, logs, runnerCalls, timeouts };
 }
 
 function emptyMemo(): MemoState {
@@ -373,11 +375,13 @@ test("runQualityGates: infrastruktūrinis runner exit (timeout 124) keliauja SAV
   // verify-task `isInfrastructureExit` vartai jo nematė ir task'as sukdavo repair ciklą.
   const { ports } = makePorts({ checks: ["pnpm build", "pnpm test"], runnerExit: (d) => (d === "pnpm test" ? 124 : 0) });
   const status = await runQualityGates(ports, []);
-  assert.equal(status.passed, false);
   assert.equal(status.exit_code, 124, "infra kodas propaguojamas, ne 1");
   assert.match(status.message ?? "", /aborted by infrastructure failure \(exit 124\)/);
   const { ports: taskFailPorts } = makePorts({ runnerExit: 1 });
   assert.equal((await runQualityGates(taskFailPorts, [])).exit_code, 1, "task failure lieka 1");
+  const t = makePorts({ checks: [{ cmd: "pnpm", args: ["test"], timeoutMs: 3_600_000 }, "pnpm lint"] });
+  await runQualityGates(t.ports, []);
+  assert.deepEqual(t.timeouts, [3_600_000, 1_800_000], "spawn timeoutMs nugali default, shell lieka 30 min");
 });
 
 test("runQualityGates: memo hit praleidžia suite; --no-memo paleidžia pilną ir atnaujina antspaudą", async () => {

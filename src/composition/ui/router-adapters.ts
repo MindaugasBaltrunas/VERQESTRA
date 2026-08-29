@@ -21,6 +21,7 @@ import { uploadQueueMarkdownFiles } from "../../interfaces/http/task-upload.js";
 import { ensureLoopRunning, requestLoopStop } from "../../interfaces/http/loop-lifecycle.js";
 import { ensureUiRebuildRunning } from "../../interfaces/http/ui-rebuild.js";
 import type { BundleMtimeFacts, UiRouterPorts } from "../../interfaces/http/ui-router.js";
+import type { WorktreePolicyPorts } from "../../interfaces/http/ui-worktree-policy.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
 import { loadWorktreePolicy } from "../../application/scheduling/worktree-policy.js";
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
@@ -99,6 +100,40 @@ function isWorktreeGitignoreCovered(content: string): boolean {
 async function readWorktreeGitignoreOk(absoluteGitignoreFile: string): Promise<boolean> {
   const content = await nodeFsAdapter.readTextFileIfExists(absoluteGitignoreFile);
   return content === undefined ? false : isWorktreeGitignoreCovered(content);
+}
+
+/**
+ * Worktree politikos PERJUNGIMO fs portai (`setWorktreePolicyEnabled`, 088-bb-03).
+ *
+ * Šis adapteris yra vien fs: abu keliai — konfigo ir `.gitignore` — gimsta use case'e iš
+ * `runtimeRoot`/`projectRoot` ir ateina jau absoliutūs, tad čia NĖRA nė vienos kelio aritmetikos
+ * eilutės ir nė vieno lauko iš request'o.
+ *
+ * Trys sprendimai, kurie yra šio surišimo esmė:
+ *
+ *   1. `readConfigFile` — `readTextFile`, o NE `readTextFileIfExists`. Nesamas konfigas privalo
+ *      kristi (maršrutas paverčia jį 500 su žurnalo eilute): tyliai grąžinus `{}`, rašymas
+ *      sukurtų politiką iš nieko, o esami `root`/`branchPrefix` dingtų be pėdsako.
+ *   2. `readGitignore` — priešingai, `readTextFileIfExists`. Repozitorija be `.gitignore` yra
+ *      normali būsena, ir įjungimas ten teisingai sukuria failą su viena eilute (`undefined`
+ *      use case'e virsta `""`), o ne 500.
+ *   3. Idempotentiškumas gyvena use case'e (`hasWorktreeGitignoreLine`), ne čia: pakartotinis
+ *      `enabled: true` iki `writeGitignore` net nedaeina, tad adapteris rašo tik tada, kai
+ *      turinys tikrai keičiasi. Konfigo įrašymas irgi idempotentiškas — `writeTextFile` yra
+ *      atominis pilnas perrašymas ta pačia serializacija.
+ *
+ * `log` eina į `logError`, nes kito kanalo `UiRouterAdapterInput` neturi. Tai sąmoninga: politikos
+ * perjungimas yra retas operatoriaus veiksmas, kurio pėdsakas serverio žurnale vertingesnis už
+ * kanalo grynumą.
+ */
+function worktreePolicyPorts(input: UiRouterAdapterInput): WorktreePolicyPorts {
+  return {
+    readConfigFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
+    writeConfigFile: (absolutePath, content) => nodeFsAdapter.writeTextFile(absolutePath, content),
+    readGitignore: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
+    writeGitignore: (absolutePath, content) => nodeFsAdapter.writeTextFile(absolutePath, content),
+    log: (message) => input.logError(message),
+  };
 }
 
 /**
@@ -198,6 +233,11 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
         runtimeRoot: input.runtimeRoot,
         eventLimit,
       }),
+
+    // Surišta (ne `undefined`): be šio lauko `/api/runtime/worktree-policy` krenta į 404, ir
+    // dashboard'o jungiklis neturėtų kur kreiptis. Skaitymo pusė (`readWorktreePolicyEnabled`
+    // aukščiau) ir rašymo pusė remiasi TUO PAČIU `<runtimeRoot>/config/worktree-policy.json`.
+    worktreePolicy: worktreePolicyPorts(input),
 
     decideLearningRecommendation: (id, decision) =>
       decideLearningRecommendation(learningFs, input.runtimeRoot, id, decision, []),

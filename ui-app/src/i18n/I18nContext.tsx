@@ -141,6 +141,7 @@ const lt: Record<string, string> = {
   "Agent is working…": "Agentas dirba…",
   "Waiting for a task…": "Laukiama užduoties…",
   "Task": "Užduotis",
+  "Second stream": "Antras srautas",
   "Recommendation inbox": "Rekomendacijų dėžutė",
   "Only recommendations requiring a decision are shown by default": "Pagal numatymą rodomos tik sprendimo reikalaujančios rekomendacijos",
   "Pending": "Laukia",

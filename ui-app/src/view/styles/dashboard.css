@@ -3573,6 +3573,33 @@ body.has-expanded-log::after {
   color: var(--faint);
 }
 
+/* ---- Antras (w2) grandinės srautas ------------------------------------ */
+.agent-chain-secondary {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.agent-chain-secondary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.agent-chain-secondary-label {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.agent-chain-secondary-task {
+  color: var(--faint);
+  font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+}
+.agent-chain-secondary-activity {
+  margin-top: 8px;
+}
+
 /* ---- Motion / responsive --------------------------------------------- */
 /* Skeletonai: laukiama duomenų, o ne „nieko nėra". Blizgesys juda `transform`, ne `background-position` —
    taip animacija lieka kompozitoriaus sluoksnyje. */

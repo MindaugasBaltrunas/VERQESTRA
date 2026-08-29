@@ -65,7 +65,9 @@ export function attemptIdentityKey(record: AttemptIdentityFields): string | null
   const workerId = trimmedOrEmpty(record.worker_id);
   const attemptId = trimmedOrEmpty(record.runtime_attempt_id);
   if (!taskId || !runId || !workerId || !attemptId) return null;
-  return `${runId}${workerId}${taskId}${attemptId}`;
+  // Ilgio prefiksai, kad dvi skirtingos laukų poros negalėtų sulipti į tą patį raktą
+  // (ta pati priežastis, dėl kurios canary bucket'o salt neša ilgio prefiksą).
+  return [runId, workerId, taskId, attemptId].map((part) => `${part.length}:${part}`).join("|");
 }
 
 export type AttemptScopedSplit<T> = {

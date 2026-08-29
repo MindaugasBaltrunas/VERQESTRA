@@ -9,9 +9,17 @@ import { test } from "node:test";
 import { createWaveIntegrationCoordinator, type WaveIntegrationCoordinatorPorts } from "../application/scheduling/wave-integration-coordinator.js";
 import { computeTaskWriteSet } from "../application/scheduling/conflict-detector.js";
 import { createWorkerLease } from "../application/scheduling/worker-lease-store.js";
+import { createWaveSchedulerState } from "../application/scheduling/wave-scheduler-state.js";
+import { createWaveScheduler, type WaveIntegrationIo, type WaveSchedulerDeps } from "../application/scheduling/wave-scheduler.js";
 import type { FinishedWorkerSlot, IntegrationCheckpoint } from "../application/scheduling/worker-integration.js";
 import type { BranchIntegrationOutcome, TaskRelocation } from "../application/scheduling/wave-integration-ports.js";
+import type { SchedulableTask } from "../application/scheduling/schedule-next-wave.js";
+import type { WorkerCandidate } from "../application/scheduling/worker-pool-admission.js";
+import type { WaveProvisioningCoordinator } from "../application/scheduling/wave-provisioning.js";
+import type { WaveSnapshot } from "../application/scheduling/wave-snapshot.js";
 import type { WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
+import type { TaskGraph } from "../domain/tasks/graph/model.js";
+import { buildTaskGraph } from "../domain/tasks/graph/build.js";
 
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 
@@ -261,4 +269,176 @@ test("praleisto task'o failas: dingęs failas atstatomas ir laikomas `done`", as
   const result = await createWaveIntegrationCoordinator(w.ports).closeSkipCompletedTaskFile("0042", "jau padaryta");
 
   assert.deepEqual(result, { relocation: "restored", state: "done" });
+});
+
+// Audito P1 (2026-08-29): resume kelias privalo atkurti `finished_slots` iš snapshot'o, kitaip
+// baigta, bet neintegruota šaka po proceso lūžio dingsta, o jos task'as dispatch'inamas antrą
+// kartą (žr. task 074-a-02).
+
+test("`restoreFinishedSlots` užpildo `finishedSlots` Map'ą fail-closed: `succeeded` visada false", () => {
+  const state = createWaveSchedulerState(() => NOW.toISOString());
+  state.tasks = [{ task_id: "0042", file: "AG/tasks/queue/0042.md", blocked_by: [] }];
+
+  state.restoreFinishedSlots([
+    {
+      worker_id: "w2",
+      worker_index: 2,
+      task_id: "0042",
+      attempt: 1,
+      branch: "",
+      worktree_path: ".worktrees/w2",
+      finished_at: NOW.toISOString(),
+    },
+  ]);
+
+  const restored = state.finishedSlots.get("0042");
+  assert.ok(restored);
+  assert.equal(restored?.succeeded, false, "sėkmės įrodymo (write_set/lease) po lūžio nebeliko");
+  assert.equal(restored?.file, "AG/tasks/queue/0042.md");
+  assert.equal(restored?.worktree_path, ".worktrees/w2");
+});
+
+test("`restoreFinishedSlots` neprideda `worktree_path`, kai persistuota reikšmė tuščia", () => {
+  const state = createWaveSchedulerState(() => NOW.toISOString());
+  state.restoreFinishedSlots([
+    { worker_id: "w1", worker_index: 1, task_id: "0042", attempt: 1, branch: "", worktree_path: "", finished_at: "" },
+  ]);
+
+  assert.equal(state.finishedSlots.get("0042")?.worktree_path, undefined);
+});
+
+function resumeSchedulerTasks(): SchedulableTask[] {
+  return [
+    { task_id: "0001", file: "AG/tasks/queue/0001.md", blocked_by: [] },
+    { task_id: "0002", file: "AG/tasks/queue/0002.md", blocked_by: ["0001"] },
+  ];
+}
+
+function resumeSchedulerGraph(list: readonly SchedulableTask[]): TaskGraph {
+  return buildTaskGraph({
+    nodes: list.map((task) => ({
+      task_id: task.task_id,
+      file: task.file,
+      checks: ["pnpm test"],
+      scope: [`src/${task.task_id}.ts`],
+      ...(task.blocked_by.length === 0 ? {} : { depends_on: [...task.blocked_by] }),
+    })),
+  });
+}
+
+const resumeIntegrationIo: WaveIntegrationIo = {
+  resolveWorktreeLayout: (identity) => ({ relativePath: `.worktrees/${identity.worker_id}`, branch: `ag/${identity.task_id}` }),
+  locateTask: () => Promise.resolve("terminal-bucket"),
+  resolvePrimaryHead: () => Promise.resolve("head"),
+  integrateBranch: () => Promise.resolve({ status: "integrated", mode: "merge", head: "head2" }),
+  integrationTouchedSrc: () => Promise.resolve(false),
+  rebuildDist: () => Promise.resolve({ ok: true, detail: "" }),
+  pushPrimaryBranch: () => Promise.resolve({ ok: true, branch: "main" }),
+  relocateTask: () => Promise.resolve("moved"),
+  restoreDoneCopy: () => Promise.resolve({ ok: true, source: "HEAD^" }),
+  cleanupWorktree: () => Promise.resolve({ worktree: "removed", branch: "deleted", detail: "" }),
+  releaseLease: () => Promise.resolve("released"),
+};
+
+const resumeProvisioning: WaveProvisioningCoordinator = {
+  toWorkerCandidates: (list) =>
+    list.map(
+      (task): WorkerCandidate => ({
+        task_id: task.task_id,
+        file: task.file,
+        write_set: computeTaskWriteSet({ task_id: task.task_id, allowed_paths: [`src/${task.task_id}.ts`] }),
+      }),
+    ),
+  readIsolationInputs: () => Promise.resolve({ leases: [] }),
+  provisionSlotLease: () => Promise.resolve(false),
+  provisionMissingSlotLeases: () => Promise.resolve([]),
+  releaseWaveProvisionLease: () => Promise.resolve(),
+};
+
+function resumeSchedulerDeps(snapshot: WaveSnapshot | undefined): WaveSchedulerDeps {
+  const taskList = resumeSchedulerTasks();
+  return {
+    projectRoot: "D:/repo",
+    runId: "r1",
+    now: () => NOW.toISOString(),
+    log: () => Promise.resolve(),
+    absolutePath: (file) => `D:/repo/${file}`,
+    readTasks: () => Promise.resolve(taskList),
+    locateTask: () => Promise.resolve("queue"),
+    hasAcceptedWork: () => Promise.resolve(false),
+    readCheckpoint: () => Promise.resolve(undefined),
+    readSnapshot: () => Promise.resolve(snapshot),
+    writeSnapshot: () => Promise.resolve(),
+    recordEvent: () => Promise.resolve(),
+    recordCheckpoint: () => Promise.resolve(),
+    importGraph: () => Promise.resolve(resumeSchedulerGraph(taskList)),
+    writeGraphSnapshot: () => Promise.resolve(),
+    readGraphSnapshot: () => Promise.resolve({ ok: false, reason: "missing", errors: [] }),
+    readySetBudget: () => Promise.resolve(undefined),
+    approvals: () => [],
+    requestedWorkers: () => Promise.resolve(1),
+    ledgerDuplicate: () => Promise.resolve(false),
+    integration: resumeIntegrationIo,
+    provisioning: () => resumeProvisioning,
+    readWorkerLeases: () => Promise.resolve([]),
+  };
+}
+
+function resumeSnapshotWith(taskId: string): WaveSnapshot {
+  return {
+    schema_version: 2,
+    scheduler_version: 1,
+    run_id: "r1",
+    wave_id: "w0",
+    wave_sequence: 1,
+    graph_hash: "stale",
+    decision_hash: "",
+    max_workers: 1,
+    created_at: NOW.toISOString(),
+    updated_at: NOW.toISOString(),
+    tasks: [],
+    external_dependencies: [],
+    cycles: [],
+    live_slots: [],
+    finished_slots: [
+      {
+        worker_id: "w1",
+        worker_index: 1,
+        task_id: taskId,
+        attempt: 1,
+        branch: "",
+        worktree_path: `.worktrees/w1`,
+        finished_at: NOW.toISOString(),
+      },
+    ],
+  };
+}
+
+test("resume su persistintu finished slot'u NEdispatch'ina task'o, kol jo šaka neišspręsta", async () => {
+  const scheduler = createWaveScheduler(resumeSchedulerDeps(resumeSnapshotWith("0001")));
+  await scheduler.recoverFromCrash();
+
+  const blocked = await scheduler.nextTask();
+  assert.equal(blocked.kind, "exhausted");
+  if (blocked.kind !== "exhausted") return;
+  // 0001 turi finished slot'ą (neintegruota šaka), 0002 laukia 0001 — banga negali pasiūlyti nė
+  // vieno, nors 0001 pačiam planui atrodo „ready".
+  assert.equal(blocked.reason, "all-blocked");
+});
+
+test("po koordinatoriaus sprendimo (parkinimo) dispatch'as tam pačiam task_id vėl leidžiamas", async () => {
+  const scheduler = createWaveScheduler(resumeSchedulerDeps(resumeSnapshotWith("0001")));
+  await scheduler.recoverFromCrash();
+
+  assert.equal((await scheduler.nextTask()).kind, "exhausted", "0001 blokuojamas kol šaka neišspręsta");
+
+  // Bet koks kito task'o rezultatas suveda integracijos tikrinimą: `succeeded: false` restore'o
+  // metu reiškia, kad tyloje slot'as parkuojamas, o ne suliejamas — tai IŠSPRENDŽIA jo likimą ir
+  // pašalina iš `finishedSlots`.
+  await scheduler.recordOutcome("does-not-exist", true);
+
+  const unblocked = await scheduler.nextTask();
+  assert.equal(unblocked.kind, "task");
+  if (unblocked.kind !== "task") return;
+  assert.equal(unblocked.task.task_id, "0001");
 });

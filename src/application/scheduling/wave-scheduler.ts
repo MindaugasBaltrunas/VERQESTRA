@@ -338,6 +338,8 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       await graphCoordinator.reportStoredGraph(storedGraph, state.canonicalGraph, current.wave_id);
 
       const snapshot = await deps.readSnapshot();
+      // Atkuriama NEPRIKLAUSOMAI nuo `decision_hash` sutapimo žemiau — audito P1, 2026-08-29.
+      state.restoreFinishedSlots(snapshot?.finished_slots ?? []);
       // Lyginamas SPRENDIMO, o ne grafo atspaudas (2026-08-23, operatoriaus radinys).
       // `graph_hash` mato tik eilės pjūvį, tad patvirtinimo atšaukimas, biudžeto išsekimas ar
       // statuso pasikeitimas jo nejudino — ir po kritimo atkurta banga galėjo remtis leidimu,
@@ -405,7 +407,11 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
 
       if (current.ready.length === 0 && current.blocked.length === 0) return { kind: "empty" };
 
-      const selected = selectNextWaveTask(current, { startedTaskIds: state.started });
+      // Atkurtas finished slot'as blokuoja dispatch'ą TA PAČIA priemone kaip `started`, kol
+      // koordinatorius jo neišima iš `finishedSlots` (audito P1, 2026-08-29).
+      const selected = selectNextWaveTask(current, {
+        startedTaskIds: new Set([...state.started, ...state.finishedSlots.keys()]),
+      });
       if (selected === undefined) {
         const reason = current.blocked.length > 0 ? "all-blocked" : "already-started";
         // Konkrečios priežastys — vienoje deterministinėje eilutėje, ta pačia forma žurnale,

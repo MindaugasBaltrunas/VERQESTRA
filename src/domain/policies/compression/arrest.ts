@@ -14,8 +14,13 @@ import { isTaskInContextCompressionCanary } from "./canary.js";
 /** Schema version of the arrest artefact. A record of another version is not read. */
 export const CONTEXT_COMPRESSION_ARREST_STATE_VERSION = 1;
 
-/** Repo-relative arrest artefaktas, cituojamas operatoriaus eilutėse. */
-export const CONTEXT_COMPRESSION_ARREST_RELATIVE_PATH = "AG/state/context-compression-arrest.json";
+/**
+ * Repo-relative arrest artefaktas, cituojamas operatoriaus eilutėse. Privalo sutapti su
+ * realiu `contextCompressionArrestStatePath` keliu (VERQESTRA runtime — `vq/`, ne etalono
+ * `AG/`): 2026-08-29 auditas rado, kad eilutės „lift by hand: remove the entry from …"
+ * siuntė operatorių į neegzistuojantį AG/state kelią.
+ */
+export const CONTEXT_COMPRESSION_ARREST_RELATIVE_PATH = "vq/state/context-compression-arrest.json";
 
 /**
  * Slenksčiai M/K/N — politikos default'ai, deklaruoti vieną kartą KODE (ne konfige:

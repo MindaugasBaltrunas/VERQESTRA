@@ -20,7 +20,7 @@ import type { FinishedWorkerSlot } from "./worker-integration.js";
 import type { SchedulableTask, WavePlan } from "./schedule-next-wave.js";
 import type { WorkerCandidate, WorkerSlot } from "./worker-pool-admission.js";
 import type { WorkerOutcome, WorkerPoolPlan } from "./worker-pool-plan.js";
-import type { WaveTaskState, WaveTaskStateOverride } from "./wave-snapshot.js";
+import type { WaveSnapshot, WaveTaskState, WaveTaskStateOverride } from "./wave-snapshot.js";
 import type { RefillDecisionLog } from "./wave-snapshot-persist.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 
@@ -28,6 +28,9 @@ import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 const REFILL_LOG_LIMIT = 8;
 
 export type WaveSchedulerState = ReturnType<typeof createWaveSchedulerState>;
+
+/** Vienas `WaveSnapshot.finished_slots` įrašas — vienintelis pėdsakas, kurį resume gauna. */
+export type PersistedFinishedSlot = NonNullable<WaveSnapshot["finished_slots"]>[number];
 
 export function createWaveSchedulerState(now: () => string) {
   const completed = new Set<string>();
@@ -192,6 +195,31 @@ export function createWaveSchedulerState(now: () => string) {
         map.set(taskId, { state: "running", attempts: 1, ...(file === undefined ? {} : { file }) });
       }
       return map;
+    },
+
+    /**
+     * `finished_slots` iš ankstesnio proceso snapshot'o → `finishedSlots` Map'as (audito P1,
+     * 2026-08-29). Be šio atkūrimo baigtos, bet neintegruotos šakos dingsta su proceso lūžiu, ir
+     * jų task'ai vėl atrodo „ready" — tas pats task'as dispatch'inamas antrą kartą.
+     *
+     * `succeeded: false` VISADA, nesvarbu, kokia buvo tikroji baigtis: snapshot'as neišsaugo nei
+     * `write_set`, nei `lease` — be jų sėkmės įrodyti nėra iš ko, tad tylus sulietas šakos negali
+     * likti be perpjovimo. Atkurtas slot'as lieka fail-closed, kol integracijos koordinatorius jį
+     * praleis (be šakos) arba parkuos (su šaka, bet be lease) — abu keliai jį pašalina iš šio
+     * Map'o ir atrakina dispatch'ą.
+     */
+    restoreFinishedSlots(persisted: readonly PersistedFinishedSlot[]): void {
+      for (const entry of persisted) {
+        finishedSlots.set(entry.task_id, {
+          worker_id: entry.worker_id,
+          worker_index: entry.worker_index,
+          task_id: entry.task_id,
+          file: tasks.find((task) => task.task_id === entry.task_id)?.file ?? "",
+          attempt: entry.attempt,
+          succeeded: false,
+          ...(entry.worktree_path === "" ? {} : { worktree_path: entry.worktree_path }),
+        });
+      }
     },
 
     nextRefillEpisode(): number {

@@ -52,14 +52,20 @@ test("median ir attempt tapatybės primityvai", () => {
   assert.equal(median([3, 1, 2]), 2);
   assert.equal(median([1, 2, 3, 4]), 2.5);
 
-  assert.equal(attemptIdentityKey({ task_id: "t", run_id: "r", worker_id: "w", runtime_attempt_id: "a1" }), "rwta1");
+  assert.equal(attemptIdentityKey({ task_id: "t", run_id: "r", worker_id: "w", runtime_attempt_id: "a1" }), "1:r|1:w|1:t|2:a1");
   assert.equal(attemptIdentityKey({ task_id: "t", run_id: "r", worker_id: " ", runtime_attempt_id: "a1" }), null);
+  // 2026-08-29 auditas: raktas be separatorių leido dviem skirtingoms laukų poroms sulipti
+  // ("a"+"bc" === "ab"+"c") — ilgio prefiksai tą koliziją panaikina.
+  assert.notEqual(
+    attemptIdentityKey({ task_id: "t", run_id: "a", worker_id: "bc", runtime_attempt_id: "x" }),
+    attemptIdentityKey({ task_id: "t", run_id: "ab", worker_id: "c", runtime_attempt_id: "x" }),
+  );
 
   const split = splitByAttemptIdentity([
     { task_id: "t", run_id: "r", worker_id: "w", runtime_attempt_id: "a1" },
     { task_id: "t" },
   ]);
-  assert.equal(split.byAttempt.get("rwta1")?.length, 1);
+  assert.equal(split.byAttempt.get("1:r|1:w|1:t|2:a1")?.length, 1);
   assert.equal(split.legacy.length, 1);
 });
 

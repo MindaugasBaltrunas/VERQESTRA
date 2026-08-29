@@ -46,8 +46,10 @@ export type PrepareWorkerPromptDeps = {
   clock: ClockPort;
   runtimeRoot: string;
   /** Tolerantiškas `vq/logs/task-events.jsonl` skaitymas — canary human-review kohortai. Baigties
-   *  laukai (`phase`/`reason`/`exit_code`) opcionalūs: 0037 atribucijai, kai jų yra; pre-0037
-   *  įrašas jų tiesiog neturi ir lieka LEGACY_RULE keliu (žr. `arrest-attribution.ts`). */
+   *  laukai (`phase`/`reason`/`exit_code`) opcionalūs: 0037 atribucijai naudojami, kai yra; jų
+   *  nebuvimas savaime NEATVEDA į LEGACY_RULE (tą sprendžia trūkstamas `compression_effect` —
+   *  žr. `arrest-attribution.ts`), o į UNCLASSIFIED_RULE — nei viena signatūrų lentelė
+   *  neatpažįsta tuščios `phase`+`reason` eilutės. */
   readTaskEvents(): Promise<
     Array<{ task_id?: unknown; to_state?: unknown; phase?: unknown; reason?: unknown; exit_code?: unknown }>
   >;

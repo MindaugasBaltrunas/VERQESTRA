@@ -13,6 +13,8 @@ openspec/changes/verqestra-backlog-v1
 ## Tikslas
 Dabar pasikartojantis dispatch timeout (exit 124) su ta pačia retry-signature veda į human_review arba dar vieną retry — GeoGravity 1178 taip sudegino tris ciklus po ~100 min. Domain sluoksnyje reikia deterministinio sprendimo: kai timeout parašas kartojasi (>=2 bandymai), verdiktas yra `split`; `human-review` lieka fallback'u tik kai taskas nedalomas (1 veiksmas, 1 kelias).
 
+Papildymas (operatorius, 2026-08-29, GeoGravity auditas): tas pats `split` verdiktas taikomas ir RAW TOKEN lubų perviršiui — GeoGravity 7 dispatch'ai viršijo 10M raw lubas (iki 25.5M) su „diagnostika, baigtis nekeičiama", ir 1178 @ 2.5× baigėsi exit 124. Raw perviršis (>1.2× lubų) diagnozės įvestyje traktuojamas kaip tas pats runtime-oversize signalas kaip timeout parašas. Lubų reikšmė nekeičiama.
+
 ## Agentai
 PRIVALOMA grandinė be praleidimų: readme-guard -> architect -> schedule-domain -> reviewer -> tester
 

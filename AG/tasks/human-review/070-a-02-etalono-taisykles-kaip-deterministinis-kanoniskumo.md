@@ -24,6 +24,11 @@ Privaloma grandinė, būtent šia tvarka: readme-guard -> architect -> coder -> 
 Leidžiama:
 - `src/application/quality-gates/preflight-fastpath.ts`
 - `src/tests/quality-gates-preflight.test.ts`
+- `AG/tasks/examples/000-etalonas.md` (HUMAN-REVIEW-APPROVED: mindebaltru
+  2026-08-29 — parkavimo priežastis buvo NE šio task'o rašymas: operatoriaus
+  sesija redagavo etaloną lygiagrečiai su šiuo dispatch'u, o „dispatch
+  identity unavailable" atribucija pakeitimą priskyrė task'ui; kelias
+  legalizuojamas, kad perleidimas praeitų)
 
 Draudžiama:
 - `src/domain/tasks/sections.ts`

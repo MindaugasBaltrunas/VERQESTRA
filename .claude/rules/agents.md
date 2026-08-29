@@ -29,6 +29,7 @@
 - `debugger`: diagnozuoja ir taiso technines klaidas nekeisdamas business sprendimo be pagrindo.
 - `repairer`: vykdo orchestrator jau paruoštą retry-bounded repair task (# Repair Task kontraktą) po ankstesnio task/check nepavykimo; nediagnozuoja savarankiškai ir nesprendžia retry limito ar rollback.
 - `supervisor`: patvirtina arba blokuoja; netaiso.
+- `task-author`: kuria, perrašo ir skelia `AG/tasks` užduotis GRIEŽTAI pagal `AG/tasks/examples/000-etalonas.md`; kiekvieną `## Failai` kelią tikrina Glob/Grep, nerašo iš atminties. Naudojamas visada, kai reikia sukurti ar taisyti task failą.
 - `audit-director`: vykdo pilną projekto auditą, šalina dublikatus, pasenusį ar mirusį kodą ir paleidžia kokybės vartus.
 
 ## Delegavimas pagal scope

@@ -337,6 +337,34 @@ export async function checkCanaryEvidence(
 const ARREST_STATE_LABEL = "vq/state/context-compression-arrest.json";
 
 /**
+ * Kada canary ranka realiai atsidarė, ms nuo epochos, arba `undefined`, kai neatsidarė.
+ *
+ * Ta pati žyma, kuria human-review skaitiklis atskiria savo langą (`arrest.ts`): ją
+ * įrašo PIRMAS canary stebėjimas. Neperskaitomas marker'is lango nepatvirtina — jo
+ * turinys gali fiksuoti bet ką, o čia jis būtų vienintelis šaltinis, sakantis
+ * „kohorta jau turėjo progų".
+ */
+function canaryWindowOpenedAt(arrestView: ContextCompressionArrestView): number | undefined {
+  if (arrestView.unreadable) return undefined;
+  const opened = arrestView.state.counters.human_review_window_opened_at;
+  if (opened === undefined) return undefined;
+  const parsed = Date.parse(opened);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+/**
+ * Ar telemetrijos įrašas parašytas nuo lango atsidarymo.
+ *
+ * Tuščias ar neparsinamas `ts` (senuose įrašuose reader'is jį normalizuoja į `""`)
+ * praleidžiamas, o ne meta klaidą: įrašas, negalintis pasakyti KADA gimė, negali
+ * įrodyti ir to, kad gimė canary rankoje.
+ */
+function isInCanaryWindow(ts: string, windowOpenedAt: number): boolean {
+  const parsed = Date.parse(ts);
+  return !Number.isNaN(parsed) && parsed >= windowOpenedAt;
+}
+
+/**
  * Ką gyva canary daro, nepriklausomai nuo jokio promotion teiginio (task 0008).
  *
  * Klausiama KIEKVIENO repo, įskaitant tą, kurio visos vėliavos stovi `"canary"` — būsena,
@@ -386,23 +414,35 @@ export async function checkCanaryGuardrails(
     return findings;
   }
 
+  // Skaičiuojamas tik langas nuo canary rankos atsidarymo. `context-size.jsonl` yra
+  // istorinis žurnalas: įrašai iki įjungimo gimė be canary rankos, tad nei kohortos
+  // progos, nei feature stebėjimo įrodymai iš jų neskaitomi. Be žymės skaitiklis stovi
+  // nulyje — 2026-08-29 auditas rado būtent priešingą kryptį: warn'as galėjo užsidegti
+  // pirmą canary dieną iš įrašų, parašytų savaitėmis anksčiau.
+  const windowOpenedAt = canaryWindowOpenedAt(arrestView);
+  if (windowOpenedAt === undefined) return findings;
+  const windowRecords = records.filter((record) => isInCanaryWindow(record.ts, windowOpenedAt));
+
   // Kohortos narystė perskaičiuojama TA PAČIA funkcija, kurią naudojo dispatch'as, tad
   // "canary turėjo savo progas" reiškia progas po dabar galiojančiu percent ir salt.
   // Pakeitus salt skaičius teisėtai startuoja iš naujo: tai kita kohorta.
-  const cohortObservations = records.filter((record) => isTaskInContextCompressionCanary(config, record.task_id)).length;
+  const cohortObservations = windowRecords.filter((record) =>
+    isTaskInContextCompressionCanary(config, record.task_id),
+  ).length;
   if (cohortObservations < CONTEXT_COMPRESSION_ARREST_DEFAULTS.silentCanaryObservations) {
     return findings;
   }
 
   for (const feature of watched) {
-    if (records.some((record) => record.canary_features?.includes(feature))) continue;
+    if (windowRecords.some((record) => record.canary_features?.includes(feature))) continue;
     findings.push({
       reason: "canary-not-observed",
       severity: "warn",
       text:
         `${feature} stands at "${CONTEXT_COMPRESSION_CANARY}" and the cohort has produced ${cohortObservations} ` +
-        `context pack(s), but no record in ${CONTEXT_SIZE_LOG_LABEL} marks it as a canary feature — ` +
-        "the flag is configured and never applied, so no promotion evidence can come from it",
+        `context pack(s) since the canary window opened, but no record in ${CONTEXT_SIZE_LOG_LABEL} marks it as a ` +
+        "canary feature in that window — the flag is configured and never applied, so no promotion evidence can " +
+        "come from it",
     });
   }
 

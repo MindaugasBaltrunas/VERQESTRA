@@ -219,17 +219,38 @@ test("loop'o areštuota canary blokuoja release net be įjungtų vėliavų", asy
   assert.match(result.issues[0]!, /fallback-streak guardrail \(3\/3\)/);
 });
 
-test("savo progas turėjusi ir niekad nepritaikyta canary — warning, ne blokas", async () => {
-  const silentTelemetry = Array.from({ length: 10 }, (_, index) =>
-    JSON.stringify({ task_id: `T-${index}`, context_chars: 10, max_context_chars: 100 }),
+// Silent-canary langas: skaitiklis mato tik įrašus nuo canary rankos atsidarymo, o
+// žymę neša tas pats arrest marker'is, kurį rašo pirmas canary stebėjimas.
+const CANARY_DOC = {
+  version: 1,
+  features: { symbol_slices: "canary" },
+  canary: { percent: 100, salt: "s" },
+};
+
+const WINDOW_OPENED_AT = "2026-08-10T00:00:00.000Z";
+
+function arrestStateJson(counters: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    version: 1,
+    arrests: [],
+    counters: { fallback_streak: {}, human_review: {}, human_review_task_ids: [], ...counters },
+  });
+}
+
+/** Dešimt kohortos paketų (percent 100), nė vienas nepažymėtas canary feature. */
+function silentTelemetry(ts: string, prefix = "T"): string {
+  return Array.from({ length: 10 }, (_, index) =>
+    JSON.stringify({ ts, task_id: `${prefix}-${index}`, context_chars: 10, max_context_chars: 100 }),
   ).join("\n");
+}
+
+test("savo progas LANGE turėjusi ir niekad nepritaikyta canary — warning, ne blokas", async () => {
   const files = {
-    [abs("vq/config/context-compression.json")]: JSON.stringify({
-      version: 1,
-      features: { symbol_slices: "canary" },
-      canary: { percent: 100, salt: "s" },
+    [abs("vq/config/context-compression.json")]: JSON.stringify(CANARY_DOC),
+    [abs("vq/state/context-compression-arrest.json")]: arrestStateJson({
+      human_review_window_opened_at: WINDOW_OPENED_AT,
     }),
-    [abs("vq/logs/context-size.jsonl")]: `${silentTelemetry}\n`,
+    [abs("vq/logs/context-size.jsonl")]: `${silentTelemetry("2026-08-11T00:00:00.000Z")}\n`,
   };
   const result = await checkCompressionQuality(fakeFs(files), OPTIONS);
   assert.equal(result.ok, true);
@@ -237,5 +258,58 @@ test("savo progas turėjusi ir niekad nepritaikyta canary — warning, ne blokas
   assert.deepEqual(result.reasons, []);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0]!, /canary-not-observed/);
+  assert.match(result.warnings[0]!, /10 context pack\(s\) since the canary window opened/);
   assert.match(describeCompressionQuality(result), /1 warning\(s\)$/);
+});
+
+test("įrašai IKI lango atsidarymo nebedidina kohortos skaitiklio — jokio warning'o po įjungimo", async () => {
+  const files = {
+    [abs("vq/config/context-compression.json")]: JSON.stringify(CANARY_DOC),
+    [abs("vq/state/context-compression-arrest.json")]: arrestStateJson({
+      human_review_window_opened_at: WINDOW_OPENED_AT,
+    }),
+    // Visa istorija parašyta iki canary įjungimo, plius vienas įrašas be `ts` apskritai.
+    [abs("vq/logs/context-size.jsonl")]:
+      `${silentTelemetry("2026-08-01T00:00:00.000Z")}\n` +
+      `${JSON.stringify({ task_id: "T-legacy", context_chars: 10, max_context_chars: 100 })}\n`,
+  };
+  const result = await checkCompressionQuality(fakeFs(files), OPTIONS);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "ok");
+  assert.deepEqual(result.warnings, []);
+});
+
+test("iki lango pažymėta canary_features nebeįrodo, kad feature stebėta", async () => {
+  const preWindowMark = JSON.stringify({
+    ts: "2026-08-02T00:00:00.000Z",
+    task_id: "T-old",
+    context_chars: 10,
+    max_context_chars: 100,
+    canary_features: ["symbol_slices"],
+  });
+  const files = {
+    [abs("vq/config/context-compression.json")]: JSON.stringify(CANARY_DOC),
+    [abs("vq/state/context-compression-arrest.json")]: arrestStateJson({
+      human_review_window_opened_at: WINDOW_OPENED_AT,
+    }),
+    [abs("vq/logs/context-size.jsonl")]: `${preWindowMark}\n${silentTelemetry("2026-08-11T00:00:00.000Z")}\n`,
+  };
+  const result = await checkCompressionQuality(fakeFs(files), OPTIONS);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "warning");
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0]!, /canary-not-observed/);
+});
+
+test("legacy arrest būsena be lango žymės nesugriauna patikros — skaitiklis nuo nulio", async () => {
+  const files = {
+    [abs("vq/config/context-compression.json")]: JSON.stringify(CANARY_DOC),
+    [abs("vq/state/context-compression-arrest.json")]: arrestStateJson(),
+    [abs("vq/logs/context-size.jsonl")]: `${silentTelemetry("2026-08-11T00:00:00.000Z")}\n`,
+  };
+  const result = await checkCompressionQuality(fakeFs(files), OPTIONS);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "ok");
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.reasons, []);
 });

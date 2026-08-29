@@ -50,6 +50,7 @@ import { ensureWorktreeRuntime, PRODUCT_INSTALL_TIMEOUT_MS } from "../../infrast
 import { reapOrphanWorktrees } from "../../infrastructure/git/worktrees/orphan-worktree-reaper.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../../infrastructure/process/run-process.js";
+import { formatChildExitDiagnostics } from "./child-exit-diagnostics.js";
 import { activeAttemptResolution } from "../../infrastructure/state/active-attempt.js";
 import { reapDeadLeases, schedulingFs } from "./adapters.js";
 import { architectureWavePorts } from "../quality/architecture-adapters.js";
@@ -226,6 +227,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
     runChild: async (slot, worktreeAbs) => {
       // Task failas perduodamas RELIATYVUS: vaikas jį išsprendžia prieš savo darbo katalogą, tad
       // jokio kelių vertimo tarp medžių čia nereikia.
+      const startedAt = Date.now();
       const result = await run(process.execPath, [cliEntryPath(), PROCESS_QUEUED_TASK_COMMAND, slot.file], {
         cwd: worktreeAbs,
         env: buildChildEnvironment(deps.env ?? process.env, "CLAUDE_PROJECT_DIR", worktreeAbs, slot.attempt_ref),
@@ -233,17 +235,17 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       if (result.code !== 0) {
         // Vaiko lūžis be pėdsako yra nediagnozuojamas: worktree vaiko stderr/stdout niekur kitur
         // nepatenka (jo paties vq/logs miršta kartu su procesu ankstyvo lūžio atveju), tad
-        // uodega log'inama ČIA — vienintelėje vietoje, kuri išgyvena vaiką. Uodega ribojama,
-        // kad vienas išsiliejęs stack trace nepaskandintų orchestrator.log.
-        const tailOf = (label: string, text: string): string => {
-          const trimmed = text.trim();
-          if (trimmed === "") return "";
-          return `\n--- child ${label} (tail) ---\n${trimmed.slice(-4000)}`;
-        };
+        // diagnostika log'inama ČIA — vienintelėje vietoje, kuri išgyvena vaiką. Ji VISADA palieka
+        // exit kontekstą ir bent vieną grep'inamą eilutę, net kai vaikas nieko neparašė.
         await deps.log(
-          `WAVE SLOT CHILD EXIT ${result.code}: slot=${slot.worker_id} task=${slot.task_id}` +
-            tailOf("stderr", result.stderr) +
-            tailOf("stdout", result.stdout),
+          formatChildExitDiagnostics({
+            code: result.code,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            durationMs: Date.now() - startedAt,
+            workerId: slot.worker_id,
+            taskId: slot.task_id,
+          }),
         );
       }
       return result.code === 0;

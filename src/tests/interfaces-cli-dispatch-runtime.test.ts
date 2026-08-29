@@ -341,6 +341,124 @@ test("worker-prompt-preparation: default konfigas → raw įrašas be fallback; 
   assert.ok(brokenLogs.some((line) => line.startsWith("DISPATCH COMPRESSION FALLBACK: task=0042")));
 });
 
+// 0037 atribucija: canary human-review kohortą `worker-prompt-preparation` filtruoja per
+// `selectArrestCountableCanaryTaskIds` PRIEŠ `observeContextCompressionArrest`. `symbol_slices`
+// canary feature niekada nekviečia IR kompiliavimo kelio, tad einamas dispatch'as lieka `disabled`.
+const ARREST_ATTRIBUTION_CONFIG_JSON = JSON.stringify({
+  version: 1,
+  features: { worker_task_ir: false, compact_dsl: false, symbol_slices: "canary", bash_output_digest: false, dispatch_tool_schema: false },
+  canary: { percent: 100, salt: "" },
+});
+const ARREST_RAW_TASK = "# Task\n\n## Tikslas\nX.\n";
+
+type ArrestTaskEvent = { task_id?: unknown; to_state?: unknown; phase?: unknown; reason?: unknown; exit_code?: unknown };
+
+function contextSizeLine(taskId: string): string {
+  return JSON.stringify({
+    ts: "2026-08-25T00:00:00.000Z",
+    task_id: taskId,
+    context_chars: 100,
+    max_context_chars: 1000,
+    canary_features: ["symbol_slices"],
+  });
+}
+
+function arrestStateSeed(humanReviewCount: number, countedTaskIds: string[]): unknown {
+  return {
+    version: 1,
+    arrests: [],
+    counters: {
+      fallback_streak: { symbol_slices: 0 },
+      human_review: { symbol_slices: humanReviewCount },
+      human_review_task_ids: countedTaskIds,
+      human_review_window_opened_at: "2026-08-20T00:00:00.000Z",
+    },
+  };
+}
+
+async function dispatchArrestScenario(input: {
+  taskId: string;
+  arrestState?: unknown;
+  contextSizeLines?: readonly string[];
+  taskEvents: readonly ArrestTaskEvent[];
+}): Promise<{ logs: string[]; writes: Array<{ path: string; content: string }> }> {
+  const writes: Array<{ path: string; content: string }> = [];
+  const logs: string[] = [];
+  const normalized = (p: string): string => p.replace(/\\/g, "/");
+  const fs = fakeContextPackFs({
+    readTextFileIfExists: async (p) => {
+      const path = normalized(p);
+      if (path.endsWith("config/context-compression.json")) return ARREST_ATTRIBUTION_CONFIG_JSON;
+      if (path.endsWith("state/context-compression-arrest.json")) {
+        return input.arrestState === undefined ? undefined : JSON.stringify(input.arrestState);
+      }
+      if (path.endsWith("logs/context-size.jsonl")) {
+        return input.contextSizeLines === undefined ? undefined : `${input.contextSizeLines.join("\n")}\n`;
+      }
+      return undefined;
+    },
+    writeTextFile: async (p, content) => void writes.push({ path: p, content }),
+  });
+  await prepareWorkerPromptTask(
+    { taskId: input.taskId, rawTaskText: ARREST_RAW_TASK, logDispatch: async (line) => void logs.push(line) },
+    {
+      fs,
+      clock: { timestamp: () => "2026-08-29T12:00:00.000Z" },
+      runtimeRoot: "/repo/vq",
+      readTaskEvents: async () => [...input.taskEvents],
+      now: () => new Date("2026-08-29T12:00:00.000Z"),
+    },
+  );
+  return { logs, writes };
+}
+
+test("worker-prompt-preparation: 0037 atribucija — infrastruktūrinė human-review baigtis (preflight) skaitiklio nedidina", async () => {
+  const { logs, writes } = await dispatchArrestScenario({
+    taskId: "0300",
+    arrestState: arrestStateSeed(0, []),
+    contextSizeLines: [contextSizeLine("task-infra-1")],
+    taskEvents: [{ task_id: "task-infra-1", to_state: "human-review", phase: "preflight_failed", reason: "exit 2" }],
+  });
+  assert.ok(!logs.some((line) => line.startsWith("CANARY ARRESTED")), "preflight_failed yra INFRA_FAILURE_SIGNATURES — negali areštuoti");
+  assert.ok(!logs.some((line) => line.startsWith("CANARY ARREST RECORDED")));
+  assert.equal(writes.length, 0, "nepakitusi arrest būsena (unrelated atribucija) — marker'is nerašomas");
+});
+
+test("worker-prompt-preparation: 0037 atribucija — kompresijai atribuotina human-review baigtis areštuoja ir logina CANARY ARREST RECORDED", async () => {
+  const { logs, writes } = await dispatchArrestScenario({
+    taskId: "0301",
+    arrestState: arrestStateSeed(2, ["task-old-1", "task-old-2"]),
+    contextSizeLines: [contextSizeLine("task-compress-1")],
+    taskEvents: [
+      { task_id: "task-compress-1", to_state: "human-review", phase: "compilation", reason: "acceptance_criteria mismatch: prompt dropped required section" },
+    ],
+  });
+  assert.ok(
+    logs.some((line) => line.startsWith("CANARY ARRESTED: feature=symbol_slices reason=human-review")),
+    "acceptance_criteria + compression_effect=compiled — context-loss signatūra areštuoja",
+  );
+  assert.ok(logs.some((line) => line.startsWith("CANARY ARREST RECORDED: feature=symbol_slices")));
+  assert.equal(writes.length, 1, "areštas pakeitė būseną — marker'is rašomas");
+  const written = JSON.parse(writes[0]!.content) as { counters: { human_review: Record<string, number> }; arrests: Array<{ feature: string }> };
+  assert.equal(written.counters.human_review["symbol_slices"], 3, "skaitiklis pakilo per naują atributuotą task'ą");
+  assert.deepEqual(written.arrests.map((arrest) => arrest.feature), ["symbol_slices"]);
+});
+
+test("worker-prompt-preparation: 0037 atribucija — nesantis arba neperskaitomas context-size įrašas nemeta ir arešto neįskaito", async () => {
+  const missing = await dispatchArrestScenario({
+    taskId: "0302",
+    taskEvents: [{ task_id: "task-missing-ctx", to_state: "human-review", phase: "compilation", reason: "acceptance_criteria mismatch" }],
+  });
+  assert.ok(!missing.logs.some((line) => line.startsWith("CANARY ARRESTED")), "LEGACY_RULE — nesantis žurnalas, neareštuota");
+
+  const corrupt = await dispatchArrestScenario({
+    taskId: "0303",
+    contextSizeLines: ["ne json"],
+    taskEvents: [{ task_id: "task-bad-ctx", to_state: "human-review", phase: "compilation", reason: "acceptance_criteria mismatch" }],
+  });
+  assert.ok(!corrupt.logs.some((line) => line.startsWith("CANARY ARRESTED")), "LEGACY_RULE — neperskaitomas žurnalas, neareštuota");
+});
+
 test("stop-bridge-wait: 021-d-05 (022 audito Įvykis 4) regresija — vėlavęs svetimo nonce 'done' lieka matomas, ne 'none'", async () => {
   // 2026-08-25 19:20:43: bandymas N_A realiai commit'ino @19:20:21, bet orkestratorius jau
   // laukė KITO bandymo (N_B) baigties — darbo įrodymas neturi tyliai virsti "none".

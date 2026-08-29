@@ -12,6 +12,7 @@ import {
   collectBlockedBranch,
   computeGraphHash,
   decideResume,
+  describeStrandedStaleResume,
   formatWaveBlockedReason,
   normalizeSchedulableTasks,
   WAVE_SCHEDULER_VERSION,
@@ -464,6 +465,15 @@ test("decideResume rule order: accepted commit trumps a stale graph", () => {
   assert.deepEqual(stale.reason_codes, ["graph-hash-mismatch"]);
 });
 
+test("describeStrandedStaleResume: garsus priedas TIK discard-stale × resumable-bucket porai", () => {
+  // GeoGravity 1178-a-02: po graph-hash-mismatch failas liko `active/` ir eilė tyliai jį aplenkė.
+  const checkpoint = { status: "started" as const, task_id: "0007", graph_hash: "wg1:old" };
+  const stale = decideResume(checkpoint, { location: "resumable-bucket", acceptedCommit: false, currentGraphHash: "wg1:new" });
+  assert.match(describeStrandedStaleResume(stale, "resumable-bucket"), /STALE TASK STRANDED.*requeue/);
+  assert.equal(describeStrandedStaleResume(stale, "queue"), "", "eilėje gulintį failą naujas planas mato pats");
+  const requeued = decideResume(checkpoint, { location: "queue", acceptedCommit: false });
+  assert.equal(describeStrandedStaleResume(requeued, "resumable-bucket"), "", "ne discard-stale — be priedo");
+});
 test("decideResume location branches and dispatch gate", () => {
   const checkpoint = { status: "started" as const, task_id: "0007" };
 

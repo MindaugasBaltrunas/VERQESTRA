@@ -17,6 +17,7 @@ import {
   evaluateSpawnQualityCommand,
 } from "../../domain/policies/quality-command-policy.js";
 import type { CheckCommandContext } from "../../domain/policies/check-command-allowlist.js";
+import { isInfrastructureExitCode } from "../../shared/exit-codes.js";
 import type { QualityGateResult, QualityGatesStatus } from "./quality-gates-status.js";
 import { gatesMemoRecordFor, memoCovers, type GatesMemoIdentity, type GatesMemoPort } from "./gates-memo.js";
 
@@ -174,6 +175,13 @@ export async function runQualityGates(
   const localEnv = await ports.loadLocalEnv().catch(() => ({}));
   const gateEnv: Record<string, string | undefined> = { ...process.env, ...localEnv };
   const results: QualityGateResult[] = [];
+  // Runner'io grąžintas INFRASTRUKTŪRINIS kodas (timeout 124, stale dist 78, IO 74, ...) yra
+  // aplinkos, o ne task'o verdiktas. Iki šiol jis būdavo išplaunamas į `exit_code: 1` ir kiekvienas
+  // vartotojas (skip-dispatch, verify-task) matydavo „task failure" — gate timeout gimdydavo
+  // repair/human-review ciklą, nors nė vienas testas nekrito (GeoGravity 1178 pamoka). Fiksuojamas
+  // TIK runner'io kodas: policy-block rezultatai (126 aukščiau) yra konfigūracijos verdiktas, ne
+  // aplinkos gedimas, tad jų čia nėra pagal konstrukciją.
+  let infrastructureExit: number | undefined;
 
   for (const [index, check] of checks.entries()) {
     const name = `${scope}-${index + 1}`;
@@ -194,6 +202,9 @@ export async function runQualityGates(
     }
 
     const result = await ports.runner(check, projectRoot, 30 * 60 * 1000, gateEnv);
+    if (infrastructureExit === undefined && result.code !== 0 && isInfrastructureExitCode(result.code)) {
+      infrastructureExit = result.code;
+    }
     results.push({
       name,
       command,
@@ -213,13 +224,19 @@ export async function runQualityGates(
   }
   const status: QualityGatesStatus = {
     passed,
-    exit_code: passed ? 0 : 1,
+    // Infra gedimas keliauja SAVO kodu (ne 1): CLI exit kodą ima iš statuso, tad skip-dispatch ir
+    // verify-task `isInfrastructureExit` vartai pamato timeout/aplinką ir task'ą grąžina į queue
+    // vietoj klaidingo repair/human-review.
+    exit_code: passed ? 0 : (infrastructureExit ?? 1),
     has_commands: true,
     scope,
     commands,
     skipped: [],
     failed_gates: failedGates,
     results,
+    ...(infrastructureExit === undefined
+      ? {}
+      : { message: `quality gates aborted by infrastructure failure (exit ${infrastructureExit})` }),
     updated_at: updatedAt,
   };
   await ports.writeStatus(status);

@@ -112,6 +112,7 @@ test("buildDiagnosisPrompt: sekcijos, digest'ai ir reduced skalė", () => {
 
 type HarnessInput = {
   gatesPassed?: boolean | undefined;
+  gatesExit?: number;
   exitRaw?: string;
   stop?: Partial<StopEvidenceView>;
   gitStatus?: string;
@@ -175,7 +176,12 @@ function makeHarness(input: HarnessInput = {}): Harness {
     readStopEvidence: async () => stop,
     readClaudeSessionLog: async () => ({ origin: "attempt", text: "runner output" }),
     readGatesStatus: async () =>
-      input.gatesPassed === undefined ? undefined : ({ passed: input.gatesPassed } as QualityGatesStatus),
+      input.gatesPassed === undefined
+        ? undefined
+        : ({
+            passed: input.gatesPassed,
+            exit_code: input.gatesExit ?? (input.gatesPassed ? 0 : 1),
+          } as QualityGatesStatus),
     readRetryCounts: async () => ({}),
     readRetryCountsRaw: async () => "{}",
     readErrorSignatures: async () => input.errorSignatures ?? {},
@@ -261,6 +267,20 @@ test("claudeDiagnose: lokalus repair — checks nepraėjo, repair prompt'as su o
   assert.ok(repair.includes("`src/a.ts`"), "carryTaskScopeIntoRepairPrompt perkėlė ## Failai scope");
   assert.ok(repair.includes("`pnpm test`"), "originalo ## Patikra komandos perkeltos");
   assert.deepEqual(h.usageLogs[0], ["diagnose-local", "none", undefined]);
+});
+
+test("claudeDiagnose: infra gate exit (124) grąžinamas kaip exit kodas — diagnozė nevykdoma", async () => {
+  // GeoGravity 1178: gate timeout virsdavo „clear local issue: exit_code: 124" repair ciklu.
+  // Dabar infra kodas keliauja atgal, verify-task jį klasifikuoja `infrastructure` → queue.
+  const h = makeHarness({
+    gatesPassed: false,
+    gatesExit: 124,
+    checksLog: "Command timed out after 1800s: pnpm.cmd test\nexit_code: 124\n",
+  });
+  assert.equal(await claudeDiagnose(["t"], h.ports), 124);
+  assert.deepEqual(h.decisions, [], "joks verdiktas nerašomas");
+  assert.deepEqual(h.repairWrites, [], "joks repair prompt'as negimsta");
+  assert.match(h.agLines.join("\n"), /CLAUDE DIAGNOSIS \(infra\).*quality_gates_infrastructure_exit=124/);
 });
 
 test("claudeDiagnose: pasikartojanti klaida eskaluojama į human_review (F9)", async () => {

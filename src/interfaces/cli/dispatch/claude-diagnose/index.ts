@@ -6,7 +6,7 @@
 // ClaudeDiagnosePorts; handler'is grąžina exit kodą.
 
 import path from "node:path";
-import { USAGE_ERROR_EXIT_CODE, USAGE_LIMIT_EXIT_CODE } from "../../../../shared/exit-codes.js";
+import { USAGE_ERROR_EXIT_CODE, USAGE_LIMIT_EXIT_CODE, isInfrastructureExitCode } from "../../../../shared/exit-codes.js";
 import {
   evaluateDeterministicDone,
   evaluateLocalDiagnosis,
@@ -133,6 +133,27 @@ export async function claudeDiagnose(args: string[], ports: ClaudeDiagnosePorts)
   }
   const effectiveStopStatus = effectiveStop.status;
   const gatesStatus = await ports.readGatesStatus();
+  // Vartai krito dėl APLINKOS (timeout 124, stale dist 78, IO 74, usage 75, ...) — tai nieko
+  // nesako apie šio task'o kodą, tad diagnozė čia neturi ko diagnozuoti: nei lokali („clear
+  // local issue: exit_code: 124" gimdė repair ciklus be jokio raudono testo — GeoGravity 1178),
+  // nei LLM (sudegtų be informacijos). Grąžinamas pats infra kodas — verify-task diagnose šaka
+  // jį klasifikuoja kaip `infrastructure` ir task'as grįžta į queue.
+  if (gatesStatus !== undefined && !gatesStatus.passed && isInfrastructureExitCode(gatesStatus.exit_code)) {
+    await ports.recordResumeCheckpoint({
+      actor: "supervisor",
+      phase: "diagnosis",
+      status: "failed",
+      task_id: taskId,
+      task_file: taskFile,
+      log_file: supervisorLogPath,
+      exit_code: gatesStatus.exit_code,
+      next_action: "Quality gates aborted by infrastructure — task returns to queue via the infra abort path",
+    });
+    await ports.agLog(
+      `CLAUDE DIAGNOSIS (infra): task=${taskId} quality_gates_infrastructure_exit=${gatesStatus.exit_code} — skipping diagnosis`,
+    );
+    return gatesStatus.exit_code;
+  }
   const claudeSessionLog = await ports.readClaudeSessionLog();
   const gitStatusText = await ports.git.status();
   const dirtyEntries = nonRuntimeDirtyEntriesFromStatus(gitStatusText);

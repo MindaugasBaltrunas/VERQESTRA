@@ -368,6 +368,18 @@ test("runQualityGates: be komandų — has_commands=false ir exit 1", async () =
   assert.throws(() => parseQualityScope(["--scope", "banana"]), /Usage: verqestra quality-gates/);
 });
 
+test("runQualityGates: infrastruktūrinis runner exit (timeout 124) keliauja SAVO kodu, ne išplaunamas į 1", async () => {
+  // GeoGravity 1178 pamoka: gate timeout 124 virsdavo `exit_code: 1`, tad skip-dispatch ir
+  // verify-task `isInfrastructureExit` vartai jo nematė ir task'as sukdavo repair ciklą.
+  const { ports } = makePorts({ checks: ["pnpm build", "pnpm test"], runnerExit: (d) => (d === "pnpm test" ? 124 : 0) });
+  const status = await runQualityGates(ports, []);
+  assert.equal(status.passed, false);
+  assert.equal(status.exit_code, 124, "infra kodas propaguojamas, ne 1");
+  assert.match(status.message ?? "", /aborted by infrastructure failure \(exit 124\)/);
+  const { ports: taskFailPorts } = makePorts({ runnerExit: 1 });
+  assert.equal((await runQualityGates(taskFailPorts, [])).exit_code, 1, "task failure lieka 1");
+});
+
 test("runQualityGates: memo hit praleidžia suite; --no-memo paleidžia pilną ir atnaujina antspaudą", async () => {
   const record = gatesMemoRecordFor(IDENTITY, "task", ["pnpm test"], "anksčiau");
   const memo = { ...emptyMemo(), read: { status: "hit", record } as GatesMemoReadResult };

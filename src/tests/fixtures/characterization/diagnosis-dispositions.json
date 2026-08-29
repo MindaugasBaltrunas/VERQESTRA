@@ -159,6 +159,12 @@
       "expect": { "verdict": "repair", "reason": "clear local issue: error TS2304: Cannot find name", "requiresModel": false }
     },
     {
+      "id": "local-infra-timeout-exit-code-not-clear-local-issue",
+      "fn": "evaluateLocalDiagnosis",
+      "input": { "taskId": "t", "checksPassed": false, "exitCode": 0, "changedFiles": ["src/in.ts"], "allowedPaths": ["src/**"], "stderr": "Command timed out after 1800s: pnpm.cmd test\nexit_code: 124", "stdout": "" },
+      "expect": { "verdict": "repair", "reason": "checks failed", "requiresModel": false }
+    },
+    {
       "id": "local-unknown-stop-status-human-review",
       "fn": "evaluateLocalDiagnosis",
       "input": { "taskId": "t", "changedFiles": ["src/in.ts"], "allowedPaths": ["src/**"], "stopStatus": "weird" },

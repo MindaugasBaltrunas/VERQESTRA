@@ -7,6 +7,7 @@
 // (logHasAlreadyImplementedMarker) lieka adapterio pusėje — jis parsina log formatą.
 
 import { matchesAllowedPath } from "../tasks/allowed-paths.js";
+import { isInfrastructureExitCode } from "../../shared/exit-codes.js";
 
 // ---------------------------------------------------------------------------
 // Stop įrodymo kilmė (task 0042)
@@ -322,9 +323,18 @@ export function evaluateLocalDiagnosis(signals: LocalResultSignals): LocalDiagno
 }
 
 function isClearLocalIssue(output: string): boolean {
-  return /\b(error TS\d+|AssertionError|ERR_ASSERTION|SyntaxError|TypeError|ReferenceError|lint|test failed|build failed|exit_code:\s*[1-9])/i.test(
-    output,
-  );
+  if (/\b(error TS\d+|AssertionError|ERR_ASSERTION|SyntaxError|TypeError|ReferenceError|lint|test failed|build failed)/i.test(output)) {
+    return true;
+  }
+  // `exit_code: N` eilutė yra „aiški lokali klaida" TIK kai kodas nėra infrastruktūrinis:
+  // timeout 124 / stale dist 78 / usage 75 ir kt. yra aplinkos verdiktai, ir jų pavertimas
+  // repair signature („clear local issue: exit_code: 124") sukdavo repair ciklus be jokio
+  // raudono testo bei nuodydavo retry-counts globalų parašų skaitliuką (GeoGravity 1178).
+  for (const match of output.matchAll(/\bexit_code:\s*(\d+)/gi)) {
+    const code = Number.parseInt(match[1] ?? "", 10);
+    if (Number.isFinite(code) && code !== 0 && !isInfrastructureExitCode(code)) return true;
+  }
+  return false;
 }
 
 function localIssueReason(output: string): string {

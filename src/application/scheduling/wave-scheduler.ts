@@ -24,7 +24,7 @@ import {
   type SchedulableTask,
 } from "./schedule-next-wave.js";
 import { applyReadySetGates, formatWaveBlockedReason, planWaveWithoutGraph } from "./apply-ready-set-gates.js";
-import { decideResume, type ResumeDecision } from "./resume-run.js";
+import { decideResume, describeStrandedStaleResume, type ResumeDecision } from "./resume-run.js";
 import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js";
 import { createWaveGraphCoordinator } from "./wave-graph.js";
 import type { ReadySetBudget } from "./build-ready-set.js";
@@ -352,12 +352,12 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       }
 
       const taskId = checkpoint?.task_id ?? "";
+      const checkpointLocation = taskId === "" ? ("absent" as const) : await deps.locateTask(taskId);
       const decision = decideResume(checkpoint, {
         currentGraphHash: current.graph_hash,
-        location: taskId === "" ? "absent" : await deps.locateTask(taskId),
+        location: checkpointLocation,
         acceptedCommit: taskId === "" ? false : await deps.hasAcceptedWork(taskId),
-        completedTaskIds: state.completed,
-      });
+        completedTaskIds: state.completed });
 
       if (decision.action === "skip-completed" && decision.task_id !== undefined) {
         // Idempotentiškumas: priimtas arba užverstas darbas NIEKADA nekartojamas.
@@ -386,7 +386,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       }
 
       if (decision.action !== "no-checkpoint") {
-        await safeLog(`WAVE RESUME: ${decision.action} task=${decision.task_id ?? "none"} (${decision.reason})`);
+        await safeLog(`WAVE RESUME: ${decision.action} task=${decision.task_id ?? "none"} (${decision.reason})${describeStrandedStaleResume(decision, checkpointLocation)}`);
         await safeEvent({
           run_id: deps.runId,
           wave_id: state.waveId,

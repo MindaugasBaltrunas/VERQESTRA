@@ -171,6 +171,19 @@ export function decideResume(
   return decision("resume-attempt", ["interrupted-attempt"], true, taskId);
 }
 
+/**
+ * Log priedas atvejui, kai `discard-stale` palieka task'o failą resumable bucket'e
+ * (active/delegated/error): checkpoint'as priklauso kitam grafui, o naujas planas task'us mato
+ * TIK per eilę — be perkėlimo failas lieka strandintas amžiams ir daugiau negeneruoja jokio
+ * įvykio (GeoGravity 1178-a-02, 2026-08-29: po graph-hash-mismatch failas liko `active/` ir
+ * eilė tyliai jį aplenkė). Kol requeue neautomatizuotas, operatorius bent gauna aiškų veiksmą
+ * vietoj tylos. Kitoms baigtims grąžinama tuščia eilutė — log formatas nepakinta.
+ */
+export function describeStrandedStaleResume(decision: ResumeDecision, location: ResumeTaskLocation): string {
+  if (decision.action !== "discard-stale" || location !== "resumable-bucket") return "";
+  return " — STALE TASK STRANDED: task file is not part of the new plan; move it back to queue (requeue) to dispatch again";
+}
+
 // `resumeAllowsDispatch` gyveno čia iki 2026-08-23: doc'as teigė „naudojama loop'e kaip
 // vienas vartas", bet nė vieno produkcinio kvietėjo neturėjo NEI čia, NEI etalone — tik
 // testus. Tikroji apsauga nuo pakartotinio dispatch'o yra BŪSENA: `recoverFromCrash`

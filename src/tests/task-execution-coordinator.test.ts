@@ -7,7 +7,10 @@ import test from "node:test";
 import { createRunCoordinator } from "../application/task-execution/run-coordinator.js";
 import type { CheapFinishPort, PreflightFailureMemoPort } from "../application/task-execution/run-coordinator-ports.js";
 import type { PreservedWorkReviewPorts } from "../application/task-execution/preserved-work-review-model.js";
-import type { PreflightFailureMemoRecord } from "../application/quality-gates/preflight-memo-schema.js";
+import {
+  PREFLIGHT_FAILURE_MEMO_SCHEMA_VERSION,
+  type PreflightFailureMemoRecord,
+} from "../application/quality-gates/preflight-memo-schema.js";
 import { createFakeTaskRunEnv, fakeBucketPath, type FakeTaskRunEnv } from "./helpers/fake-task-run-ports.js";
 
 const TASK = "0042";
@@ -105,6 +108,44 @@ test("start: raudonas preflight rašo memo, o antras bandymas be pakeitimo parku
   assert.equal(env.cliCalls.length, before, "antrame rate preflight CLI nekviestas");
   assert.equal(memo.store.get(TASK)?.repeat_count, 2, "hit'as didina repeat, failed_at nekeičiamas");
   assert.ok(env.logs.some((line) => line.includes("TASK PREFLIGHT RETRY GUARD")));
+});
+
+test("start: pasenęs (25h) preflight memo ištrinamas skaitymo metu ir task eina įprastu keliu iki done", async () => {
+  const env = createFakeTaskRunEnv();
+  const memo = makePreflightMemo();
+  env.ports.preflightMemo = memo.port;
+  const oldFailedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  memo.store.set(TASK, {
+    schema_version: PREFLIGHT_FAILURE_MEMO_SCHEMA_VERSION,
+    task_id: TASK,
+    content_hash: "stale-hash",
+    failure_class: "preflight-exit",
+    exit_code: 3,
+    failed_at: oldFailedAt,
+    repeat_count: 4,
+  });
+  env.behavior.decision = { status: "ok", decision: { verdict: "delegate" } };
+  env.behavior.cli = (args) => {
+    if (args[0] === "claude-diagnose") {
+      env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
+      env.behavior.git.hasNewHeadSince = true;
+      env.behavior.git.changedProductPaths = ["src/x.txt"];
+    }
+    return 0;
+  };
+
+  const coordinator = createRunCoordinator(env.ports);
+  const result = await coordinator.start(seedQueue(env));
+
+  assert.equal(result, true, "pasenęs memo neparkuoja — task užbaigia normalų kelią");
+  assert.equal(memo.store.has(TASK), false, "pasenęs įrašas ištrintas iš store lazy skaitymo metu");
+  assert.ok(env.logs.some((line) => line === `PREFLIGHT MEMO EXPIRED: task=${TASK} age=25h`));
+  assert.ok(
+    !env.journalEvents.some((event) => event.phase === "preflight-retry-guard"),
+    "jokio guard human-review žurnalo įrašo",
+  );
+  assert.ok(env.cliCalls.some((args) => args[0] === "claude-preflight"), "guard'as nebeblokuoja preflight kvietimo");
+  assert.ok(env.files.has(fakeBucketPath("done", TASK_MD)));
 });
 
 test("start: dispatch infrastruktūros gedimas meta abort'ą ir grąžina task'ą į queue", async () => {

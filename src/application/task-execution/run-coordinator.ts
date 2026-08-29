@@ -28,7 +28,7 @@ import {
 import type { ResumeStateSnapshot, TaskRunPorts } from "./run-coordinator-ports.js";
 import { decisionInvalidMarker } from "./run-coordinator-ports.js";
 import { createTaskRunState, type TaskRunState } from "./task-run-state.js";
-import { PREFLIGHT_START_FAILURE_CLASS, preflightRetryWithoutChange } from "./run-coordinator-guards.js";
+import { PREFLIGHT_START_FAILURE_CLASS, preflightMemoAgeMs, preflightMemoExpired, preflightRetryWithoutChange } from "./run-coordinator-guards.js";
 import { dispatchTask } from "./dispatch-task.js";
 import { repairTask } from "./repair-task.js";
 import { confirmSkippedDispatch, probeWorkEvidence } from "./skip-dispatch.js";
@@ -338,6 +338,13 @@ export function createRunCoordinator(ports: TaskRunPorts, options: RunCoordinato
     if (!memo) return false;
     const read = await memo.read(state.taskId);
     const record = read.status === "hit" ? read.record : undefined;
+    const nowMs = Date.now();
+    if (record && preflightMemoExpired(record, nowMs)) {
+      const ageHours = Math.round(preflightMemoAgeMs(record, nowMs) / 3_600_000);
+      await memo.clear(state.taskId);
+      await ports.log.write(`PREFLIGHT MEMO EXPIRED: task=${state.taskId} age=${ageHours}h`);
+      return false;
+    }
     if (
       !preflightRetryWithoutChange(record, {
         taskId: state.taskId,

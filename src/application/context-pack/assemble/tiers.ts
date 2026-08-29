@@ -105,6 +105,24 @@ type TierMeasurableSymbol = {
  * `tier`, no `source`, but `signature` already read from the index with no extra I/O) still
  * reports its real SIG weight instead of leaving the pair absent. SRC stays a true zero in that
  * case: no source slice was ever read, so there is nothing to sum.
+ *
+ * Why the two totals stay one-sided per pack, and why that is NOT fixable here (task 087):
+ * the `symbol_slices` shadow pair wants the SAME symbols measured twice — once as source
+ * (`raw`), once as signature (`compiled`) — but this function runs in persist.ts over the
+ * ALREADY-DEMOTED `symbol_fragments` of the encoded pack. A SIG symbol there carries its
+ * signature and nothing else: its slice text was read at gather time and deliberately dropped
+ * by `applyCodeContextTiers` below (only SRC keeps `source`), and `line`/`endLine` cannot be
+ * turned back into a char count without re-reading the file. So the hypothetical SRC size of a
+ * SIG symbol is recoverable ONLY by paying source I/O again — which would make telemetry
+ * charge for exactly the read the compression exists to avoid.
+ *
+ * The gather-time route (measuring `candidates.sourceSlices` inside `applyCodeContextTiers`,
+ * where the text is still in hand and costs nothing) is no-extra-I/O but breaks a stronger
+ * invariant: persist.ts is the SINGLE telemetry writer precisely so a cache HIT and the miss it
+ * replaced emit identical records, and a hit never runs gather. A gather-only number would make
+ * `symbol_source_chars` mean one thing on a miss and another on a hit. Carrying it across
+ * needs either assemble.ts plumbing or a new pack field (cache-version bump) — an operator
+ * decision, not a writer-side one.
  */
 export function measureSymbolTierChars(
   symbols: readonly TierMeasurableSymbol[],

@@ -364,3 +364,108 @@ test("finalizeDispatch: toolSchema.shadow neapibrėžtas — context-size.jsonl 
     .filter((record) => record["task_id"] === "0100");
   assert.equal(sizeLines.length, 0, "shadow neapibrėžtas — jokios eilutės šiam task'ui");
 });
+
+test("finalizeDispatch: launchRecord.prompt apibrėžtas — context-size.jsonl gauna worker_prompt_chars ir raw_task_chars", async () => {
+  const sentPrompt = "# Task\n\nRealus worker prompt'as, siųstas Claude.";
+  const launchRecord: Omit<DispatchExecutionRecordInput, "status"> = {
+    phase: "implementation",
+    taskFile: "AG/tasks/queue/0086.md",
+    sourceChange: true,
+    selectedModel: "sonnet",
+    failedAttempts: 0,
+    attempt: 2,
+    startedAt: "2026-08-29T12:00:00.000Z",
+    contextGate: { kind: "skip", reason: "non-source" },
+    prompt: sentPrompt,
+    workerPrompt: { mode: "raw", taskSha256: "deadbeef", rawChars: 123 },
+  };
+
+  await finalizeDispatch({
+    runtimeRoot,
+    taskId: "0086",
+    taskFile: "AG/tasks/queue/0086.md",
+    dispatchPhase: "implementation",
+    attempt: 2,
+    effectiveTier: "sonnet",
+    routingReasonCodes: ["routine-default"],
+    claudeExitFile: path.join(runtimeRoot, "state", "claude-last-exit-code"),
+    claudeLog: path.join(runtimeRoot, "logs", "claude-last.log"),
+    claudeLogText: "",
+    toolSchema: { mode: "off", candidates: [], applied: [], reason: "policy" },
+    launchRecord,
+    outcome: {
+      exitCode: 0,
+      usageLimitHit: false,
+      zeroUsageSuccess: false,
+      stopBridgeDone: false,
+    },
+    recordExecutionResult: async () => undefined,
+    recordResumeCheckpoint: async () => undefined,
+    logDispatch: async () => undefined,
+  });
+
+  const sizeRaw = (await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "logs", "context-size.jsonl")))!;
+  const sizeLines = sizeRaw
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((record) => record["task_id"] === "0086");
+  assert.equal(sizeLines.length, 1, "vienas worker-prompt-chars įrašas šiam task'ui");
+  assert.equal(sizeLines[0]?.["worker_prompt_chars"], sentPrompt.length, "realus siųstas prompt'o ilgis, ne aproksimacija");
+  assert.equal(sizeLines[0]?.["raw_task_chars"], 123);
+  assert.equal(sizeLines[0]?.["attempt"], 2);
+  assert.equal(sizeLines[0]?.["attempt_id"], "0086:dispatch:2");
+});
+
+test("finalizeDispatch: worker-prompt-chars matavimo klaida (neteisingas rawChars) finalize nenutraukia", async () => {
+  const launchRecord: Omit<DispatchExecutionRecordInput, "status"> = {
+    phase: "implementation",
+    taskFile: "AG/tasks/queue/0087.md",
+    sourceChange: true,
+    selectedModel: "sonnet",
+    failedAttempts: 0,
+    attempt: 1,
+    startedAt: "2026-08-29T12:00:00.000Z",
+    contextGate: { kind: "skip", reason: "non-source" },
+    prompt: "kabutis",
+    workerPrompt: { mode: "raw", taskSha256: "deadbeef", rawChars: -1 },
+  };
+  const records: DispatchExecutionRecord[] = [];
+
+  await finalizeDispatch({
+    runtimeRoot,
+    taskId: "0087",
+    taskFile: "AG/tasks/queue/0087.md",
+    dispatchPhase: "implementation",
+    attempt: 1,
+    effectiveTier: "sonnet",
+    routingReasonCodes: ["routine-default"],
+    claudeExitFile: path.join(runtimeRoot, "state", "claude-last-exit-code"),
+    claudeLog: path.join(runtimeRoot, "logs", "claude-last.log"),
+    claudeLogText: "",
+    toolSchema: { mode: "off", candidates: [], applied: [], reason: "policy" },
+    launchRecord,
+    outcome: {
+      exitCode: 0,
+      usageLimitHit: false,
+      zeroUsageSuccess: false,
+      stopBridgeDone: false,
+    },
+    recordExecutionResult: async (record) => {
+      records.push(record);
+    },
+    recordResumeCheckpoint: async () => undefined,
+    logDispatch: async () => undefined,
+  });
+
+  assert.equal(records[0]?.status, "finished", "neteisingas rawChars nesulaužo finalize — likusi eiga baigiasi");
+
+  const sizeRaw = await nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "logs", "context-size.jsonl"));
+  const sizeLines = (sizeRaw ?? "")
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((record) => record["task_id"] === "0087");
+  assert.equal(sizeLines.length, 0, "invalid matavimas — jokios eilutės nerašoma šiam task'ui");
+});

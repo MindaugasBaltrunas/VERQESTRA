@@ -158,4 +158,30 @@ export async function finalizeDispatch(input: FinalizeDispatchInput): Promise<vo
       // Shadow telemetrija yra best-effort: gedimas negali sulaužyti dispatch finalize.
     }
   }
+
+  // Task 0086: `worker_prompt_chars` neturėjo rašytojo visame `src`, tad `joinPostRunTruth`
+  // (task 0042) visada matė jį `undefined`. `input.launchRecord.prompt` yra tas pats string'as,
+  // kuris nueina į `resolveDelivery`/launchProcess (CTX-2) — realus siųstas prompt'as, ne jo
+  // aproksimacija. Rašoma TIK kai jis žinomas: senesni/testiniai kvietėjai gali jo neduoti, ir
+  // tuščia eilutė (be jokio matavimo) nieko neįrodytų.
+  const workerPromptChars = input.launchRecord.prompt?.length;
+  if (workerPromptChars !== undefined) {
+    try {
+      const rawTaskChars = input.launchRecord.workerPrompt?.rawChars;
+      const sizeRecord = buildContextSizeMetrics({
+        taskId: input.taskId,
+        attempt: input.attempt,
+        attempt_id: `${input.taskId}:dispatch:${input.attempt}`,
+        contextChars: 0,
+        maxContextChars: 0,
+        specFragmentCount: 0,
+        codeContextItemCount: 0,
+        workerPromptChars,
+        ...(rawTaskChars === undefined ? {} : { rawTaskChars }),
+      });
+      await appendContextSizeMetrics(nodeFsAdapter, input.runtimeRoot, sizeRecord);
+    } catch {
+      // Best-effort: gedimas negali sulaužyti dispatch finalize.
+    }
+  }
 }

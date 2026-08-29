@@ -10,19 +10,16 @@
 //
 // Trys taisyklės, kurios yra kontraktas, o ne įgyvendinimo detalė:
 //
-//   1. **Įrodymo nebuvimas niekada nevirsta leidimu.** Nedeklaruotas scope, **neribotos apimties**
-//      wildcard šablonas, neišsprendžiamas kelias ar nepatikrintas kontraktas yra `evidence gap`, ir
-//      bet kuris gap'as vienoje pusėje reiškia nuoseklų vykdymą — lygiai taip pat, kaip reali
-//      sankirta. Tai tiesioginis spec PAR-2 reikalavimas. Ribotos apimties šablonas
-//      (`isBoundedGlobPattern`) spragos nebeuždeda: jo aprėptis yra apskaičiuojama, tad įrodymas
-//      YRA — o klaidingas įrodymo trūkumas kainuoja lygiagretumą lygiai taip pat tyliai.
-//   2. **Scope semantika viena visai sistemai.** Kelių persidengimas skaičiuojamas per
-//      domain `scope-lock-rules.ts#scopesConflict`, o „ar tai migracija / generuotas artefaktas" —
-//      per `integration/contract-paths.ts`. Antra tų taisyklių kopija reikštų, kad detektorius
-//      leidžia tai, ką lock'as vėliau blokuoja (arba atvirkščiai), ir vartai prasilenktų.
+//   1. **Įrodymo nebuvimas niekada nevirsta leidimu.** Nedeklaruotas scope, neapibrėžtos apimties
+//      wildcard, neišsprendžiamas kelias ar nepatikrintas kontraktas yra `evidence gap`, ir bet
+//      kuris gap'as vienoje pusėje reiškia nuoseklų vykdymą — lygiai taip pat, kaip reali sankirta
+//      (spec PAR-2). Šablonas, kurio apimtis APSKAIČIUOJAMA (`isBoundedGlobPattern`,
+//      `directoryGlobPrefix`), spragos nebeuždeda — įrodymas yra.
+//   2. **Scope semantika viena visai sistemai.** Kelių persidengimas — per domain
+//      `scope-lock-rules.ts#scopesConflict`, „migracija/generuotas" — per `integration/contract-
+//      paths.ts`. Antra kopija reikštų, kad detektorius leidžia tai, ką lock'as vėliau blokuoja.
 //   3. **Modulis grynas.** Jokio FS, git, laikrodžio ar atsitiktinumo: tie patys write set'ai
-//      visada duoda tą patį verdiktą ir tą patį `verdict_hash`, tad sprendimą galima perskaičiuoti
-//      po restart'o ir palyginti su tuo, kuris jau buvo priimtas.
+//      visada duoda tą patį verdiktą ir tą patį `verdict_hash`, palyginamą po restart'o.
 //
 // Konfliktų kryptis sąmoningai konservatyvi. Klaidingai serializuoti du nepriklausomus task'us
 // kainuoja laiko; klaidingai paleisti du workerius į tą patį failą, simbolį ar kontraktą kainuoja
@@ -33,9 +30,9 @@ import { normalizeScopeValue, scopesConflict, type ScopeLockKind } from "../../d
 import { canonicalJsonStringify } from "../../shared/json.js";
 import { isGeneratedPath, isMigrationPath } from "../integration/contract-paths.js";
 
-/** Detektoriaus TAISYKLIŲ versija. Įeina į atspaudus, tad pakeitus taisykles seni verdiktai tampa stale. */
-// v2 (035-a-02): ribotos apimties glob'as (`isBoundedGlobPattern`) nebeuždeda `wildcard-scope` spragos.
-export const CONFLICT_DETECTOR_VERSION = 2;
+/** Detektoriaus TAISYKLIŲ versija (įeina į atspaudus). v2: ribotas failo glob'as nebeuždaro spragos.
+ * v3 (081): katalogo glob `<kelias>/**`/`<kelias>/*` tampa `kind: directory` (`directoryGlobPrefix`). */
+export const CONFLICT_DETECTOR_VERSION = 3;
 
 /**
  * Write scope rūšys. Pirmosios penkios yra KELIŲ šeima (jų persidengimą sprendžia scope lock
@@ -76,13 +73,11 @@ export type EvidenceGapCode =
   /** Task'as nedeklaruoja nė vieno rašomo kelio — nėra ko lyginti. */
   | "no-declared-scope"
   /**
-   * NERIBOTOS apimties wildcard scope: aprėptis neapibrėžta (spec PAR-2).
-   *
-   * Kelių šeimoje spraga nebeuždedama RIBOTAM šablonui — ≥2 segmentai, literalus katalogo
-   * prefiksas, wildcard tik paskutiniame segmente, fiksuotas plėtinys ir ne migracijų kelias
-   * (žr. `isBoundedGlobPattern`). Tokio šablono aprėptį `scopesConflict` apskaičiuoja, tad
-   * įrodymas yra, ir spraga tik tyliai atimtų lygiagretumą. Tapatybių šeimoje
-   * (`pushIdentityEntries`) spraga LIEKA bet kokiam wildcard'ui: jos lyginamos tiksliai.
+   * NERIBOTOS apimties wildcard scope: aprėptis neapibrėžta (spec PAR-2). Kelių šeimoje spraga
+   * nebeuždedama DVIEM ribotoms formoms — failo glob'ui su literaliu prefiksu ir fiksuotu
+   * plėtiniu (`isBoundedGlobPattern`) bei katalogo glob'ui `<kelias>/**`/`<kelias>/*`
+   * (`directoryGlobPrefix`); abiem aprėptį apskaičiuoja `scopesConflict`, tad įrodymas yra.
+   * Tapatybių šeimoje (`pushIdentityEntries`) spraga LIEKA bet kokiam wildcard'ui — tiksli lygybė.
    */
   | "wildcard-scope"
   /** Kelias neišsprendžiamas (absoliutus, už repo ribų, `..`). */
@@ -147,45 +142,25 @@ function hasWildcard(value: string): boolean {
 const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
 
 /**
- * Ar glob'o šablono APIMTIS yra ribota, t. y. ar jį apskritai verta laikyti įrodytu.
- *
- * Predikatas tikrina TIK ŠABLONO FORMĄ ir NIEKADA neatsakinėja į klausimą „ar du glob'ai
- * kertasi" — tas klausimas lieka domain `scope-lock-rules.ts#scopesConflict` (failo antraštės
- * 2 taisyklė: scope semantika viena visai sistemai).
- *
- * Įėjimas privalo būti `normalizeScopeValue` apdorota reikšmė (`classified.scope`), niekada
- * `raw`: normalizacija nuima `./`, dubliuotus ir galinius `/`, be kurių segmentų skaičiavimas
- * meluotų.
+ * Ar glob'o šablono APIMTIS yra ribota, t. y. ar jį apskritai verta laikyti įrodytu. Tikrina TIK
+ * šablono formą — sankirtos klausimas lieka domain `scope-lock-rules.ts#scopesConflict`. Įėjimas
+ * privalo būti `normalizeScopeValue` apdorota reikšmė (`classified.scope`), niekada `raw`.
  *
  * Ribotas yra tik šablonas, tenkinantis VISUS punktus:
  *
- *   1. yra bent vienas `*` (be jo tai apskritai ne glob'as);
- *   2. nėra `?`. `globMatches` be-`*` šakoje lygina prefiksu, o `wildcardPatternMatches` `?`
- *      escape'ina kaip RAIDĘ — deklaruota ir apskaičiuota aprėptis prasilenkia, tad `?` turintis
- *      šablonas įrodymu nelaikomas;
- *   3. nėra `**` niekur stringe (ne per segmentus: `src/a**b.ts` irgi turi kristi) — neribotas gylis;
- *   4. bent 2 segmentai. Vieno segmento šablono `solidPrefix` yra tuščias, o `pathContains(x, "")`
- *      visada `false`, tad `scope-lock-rules.ts:185` atsarginė šaka dingsta VISIEMS konteineriams
- *      ir lieka tik `globMatches` — per siaura, kad būtų įrodymas;
- *   5. nė vienas segmentas, IŠSKYRUS paskutinį, neturi `*` — katalogo prefiksas privalo būti literalus;
+ *   1. yra bent vienas `*`;
+ *   2. nėra `?` — `wildcardPatternMatches` jį lygina kaip raidę, tad aprėptis prasilenkia;
+ *   3. nėra `**` niekur stringe — neribotas gylis (ne per segmentus: `src/a**b.ts` irgi krenta);
+ *   4. bent 2 segmentai — vieno segmento `solidPrefix` tuščias, `pathContains(x,"")` visada `false`;
+ *   5. nė vienas segmentas, IŠSKYRUS paskutinį, neturi `*` — katalogo prefiksas literalus;
  *   6. paskutinis segmentas turi fiksuotą plėtinį (`FILE_EXTENSION`);
- *   7. tai ne migracijų kelias. `classifyWriteScopePath` wildcard'ą sprendžia PRIEŠ migraciją, tad
- *      `db/migrations/*.sql` yra kind `glob`, o globalios serializacijos taisyklė
- *      (`scope-lock-rules.ts:173`) reikalauja `migration-chain` ABIEJOSE pusėse. Panaikinus spragą
- *      tokia migracija taptų lygiagrečia su kita grandine — būtent to taisyklė ir neleidžia.
+ *   7. tai ne migracijų kelias — `db/migrations/*.sql` privalo likti `migration-chain` globalios
+ *      serializacijos pusėje (`scope-lock-rules.ts:173`), o ne tapti lygiagrečiu glob'u.
  *
- * Kodėl tai saugu keliams: tokiam šablonui `globMatches` patenka į `wildcardPatternMatches` šaką
- * be gylio, o `scopesConflict` glob-vs-kelias šaka papildomai tikrina
- * `pathContains(kelias, solidPrefix(glob))` — tad sankirtą duoda ir katalogas-konteineris
- * (`src` vs `src/tests/a-*.test.ts`), ir bet koks šabloną atitinkantis failas.
- *
- * ŽINOMA RIBA, kurios šis predikatas NEUŽDARO: repo šaknis, deklaruota kaip `.`, nesikerta su
- * NIEKUO — `pathContains(".", x)` yra `false` bet kokiam `x` (`scope-lock-rules.ts:138-142`), tad
- * `.` jau iki šio pakeitimo praleisdavo ir paprastus failus. Ribotas glob'as tą pačią skylę tik
- * praplečia vienu atveju (`.` vs `src/*.ts`). Šaknis taisoma domain sluoksnyje — atskira užduotis.
- *
- * ĮSPĖJIMAS: šio predikato saugumas remiasi `solidPrefix`/`globMatches` elgesiu. Keičiant juos,
- * šis predikatas privalo būti to paties keitimo dalis.
+ * Saugu, nes `scopesConflict` glob-vs-kelias šaka tikrina `pathContains(kelias, solidPrefix(glob))`
+ * — sankirtą duoda ir katalogas-konteineris, ir bet koks šabloną atitinkantis failas.
+ * ŽINOMA RIBA: repo šaknis `.` nesikerta su niekuo (`pathContains(".", x)` visada `false`), tad
+ * `.` vs `src/*.ts` praleidžia lygiai kaip anksčiau — taisoma domain sluoksnyje, atskira užduotis.
  */
 function isBoundedGlobPattern(normalizedScope: string): boolean {
   if (!normalizedScope.includes("*")) return false;
@@ -203,6 +178,26 @@ function isBoundedGlobPattern(normalizedScope: string): boolean {
   if (!FILE_EXTENSION.test(last)) return false;
 
   return !isMigrationPath(normalizedScope);
+}
+
+/**
+ * Ar glob'as KATALOGO formos: paskutinis segmentas visas `**`/`*`, prefiksas literalus ir netuščias.
+ * `null` kai neatitinka (plikas `**`/`*`, `**` ne paskutinis, wildcard prefikse) arba migracija (7
+ * punktas aukščiau). Prefiksas TYČIA platesnis nei tikra `/*` semantika — daugiau sankirtų (task 081).
+ */
+function directoryGlobPrefix(normalizedScope: string): string | null {
+  const segments = normalizedScope.split("/");
+  const last = segments[segments.length - 1];
+  if (last !== "**" && last !== "*") return null;
+
+  const prefixSegments = segments.slice(0, -1);
+  if (prefixSegments.length === 0) return null;
+  for (const segment of prefixSegments) {
+    if (hasWildcard(segment)) return null;
+  }
+
+  const prefix = prefixSegments.join("/");
+  return isMigrationPath(prefix) || isMigrationPath(normalizedScope) ? null : prefix;
 }
 
 /**
@@ -251,11 +246,18 @@ function pushPathEntries(
       });
       continue;
     }
-    const kind = forcedKind ?? classified.kind;
-    if (kind === "glob" && !isBoundedGlobPattern(classified.scope)) {
-      gaps.push({ code: "wildcard-scope", detail: `${source}: '${classified.scope}' aprėptis neapibrėžta` });
+    let kind = forcedKind ?? classified.kind;
+    let scope = classified.scope;
+    if (kind === "glob") {
+      const directoryPrefix = directoryGlobPrefix(scope);
+      if (directoryPrefix !== null) {
+        kind = "directory";
+        scope = directoryPrefix;
+      } else if (!isBoundedGlobPattern(scope)) {
+        gaps.push({ code: "wildcard-scope", detail: `${source}: '${scope}' aprėptis neapibrėžta` });
+      }
     }
-    entries.push({ kind, scope: classified.scope, source });
+    entries.push({ kind, scope, source });
   }
 }
 

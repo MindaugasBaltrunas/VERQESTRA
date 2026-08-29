@@ -26,14 +26,14 @@ test("computeTaskWriteSet: evidence gaps and deterministic fingerprint", () => {
   const clean = computeTaskWriteSet({ task_id: "0001", allowed_paths: ["src/a.ts", "src/a.ts", "docs/"] });
   assert.equal(clean.determinate, true);
   assert.equal(clean.entries.length, 2, "duplicate paths dedupe");
-  assert.match(clean.write_set_hash, /^ws2:[0-9a-f]{16}$/);
+  assert.match(clean.write_set_hash, /^ws3:[0-9a-f]{16}$/);
   assert.deepEqual(clean, computeTaskWriteSet({ task_id: "0001", allowed_paths: ["docs/", "src/a.ts"] }));
 
   const empty = computeTaskWriteSet({ task_id: "0002" });
   assert.equal(empty.determinate, false);
   assert.deepEqual(empty.gaps.map((gap) => gap.code), ["no-declared-scope"]);
 
-  const wildcard = computeTaskWriteSet({ task_id: "0003", allowed_paths: ["src/**"] });
+  const wildcard = computeTaskWriteSet({ task_id: "0003", allowed_paths: ["**/x.ts"] });
   assert.ok(wildcard.gaps.some((gap) => gap.code === "wildcard-scope"));
 
   const traversal = computeTaskWriteSet({ task_id: "0004", allowed_paths: ["../outside.ts"] });
@@ -69,14 +69,12 @@ test("computeTaskWriteSet: wildcard-scope gap only for unbounded patterns", () =
 
   const unbounded: readonly (readonly [string, string])[] = [
     ["src/a?.ts", "1: be `*` — `?` klasifikuoja kaip glob'ą, bet ribotumo neįrodo"],
-    ["src/tests/**", "3: `**` — neribotas gylis"],
     ["src/a**b.ts", "3: `**` ne segmento riboje"],
-    ["**/x.ts", "3: `**` — neribotas gylis"],
-    ["**", "3: `**` — neribotas gylis"],
-    ["*", "4: vienas segmentas"],
+    ["**/x.ts", "3: `**` — neribotas gylis, prefiksas tuščias"],
+    ["**", "3: `**` — neribotas gylis, prefiksas tuščias"],
+    ["*", "4: vienas segmentas, prefiksas tuščias"],
     ["*.ts", "4: vienas segmentas — tuščias solidPrefix"],
-    ["src/*", "6: paskutinis segmentas be fiksuoto plėtinio"],
-    ["src/a-*", "6: paskutinis segmentas be fiksuoto plėtinio"],
+    ["src/a-*", "6: paskutinis segmentas be fiksuoto plėtinio, ne pilnas `*`"],
     ["src/*/x.ts", "5: wildcard ne paskutiniame segmente"],
     ["src/a?-*.ts", "2: `?` lyginamas kaip raidė"],
     ["db/migrations/*.sql", "7: globali migracijų serializacija"],
@@ -90,12 +88,65 @@ test("computeTaskWriteSet: wildcard-scope gap only for unbounded patterns", () =
   }
 });
 
+test("computeTaskWriteSet: directory-form glob (`<path>/**`, `<path>/*`) resolves to a directory scope", () => {
+  // Task 081: GeoGravity generatoriai rašo `modules/<m>/src/**` formos kelius. Šis šablonas turi
+  // literalų, netuščią prefiksą, tad jo aprėptis YRA apibrėžta — katalogas — ir spraga nebeuždedama.
+  for (const scope of ["modules/x/src/**", "src/tests/**", "src/*"]) {
+    const writeSet = computeTaskWriteSet({ task_id: "0102", allowed_paths: [scope] });
+    assert.deepEqual(writeSet.gaps, [], `directory-form glob '${scope}' must not raise an evidence gap`);
+    assert.equal(writeSet.determinate, true, `directory-form glob '${scope}' is a determinate write set`);
+    assert.equal(writeSet.entries[0]?.kind, "directory", `directory-form glob '${scope}' becomes a directory entry`);
+    assert.equal(
+      writeSet.entries[0]?.scope,
+      scope.replace(/\/\*\*?$/, ""),
+      `directory-form glob '${scope}' keeps only its literal prefix as scope`,
+    );
+  }
+
+  // Plikas `**`/`*` (tuščias prefiksas) ir `**` kelio viduryje LIEKA neapibrėžti — forma neatitinka.
+  for (const scope of ["**", "*", "src/**/tests"]) {
+    const writeSet = computeTaskWriteSet({ task_id: "0103", allowed_paths: [scope] });
+    assert.ok(writeSet.gaps.some((gap) => gap.code === "wildcard-scope"), `'${scope}' must stay unknown-scope`);
+  }
+
+  // Migracijų keliai neperklasifikuojami: globali serializacija privalo išlikti.
+  const migrationGlob = computeTaskWriteSet({ task_id: "0104", allowed_paths: ["db/migrations/**"] });
+  assert.ok(migrationGlob.gaps.some((gap) => gap.code === "wildcard-scope"), "migration glob keeps its evidence gap");
+});
+
+test("evaluateWriteSetIndependence: directory-form globs conflict/parallelize like real directories", () => {
+  const dirVsFile = evaluateWriteSetIndependence(
+    computeTaskWriteSet({ task_id: "0105", allowed_paths: ["a/src/**"] }),
+    computeTaskWriteSet({ task_id: "0106", allowed_paths: ["a/src/x.ts"] }),
+  );
+  assert.equal(dirVsFile.independent, false, "a/src/** contains a/src/x.ts");
+  assert.equal(dirVsFile.conflicts[0]?.kind, "directory");
+
+  const dirVsDir = evaluateWriteSetIndependence(
+    computeTaskWriteSet({ task_id: "0107", allowed_paths: ["a/src/**"] }),
+    computeTaskWriteSet({ task_id: "0108", allowed_paths: ["b/src/**"] }),
+  );
+  assert.equal(dirVsDir.independent, true, "disjoint directory-form globs parallelize");
+
+  const bareWildcard = evaluateWriteSetIndependence(
+    computeTaskWriteSet({ task_id: "0109", allowed_paths: ["**"] }),
+    computeTaskWriteSet({ task_id: "0110", allowed_paths: ["src/x.ts"] }),
+  );
+  assert.equal(bareWildcard.independent, false, "a bare ** stays unknown-scope, forcing serial execution");
+
+  const midPathDoubleStar = evaluateWriteSetIndependence(
+    computeTaskWriteSet({ task_id: "0111", allowed_paths: ["src/**/tests"] }),
+    computeTaskWriteSet({ task_id: "0112", allowed_paths: ["src/x.ts"] }),
+  );
+  assert.equal(midPathDoubleStar.independent, false, "** in the middle of a path stays unknown-scope");
+});
+
 test("evaluateWriteSetIndependence: only clean, disjoint write sets parallelize", () => {
   const left = computeTaskWriteSet({ task_id: "0001", allowed_paths: ["src/moduleA/"] });
   const right = computeTaskWriteSet({ task_id: "0002", allowed_paths: ["src/moduleB/"] });
   const verdict = evaluateWriteSetIndependence(left, right);
   assert.equal(verdict.independent, true);
-  assert.match(verdict.verdict_hash, /^iv2:[0-9a-f]{16}$/);
+  assert.match(verdict.verdict_hash, /^iv3:[0-9a-f]{16}$/);
   assert.equal(verdict.verdict_hash, evaluateWriteSetIndependence(right, left).verdict_hash, "verdict is symmetric");
 
   const overlapping = evaluateWriteSetIndependence(

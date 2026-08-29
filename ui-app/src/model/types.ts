@@ -61,12 +61,17 @@ export type PolicyProposal = {
   routing: PolicyProposalRouting;
 };
 
-export type PolicyProposalStatus = "pending" | "approved" | "rejected" | "applied";
+/**
+ * Persakoma serverio `POLICY_PROPOSAL_STATUSES`. `cancelled` yra GALUTINĖ būsena kaip
+ * `rejected`/`applied`: pasiūlymą atšaukia jį pateikusi pusė, o ne sprendėjas, tad jis niekada
+ * nebegrįžta į `pending` ir iš „Pending proposal" bloko dingsta serveryje, ne ekrane.
+ */
+export type PolicyProposalStatus = "pending" | "approved" | "rejected" | "applied" | "cancelled";
 
 export type PolicyDecision = {
   policy_file: string;
   setting_id: string;
-  decision: "approved" | "rejected" | "applied";
+  decision: "approved" | "rejected" | "applied" | "cancelled";
   actor: string;
   reason: string;
   timestamp: string;

@@ -367,9 +367,13 @@ export async function fetchBenchmarkReport(): Promise<BenchmarkReportView> {
 /**
  * `actor` čia SĄMONINGAI nesiunčiamas: jį nustato serveris. Klientas negali liudyti, kas
  * priėmė sprendimą, o append-only audito žurnalas be to liudijimo yra tik pasakojimas.
+ *
+ * `cancel` naudoja TĄ PATĮ endpoint'ą — maršruto verb'as yra vienintelis skirtumas. Iš galutinės
+ * būsenos (`applied`/`rejected`/jau `cancelled`) serveris atsako 409, ir `assertOk` perduoda jo
+ * paaiškinimą nepakeistą: būsenos konfliktas priklauso serveriui, nes tik jis mato žurnalą.
  */
 export async function decidePolicyProposal(
-  verb: "approve" | "reject" | "apply",
+  verb: "approve" | "reject" | "apply" | "cancel",
   input: { policy_file: string; setting_id: string; reason: string },
 ): Promise<{ proposals: ResolvedProposal[] }> {
   const r = await post(`/api/policies/proposals/${verb}`, {

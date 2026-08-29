@@ -3222,6 +3222,9 @@ header .muted {
 .proposal-card.proposal-applied { border-left-color: var(--success); }
 .proposal-card.proposal-rejected { border-left-color: var(--error); }
 .proposal-card.proposal-approved { border-left-color: var(--accent); }
+/* Atšauktas pasiūlymas yra UŽDARYTAS, bet ne atmestas: sprendimo dėl jo niekas nepriėmė. Todėl
+   `--faint`, o ne `--error` — raudona jį rodytų kaip nuosprendį, kurio nebuvo. */
+.proposal-card.proposal-cancelled { border-left-color: var(--faint); }
 .proposal-card-header,
 .proposal-actions {
   display: flex;
@@ -3247,6 +3250,10 @@ header .muted {
 .proposal-status.proposal-status-approved { color: var(--accent); }
 .proposal-status.proposal-status-rejected { color: var(--error); }
 .proposal-status.proposal-status-applied { color: var(--success); }
+.proposal-status.proposal-status-cancelled { color: var(--faint); }
+/* `margin-left: auto` surenka visą laisvą tarpą, tad sprendimo mygtukai lieka kairėje, o
+   destruktyvus atšaukimas atsiduria toli dešinėje — atskyrimas, kurio vien `gap` neduoda. */
+.proposal-cancel { margin-left: auto; }
 .proposal-value-change {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -3289,6 +3296,7 @@ header .muted {
   font-size: 12px;
 }
 .proposal-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
   padding-top: 12px;
   border-top: 1px solid var(--border);

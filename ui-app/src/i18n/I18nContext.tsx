@@ -76,7 +76,7 @@ const lt: Record<string, string> = {
   "Needs action": "Reikia veiksmo",
   "Change history": "Pakeitimų istorija",
   "No policy change history": "Politikų pakeitimų istorijos nėra",
-  "Applied and rejected changes will appear here.": "Čia bus rodomi pritaikyti ir atmesti pakeitimai.",
+  "Applied, rejected, and cancelled changes will appear here.": "Čia bus rodomi pritaikyti, atmesti ir atšaukti pakeitimai.",
   // „Rekomenduojama" nuo 2026-08-28 yra `SelectMenu` varianto ženklelis, o ne sakinys kortelėje:
   // kartu su juo iš žodyno išeina „Available values" ir keturi aiškinamieji sakiniai, kurių
   // vienintelis skaitytojas buvo pašalintas komentarų blokas.
@@ -108,6 +108,12 @@ const lt: Record<string, string> = {
   "approved": "Patvirtinta",
   "rejected": "Atmesta",
   "applied": "Pritaikyta",
+  "cancelled": "Atšaukta",
+  // „Atšaukti pasiūlymą" ir „Palikti pasiūlymą", o ne bendras „Atšaukti"/„Cancel": tame pačiame
+  // dviejų žingsnių bloke vienas mygtukas atšaukia PASIŪLYMĄ, o kitas — patį patvirtinimą. Vienas
+  // žodis abiem reikštų, kad ekranas dviem priešingiems veiksmams siūlo tą patį pavadinimą.
+  "Cancel proposal": "Atšaukti pasiūlymą",
+  "Keep proposal": "Palikti pasiūlymą",
   "Review tasks that automation cannot complete without a human decision.": "Peržiūrėkite užduotis, kurių automatika negali užbaigti be žmogaus sprendimo.",
   "No tasks currently require a human decision.": "Šiuo metu nė vienai užduočiai nereikia žmogaus sprendimo.",
   "Error": "Klaida",

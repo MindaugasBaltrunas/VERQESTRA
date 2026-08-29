@@ -97,6 +97,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
         waveCreatedAt: state.waveCreatedAt,
         overrides: state.overrides(),
         liveSlots: liveSlotList(),
+        finishedSlots: [...state.finishedSlots.values()],
         refillEpisode: state.refillEpisode,
         refillLog: state.refillLog,
       },

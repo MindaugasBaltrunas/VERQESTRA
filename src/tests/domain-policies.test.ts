@@ -28,6 +28,11 @@ import {
   modelPolicyRoutingSection,
   type ModelPolicy,
 } from "../domain/policies/model-policy-rules.js";
+import {
+  defaultContextCompressionArrestState,
+  parseContextCompressionArrestState,
+  recordContextCompressionArrestObservation,
+} from "../domain/policies/compression/arrest.js";
 
 function signalsOf(overrides: Partial<StackSignals>): StackSignals {
   return {
@@ -169,6 +174,47 @@ test("model-policy rules: tier membership, deprecated-field presence, raw routin
   assert.deepEqual(deprecatedModelPolicyFields({ tiers: [] }), []);
   assert.deepEqual(modelPolicyRoutingSection(policy), { default: "sonnet" });
   assert.equal(modelPolicyRoutingSection({ tiers: [] }), undefined);
+});
+
+test("canary arrest window: pirmas stebėjimas užsėja istorinius human-review kaip bazinę liniją", () => {
+  // 2026-08-28 regresija: pirmas canary stebėjimas suskaičiavo 19 istorinių human-review
+  // task'ų (parkuotų iki canary įjungimo) ir areštavo visas features po vieno dispatch'o.
+  const first = recordContextCompressionArrestObservation(defaultContextCompressionArrestState(), {
+    taskId: "T-1",
+    canaryFeatures: ["worker_task_ir"],
+    humanReviewTaskIds: ["H-1", "H-2", "H-3", "H-4"],
+    now: new Date("2026-08-28T15:54:16.000Z"),
+  });
+  assert.deepEqual(first.arrested, [], "istorinė bazinė linija nearreštuoja");
+  assert.equal(first.changed, true);
+  assert.equal(first.state.counters.human_review_window_opened_at, "2026-08-28T15:54:16.000Z");
+  assert.deepEqual(first.state.counters.human_review_task_ids, ["H-1", "H-2", "H-3", "H-4"]);
+  assert.deepEqual(first.state.counters.human_review, {}, "seed nekelia skaitiklių");
+
+  // Atsidarius langui skaičiuojami TIK nauji id; jau užsėti ignoruojami.
+  const second = recordContextCompressionArrestObservation(first.state, {
+    taskId: "T-2",
+    canaryFeatures: ["worker_task_ir"],
+    humanReviewTaskIds: ["H-1", "N-1", "N-2", "N-3"],
+    now: new Date("2026-08-28T16:00:00.000Z"),
+  });
+  assert.equal(second.arrested.length, 1, "3 nauji kohortos human-review >= slenkstis 3");
+  assert.equal(second.arrested[0]?.trigger, "human-review");
+  assert.equal(second.arrested[0]?.observed, 3);
+
+  // Round-trip: langas išgyvena parse, senas įrašas be lauko lieka skaitomas.
+  const reparsed = parseContextCompressionArrestState(JSON.parse(JSON.stringify(second.state)));
+  assert.equal(reparsed.unreadable, false);
+  assert.equal(reparsed.state.counters.human_review_window_opened_at, "2026-08-28T15:54:16.000Z");
+  const legacy = parseContextCompressionArrestState({ version: 1, arrests: [], counters: {} });
+  assert.equal(legacy.unreadable, false);
+  assert.equal(legacy.state.counters.human_review_window_opened_at, undefined);
+  const badWindow = parseContextCompressionArrestState({
+    version: 1,
+    arrests: [],
+    counters: { human_review_window_opened_at: 5 },
+  });
+  assert.equal(badWindow.unreadable, true, "ne-string langas => neperskaitomas markeris");
 });
 
 test("architecture-style evidence grading: scope confirmed, graph confirmed, text possible, none silent", () => {

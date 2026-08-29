@@ -63,6 +63,13 @@ export type ContextCompressionArrestCounters = {
   human_review: Partial<Record<ContextCompressionFeature, number>>;
   /** Jau suskaičiuoti task id — pakartotinis event log skaitymas nesuskaičiuoja dukart. */
   human_review_task_ids: string[];
+  /**
+   * Kada atsidarė human-review skaičiavimo langas (pirmo canary stebėjimo laikas).
+   * Nebuvimas reiškia „langas dar neatidarytas": event log'e matomi human-review
+   * perėjimai įvyko IKI canary rankos, tad pirmas stebėjimas juos užsėja kaip bazinę
+   * liniją, o ne skaičiuoja prieš slenkstį.
+   */
+  human_review_window_opened_at?: string;
 };
 
 export type ContextCompressionArrestState = {
@@ -184,6 +191,10 @@ export function parseContextCompressionArrestState(value: unknown): ContextCompr
   if (!Array.isArray(rawTaskIds) || !rawTaskIds.every((entry) => typeof entry === "string")) {
     return issueView({ path: "counters.human_review_task_ids", message: "expected a string array" });
   }
+  const rawWindowOpenedAt = rawCounters["human_review_window_opened_at"];
+  if (rawWindowOpenedAt !== undefined && typeof rawWindowOpenedAt !== "string") {
+    return issueView({ path: "counters.human_review_window_opened_at", message: "expected a string" });
+  }
 
   return {
     state: {
@@ -193,6 +204,7 @@ export function parseContextCompressionArrestState(value: unknown): ContextCompr
         fallback_streak: fallbackStreak,
         human_review: humanReview,
         human_review_task_ids: rawTaskIds,
+        ...(rawWindowOpenedAt === undefined ? {} : { human_review_window_opened_at: rawWindowOpenedAt }),
       },
     },
     unreadable: false,
@@ -270,6 +282,9 @@ export function recordContextCompressionArrestObservation(
     fallback_streak: { ...state.counters.fallback_streak },
     human_review: { ...state.counters.human_review },
     human_review_task_ids: [...state.counters.human_review_task_ids],
+    ...(state.counters.human_review_window_opened_at === undefined
+      ? {}
+      : { human_review_window_opened_at: state.counters.human_review_window_opened_at }),
   };
   const arrested: ContextCompressionArrest[] = [];
   const arrestedAt = observation.now.toISOString();
@@ -305,9 +320,23 @@ export function recordContextCompressionArrestObservation(
   }
 
   // K — canary-cohort tasks that ended in human-review, counted once per task id.
+  //
+  // Langas atsidaro PIRMU canary stebėjimu: kohortos narystė yra vien hash'as, tad iki
+  // šio momento event log'e matomi human-review perėjimai įvyko be canary rankos ir
+  // nieko nesako apie jos kokybę. Jie užsėjami kaip jau suskaičiuota bazinė linija —
+  // skaitikliai lieka nuliniai. 2026-08-28 areštas kilo būtent iš šios spragos: pirmas
+  // stebėjimas suskaičiavo 19 istorinių task'ų (dalis parkuota kelios dienos iki
+  // įjungimo) ir areštavo visas tris features po VIENO canary dispatch'o.
   const counted = new Set(counters.human_review_task_ids);
   const fresh = [...new Set(observation.humanReviewTaskIds ?? [])].filter((taskId) => !counted.has(taskId));
-  if (fresh.length > 0) {
+  if (counters.human_review_window_opened_at === undefined) {
+    counters.human_review_window_opened_at = arrestedAt;
+    if (fresh.length > 0) {
+      counters.human_review_task_ids = [...counters.human_review_task_ids, ...fresh].slice(
+        -MAX_REMEMBERED_ARREST_HUMAN_REVIEW_TASKS,
+      );
+    }
+  } else if (fresh.length > 0) {
     counters.human_review_task_ids = [...counters.human_review_task_ids, ...fresh].slice(
       -MAX_REMEMBERED_ARREST_HUMAN_REVIEW_TASKS,
     );

@@ -13,7 +13,14 @@
 import { z } from "zod";
 import type { WavePlan } from "./schedule-next-wave.js";
 
-export const WAVE_SNAPSHOT_SCHEMA_VERSION = 1;
+// v2 (2026-08-29, audito P1): pridėtas `finished_slots` — baigę attempt'ą, bet dar
+// neintegruoti slot'ai anksčiau gyveno TIK `wave-scheduler-state` Map'e ir dingdavo su
+// proceso lūžiu, tad po perkrovimo šaka atrodydavo taip, lyg jos niekada nebuvo. Laukas
+// `.optional()`, ne `.default([])`: senas diske gulintis snapshot'as be jo lieka validus
+// BE migracijos, ir esami `WaveSnapshot` literalai kituose testuose (pvz.
+// `scheduling-wave-scheduler.test.ts`), kurių šis task'as neliečia, toliau kompiliuojasi
+// jo neminėdami.
+export const WAVE_SNAPSHOT_SCHEMA_VERSION = 2;
 
 /**
  * Task'o būsena bangoje. `running` įrašų negali būti daugiau nei `max_workers` — tai worker
@@ -99,6 +106,25 @@ export const waveSnapshotSchema = z.looseObject({
       }),
     )
     .default([]),
+  /**
+   * Baigę attempt'ą, bet dar NEINTEGRUOTI slot'ai — apsauga nuo proceso lūžio tarp baigties ir
+   * integracijos (2026-08-29, audito P1). `branch` šiame etape lieka "": realią git šakos
+   * reikšmę turi pridėti integracijos sluoksnio užduotis, kuri jau turi infrastruktūros
+   * prieigą (`worktree-layout.ts`) — application sluoksnis jos šiandien neturi.
+   */
+  finished_slots: z
+    .array(
+      z.looseObject({
+        worker_id: nonEmpty,
+        worker_index: z.number().int().positive(),
+        task_id: nonEmpty,
+        attempt: z.number().int().positive(),
+        branch: z.string().default(""),
+        worktree_path: z.string().default(""),
+        finished_at: z.string().default(""),
+      }),
+    )
+    .optional(),
   /** Papildymo epizodai: naujausi gale. */
   refill: z
     .looseObject({

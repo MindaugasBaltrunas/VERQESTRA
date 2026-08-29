@@ -14,6 +14,7 @@ import { buildWaveSnapshot, type WaveSnapshot, type WaveTaskStateOverride } from
 import type { LiveSlot, SlotRefillDecision } from "./slot-refill.js";
 import type { WavePlan } from "./schedule-next-wave.js";
 import type { WorkerPoolPlan } from "./worker-pool-plan.js";
+import type { FinishedWorkerSlot } from "./worker-integration.js";
 
 export type RefillDecisionLog = { decision: SlotRefillDecision; decided_at: string };
 
@@ -24,6 +25,9 @@ export type WaveSnapshotState = {
   waveCreatedAt: string;
   overrides: ReadonlyMap<string, WaveTaskStateOverride>;
   liveSlots: readonly LiveSlot[];
+  /** Baigę attempt'ą, bet dar neintegruoti slot'ai. Opcionalus: senesni kvietėjai (pvz.
+   * `scheduling-wave-graph.test.ts`) jo nežino ir neprivalo pridėti. */
+  finishedSlots?: readonly FinishedWorkerSlot[] | undefined;
   refillEpisode: number;
   refillLog: readonly RefillDecisionLog[];
 };
@@ -53,6 +57,17 @@ export async function persistWaveSnapshot(input: {
       attempt: slot.attempt,
       started_at: slot.started_at,
       worktree_path: slot.worktree_path ?? "",
+    })),
+    // `branch` lieka "" — žr. wave-snapshot.ts komentarą prie `finished_slots`: reali git šakos
+    // reikšmė ateis su integracijos sluoksnio užduotimi, kuri turi infrastruktūros prieigą.
+    finished_slots: (state.finishedSlots ?? []).map((slot) => ({
+      worker_id: slot.worker_id,
+      worker_index: slot.worker_index,
+      task_id: slot.task_id,
+      attempt: slot.attempt,
+      branch: "",
+      worktree_path: slot.worktree_path ?? "",
+      finished_at: input.now(),
     })),
     ...(state.refillEpisode > 0
       ? {

@@ -11,8 +11,11 @@ import {
   WAVE_SNAPSHOT_SCHEMA_VERSION,
   buildWaveSnapshot,
   waveSnapshotSchema,
+  type WaveSnapshot,
   type WaveTaskStateOverride,
 } from "../application/scheduling/wave-snapshot.js";
+import { persistWaveSnapshot, type WaveSnapshotState } from "../application/scheduling/wave-snapshot-persist.js";
+import type { FinishedWorkerSlot } from "../application/scheduling/worker-integration.js";
 
 function plan(overrides: Partial<WavePlan> = {}): WavePlan {
   return {
@@ -142,4 +145,83 @@ test("schema PRALEIDŽIA senesnį snapshot'ą be vėliau pridėtų laukų", () =
   assert.equal(parsed.max_workers, 1);
   assert.deepEqual(parsed.live_slots, []);
   assert.equal(parsed.worker_pool, undefined);
+  // `finished_slots` — TAS PATS argumentas: senas snapshot'as jo neturi, tad be migracijos jis
+  // privalo likti `undefined`, o ne mesti validacijos klaidą (074, audito P1).
+  assert.equal(parsed.finished_slots, undefined);
+});
+
+test("schema priima finished_slots įrašą su numatytosiomis reikšmėmis", () => {
+  const parsed = waveSnapshotSchema.parse({
+    run_id: "r1",
+    wave_id: "w1",
+    graph_hash: "abc",
+    created_at: "t",
+    updated_at: "t",
+    finished_slots: [{ worker_id: "w1", worker_index: 1, task_id: "0001", attempt: 1 }],
+  });
+  assert.deepEqual(parsed.finished_slots, [
+    { worker_id: "w1", worker_index: 1, task_id: "0001", attempt: 1, branch: "", worktree_path: "", finished_at: "" },
+  ]);
+});
+
+test("persistWaveSnapshot: finishedSlots patenka į finished_slots projekciją", async () => {
+  const finishedSlots: FinishedWorkerSlot[] = [
+    { worker_id: "w1", worker_index: 1, task_id: "0002", file: "AG/tasks/queue/0002.md", attempt: 1, succeeded: true, worktree_path: "/repo/.ag/worktrees/w1" },
+  ];
+  const state: WaveSnapshotState = {
+    plan: plan(),
+    waveCreatedAt: "t",
+    overrides: new Map(),
+    liveSlots: [],
+    finishedSlots,
+    refillEpisode: 0,
+    refillLog: [],
+  };
+
+  let written: WaveSnapshot | undefined;
+  await persistWaveSnapshot({
+    runId: "r1",
+    now: () => "2026-08-29T00:00:00.000Z",
+    writeSnapshot: (snapshot) => {
+      written = snapshot;
+      return Promise.resolve();
+    },
+    state,
+  });
+
+  assert.deepEqual(written?.finished_slots, [
+    {
+      worker_id: "w1",
+      worker_index: 1,
+      task_id: "0002",
+      attempt: 1,
+      branch: "",
+      worktree_path: "/repo/.ag/worktrees/w1",
+      finished_at: "2026-08-29T00:00:00.000Z",
+    },
+  ]);
+});
+
+test("persistWaveSnapshot: be finishedSlots rašomas TUŠČIAS finished_slots masyvas", async () => {
+  const state: WaveSnapshotState = {
+    plan: plan(),
+    waveCreatedAt: "t",
+    overrides: new Map(),
+    liveSlots: [],
+    refillEpisode: 0,
+    refillLog: [],
+  };
+
+  let written: WaveSnapshot | undefined;
+  await persistWaveSnapshot({
+    runId: "r1",
+    now: () => "t",
+    writeSnapshot: (snapshot) => {
+      written = snapshot;
+      return Promise.resolve();
+    },
+    state,
+  });
+
+  assert.deepEqual(written?.finished_slots, []);
 });

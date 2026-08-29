@@ -15,6 +15,10 @@ export type QualityCommandPolicyResult = { blockedPattern?: string };
 const qualityScriptPattern = /^(?:build|test|lint|typecheck)(?::[A-Za-z0-9_.-]+)*$/;
 const shellTokenPattern = /[;&|`$<>\r\n]/;
 const JS_PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn"]);
+// `pnpm exec turbo run <task>` saugūs flag'ai: filter be shell/space simbolių, skaitinė
+// concurrency, ir keli žinomi bevaliai jungikliai. NIEKAS kitas po `exec` nepraeina —
+// `pnpm exec <arbitrary>` lieka užblokuotas kaip iki šiol.
+const turboSafeFlagPattern = /^--(?:filter=[^\s;&|`$<>]+|concurrency=\d+|continue|only|dry-run|dry)$/;
 
 export function evaluateShellQualityCommand(
   command: string,
@@ -57,6 +61,20 @@ function evaluateJsPackageManagerCommand(executable: string, args: string[]): Qu
       return { blockedPattern: `spawn working directory: ${directory ?? "missing"}` };
     }
     remaining.splice(0, 2);
+  }
+
+  // `pnpm exec turbo run <build|test|lint|typecheck[:sufiksas]> [saugūs flag'ai]` — turbo yra
+  // repo TASK RUNNERIS: jis vykdo tuos pačius package.json skriptus, kuriuos `pnpm run <script>`
+  // forma jau leidžia, tad pasitikėjimo lygis nesikeičia. Reikalingas scoped gate komandoms
+  // (`--filter=...[HEAD~1]`), kurios netelpa į vieno skripto formą (GeoGravity 1187 stop-gate
+  // 126 blokas, 2026-08-29). Tik `turbo run` — bet koks kitas `exec` taikinys lieka blokuotas.
+  if (executable === "pnpm" && remaining[0] === "exec" && remaining[1] === "turbo" && remaining[2] === "run") {
+    const task = remaining[3] ?? "";
+    const flags = remaining.slice(4);
+    if (qualityScriptPattern.test(task) && flags.every((flag) => turboSafeFlagPattern.test(flag))) {
+      return {};
+    }
+    return { blockedPattern: `spawn arguments: ${args.join(" ")}` };
   }
 
   if (remaining[0] === "run") remaining.shift();

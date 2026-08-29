@@ -22,6 +22,7 @@ import { defaultAgentPolicy } from "../domain/policies/agent-policy-defaults.js"
 import { classifyTask, pathFragmentMatches } from "../domain/policies/task-classification.js";
 import { defaultTaskClassificationPolicy } from "../domain/policies/task-classification-defaults.js";
 import { detectForbiddenDependencyViolations } from "../domain/policies/architecture-style.js";
+import { evaluateSpawnQualityCommand } from "../domain/policies/quality-command-policy.js";
 import {
   deprecatedModelPolicyFields,
   modelAllowed,
@@ -240,4 +241,17 @@ test("architecture-style evidence grading: scope confirmed, graph confirmed, tex
     [],
     "substring be kelio ribos nėra įrodymas",
   );
+});
+
+test("quality-command-policy: pnpm exec TIK turbo run <task> su saugiais flag'ais", () => {
+  // GeoGravity 1187 stop-gate 126 (2026-08-29): scoped gate komanda `pnpm exec turbo run test
+  // --filter=...` netelpa į vieno skripto formą — leidžiama siaurai, be jokio kito exec taikinio.
+  const allow = (a: string[]) => assert.equal(evaluateSpawnQualityCommand("pnpm", a).blockedPattern, undefined);
+  const block = (a: string[], re: RegExp) => assert.match(evaluateSpawnQualityCommand("pnpm", a).blockedPattern ?? "", re);
+  allow(["exec", "turbo", "run", "test", "--filter=...[HEAD~1]", "--concurrency=4"]);
+  allow(["exec", "turbo", "run", "typecheck"]);
+  block(["exec", "rimraf", "dist"], /spawn arguments/);
+  block(["exec", "turbo", "run", "deploy"], /spawn arguments/);
+  block(["exec", "turbo", "run", "test", "--force"], /spawn arguments/);
+  block(["exec", "turbo", "run", "test", "--filter=a;rm"], /shell syntax/);
 });

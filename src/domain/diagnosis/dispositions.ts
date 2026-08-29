@@ -7,7 +7,7 @@
 // (logHasAlreadyImplementedMarker) lieka adapterio pusėje — jis parsina log formatą.
 
 import { matchesAllowedPath } from "../tasks/allowed-paths.js";
-import { isInfrastructureExitCode } from "../../shared/exit-codes.js";
+import { DISPATCH_TIMEOUT_EXIT_CODE, isInfrastructureExitCode } from "../../shared/exit-codes.js";
 
 // ---------------------------------------------------------------------------
 // Stop įrodymo kilmė (task 0042)
@@ -131,7 +131,11 @@ export type DeterministicDoneResult = {
   reason: string;
 };
 
-export type LocalDiagnosisVerdict = "done" | "repair" | "human-review";
+// "split" pridėtas task 066-a-02: kartojantis runtime-oversize signalas (žr.
+// `evaluateRuntimeOversizeDisposition` žemiau) grąžina verdiktą iš tos pačios aibės, kad
+// dispatch/coordinator skaitytojai galėtų jį priimti be atskiro tipo. `evaluateLocalDiagnosis`
+// pati "split" negrąžina — praplėtimas yra tik tipo lygmens paruošimas maršruto sujungimui.
+export type LocalDiagnosisVerdict = "done" | "repair" | "human-review" | "split";
 
 export type LocalResultSignals = {
   taskId: string;
@@ -277,6 +281,55 @@ export function resolveNoCommitReviewReason(inputs: NoCommitDoneInputs): string 
     return "executor made no write-tool calls";
   }
   return "clean tree without work evidence (deliverable missing — possibly rolled back)";
+}
+
+/**
+ * Task 066-a-02 (GeoGravity 1178): pasikartojantis dispatch timeout (exit 124) su ta pačia
+ * retry-signature anksčiau vedė į `human-review` arba dar vieną retry — trys ciklai po ~100 min
+ * be pažangos. `"split"` yra atskiras nuo `LocalDiagnosisVerdict.human-review` fallback'as: kai
+ * runtime-oversize signalas KARTOJASI (>=2 bandymai su ta pačia signature) IR task'as dalomas
+ * (daugiau nei vienas veiksmas/kelias), sprendimas yra skaidyti į mažesnius task'us, ne stabdyti
+ * ciklą. `human-review` lieka TIK tada, kai task'as nedalomas (1 veiksmas, 1 kelias) — jo
+ * skaidyti nėra kaip.
+ *
+ * Papildymas (operatorius, 2026-08-29, GeoGravity auditas): RAW token lubų perviršis
+ * (`tool-budget-rules.ts#rawTokenNotice`, iki šiol grynai diagnostinis — "diagnostika, baigtis
+ * nekeičiama") yra TAS PATS runtime-oversize signalas kaip timeout parašas: GeoGravity 7
+ * dispatch'ai viršijo 10M raw lubas (iki 25.5M), o 1178 @ 2.5× baigėsi exit 124. Lubų reikšmė
+ * (`rawTokenCeiling`) nekeičiama — čia tik sprendimas, ką daryti, kai duotos lubos jau viršytos
+ * daugiau nei 1.2×.
+ */
+export type RuntimeOversizeVerdict = "split" | "human-review" | "repair";
+
+export type RuntimeOversizeDispositionInputs = {
+  /** Vykdytojo CLI exit code šiam bandymui. */
+  exitCode: number;
+  /** Kiek IŠ EILĖS bandymų (įskaitant šį), baigėsi TUO PAČIU runtime-oversize parašu. */
+  repeatedSignatureAttempts: number;
+  /** True, jei task'as turi daugiau nei vieną veiksmą/kelią — gali būti skeliamas. */
+  isDivisible: boolean;
+  /** Faktinis raw token sunaudojimas šiam bandymui; undefined, jei diagnozė jo neturi. */
+  rawTokensUsed?: number;
+  /** Konfigūruota raw token lubų reikšmė (nekeičiama); undefined, jei diagnozė jos neturi. */
+  rawTokenCeiling?: number;
+};
+
+/** Kiek kartų raw sunaudojimas gali viršyti lubas, kol tai vis dar tik diagnostika, ne signalas. */
+const RAW_TOKEN_OVERRUN_MULTIPLIER = 1.2;
+
+function isRawTokenCeilingOverrun(rawTokensUsed: number | undefined, rawTokenCeiling: number | undefined): boolean {
+  if (rawTokensUsed === undefined || rawTokenCeiling === undefined || rawTokenCeiling <= 0) return false;
+  return rawTokensUsed > rawTokenCeiling * RAW_TOKEN_OVERRUN_MULTIPLIER;
+}
+
+export function evaluateRuntimeOversizeDisposition(inputs: RuntimeOversizeDispositionInputs): RuntimeOversizeVerdict {
+  const isRuntimeOversizeSignal =
+    inputs.exitCode === DISPATCH_TIMEOUT_EXIT_CODE ||
+    isRawTokenCeilingOverrun(inputs.rawTokensUsed, inputs.rawTokenCeiling);
+  if (!isRuntimeOversizeSignal || inputs.repeatedSignatureAttempts < 2) {
+    return "repair";
+  }
+  return inputs.isDivisible ? "split" : "human-review";
 }
 
 export function evaluateLocalDiagnosis(signals: LocalResultSignals): LocalDiagnosisResult {

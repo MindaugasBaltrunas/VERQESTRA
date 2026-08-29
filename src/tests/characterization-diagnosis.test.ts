@@ -10,6 +10,7 @@ import test from "node:test";
 import {
   evaluateDeterministicDone,
   evaluateLocalDiagnosis,
+  evaluateRuntimeOversizeDisposition,
   pendingAttemptChangedFiles,
   resolveDispatchSessionNonce,
   resolveEffectiveStopStatus,
@@ -85,3 +86,86 @@ for (const dispositionCase of fixture.cases) {
     assert.deepStrictEqual(actual, expected, dispositionCase.id);
   });
 }
+
+// Task 066-a-02 (GeoGravity 1178/7): evaluateRuntimeOversizeDisposition nėra etalono fixture'e
+// (naujas VERQESTRA sprendimas, ne AG_loop elgesys), tad testuojamas tiesiogiai, ne per PAR-1
+// characterization runner'į.
+test("runtime-oversize disposition: timeout x1 -> repair", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({ exitCode: 124, repeatedSignatureAttempts: 1, isDivisible: true }),
+    "repair",
+  );
+});
+
+test("runtime-oversize disposition: timeout x2 same signature, divisible -> split", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({ exitCode: 124, repeatedSignatureAttempts: 2, isDivisible: true }),
+    "split",
+  );
+});
+
+test("runtime-oversize disposition: timeout x2 same signature, not divisible -> human-review", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({ exitCode: 124, repeatedSignatureAttempts: 2, isDivisible: false }),
+    "human-review",
+  );
+});
+
+test("runtime-oversize disposition: non-timeout exit code without raw overrun -> repair", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({ exitCode: 1, repeatedSignatureAttempts: 3, isDivisible: true }),
+    "repair",
+  );
+});
+
+test("runtime-oversize disposition: raw tokens over 1.2x ceiling x1 -> repair", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({
+      exitCode: 0,
+      repeatedSignatureAttempts: 1,
+      isDivisible: true,
+      rawTokensUsed: 25_500_000,
+      rawTokenCeiling: 10_000_000,
+    }),
+    "repair",
+  );
+});
+
+test("runtime-oversize disposition: raw tokens over 1.2x ceiling x2, divisible -> split", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({
+      exitCode: 0,
+      repeatedSignatureAttempts: 2,
+      isDivisible: true,
+      rawTokensUsed: 25_500_000,
+      rawTokenCeiling: 10_000_000,
+    }),
+    "split",
+  );
+});
+
+test("runtime-oversize disposition: raw tokens over 1.2x ceiling x2, not divisible -> human-review", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({
+      exitCode: 0,
+      repeatedSignatureAttempts: 2,
+      isDivisible: false,
+      rawTokensUsed: 25_500_000,
+      rawTokenCeiling: 10_000_000,
+    }),
+    "human-review",
+  );
+});
+
+test("runtime-oversize disposition: raw tokens within 1.2x ceiling, repeated -> repair (no signal)", () => {
+  assert.equal(
+    evaluateRuntimeOversizeDisposition({
+      exitCode: 0,
+      repeatedSignatureAttempts: 3,
+      isDivisible: true,
+      rawTokensUsed: 11_000_000,
+      rawTokenCeiling: 10_000_000,
+    }),
+    "repair",
+  );
+});

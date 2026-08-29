@@ -1076,6 +1076,42 @@ const lt: Record<string, string> = {
   "subagents": "subagents",
   "inline": "inline",
   "idle": "idle",
+  // W2 lygiagretumo (worktree) politikos jungiklis ciklo valdymo zonoje (task 088-c-04).
+  // „Worktree" lieka neverstas ir čia — jis jau yra žodyne kaip „Darbo kopija" lentelės stulpeliui,
+  // bet politikos varde tai KONFIGO ir CLI terminas (`vq/config/worktree-policy.json`), kurio
+  // operatorius ieško log'e; sulietuvinus jį ekranas ir failas vadintųsi skirtingai.
+  "W2 parallelism (worktree)": "W2 lygiagretumas (worktree)",
+  "W2 parallelism": "W2 lygiagretumas",
+  "The change applies from the NEXT wave; it does not stop the wave that is already running.":
+    "Pakeitimas galioja nuo KITOS bangos; vykdomos bangos jis nestabdo.",
+  "The change is still being applied; wait until the server confirms it.":
+    "Pakeitimas dar taikomas; palauk, kol serveris jį patvirtins.",
+  "The worktree policy is still being read from the server.":
+    "Worktree politika dar skaitoma iš serverio.",
+  "The worktree policy state is not confirmed, so it cannot be changed here.":
+    "Worktree politikos būsena nepatvirtinta, tad jos čia pakeisti negalima.",
+  "Click to turn W2 parallelism off — the next wave plans a single stream.":
+    "Paspausk, kad išjungtum W2 lygiagretumą — kita banga planuos vieną srautą.",
+  "Click to turn W2 parallelism on — the next wave may provision a second worktree.":
+    "Paspausk, kad įjungtum W2 lygiagretumą — kita banga galės paruošti antrą worktree.",
+  "Changing": "Keičiama",
+  "Reading": "Skaitoma",
+  "Unknown": "Nežinoma",
+  "On": "Įjungta",
+  "Off": "Išjungta",
+  "W2 parallelism is on, but the repository is not ready: .gitignore does not ignore the worktree directory.":
+    "W2 lygiagretumas įjungtas, bet repozitorija neparuošta: .gitignore neignoruoja worktree katalogo.",
+  "The project .gitignore does not ignore the worktree directory, so a provisioned worktree shows up as project changes and the wave sees a dirty tree.":
+    "Projekto .gitignore neignoruoja worktree katalogo, tad paruoštas worktree atrodo kaip projekto pakeitimai, o banga mato užterštą medį.",
+  "Ready: .gitignore ignores the worktree directory.":
+    "Paruošta: .gitignore ignoruoja worktree katalogą.",
+  "Worktree readiness is unknown: the server did not report the .gitignore state.":
+    "Worktree parengtis nežinoma: serveris .gitignore būsenos nenurodė.",
+  "The server did not report the .gitignore state — either the port is not wired or the file could not be read.":
+    "Serveris .gitignore būsenos nenurodė — arba portas nesurištas, arba failo nepavyko perskaityti.",
+  "The worktree policy state could not be read, so the switch stays closed — an unconfirmed state is not the same as off.":
+    "Worktree politikos būsenos nepavyko perskaityti, tad jungiklis lieka uždarytas — nepatvirtinta būsena nėra tas pats, kas išjungta.",
+  "Worktree policy change failed": "Worktree politikos pakeitimas nepavyko",
 };
 
 type I18nValue = {

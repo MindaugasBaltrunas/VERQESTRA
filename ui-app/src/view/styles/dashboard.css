@@ -622,6 +622,30 @@ tbody tr:hover {
   font-size: 12px;
 }
 
+/* ---- W2 lygiagretumo (worktree) politikos jungiklis (task 088-c-04) ----
+   Spalvos imamos TIK iš temos žetonų (`--good*`), tad šviesi ir tamsi tema padengtos be atskirų
+   reikšmių. Įjungtą būseną žymi `aria-pressed`, o ne antra klasė: viena tiesa markup'e ir stiliuje.
+   Parengties bei klaidos eilutės gauna tarpą nuo antraštės — be jo įspėjimas priglustų prie
+   `panel-header` ir skaitytųsi kaip jo dalis. */
+.worktree-policy-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.worktree-toggle[aria-pressed="true"] {
+  color: var(--good);
+  background: var(--good-bg);
+  border-color: color-mix(in srgb, var(--good) 40%, var(--border));
+}
+.worktree-policy-status {
+  white-space: nowrap;
+}
+.worktree-policy > .notice,
+.worktree-policy > .runtime-explanation {
+  margin-top: 12px;
+}
+
 /* ---- Progress primitive ------------------------------------------------
    Užpildas juda per `transform: scaleX()`, o ne per `width`: plotis kiekviename kadre verstų
    naršyklę perskaičiuoti išdėstymą. `overflow: hidden` nukerpa spyruoklės peršokimą, kad juosta

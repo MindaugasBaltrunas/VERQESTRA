@@ -829,6 +829,15 @@ export type UiWaveWorktreePolicy = {
   enabled: boolean;
   /** Projektui reliatyvus POSIX kelias, niekada absoliutus. */
   config_path: string;
+  /**
+   * Ar projekto `.gitignore` jau turi worktree eilutę — antra w2 parengties pusė šalia `enabled`
+   * (serverio `interfaces/http/ui-waves-view.ts#UiWaveWorktreePolicy`).
+   *
+   * NEPRIVALOMAS, ir tai NĖRA `false`: serveris lauką praleidžia, kai porto nėra (composition
+   * nesurišta) arba `.gitignore` neperskaitytas. „Nežinoma" niekada neapsimeta „netvarkoje", tad
+   * įspėjimas rodomas TIK ties tiesioginiu `false`.
+   */
+  worktree_gitignore_ok?: boolean;
 };
 
 export type UiWavesView = {

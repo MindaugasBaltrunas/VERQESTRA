@@ -262,6 +262,26 @@ export async function rebuildUiBundle(): Promise<UiRebuildResult> {
 }
 
 /**
+ * Perjungia worktree izoliacijos politiką — W2 lygiagretumo jungiklis (task 088-c-04).
+ *
+ * Kūnas yra LYGIAI vienas laukas: serveris (`interfaces/http/ui-router-mutations.ts`) bet kokį kitą
+ * atmeta 400-uku, o `assertOk` perduoda jo paaiškinimą nepakeistą. Nei konfigo kelio, nei
+ * `.gitignore` kelio klientas nesiunčia — abu gimsta serveryje.
+ *
+ * Atsakymo kūnas ČIA sąmoningai neskaitomas: naują būseną ekranas pasiima pakartotiniu
+ * `fetchWaves()`, kad rodytų TĄ PATĮ šaltinį, kurį kitą bangą skaitys planuoklė — o ne mutacijos
+ * atsakymą, liudijantį tik apie įrašytą norą. 404 reiškia, kad composition politikos porto
+ * nesurišo; `assertOk` tai paverčia matoma klaida, o ne tyliu „pavyko".
+ */
+export async function setWorktreePolicyEnabled(enabled: boolean): Promise<void> {
+  const r = await post("/api/runtime/worktree-policy", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  await assertOk(r);
+}
+
+/**
  * Įrašo vieno srauto NORIMĄ būseną. Atsakymo kūnas sąmoningai neskaitomas: faktinę srauto būseną
  * kontroleris pasiima iš dashboard snapshot'o — tik jis žino, ką banga realiai daro, o mutacijos
  * atsakymas liudija tik apie įrašytą norą.

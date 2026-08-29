@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   LoopControlView,
   LoopSlotView,
@@ -8,10 +8,15 @@ import type {
 } from "../../model/dashboardViewModel";
 import * as api from "../../model/api";
 import { LOOP_START_ACTION } from "../../model/loopControlsViewModel";
+import type { UiWaveWorktreePolicy, UiWavesView } from "../../model/types";
 import { RuntimePanel } from "./RuntimePanel";
 
+// `fetchWaves` turi numatytąjį atsakymą jau fabrike: panelė jį kviečia SUMONTAVUS, tad be jo
+// kiekvienas šio failo testas (ne tik worktree blokas) pieštų klaidos juostą, kurios netikrina.
 vi.mock("../../model/api", () => ({
   rebuildUiBundle: vi.fn(),
+  fetchWaves: vi.fn().mockResolvedValue({ events: [], leases: [], last_rejections: [], degraded: [] }),
+  setWorktreePolicyEnabled: vi.fn().mockResolvedValue(undefined),
 }));
 
 const processes: RuntimeProcessView[] = [
@@ -802,5 +807,177 @@ describe("RuntimePanel bundle rebuild", () => {
     expect(
       await screen.findByText("Rebuild failed: Request timed out after 15s: /api/ui/rebuild"),
     ).toBeInTheDocument();
+  });
+});
+
+// W2 lygiagretumo (worktree) politikos jungiklis ciklo valdymo zonoje (task 088-c-04).
+const POLICY_PATH = "vq/config/worktree-policy.json";
+
+function wavesView(policy?: UiWaveWorktreePolicy): UiWavesView {
+  return {
+    events: [],
+    leases: [],
+    last_rejections: [],
+    degraded: [],
+    ...(policy ? { worktree_policy: policy } : {}),
+  };
+}
+
+function worktreeSection() {
+  return within(screen.getByRole("region", { name: "W2 parallelism (worktree)" }));
+}
+
+async function readyToggle(): Promise<HTMLElement> {
+  const toggle = worktreeSection().getByRole("button", { name: "W2 parallelism" });
+  await waitFor(() => expect(toggle).toBeEnabled());
+  return toggle;
+}
+
+describe("RuntimePanel worktree policy", () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchWaves).mockReset();
+    vi.mocked(api.setWorktreePolicyEnabled).mockReset().mockResolvedValue(undefined);
+  });
+
+  /**
+   * Pati jungiklio esmė: po perjungimo ekrane stovi tai, ką pasakė SERVERIS, o ne tai, ko paprašė
+   * operatorius. Todėl `/api/waves` skaitomas antrą kartą, ir antras atsakymas — ne pirmasis su
+   * apverstu bitu — nusprendžia, kaip atrodo jungiklis.
+   */
+  it("re-reads the view after the toggle instead of guessing the new state", async () => {
+    vi.mocked(api.fetchWaves)
+      .mockResolvedValueOnce(wavesView({ enabled: false, config_path: POLICY_PATH }))
+      .mockResolvedValueOnce(
+        wavesView({ enabled: true, config_path: POLICY_PATH, worktree_gitignore_ok: true }),
+      );
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    const toggle = await readyToggle();
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(worktreeSection().getByRole("status")).toHaveTextContent("Off");
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(api.setWorktreePolicyEnabled).toHaveBeenCalledWith(true);
+    expect(api.fetchWaves).toHaveBeenCalledTimes(2);
+    expect(worktreeSection().getByRole("status")).toHaveTextContent("On");
+    expect(worktreeSection().getByText("Ready: .gitignore ignores the worktree directory.")).toBeInTheDocument();
+  });
+
+  it("says the change applies from the next wave and does not stop the running one", async () => {
+    vi.mocked(api.fetchWaves).mockResolvedValue(wavesView({ enabled: true, config_path: POLICY_PATH }));
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    expect(
+      await screen.findByText(
+        "The change applies from the NEXT wave; it does not stop the wave that is already running.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("warns with a reason when the policy is on but .gitignore is not ready", async () => {
+    vi.mocked(api.fetchWaves).mockResolvedValue(
+      wavesView({ enabled: true, config_path: POLICY_PATH, worktree_gitignore_ok: false }),
+    );
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    const warning = await worktreeSection().findByRole("alert");
+    expect(warning).toHaveTextContent(
+      "W2 parallelism is on, but the repository is not ready: .gitignore does not ignore the worktree directory.",
+    );
+    // Priežastis keliauja `title` atributu — įspėjimas be jos pasakytų „kažkas negerai" ir
+    // paliktų operatorių spėlioti, kas būtent.
+    expect(warning).toHaveAttribute(
+      "title",
+      "The project .gitignore does not ignore the worktree directory, so a provisioned worktree shows up as project changes and the wave sees a dirty tree.",
+    );
+  });
+
+  // Serveris lauką praleidžia, kai porto nėra arba `.gitignore` neperskaitytas. „Nežinoma" neturi
+  // virsti įspėjimu apie netvarkingą repozitoriją — tai du skirtingi teiginiai.
+  it("does not turn an unreported .gitignore state into a warning", async () => {
+    vi.mocked(api.fetchWaves).mockResolvedValue(wavesView({ enabled: true, config_path: POLICY_PATH }));
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    expect(
+      await worktreeSection().findByText(
+        "Worktree readiness is unknown: the server did not report the .gitignore state.",
+      ),
+    ).toBeInTheDocument();
+    expect(worktreeSection().queryByRole("alert")).toBeNull();
+  });
+
+  it("blocks a second click while the change is still being applied", async () => {
+    let release: () => void = () => undefined;
+    vi.mocked(api.fetchWaves).mockResolvedValue(wavesView({ enabled: false, config_path: POLICY_PATH }));
+    vi.mocked(api.setWorktreePolicyEnabled).mockReturnValue(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    const toggle = await readyToggle();
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toBeDisabled());
+    expect(toggle).toHaveAttribute("aria-busy", "true");
+    expect(toggle).toHaveAttribute(
+      "title",
+      "The change is still being applied; wait until the server confirms it.",
+    );
+    expect(worktreeSection().getByRole("status")).toHaveTextContent("Changing");
+
+    fireEvent.click(toggle);
+    expect(api.setWorktreePolicyEnabled).toHaveBeenCalledTimes(1);
+
+    release();
+    await waitFor(() => expect(toggle).toBeEnabled());
+  });
+
+  // Nepatvirtinta būsena uždaro jungiklį, o NEpiešia jo kaip „išjungto": pastarasis būtų teiginys
+  // apie tai, ką darys kita banga, kurio serveris nepasakė.
+  it("closes the switch when the policy state is not confirmed", async () => {
+    vi.mocked(api.fetchWaves).mockResolvedValue(wavesView());
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    const toggle = worktreeSection().getByRole("button", { name: "W2 parallelism" });
+    await waitFor(() => expect(worktreeSection().getByRole("status")).toHaveTextContent("Unknown"));
+    expect(toggle).toBeDisabled();
+    expect(toggle).not.toHaveAttribute("aria-pressed");
+    expect(toggle).toHaveAttribute(
+      "title",
+      "The worktree policy state is not confirmed, so it cannot be changed here.",
+    );
+    expect(api.setWorktreePolicyEnabled).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Nepavykusi mutacija galėjo spėti įrašyti konfigą prieš kritdama, tad „liko kaip buvo" būtų
+   * spėjimas. Vaizdas perskaitomas ir po klaidos, o serverio paaiškinimas lieka matomas.
+   */
+  it("shows the server's reason and still re-reads the view when the mutation fails", async () => {
+    vi.mocked(api.fetchWaves).mockResolvedValue(wavesView({ enabled: false, config_path: POLICY_PATH }));
+    vi.mocked(api.setWorktreePolicyEnabled).mockRejectedValue(
+      new Error("HTTP 404: /api/runtime/worktree-policy"),
+    );
+
+    render(<RuntimePanel processes={processes} root="D:/project" />);
+
+    fireEvent.click(await readyToggle());
+
+    expect(
+      await worktreeSection().findByText(
+        "Worktree policy change failed: HTTP 404: /api/runtime/worktree-policy",
+      ),
+    ).toBeInTheDocument();
+    expect(api.fetchWaves).toHaveBeenCalledTimes(2);
   });
 });

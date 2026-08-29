@@ -12,7 +12,7 @@ import {
   type LoopRunState,
 } from "../../model/loopControlsViewModel";
 import type { SlotProgressView } from "../../model/slotProgressViewModel";
-import { rebuildUiBundle } from "../../model/api";
+import { fetchWaves, rebuildUiBundle, setWorktreePolicyEnabled } from "../../model/api";
 import type { LoopWorkerId } from "../../model/types";
 import { Badge } from "./Badge";
 import { LoopControls } from "./LoopControls";
@@ -20,6 +20,32 @@ import { LoopStreamCards } from "./LoopStreamCards";
 import { useI18n } from "../../i18n/I18nContext";
 
 type UiRebuildState = "idle" | "running" | "succeeded" | "failed" | "unavailable";
+
+/**
+ * W2 lygiagretumo (worktree izoliacijos) politikos būsena ekrane (task 088-c-04).
+ *
+ * `unknown` NĖRA „išjungta": `/api/waves` lauką praleidžia, kai politikos failo nepavyko
+ * perskaityti arba serveris jo dar nesiunčia. Spėjimas čia būtų melas apie tai, ką darys kita
+ * banga, tad nežinomybė uždaro jungiklį, o ne piešia jį „off".
+ */
+type WorktreePolicyState =
+  | { kind: "loading" }
+  | { kind: "unknown" }
+  | { kind: "known"; enabled: boolean; gitignoreOk: boolean | undefined };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Politikos būseną visada pasako `/api/waves` vaizdas — TAS PATS šaltinis, kurį kitą bangą skaitys
+ * planuoklė. Mutacijos atsakymas liudytų tik apie įrašytą norą, tad jis čia nedalyvauja.
+ */
+async function readWorktreePolicy(): Promise<WorktreePolicyState> {
+  const policy = (await fetchWaves()).worktree_policy;
+  if (policy === undefined) return { kind: "unknown" };
+  return { kind: "known", enabled: policy.enabled, gitignoreOk: policy.worktree_gitignore_ok };
+}
 
 type Props = {
   processes: RuntimeProcessView[];
@@ -122,6 +148,28 @@ export const RuntimePanel = memo(function RuntimePanel({
   const { t } = useI18n();
   const [rebuildState, setRebuildState] = useState<UiRebuildState>("idle");
   const [rebuildReason, setRebuildReason] = useState<string | undefined>(undefined);
+  const [worktreePolicy, setWorktreePolicy] = useState<WorktreePolicyState>({ kind: "loading" });
+  const [worktreeChanging, setWorktreeChanging] = useState(false);
+  const [worktreeError, setWorktreeError] = useState<string | undefined>(undefined);
+
+  // VIENAS skaitymas sumontavus, be pollingo: politika keičiasi tik per šį jungiklį, o antras
+  // periodinis `/api/waves` skaitytojas reikštų dvi lenktynėse esančias to paties lauko versijas.
+  useEffect(() => {
+    let active = true;
+    void readWorktreePolicy().then(
+      (next) => {
+        if (active) setWorktreePolicy(next);
+      },
+      (error: unknown) => {
+        if (!active) return;
+        setWorktreePolicy({ kind: "unknown" });
+        setWorktreeError(errorMessage(error));
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // `bundle_stale` ateina iš tėvo periodinio `/api/dashboard` polling'o (jis JAU vyksta kas 30 s) —
   // antras pollingas ČIA reikštų dvi lenktynėse esančias tiesos versijas tam pačiam laukui. Kai
@@ -149,6 +197,34 @@ export const RuntimePanel = memo(function RuntimePanel({
         setRebuildState("failed");
         setRebuildReason(error instanceof Error ? error.message : String(error));
       });
+  };
+  /**
+   * Perjungimas ir PO JO — serverio tiesa, ne optimistinis spėjimas.
+   *
+   * Vaizdas perskaitomas ir po nesėkmės: nepavykusi mutacija galėjo spėti įrašyti konfigą prieš
+   * kritdama ties `.gitignore`, tad „liko kaip buvo" būtų spėjimas, o ne serverio pasakytas faktas.
+   */
+  const toggleWorktreePolicy = () => {
+    if (worktreePolicy.kind !== "known" || worktreeChanging) return;
+    const next = !worktreePolicy.enabled;
+    setWorktreeChanging(true);
+    setWorktreeError(undefined);
+    void (async () => {
+      let failure: string | undefined;
+      try {
+        await setWorktreePolicyEnabled(next);
+      } catch (error) {
+        failure = errorMessage(error);
+      }
+      try {
+        setWorktreePolicy(await readWorktreePolicy());
+      } catch (error) {
+        setWorktreePolicy({ kind: "unknown" });
+        failure ??= errorMessage(error);
+      }
+      setWorktreeError(failure);
+      setWorktreeChanging(false);
+    })();
   };
   // Ciklo mygtukų matrica skaičiuojama VIENĄ kartą ir maitina abu ekrano įėjimo taškus: „Automatika
   // laukia" kortelę ir ciklo valdymo juostą. Du skaičiavimai reikštų du atsakymus tam pačiam
@@ -365,6 +441,101 @@ export const RuntimePanel = memo(function RuntimePanel({
           onRestartLoop={onRestartLoop}
         />
       )}
+
+      {/* W2 lygiagretumo jungiklis (task 088-c-04) stovi ciklo valdymo zonoje — iškart po juostos,
+          kurioje pasirenkamas srautų skaičius: „W2 prašomas" ir „W2 apskritai leidžiamas" yra du
+          skirtingi sprendimai, ir antrasis be pirmojo nieko neduoda. Blokas rodomas VISADA (ne kaip
+          `loopControl`/`workerControl`), nes politika egzistuoja ir tada, kai ciklas nedirba. */}
+      <section className="panel worktree-policy" aria-labelledby="worktree-policy-title">
+        <div className="panel-header">
+          <div>
+            <h2 id="worktree-policy-title">{t("W2 parallelism (worktree)")}</h2>
+            <p className="panel-subtitle">
+              {t("The change applies from the NEXT wave; it does not stop the wave that is already running.")}
+            </p>
+          </div>
+          <div className="worktree-policy-control">
+            <button
+              type="button"
+              className="button ghost small-button worktree-toggle"
+              // `aria-pressed` tik ŽINOMAI būsenai: nepatvirtinta politika su `false` skambėtų kaip
+              // „išjungta", nors serveris nieko tokio nesakė.
+              aria-pressed={worktreePolicy.kind === "known" ? worktreePolicy.enabled : undefined}
+              aria-busy={worktreeChanging || undefined}
+              disabled={worktreeChanging || worktreePolicy.kind !== "known"}
+              title={
+                worktreeChanging
+                  ? t("The change is still being applied; wait until the server confirms it.")
+                  : worktreePolicy.kind === "loading"
+                    ? t("The worktree policy is still being read from the server.")
+                    : worktreePolicy.kind !== "known"
+                      ? t("The worktree policy state is not confirmed, so it cannot be changed here.")
+                      : worktreePolicy.enabled
+                        ? t("Click to turn W2 parallelism off — the next wave plans a single stream.")
+                        : t("Click to turn W2 parallelism on — the next wave may provision a second worktree.")
+              }
+              onClick={toggleWorktreePolicy}
+            >
+              {t("W2 parallelism")}
+            </button>
+            <span
+              className={
+                worktreeChanging || worktreePolicy.kind === "loading"
+                  ? "badge status-warning worktree-policy-status"
+                  : worktreePolicy.kind === "known" && worktreePolicy.enabled
+                    ? "badge status-good worktree-policy-status"
+                    : "badge status-neutral worktree-policy-status"
+              }
+              role="status"
+            >
+              {worktreeChanging
+                ? t("Changing")
+                : worktreePolicy.kind === "loading"
+                  ? t("Reading")
+                  : worktreePolicy.kind !== "known"
+                    ? t("Unknown")
+                    : worktreePolicy.enabled
+                      ? t("On")
+                      : t("Off")}
+            </span>
+          </div>
+        </div>
+
+        {/* PARENGTIES eilutė: įjungta politika dar nereiškia, kad repozitorija paruošta. Trys
+            atsakymai, ne du — „nežinoma" turi savo eilutę ir NIEKADA nevirsta įspėjimu. */}
+        {worktreePolicy.kind === "known" && worktreePolicy.enabled && (
+          worktreePolicy.gitignoreOk === false ? (
+            <p
+              className="notice notice-warning"
+              role="alert"
+              title={t("The project .gitignore does not ignore the worktree directory, so a provisioned worktree shows up as project changes and the wave sees a dirty tree.")}
+            >
+              ⚠ {t("W2 parallelism is on, but the repository is not ready: .gitignore does not ignore the worktree directory.")}
+            </p>
+          ) : worktreePolicy.gitignoreOk === true ? (
+            <p className="runtime-explanation">
+              {t("Ready: .gitignore ignores the worktree directory.")}
+            </p>
+          ) : (
+            <p
+              className="runtime-explanation"
+              title={t("The server did not report the .gitignore state — either the port is not wired or the file could not be read.")}
+            >
+              {t("Worktree readiness is unknown: the server did not report the .gitignore state.")}
+            </p>
+          )
+        )}
+        {worktreePolicy.kind === "unknown" && (
+          <p className="runtime-explanation">
+            {t("The worktree policy state could not be read, so the switch stays closed — an unconfirmed state is not the same as off.")}
+          </p>
+        )}
+        {worktreeError !== undefined && (
+          <p className="notice notice-error" role="alert">
+            {t("Worktree policy change failed")}: {worktreeError}
+          </p>
+        )}
+      </section>
 
       {/* Srautų blokas gyvena savo komponente (task 1233): panelė lieka vykdymo aplinkos suvestinė,
           o srautų gyvavimo ciklas — vienas, jam skirtas failas. */}

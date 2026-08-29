@@ -28,6 +28,8 @@ Leidžiama:
 - `ui-app/src/model/api.ts`
 - `ui-app/src/i18n/I18nContext.tsx`
 - `ui-app/src/view/styles/dashboard.css`
+- `ui-app/src/controller/useDashboardController.ts` (HUMAN-REVIEW-APPROVED:
+  mindebaltru 2026-08-29 — proposePolicy signatūra be reason eina per controller, legalizuota)
 
 Draudžiama:
 - `ui-app/src/view/components/SelectMenu.tsx`

@@ -25,6 +25,8 @@ Privaloma grandinė (nenukrypti): readme-guard -> coder -> reviewer -> tester.
 Leidžiama:
 - `src/interfaces/http/ui-router-mutations.ts`
 - `src/tests/composition-ui-policy-governance.test.ts`
+- `src/tests/interfaces-http-router-contracts.test.ts` (HUMAN-REVIEW-APPROVED:
+  mindebaltru 2026-08-29 — kontraktų testas privalo atspindėti nebeprivalomą reason, legalizuota)
 
 Draudžiama:
 - `src/application/policy-governance/policy-proposals-log.ts`

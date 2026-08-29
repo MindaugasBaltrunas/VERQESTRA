@@ -47,6 +47,8 @@ Leidžiama:
 - `src/tests/interfaces-http-waves-view.test.ts`
 - `src/tests/interfaces-ui-model-wave-slot.test.ts` (numatomas; jei testas
   gyvena kitur — tas failas vietoje šio, įrašyti į ataskaitą)
+- `src/tests/interfaces-ui-model-wave-slots.test.ts` (HUMAN-REVIEW-APPROVED:
+  mindebaltru 2026-08-29 — worker'io realiai sukurtas testo vardas, legalizuota)
 
 Draudžiama:
 - `src/application/scheduling/**` (planavimo logika nesikeičia)

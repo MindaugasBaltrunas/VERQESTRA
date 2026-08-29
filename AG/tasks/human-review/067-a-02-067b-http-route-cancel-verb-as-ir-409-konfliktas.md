@@ -24,6 +24,10 @@ Privaloma naudoti butent sia grandine: readme-guard -> coder -> reviewer -> test
 Leidziama:
 - `src/interfaces/http/ui-router-mutations.ts`
 - `src/tests/interfaces-http-router.test.ts`
+- `src/interfaces/http/ui-router-model.ts` (HUMAN-REVIEW-APPROVED:
+  mindebaltru 2026-08-29 — cancel verb'o tipas gyvena route modelyje, legalizuota)
+- `src/interfaces/http/ui-error-mapping.ts` (HUMAN-REVIEW-APPROVED:
+  mindebaltru 2026-08-29 — 409 konflikto žemėlapis gyvena čia, legalizuota)
 
 Draudziama:
 - `src/application/policy-governance/policy-proposal-service.ts`

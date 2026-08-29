@@ -78,6 +78,13 @@ export type UiWaveWorktreePolicy = {
   enabled: boolean;
   /** Projektui reliatyvus POSIX kelias (`vq/config/worktree-policy.json`), niekada absoliutus. */
   config_path: string;
+  /**
+   * Ar projekto `.gitignore` jau turi worktree eilutę — antra w2 parengties pusė šalia `enabled`.
+   *
+   * Trūksta dviem atvejais, kurių nė vienas NĖRA `false`: porto nėra (composition dar nesurišta)
+   * arba `.gitignore` neperskaitytas. „Nežinoma" niekada neapsimeta „netvarkoje".
+   */
+  worktree_gitignore_ok?: boolean;
 };
 
 export type UiWavesView = {
@@ -159,6 +166,12 @@ export type WavesViewPorts = {
   homeDir(): string;
   /** Ar worktree izoliacijos politika įjungta pagal `<runtimeRoot>/config/worktree-policy.json`. */
   readWorktreePolicyEnabled(absoluteConfigFile: string): Promise<boolean>;
+  /**
+   * Ar projekto `.gitignore` jau turi worktree eilutę. OPCIONALUS: kol composition šio porto
+   * nesuriša, vaizdas praleidžia lauką, o ne skelbia `false` — nesurišta wiring atrodytų kaip
+   * netvarkingas `.gitignore`.
+   */
+  readWorktreeGitignoreOk?(absoluteGitignoreFile: string): Promise<boolean>;
   now?: () => Date;
   /** Degradavusio šaltinio pranešimas; be jo gedimas lieka tik `degraded` sąraše. */
   logError?(message: string): void;
@@ -307,8 +320,10 @@ export async function buildWavesView(input: BuildWavesViewInput): Promise<UiWave
   const now = ports.now?.() ?? new Date();
   const degraded: string[] = [];
   const worktreePolicyFile = path.join(runtimeRoot, "config", "worktree-policy.json");
+  const gitignoreFile = path.join(root, ".gitignore");
+  const readGitignoreOk = ports.readWorktreeGitignoreOk?.bind(ports);
 
-  const [eventTail, leases, snapshot, failures, worktreePolicyEnabled] = await Promise.all([
+  const [eventTail, leases, snapshot, failures, worktreePolicyEnabled, worktreeGitignoreOk] = await Promise.all([
     readSource(ports, "events", [] as UiWaveEvent[], () => readWaveEventTail(ports, logsDir, sanitize), degraded),
     readSource(ports, "leases", [] as WaveSlotLease[], () => readLeases(ports, root), degraded),
     // Šaltinio vardas lieka `rejections`: jis jau yra `degraded` kontrakte, o skaitomas failas tas
@@ -335,6 +350,11 @@ export async function buildWavesView(input: BuildWavesViewInput): Promise<UiWave
       () => ports.readWorktreePolicyEnabled(worktreePolicyFile),
       degraded,
     ),
+    // Atskiras `degraded` vardas, o ne `worktree_policy`: neperskaitytas `.gitignore` nieko
+    // nesako apie pačią politiką, tad neturi teisės nuvertinti jos šaltinio įrodymo.
+    readGitignoreOk
+      ? readSource(ports, "worktree_gitignore", undefined as boolean | undefined, () => readGitignoreOk(gitignoreFile), degraded)
+      : undefined,
   ]);
 
   const slots = buildWaveSlots({
@@ -357,6 +377,7 @@ export async function buildWavesView(input: BuildWavesViewInput): Promise<UiWave
           worktree_policy: {
             enabled: worktreePolicyEnabled,
             config_path: normalizeProjectPath(root, worktreePolicyFile),
+            ...(worktreeGitignoreOk !== undefined ? { worktree_gitignore_ok: worktreeGitignoreOk } : {}),
           },
         }
       : {}),

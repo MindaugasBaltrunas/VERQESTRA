@@ -23,6 +23,7 @@ const RUNTIME = path.join(ROOT, "vq");
 const EVENTS = path.join(RUNTIME, "logs", "wave-events.jsonl");
 const ORCHESTRATOR_LOG = path.join(RUNTIME, "logs", "orchestrator.log");
 const WORKTREE_POLICY_FILE = path.join(RUNTIME, "config", "worktree-policy.json");
+const GITIGNORE_FILE = path.join(ROOT, ".gitignore");
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 
 type WavesWorld = {
@@ -280,4 +281,78 @@ test("buildWavesView: neperskaitomas worktree politikos failas žymimas degraded
   assert.equal(view.worktree_policy, undefined);
   assert.deepEqual(view.degraded, ["worktree_policy"]);
   assert.match(world.errors.join("\n"), /waves view source 'worktree_policy' failed/);
+});
+
+// `worktree_gitignore_ok` — antra w2 parengties pusė. Portas OPCIONALUS, tad tikrinamos abi
+// reikšmės IR abu „nežinoma" keliai; nė vienas iš jų neturi virsti `false`.
+
+test("buildWavesView: gitignore portas grąžina true → laukas true šalia nepakitusios politikos", async () => {
+  const world = wavesWorld();
+  world.worktreePolicyEnabled = true;
+  const asked: string[] = [];
+
+  const view = await buildWavesView({
+    ports: {
+      ...world.ports,
+      readWorktreeGitignoreOk: (file) => {
+        asked.push(file);
+        return Promise.resolve(true);
+      },
+    },
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME,
+  });
+
+  assert.deepEqual(view.worktree_policy, {
+    enabled: true,
+    config_path: "vq/config/worktree-policy.json",
+    worktree_gitignore_ok: true,
+  });
+  assert.deepEqual(asked, [GITIGNORE_FILE], "portas gauna PROJEKTO .gitignore, ne runtime kelią");
+  assert.deepEqual(view.degraded, []);
+});
+
+test("buildWavesView: gitignore portas grąžina false → laukas false, o ne praleistas", async () => {
+  const world = wavesWorld();
+
+  const view = await buildWavesView({
+    ports: { ...world.ports, readWorktreeGitignoreOk: () => Promise.resolve(false) },
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME,
+  });
+
+  assert.deepEqual(view.worktree_policy, {
+    enabled: false,
+    config_path: "vq/config/worktree-policy.json",
+    worktree_gitignore_ok: false,
+  });
+  assert.deepEqual(view.degraded, []);
+});
+
+test("buildWavesView: be gitignore porto laukas praleidžiamas, o enabled/config_path nepakitę", async () => {
+  const world = wavesWorld();
+  world.worktreePolicyEnabled = true;
+
+  const view = await buildWavesView({ ports: world.ports, projectRoot: ROOT, runtimeRoot: RUNTIME });
+
+  assert.ok(view.worktree_policy);
+  assert.equal("worktree_gitignore_ok" in view.worktree_policy, false, "nesurišta wiring nėra netvarkingas .gitignore");
+  assert.equal(view.worktree_policy.enabled, true);
+  assert.equal(view.worktree_policy.config_path, "vq/config/worktree-policy.json");
+  assert.deepEqual(view.degraded, []);
+});
+
+test("buildWavesView: neperskaitomas .gitignore praleidžia lauką ir degraduoja SAVO šaltinį", async () => {
+  const world = wavesWorld();
+  world.worktreePolicyEnabled = true;
+
+  const view = await buildWavesView({
+    ports: { ...world.ports, readWorktreeGitignoreOk: () => Promise.reject(new Error("neperskaitomas .gitignore")) },
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME,
+  });
+
+  assert.deepEqual(view.worktree_policy, { enabled: true, config_path: "vq/config/worktree-policy.json" });
+  assert.deepEqual(view.degraded, ["worktree_gitignore"], "politikos šaltinis perskaitytas — jis nedegraduoja");
+  assert.match(world.errors.join("\n"), /waves view source 'worktree_gitignore' failed/);
 });

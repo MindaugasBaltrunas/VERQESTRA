@@ -29,7 +29,7 @@ export const policyProposalSchema = z.strictObject({
 
 export type PolicyProposal = z.infer<typeof policyProposalSchema>;
 
-export const POLICY_PROPOSAL_STATUSES = ["pending", "approved", "rejected", "applied"] as const;
+export const POLICY_PROPOSAL_STATUSES = ["pending", "approved", "rejected", "applied", "cancelled"] as const;
 export type PolicyProposalStatus = (typeof POLICY_PROPOSAL_STATUSES)[number];
 
 export const policyDecisionSchema = z.strictObject({
@@ -38,7 +38,7 @@ export const policyDecisionSchema = z.strictObject({
   actor: z.string().min(1),
   reason: z.string(),
   timestamp: z.string().min(1),
-  decision: z.enum(["approved", "rejected", "applied"]),
+  decision: z.enum(["approved", "rejected", "applied", "cancelled"]),
 });
 
 export type PolicyDecision = z.infer<typeof policyDecisionSchema>;
@@ -137,6 +137,15 @@ export async function applyPolicyProposal(
   input: PolicyDecisionInput,
 ): Promise<void> {
   await appendPolicyDecision(fs, runtimeRoot, { ...input, decision: "applied" });
+}
+
+/** Atšaukimas — NAUJAS append-only įrašas; jokio esamo įrašo trynimo ar perrašymo. */
+export async function cancelPolicyProposal(
+  fs: PolicyProposalsFsPort,
+  runtimeRoot: string,
+  input: PolicyDecisionInput,
+): Promise<void> {
+  await appendPolicyDecision(fs, runtimeRoot, { ...input, decision: "cancelled" });
 }
 
 function matchesRef(

@@ -15,12 +15,14 @@ import {
   humanReviewApprovalMarkerPath,
   HumanReviewApprovalRequiredError,
   listPolicyProposals,
+  ProposalCancelConflictError,
   ProposalNotApprovedError,
   type PolicyProposalServicePorts,
 } from "../application/policy-governance/policy-proposal-service.js";
 import {
   appendPolicyProposal,
   countPendingProposals,
+  policyProposalsDir,
   resolveProposalStatus,
   type PolicyDecision,
 } from "../application/policy-governance/policy-proposals-log.js";
@@ -173,3 +175,121 @@ test("decide validuoja policy failą kiekvienam verbui, o statusas — paskutini
 
   assert.deepEqual(await listPolicyProposals(ports, RUNTIME_ROOT), { proposals: [] });
 });
+
+test("cancel: pending pasiūlymą galima atšaukti — žurnalas append-only, įrašų skaičius tik auga", async () => {
+  const ports = makePorts();
+  const proposal = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "enforcement",
+    "require_tests_for_code_changes",
+    true,
+    "įjungiam testų vartus",
+  );
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, proposal);
+
+  const ref = {
+    policy_file: ENFORCEMENT_FILE,
+    setting_id: "require_tests_for_code_changes",
+    actor: "operator",
+    reason: "persigalvota",
+  };
+
+  const decisionsBefore = (await readResolvedProposalsDecisionCount(ports));
+  const afterCancel = await decidePolicyProposal(ports, RUNTIME_ROOT, "cancel", ref);
+  assert.equal(afterCancel.proposals[0]?.status, "cancelled");
+  const decisionsAfter = (await readResolvedProposalsDecisionCount(ports));
+  assert.ok(decisionsAfter > decisionsBefore);
+});
+
+test("cancel: approved (dar nepritaikytą) pasiūlymą galima atšaukti", async () => {
+  const ports = makePorts();
+  const proposal = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "enforcement",
+    "require_tests_for_code_changes",
+    true,
+    "įjungiam testų vartus",
+  );
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, proposal);
+
+  const ref = {
+    policy_file: ENFORCEMENT_FILE,
+    setting_id: "require_tests_for_code_changes",
+    actor: "operator",
+    reason: "review",
+  };
+
+  const afterApprove = await decidePolicyProposal(ports, RUNTIME_ROOT, "approve", ref);
+  assert.equal(afterApprove.proposals[0]?.status, "approved");
+
+  const afterCancel = await decidePolicyProposal(ports, RUNTIME_ROOT, "cancel", {
+    ...ref,
+    reason: "persigalvota po approve",
+  });
+  assert.equal(afterCancel.proposals[0]?.status, "cancelled");
+  assert.equal(afterCancel.proposals[0]?.history.length, 2);
+});
+
+test("cancel: konfliktas iš applied ir iš rejected — žurnalas nesikeičia", async () => {
+  const ports = makePorts();
+  const proposal = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "enforcement",
+    "require_tests_for_code_changes",
+    true,
+    "įjungiam testų vartus",
+  );
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, proposal);
+
+  const applyRef = {
+    policy_file: ENFORCEMENT_FILE,
+    setting_id: "require_tests_for_code_changes",
+    actor: "operator",
+    reason: "review",
+  };
+  await decidePolicyProposal(ports, RUNTIME_ROOT, "approve", applyRef);
+  const marker = humanReviewApprovalMarkerPath(RUNTIME_ROOT, applyRef.policy_file, applyRef.setting_id);
+  ports.files.set(norm(marker), "approved");
+  await decidePolicyProposal(ports, RUNTIME_ROOT, "apply", applyRef);
+
+  const decisionsBeforeConflict = await readResolvedProposalsDecisionCount(ports);
+  await assert.rejects(
+    () => decidePolicyProposal(ports, RUNTIME_ROOT, "cancel", applyRef),
+    ProposalCancelConflictError,
+  );
+  assert.equal(await readResolvedProposalsDecisionCount(ports), decisionsBeforeConflict);
+
+  const rejectedProposal = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "enforcement",
+    "max_files_per_task",
+    5,
+    "kitas pasiūlymas",
+  );
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, rejectedProposal);
+  const rejectRef = {
+    policy_file: ENFORCEMENT_FILE,
+    setting_id: "max_files_per_task",
+    actor: "operator",
+    reason: "atmesta",
+  };
+  await decidePolicyProposal(ports, RUNTIME_ROOT, "reject", rejectRef);
+
+  await assert.rejects(
+    () => decidePolicyProposal(ports, RUNTIME_ROOT, "cancel", rejectRef),
+    ProposalCancelConflictError,
+  );
+});
+
+async function readResolvedProposalsDecisionCount(
+  ports: PolicyProposalServicePorts & { files: Map<string, string> },
+): Promise<number> {
+  const raw = (await ports.fs.readTextFileIfExists(
+    norm(path.join(policyProposalsDir(RUNTIME_ROOT), "decisions.jsonl")),
+  )) ?? "";
+  return raw.split(/\r?\n/).filter((line) => line.trim()).length;
+}

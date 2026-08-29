@@ -9,11 +9,13 @@ import { toPosixPath } from "../../shared/paths.js";
 import {
   applyPolicyProposal,
   approvePolicyProposal,
+  cancelPolicyProposal,
   readResolvedProposals,
   rejectPolicyProposal,
   type PolicyDecisionInput,
   type PolicyProposal,
   type PolicyProposalsFsPort,
+  type PolicyProposalStatus,
   type ResolvedProposal,
 } from "./policy-proposals-log.js";
 import {
@@ -32,13 +34,25 @@ export type PolicyProposalServicePorts = {
     };
 };
 
-export type PolicyDecisionVerb = "approve" | "reject" | "apply";
+export type PolicyDecisionVerb = "approve" | "reject" | "apply" | "cancel";
 
 /** Domain klaida: apply bandytas pasiūlymui, kuris nebuvo patvirtintas. */
 export class ProposalNotApprovedError extends Error {
   constructor(readonly policyFile: string, readonly settingId: string) {
     super(`Policy proposal must be approved before apply: ${policyFile}/${settingId}`);
     this.name = "ProposalNotApprovedError";
+  }
+}
+
+/**
+ * Domain klaida: cancel bandytas pasiūlymui, kuris jau pasiekė galutinę būseną
+ * (`applied` arba `rejected`) — atšaukti leidžiama tik `pending`/`approved` (dar
+ * nepritaikytam) pasiūlymui. HTTP statuso mapping (409) — kitos užduoties dalies atsakomybė.
+ */
+export class ProposalCancelConflictError extends Error {
+  constructor(readonly policyFile: string, readonly settingId: string, readonly status: PolicyProposalStatus) {
+    super(`Policy proposal cannot be cancelled from status "${status}": ${policyFile}/${settingId}`);
+    this.name = "ProposalCancelConflictError";
   }
 }
 
@@ -170,6 +184,18 @@ export async function decidePolicyProposal(
     await approvePolicyProposal(ports.fs, runtimeRoot, decisionInput);
   } else if (verb === "reject") {
     await rejectPolicyProposal(ports.fs, runtimeRoot, decisionInput);
+  } else if (verb === "cancel") {
+    const resolved = await readResolvedProposals(ports.fs, runtimeRoot);
+    const latest = [...resolved]
+      .reverse()
+      .find(({ proposal }) => proposal.policy_file === input.policy_file && proposal.setting_id === input.setting_id);
+    const status: PolicyProposalStatus = latest?.status ?? "pending";
+    // Atšaukti leidžiama tik dar nepritaikytam pasiūlymui: `pending` arba `approved`.
+    // Iš `applied`/`rejected`/jau `cancelled` — konfliktas, nes žurnalas negrįžta atgal.
+    if (status !== "pending" && status !== "approved") {
+      throw new ProposalCancelConflictError(input.policy_file, input.setting_id, status);
+    }
+    await cancelPolicyProposal(ports.fs, runtimeRoot, decisionInput);
   } else {
     const resolved = await readResolvedProposals(ports.fs, runtimeRoot);
     const approved = [...resolved]

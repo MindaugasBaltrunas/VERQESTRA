@@ -4,7 +4,7 @@
 // `worktreeRootIsIgnored` blokuoja worktree kūrimą).
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -104,4 +104,39 @@ test("dispose išvalo worktree'ą — kelias dingsta ir git worktree list jo neb
   assert.equal(await nodeFsAdapter.exists(worktreePath), false);
   const list = await run("git", ["-C", root, "worktree", "list", "--porcelain"]);
   assert.equal(list.stdout.includes(worktreePath), false);
+});
+
+test("dispose: negyva registracija su stale index.lock issivalo, gyva svetima registracija neliesta", async () => {
+  const result = await materializePreservedWork({
+    projectRoot: root,
+    ref: preserved.ref,
+    worktreePath: path.join(root, ".ag", "worktrees", "preserved-registration-cleanup-test"),
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  if (!result.ok) return;
+
+  const worktreesDir = path.join(root, ".git", "worktrees");
+  const deadDir = path.join(worktreesDir, "dead-registration-preserved");
+  await nodeFsAdapter.makeDirectory(deadDir);
+  await nodeFsAdapter.writeTextFile(path.join(deadDir, "gitdir"), path.join(root, "gone-preserved", ".git"));
+  const deadLockPath = path.join(deadDir, "index.lock");
+  await nodeFsAdapter.writeTextFile(deadLockPath, "");
+  const stale = new Date(Date.now() - 60_000);
+  await utimes(deadLockPath, stale, stale);
+
+  const liveGitdirTarget = path.join(root, "live-worktree-preserved", ".git");
+  await nodeFsAdapter.makeDirectory(liveGitdirTarget);
+  const liveDir = path.join(worktreesDir, "live-registration-preserved");
+  await nodeFsAdapter.makeDirectory(liveDir);
+  await nodeFsAdapter.writeTextFile(path.join(liveDir, "gitdir"), liveGitdirTarget);
+  const liveLockPath = path.join(liveDir, "index.lock");
+  await nodeFsAdapter.writeTextFile(liveLockPath, "");
+  await utimes(liveLockPath, stale, stale);
+
+  await result.work.dispose();
+
+  assert.equal(await nodeFsAdapter.exists(deadDir), false, "negyva registracija po dispose turi issivalyti");
+  assert.equal(await nodeFsAdapter.exists(deadLockPath), false, "negyvos registracijos lock privalo issivalyti");
+  assert.equal(await nodeFsAdapter.exists(liveDir), true, "gyva svetima registracija neturi buti paliesta");
+  assert.equal(await nodeFsAdapter.exists(liveLockPath), true, "gyvos registracijos lock neturi buti liestas");
 });

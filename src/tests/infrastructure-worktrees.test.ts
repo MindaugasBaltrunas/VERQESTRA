@@ -358,3 +358,132 @@ test("orphan reap eskalacija: negyva git worktree registracija su stale index.lo
     await rm(escRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 });
+
+test("removeTaskWorktree: negyva registracija su stale index.lock issivalo po normalaus salinimo, gyva islieka", async () => {
+  const remRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-remove-cleanup-"));
+  try {
+    async function remGit(...args: string[]): Promise<{ code: number; stdout: string }> {
+      const result = await run("git", ["-C", remRoot, ...args]);
+      assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+      return result;
+    }
+    await remGit("init");
+    await remGit("config", "user.email", "test@example.com");
+    await remGit("config", "user.name", "Test");
+    await remGit("config", "commit.gpgsign", "false");
+    await remGit("config", "core.autocrlf", "false");
+    await nodeFsAdapter.writeTextFile(path.join(remRoot, ".gitignore"), ".ag/\n");
+    await nodeFsAdapter.writeTextFile(path.join(remRoot, "src", "a.ts"), "pradinis\n");
+    await remGit("add", "--all");
+    await remGit("commit", "-m", "pradinis");
+
+    const remIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-remove", attempt: 1 };
+    const remLease = lease({ lease_id: "lease-remove", fencing_token: 20, task_id: "t-remove" });
+    const created = await createTaskWorktree({
+      projectRoot: remRoot,
+      identity: remIdentity,
+      lease: remLease,
+      baseRef: "HEAD",
+    });
+    assert.equal(created.status, "created", JSON.stringify(created));
+    if (created.status !== "created") return;
+
+    const worktreesDir = path.join(remRoot, ".git", "worktrees");
+    const deadDir = path.join(worktreesDir, "dead-registration");
+    await nodeFsAdapter.makeDirectory(deadDir);
+    await nodeFsAdapter.writeTextFile(path.join(deadDir, "gitdir"), path.join(remRoot, "gone", ".git"));
+    const deadLockPath = path.join(deadDir, "index.lock");
+    await nodeFsAdapter.writeTextFile(deadLockPath, "");
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(deadLockPath, stale, stale);
+
+    const liveGitdirTarget = path.join(remRoot, "live-worktree", ".git");
+    await nodeFsAdapter.makeDirectory(liveGitdirTarget);
+    const liveDir = path.join(worktreesDir, "live-registration");
+    await nodeFsAdapter.makeDirectory(liveDir);
+    await nodeFsAdapter.writeTextFile(path.join(liveDir, "gitdir"), liveGitdirTarget);
+    const liveLockPath = path.join(liveDir, "index.lock");
+    await nodeFsAdapter.writeTextFile(liveLockPath, "");
+    await utimes(liveLockPath, stale, stale);
+
+    const removed = await removeTaskWorktree({
+      projectRoot: remRoot,
+      identity: remIdentity,
+      claim: { lease_id: remLease.lease_id, owner_id: remLease.owner_id, fencing_token: remLease.fencing_token },
+      leases: [remLease],
+    });
+    assert.equal(removed.status, "removed", JSON.stringify(removed));
+
+    assert.equal(await nodeFsAdapter.exists(deadDir), false, "negyva registracija po salinimo turi issivalyti");
+    assert.equal(await nodeFsAdapter.exists(deadLockPath), false, "negyvos registracijos lock privalo issivalyti");
+    assert.equal(await nodeFsAdapter.exists(liveDir), true, "gyva svetima registracija neturi buti paliesta");
+    assert.equal(await nodeFsAdapter.exists(liveLockPath), true, "gyvos registracijos lock neturi buti liestas");
+  } finally {
+    await rm(remRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
+test("reapOrphanWorktree: negyva registracija su stale index.lock issivalo po normalaus reap'o (ne eskalacija), gyva islieka", async () => {
+  const reapRoot = await mkdtemp(path.join(tmpdir(), "vq-wt-reap-cleanup-"));
+  try {
+    async function reapGit(...args: string[]): Promise<{ code: number; stdout: string }> {
+      const result = await run("git", ["-C", reapRoot, ...args]);
+      assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+      return result;
+    }
+    await reapGit("init");
+    await reapGit("config", "user.email", "test@example.com");
+    await reapGit("config", "user.name", "Test");
+    await reapGit("config", "commit.gpgsign", "false");
+    await reapGit("config", "core.autocrlf", "false");
+    await nodeFsAdapter.writeTextFile(path.join(reapRoot, ".gitignore"), ".ag/\n");
+    await nodeFsAdapter.writeTextFile(path.join(reapRoot, "src", "a.ts"), "pradinis\n");
+    await reapGit("add", "--all");
+    await reapGit("commit", "-m", "pradinis");
+
+    const reapIdentity = { run_id: "r1", worker_id: "w1", task_id: "t-reap", attempt: 1 };
+    const created = await createTaskWorktree({
+      projectRoot: reapRoot,
+      identity: reapIdentity,
+      lease: lease({ lease_id: "lease-reap", fencing_token: 21, task_id: "t-reap" }),
+      baseRef: "HEAD",
+    });
+    assert.equal(created.status, "created", JSON.stringify(created));
+    if (created.status !== "created") return;
+
+    const worktreesDir = path.join(reapRoot, ".git", "worktrees");
+    const deadDir = path.join(worktreesDir, "dead-registration");
+    await nodeFsAdapter.makeDirectory(deadDir);
+    await nodeFsAdapter.writeTextFile(path.join(deadDir, "gitdir"), path.join(reapRoot, "gone", ".git"));
+    const deadLockPath = path.join(deadDir, "index.lock");
+    await nodeFsAdapter.writeTextFile(deadLockPath, "");
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(deadLockPath, stale, stale);
+
+    const liveGitdirTarget = path.join(reapRoot, "live-worktree", ".git");
+    await nodeFsAdapter.makeDirectory(liveGitdirTarget);
+    const liveDir = path.join(worktreesDir, "live-registration");
+    await nodeFsAdapter.makeDirectory(liveDir);
+    await nodeFsAdapter.writeTextFile(path.join(liveDir, "gitdir"), liveGitdirTarget);
+    const liveLockPath = path.join(liveDir, "index.lock");
+    await nodeFsAdapter.writeTextFile(liveLockPath, "");
+    await utimes(liveLockPath, stale, stale);
+
+    // Tuscias leases sarasas -> kopija be gyvo lease'o -> orphan; joks commit'as sakoje ->
+    // virsune == baze -> reap'as praeina be eskalacijos (tryEscalate nekviecziamas).
+    const orphans = await findOrphanWorktrees({ projectRoot: reapRoot, leases: [] });
+    const target = orphans.find((orphan) => path.resolve(orphan.entry.path) === path.resolve(created.layout.path));
+    assert.ok(target, "orphan sarase turi buti t-reap kopija");
+    if (!target) return;
+
+    const reaped = await reapOrphanWorktree({ projectRoot: reapRoot, orphan: target, leases: [] });
+    assert.equal(reaped.status, "reaped", JSON.stringify(reaped));
+
+    assert.equal(await nodeFsAdapter.exists(deadDir), false, "negyva registracija po reap'o turi issivalyti");
+    assert.equal(await nodeFsAdapter.exists(deadLockPath), false, "negyvos registracijos lock privalo issivalyti");
+    assert.equal(await nodeFsAdapter.exists(liveDir), true, "gyva svetima registracija neturi buti paliesta");
+    assert.equal(await nodeFsAdapter.exists(liveLockPath), true, "gyvos registracijos lock neturi buti liestas");
+  } finally {
+    await rm(reapRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+});

@@ -19,3 +19,5 @@ vq/
 # Neigimas galioja būtent katalogui, kurį uždengia `vq/`; jo turinys po to nebeatitinka nė vieno
 # ignoravimo šablono, nes `templates/vq/config` nesivadina `vq`.
 !templates/vq/
+
+ .ag/worktrees/

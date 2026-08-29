@@ -12,9 +12,10 @@ import {
 import { nodeFsAdapter } from "../../fs/node-fs-adapter.js";
 import { run, type CommandResult } from "../../process/run-process.js";
 import { worktreeLayout, type WorktreeIdentity, type WorktreeLayout } from "./worktree-layout.js";
-import { worktreeGit, worktreeGitFailure } from "./worktree-git-util.js";
+import { worktreeGitFailure } from "./worktree-git-util.js";
 import { quarantineWorktree } from "./worktree-owner.js";
 import { inspectTaskWorktree } from "./worktree-provision.js";
+import { cleanupWorktreeRegistrations } from "./worktree-registration-cleanup.js";
 import type { WorktreeQuarantineReason } from "./worktree-state-classifier.js";
 
 /** Kviečiama tik po sėkmingo `fallback-<n>` žingsnio — pirmo bandymo sėkmė žymos neneša. */
@@ -140,8 +141,18 @@ export async function removeTaskWorktree(input: {
   return removal.fallback ? { status: "removed", layout, fallback: removal.fallback } : { status: "removed", layout };
 }
 
+/**
+ * `git worktree prune` PLIUS negyvų `.git/worktrees/<name>/` registracijų ir jose likusio
+ * pasenusio `index.lock` valymas (GeoGravity 1179). Plikas prune registraciją palieka, jei
+ * joje dar yra `index.lock` — todėl kiekvienas šalinimo kelias eina per šią funkciją, o ne
+ * tiesiai per `git worktree prune`. Niekada nemeta: nesėkmė — best-effort log eilutė, ne
+ * šalinimo abortas (žr. `cleanupWorktreeRegistrations`, kuri pati niekada nemeta).
+ */
 export async function pruneWorktrees(projectRoot: string): Promise<void> {
-  await worktreeGit(path.resolve(projectRoot), ["worktree", "prune"]);
+  const result = await cleanupWorktreeRegistrations({ projectRoot });
+  if (result.error !== undefined) {
+    process.stderr.write(`[worktree-removal] registration cleanup failed: ${result.error}\n`);
+  }
 }
 
 /**

@@ -18,6 +18,24 @@ export type ChildExitDiagnosticsInput = {
   signal?: string;
 };
 
+const SLOT_LOG_PATH_SEPARATOR_PATTERN = /[\\/]+/g;
+/** Naudojamas, kai slot'as neturi `attempt_ref` (struktūriškai galimas net su worktree — žr. `wave-dispatch.ts`). */
+const UNKNOWN_ATTEMPT_ID = "a0";
+
+function sanitizeSlotLogSegment(segment: string): string {
+  return segment.replace(SLOT_LOG_PATH_SEPARATOR_PATTERN, "_");
+}
+
+/**
+ * `vq/logs/slots` failo vardas vienam worker/task/attempt trejetui — GRYNA funkcija (080-a-02):
+ * kelio separatoriai sanitizuojami, kad worker/task id (paprastai jau saugūs, bet niekada
+ * nerodyti struktūriškai) negalėtų sukurti kelio segmento.
+ */
+export function childExitSlotLogFileName(input: { workerId: string; taskId: string; attemptId?: string }): string {
+  const attemptId = input.attemptId ?? UNKNOWN_ATTEMPT_ID;
+  return `${[input.workerId, input.taskId, attemptId].map(sanitizeSlotLogSegment).join("-")}.log`;
+}
+
 function tailOf(label: string, text: string): string {
   const trimmed = text.trim();
   if (trimmed === "") return "";

@@ -50,7 +50,7 @@ import { ensureWorktreeRuntime, PRODUCT_INSTALL_TIMEOUT_MS } from "../../infrast
 import { reapOrphanWorktrees } from "../../infrastructure/git/worktrees/orphan-worktree-reaper.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../../infrastructure/process/run-process.js";
-import { formatChildExitDiagnostics } from "./child-exit-diagnostics.js";
+import { childExitSlotLogFileName, formatChildExitDiagnostics } from "./child-exit-diagnostics.js";
 import { activeAttemptResolution } from "../../infrastructure/state/active-attempt.js";
 import { reapDeadLeases, schedulingFs } from "./adapters.js";
 import { architectureWavePorts } from "../quality/architecture-adapters.js";
@@ -72,6 +72,28 @@ import {
 
 /** Sistemos remonto užduoties failas — jis eina savo keliu, ne per įprastą tęsimą. */
 const AUDIT_REPAIR_TASK_FILE = "claude-audit-repair.md";
+
+/**
+ * Vaiko exit diagnostikos uodega, papildomai append'inama į `vq/logs/slots/<worker>-<task>-a<attempt>.log`
+ * (080-a-02): `deps.log` gyvena `orchestrator.log`, kuris rotuojamas, tad tas pats įrašas
+ * papildomai lieka faile, kurio gyvavimas nepriklauso nuo rotacijos. Rašymo klaida NIEKADA
+ * nenutraukia slot'o vykdymo — tik `deps.log` eilutė, kaip ir kitos šio failo geros nesėkmės.
+ */
+export async function appendChildExitSlotLog(
+  ports: { fs: { appendTextFile: (absolutePath: string, text: string) => Promise<void> }; log: (message: string) => Promise<void> },
+  runtimeRoot: string,
+  input: { workerId: string; taskId: string; attemptId?: string },
+  diagnosticsText: string,
+): Promise<void> {
+  const absolutePath = path.join(runtimeRoot, "logs", "slots", childExitSlotLogFileName(input));
+  try {
+    await ports.fs.appendTextFile(absolutePath, `${diagnosticsText}\n`);
+  } catch (error) {
+    await ports.log(
+      `WAVE SLOT CHILD EXIT LOG APPEND FAILED: slot=${input.workerId} task=${input.taskId} error=${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
 
 export type LoopCommandDeps = {
   roots: RuntimeRoots;
@@ -237,15 +259,22 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
         // nepatenka (jo paties vq/logs miršta kartu su procesu ankstyvo lūžio atveju), tad
         // diagnostika log'inama ČIA — vienintelėje vietoje, kuri išgyvena vaiką. Ji VISADA palieka
         // exit kontekstą ir bent vieną grep'inamą eilutę, net kai vaikas nieko neparašė.
-        await deps.log(
-          formatChildExitDiagnostics({
-            code: result.code,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            durationMs: Date.now() - startedAt,
-            workerId: slot.worker_id,
-            taskId: slot.task_id,
-          }),
+        const diagnostics = formatChildExitDiagnostics({
+          code: result.code,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          durationMs: Date.now() - startedAt,
+          workerId: slot.worker_id,
+          taskId: slot.task_id,
+        });
+        await deps.log(diagnostics);
+        // `deps.log` (orchestrator.log) rotuojasi; ta pati diagnostika ANTRĄ kartą lieka
+        // per-slot faile, kurio gyvavimas nuo rotacijos nepriklauso (080-a-02).
+        await appendChildExitSlotLog(
+          { fs: nodeFsAdapter, log: deps.log },
+          runtimeRoot,
+          { workerId: slot.worker_id, taskId: slot.task_id, ...(slot.attempt_ref === undefined ? {} : { attemptId: slot.attempt_ref.attemptId }) },
+          diagnostics,
         );
       }
       return result.code === 0;

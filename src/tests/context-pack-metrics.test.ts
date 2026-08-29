@@ -18,6 +18,7 @@ import {
 } from "../application/context-pack/metrics.js";
 import { parseContextCompressionConfig } from "../domain/policies/compression/features.js";
 import type { ContextPackFileSystemPort } from "../application/context-pack/ports.js";
+import { joinPostRunTruth } from "../application/analytics/post-run-truth-join.js";
 
 function memoryFs(files: Record<string, string> = {}): ContextPackFileSystemPort {
   const store = new Map(Object.entries(files).map(([key, value]) => [path.resolve(key), value]));
@@ -394,4 +395,46 @@ test("persistContextPack: symbol_source_chars/symbol_signature_chars are 0 (pres
   assert.equal("symbol_signature_chars" in record, true);
   assert.equal(record["symbol_source_chars"], 0);
   assert.equal(record["symbol_signature_chars"], 0);
+});
+
+// Task 086-a-02: `worker_prompt_chars` now HAS a writer (dispatch finalize, task 0086) even
+// though this module never sets it itself. Proves the shape that writer produces is exactly
+// what `joinPostRunTruth` (task 0042) needs to stop dropping every context-size record.
+test("buildContextSizeMetrics + joinPostRunTruth: dispatch-finalize-shaped record joins into a non-empty truth row", () => {
+  const record = buildContextSizeMetrics({
+    taskId: "086-a-02-task",
+    attempt: 1,
+    attempt_id: "086-a-02-task:dispatch:1",
+    contextChars: 0,
+    maxContextChars: 0,
+    specFragmentCount: 0,
+    codeContextItemCount: 0,
+    workerPromptChars: 4200,
+    rawTaskChars: 1800,
+  });
+
+  assert.equal(record.worker_prompt_chars, 4200);
+  assert.equal(record.raw_task_chars, 1800);
+
+  const rows = joinPostRunTruth(
+    [record],
+    [
+      {
+        task_id: "086-a-02-task",
+        attempt: 1,
+        attempt_id: "086-a-02-task:dispatch:1",
+        input_tokens: 900,
+        output_tokens: 150,
+        cache_creation_input_tokens: 50,
+      },
+    ],
+    [],
+  );
+
+  assert.equal(rows.length, 1, "atitinkantis token-usage įrašas -> nebe tuščias rezultatas");
+  assert.equal(rows[0]?.compiled_chars, record.worker_prompt_chars);
+  assert.equal(rows[0]?.raw_chars, 1800);
+  assert.equal(rows[0]?.input_tokens, 900);
+  assert.equal(rows[0]?.billable, 900 + 150 + 50);
+  assert.equal(rows[0]?.accepted, null);
 });

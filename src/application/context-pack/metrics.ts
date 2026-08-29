@@ -71,8 +71,10 @@ export type ContextCompressionMetricsInput = {
   irJsonChars?: number;
   /**
    * Size of the worker prompt actually handed to the dispatch. Assembly-time telemetry cannot
-   * measure it (the final prompt is resolved in the interfaces layer); declared for
-   * schema/reader compatibility, no writer in this module.
+   * measure it (the final prompt is resolved in the interfaces layer). The writer lives outside
+   * this module — dispatch finalize (`claude-dispatch-finalize.ts`, task 0086) calls
+   * {@link buildContextSizeMetrics} with the real sent-prompt length once the dispatch attempt
+   * resolves it.
    */
   workerPromptChars?: number;
   /** Code-context chars rendered as full symbol source slices (`SRC`). */

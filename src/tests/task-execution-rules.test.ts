@@ -222,6 +222,52 @@ test("buildTaskSplitPlan: vaikas su pramanytu keliu gauna tėvinę ## Failai sek
   assert.match(warnings[0]!, /src\/fake\/two\.ts/);
 });
 
+const TASK_WITH_FAKE_PATH_AND_DENY_BLOCK = `# Task
+
+## Spec source
+openspec/changes/demo
+
+## Tikslas
+Didelis darbas su draudžiamu bloku.
+
+## Failai
+Leidžiama:
+- \`src/a/one.ts\`
+- \`src/fake/two.ts\`
+- \`src/a/three.ts\`
+
+Draudžiama:
+- \`src/domain/**\`
+
+## Veiksmas
+- pirmas
+- antras
+
+## Patikra
+- \`pnpm test\`
+
+## Stop
+Sustoti, kai patikros praeina.
+`;
+
+test("buildTaskSplitPlan: atstatytas tėvo Failai su Draudžiama bloku — commit-msg kelias lieka Leidžiama pusėje", () => {
+  const dirExists = (dir: string): boolean => dir !== "src/fake";
+  const plan = buildTaskSplitPlan(TASK_WITH_FAKE_PATH_AND_DENY_BLOCK, "0042", SPLIT_LIMITS, dirExists);
+
+  const [hallucinatedChild] = plan.child_tasks;
+  const failaiSection = extractFailaiSection(hallucinatedChild!.claude_task);
+  const commitPath = commitLogPathsOf([hallucinatedChild!])[0];
+  assert.ok(commitPath, "vaikas turi savo commit-msg kelią");
+
+  const denyIndex = failaiSection.indexOf("Draudžiama:");
+  const commitBulletIndex = failaiSection.indexOf(`\`${commitPath}\``);
+  assert.ok(denyIndex !== -1, "atstatyta sekcija turi Draudžiama bloką");
+  assert.ok(
+    commitBulletIndex !== -1 && commitBulletIndex < denyIndex,
+    "commit-msg bullet'as turi būti PRIEŠ Draudžiama žymeklį, ne po juo",
+  );
+});
+
 test("buildTaskSplitPlan: be dirExists predikato (fail-open default) — nė vienas vaikas nekeičiamas", () => {
   const plan = buildTaskSplitPlan(TASK_WITH_ONE_FAKE_PATH, "0042", SPLIT_LIMITS);
 

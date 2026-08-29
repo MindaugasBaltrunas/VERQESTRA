@@ -107,8 +107,28 @@ function withOriginalFailaiSection(claudeTask: string, originalFailaiBody: strin
   const lines = claudeTask.split(/\r?\n/);
   const bounds = findSectionBounds(lines, (line) => line.trim() === "## Failai");
   if (bounds === undefined) return claudeTask;
-  const restoredBody = `${originalFailaiBody}\n- \`${commitLogPath}\``;
+  const restoredBody = insertIntoAllowedBlock(originalFailaiBody, commitLogPath);
   return [...lines.slice(0, bounds.start + 1), restoredBody, "", ...lines.slice(bounds.end)].join("\n");
+}
+
+// Ta pati diakritiką toleruojanti taisyklė kaip `domain/tasks/allowed-paths.ts` DENY_MARKER —
+// naudojama TIK įterpimo taško paieškai (ne token'ų parsinimui), tad ji negali gyventi ten be
+// naujo eksporto, kurio šis 066 task'as neapima (domain/** uždrausta liesti).
+const DENY_MARKER_LINE = /^\s*Draud[žz]iama\b/i;
+
+/**
+ * Įterpia naują `Leidžiama:` bullet'ą PRIEŠ `Draudžiama:` žymeklį, jei jis yra tėvo `## Failai`
+ * kūne — ne aklai teksto pabaigoje. Aklas append'as čia būtų reiškęs, kad `commitLogPath`
+ * atsiduria PO `Draudžiama:` žymeklio: `domain/tasks/allowed-paths.ts` `forbiddenBlock()` ima
+ * VISKĄ nuo Draudžiama iki kito Leidžiama, tad vaiko paties commit-log kelias būtų užregistruotas
+ * kaip DRAUDŽIAMAS — tiesiogiai prieštaraujant to paties vaiko `## Stop` nurodymui.
+ */
+function insertIntoAllowedBlock(failaiBody: string, path: string): string {
+  const lines = failaiBody.split(/\r?\n/);
+  const denyIndex = lines.findIndex((line) => DENY_MARKER_LINE.test(line));
+  const bullet = `- \`${path}\``;
+  if (denyIndex === -1) return [...lines, bullet].join("\n");
+  return [...lines.slice(0, denyIndex), bullet, ...lines.slice(denyIndex)].join("\n");
 }
 
 /**

@@ -266,7 +266,6 @@ const KNOWN_UNCALLED: Readonly<Record<string, string>> = {
   // FORWARD: etalone irgi be produkcinio kvietėjo (padengti tik jo testais).
   "domain/policies/enforcement-level.ts#normalizeEnforcementLevel": "FORWARD",
   "domain/tokens/routing-tier.ts#compareRoutingTier": "FORWARD",
-  "application/context-pack/arrest-attribution.ts#selectArrestCountableHumanReviewTaskIds": "FORWARD",
   "application/context-pack/compact-dsl/render.ts#renderCompactWorkerDslWhenEnabled": "FORWARD",
   "application/context-pack/mcp-capability-registry.ts#dispatchMcpCapabilitiesFromOfferedTools": "FORWARD",
   "domain/scheduling/scope-lock-rules.ts#pruneScopeLocks": "FORWARD",

@@ -106,23 +106,17 @@ type TierMeasurableSymbol = {
  * reports its real SIG weight instead of leaving the pair absent. SRC stays a true zero in that
  * case: no source slice was ever read, so there is nothing to sum.
  *
- * Why the two totals stay one-sided per pack, and why that is NOT fixable here (task 087):
- * the `symbol_slices` shadow pair wants the SAME symbols measured twice — once as source
- * (`raw`), once as signature (`compiled`) — but this function runs in persist.ts over the
- * ALREADY-DEMOTED `symbol_fragments` of the encoded pack. A SIG symbol there carries its
- * signature and nothing else: its slice text was read at gather time and deliberately dropped
- * by `applyCodeContextTiers` below (only SRC keeps `source`), and `line`/`endLine` cannot be
- * turned back into a char count without re-reading the file. So the hypothetical SRC size of a
- * SIG symbol is recoverable ONLY by paying source I/O again — which would make telemetry
- * charge for exactly the read the compression exists to avoid.
+ * Measures only what the encoded pack itself carries. A SIG symbol here holds its signature and
+ * nothing else — its slice text was read at gather time and deliberately dropped by
+ * `applyCodeContextTiers` above (only SRC keeps `source`) — so this function cannot say what
+ * that symbol WOULD have cost as SRC without re-reading the file.
  *
- * The gather-time route (measuring `candidates.sourceSlices` inside `applyCodeContextTiers`,
- * where the text is still in hand and costs nothing) is no-extra-I/O but breaks a stronger
- * invariant: persist.ts is the SINGLE telemetry writer precisely so a cache HIT and the miss it
- * replaced emit identical records, and a hit never runs gather. A gather-only number would make
- * `symbol_source_chars` mean one thing on a miss and another on a hit. Carrying it across
- * needs either assemble.ts plumbing or a new pack field (cache-version bump) — an operator
- * decision, not a writer-side one.
+ * That gap is no longer a limit of the design (task 089): the hypothetical SRC size is measured
+ * at gather time by `measureHypotheticalSourceChars` below, where the slice text is still in hand
+ * and costs no I/O, and travels to the reader through the pack's
+ * `code_context.symbol_hypothetical_src_chars` field. Because it rides the pack, a cache HIT
+ * reports the same number as the miss it replaced — the invariant that ruled the gather-only
+ * route out. The field is a pack-content change, hence `CONTEXT_CACHE_VERSION` 10.
  */
 export function measureSymbolTierChars(
   symbols: readonly TierMeasurableSymbol[],
@@ -138,6 +132,39 @@ export function measureSymbolTierChars(
     }
   }
   return { symbolSourceChars, symbolSignatureChars };
+}
+
+/**
+ * Hypothetical SRC weight of the symbols the pack does NOT carry source for (task 089).
+ *
+ * Answers "what would these same symbols have cost in the SRC tier", measured from the slices
+ * `gatherCodeContextCandidates` already read — the text is still in hand here, so the number
+ * costs no extra source I/O. Symbols that kept their `source` are skipped: their real weight is
+ * measurable from the encoded pack (`measureSymbolTierChars` above), and counting them twice
+ * would make the pair overlap.
+ *
+ * Keyed off `source` rather than `tier` on purpose: that is exactly the property that decides
+ * whether the pack can measure the symbol itself, and it stays correct for a `symbol_slices`-off
+ * list, which carries no explicit tier at all (there the map is absent and the total is 0).
+ *
+ * Derived from the CURRENT symbol list on every call, so the overflow ladder — which demotes
+ * and drops symbols after the tier decision — cannot leave a stale total behind.
+ */
+export function measureHypotheticalSourceChars(
+  symbols: readonly TieredContextSymbol[],
+  slices: ReadonlyMap<string, SourceSlice> | undefined,
+): number {
+  if (slices === undefined) {
+    return 0;
+  }
+  let total = 0;
+  for (const symbol of symbols) {
+    if (symbol.source !== undefined) {
+      continue;
+    }
+    total += slices.get(symbol.id)?.text.length ?? 0;
+  }
+  return total;
 }
 
 /**

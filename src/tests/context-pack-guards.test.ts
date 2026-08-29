@@ -3,10 +3,13 @@
 // sudaro savo temą — jie saugo nuo TYLAUS pasenimo, ne nuo neteisingo skaičiavimo.
 
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { contextPackSchema } from "../application/context-pack/context-pack-schema.js";
-import { CONTEXT_CACHE_VERSION } from "../application/context-pack/context-cache-model.js";
+import { CODE_INDEX_UNUSED, CONTEXT_CACHE_VERSION } from "../application/context-pack/context-cache-model.js";
+import { contextCacheEntryPath, lookupContextCache } from "../infrastructure/persistence/context-cache-store.js";
 import {
   computeContextCacheKey,
   hashText,
@@ -192,8 +195,8 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
-    9,
-    "pakelta aštuntą kartą: `parseBacktickChecks` nebeskaito fenced blokų (keičiasi `checks`)",
+    10,
+    "pakelta dešimtą kartą: `code_context.symbol_hypothetical_src_chars` (task 089)",
   );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,
@@ -215,4 +218,36 @@ test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas k
     hashText(JSON.stringify({ version: CONTEXT_CACHE_VERSION, components: Object.entries(key.components) })),
     "deskriptorius rakte tikrai dalyvauja, o ne yra dekoracija",
   );
+});
+
+// Task 089: kėlimo PRASMĖ, ne tik konstantos reikšmė. Prieš kėlimą sudėtas įrašas neša pack'ą be
+// `symbol_hypothetical_src_chars`, ir jo trūkumą skaitytojas laikytų nuliu — būtent tas tylus
+// melas ir yra priežastis, dėl kurios versija keliama.
+test("context cache: prieš kėlimą sudėtas įrašas (v9) grįžta kaip miss, ne hit", async () => {
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "vq-cache-version-"));
+  try {
+    const key = computeContextCacheKey([{ kind: "task", path: "AG/tasks/queue/t1.md", hash: "c".repeat(64) }]);
+    const entryPath = contextCacheEntryPath(runtimeRoot, key.fingerprint);
+    await mkdir(path.dirname(entryPath), { recursive: true });
+    const legacyEntry = {
+      version: CONTEXT_CACHE_VERSION - 1,
+      task_id: "t1",
+      fingerprint: key.fingerprint,
+      components: key.components,
+      sources: key.sources,
+      code_index: CODE_INDEX_UNUSED,
+      // Pack'as be naujojo lauko — lygiai toks, kokį gamino v9 surinkimas.
+      context_pack_json: '{"code_context":{"enabled":true,"symbol_fragments":[]}}\n',
+      selected_chars: 56,
+      selected_token_estimate: 14,
+    };
+    await writeFile(entryPath, `${JSON.stringify(legacyEntry, null, 2)}\n`, "utf8");
+
+    assert.deepEqual(await lookupContextCache(runtimeRoot, key), { status: "miss", reason: "version_mismatch" });
+    // Ir jis evict'inamas: kitas lookup'as jau neranda net failo, tad senas pack'as negali
+    // sugrįžti nė vienu keliu.
+    assert.deepEqual(await lookupContextCache(runtimeRoot, key), { status: "miss", reason: "no_entry" });
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
 });

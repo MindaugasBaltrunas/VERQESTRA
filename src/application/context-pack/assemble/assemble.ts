@@ -45,7 +45,7 @@ import {
   type CodeContext,
   type CodeContextGatherOptions,
 } from "./gather.js";
-import { applyCodeContextReduction, applyCodeContextTiers, codeContextSymbolState } from "./tiers.js";
+import { applyCodeContextReduction, applyCodeContextTiers, codeContextSymbolState, measureHypotheticalSourceChars } from "./tiers.js";
 import { persistContextPack, type ContextPackArtifactSink, type ContextPackResult } from "./persist.js";
 import type { AttemptIdentityPort } from "../metrics.js";
 
@@ -254,24 +254,32 @@ export async function assembleContextPack(
     return specPhase.kept.filter((fragment) => !keptKeys.has(fragmentKey(fragment))).map((fragment) => fragment.ref);
   };
 
-  const buildCodeContext = (selection: GraphFirstSelection): CodeContext | undefined =>
-    codeCandidates === undefined
-      ? undefined
-      : {
-          enabled: codeCandidates.enabled,
-          related_files: [...selection.related_files],
-          impacted_tests: [...selection.impacted_tests],
-          architecture_nodes: [...selection.architecture_nodes],
-          priority_order: selection.order,
-          summary: codeCandidates.summary,
-          symbol_fragments: codeCandidates.symbolFragments,
-          notes: [
-            ...codeCandidates.notes,
-            ...(selection.dropped.length > 0
-              ? [`context truncated by policy limits: dropped ${selection.dropped.length} item(s)`]
-              : []),
-          ],
-        };
+  // Gather'io `CodeContext` PLIUS hipotetinis SRC dydis (task 089), matuojamas kas `buildPack` iš
+  // TO PATIES sąrašo, kuris eina į pack'ą: kopėčių nuleisti simboliai atsispindi savaime, o lauko
+  // svoris patenka į `reservedChars`, o ne atsiranda po jo matavimo.
+  const buildCodeContext = (selection: GraphFirstSelection): (CodeContext & { symbol_hypothetical_src_chars?: number }) | undefined => {
+    if (codeCandidates === undefined) {
+      return undefined;
+    }
+    const hypothetical = measureHypotheticalSourceChars(codeCandidates.symbolFragments, codeCandidates.sourceSlices);
+    return {
+      enabled: codeCandidates.enabled,
+      related_files: [...selection.related_files],
+      impacted_tests: [...selection.impacted_tests],
+      architecture_nodes: [...selection.architecture_nodes],
+      priority_order: selection.order,
+      summary: codeCandidates.summary,
+      symbol_fragments: codeCandidates.symbolFragments,
+      // Nulio nerašome: `symbol_slices` išjungtas arba visi gavo SRC — pack'as lieka nepakitęs.
+      ...(hypothetical > 0 ? { symbol_hypothetical_src_chars: hypothetical } : {}),
+      notes: [
+        ...codeCandidates.notes,
+        ...(selection.dropped.length > 0
+          ? [`context truncated by policy limits: dropped ${selection.dropped.length} item(s)`]
+          : []),
+      ],
+    };
+  };
 
   /**
    * `droppedRefs` paduodamas ATSKIRAI, o ne išvedamas iš `selection` (2026-08-24, RAG auditas 4).

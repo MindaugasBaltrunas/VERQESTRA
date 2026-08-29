@@ -96,8 +96,15 @@ const nonEmptyString = z.string().trim().min(1);
  *
  *      Renderio pakeitimai (praradimų bloko prioritetas ir vieta) šio kėlimo NEREIKALAUJA:
  *      `execution-context.md` generuojamas iš naujo kiekvieno hit'o metu.
+ * 10 — 2026-08-29, task 089: `code_context` gavo `symbol_hypothetical_src_chars` — kiek SRC
+ *      pakopos negavę simboliai būtų kainavę su pilnais source pjūviais. Matuojama surinkimo
+ *      metu, kol `sourceSlices` tekstas dar rankose, ir keliauja pack'e BŪTENT tam, kad hit'as
+ *      praneštų tą patį skaičių kaip jį pagaminęs miss'as. Be kėlimo v9 įrašas grįžtų kaip
+ *      pilnavertis hit'as be lauko, o skaitytojas jo nebuvimą laikytų nuliu — t. y. tyliai
+ *      praneštų „SRC pusėje nieko neprarasta". Tai lauko PRASMĖS pakeitimas
+ *      `contextPackSchema` bloke, kurio `PACK_SEMANTICS_DESCRIPTOR` nemato.
  */
-export const CONTEXT_CACHE_VERSION = 9;
+export const CONTEXT_CACHE_VERSION = 10;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

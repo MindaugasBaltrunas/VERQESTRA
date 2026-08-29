@@ -70,6 +70,20 @@ export const contextPackCodeContextSchema = z
     notes: stringList.default([]),
     // Symbol-level selection: the declarations the task actually edits, ranked by priority.
     symbol_fragments: z.array(contextPackSymbolSchema).default([]),
+    /**
+     * Hipotetinis SRC dydis simboliams, kurie SRC tier'o NEGAVO (task 089).
+     *
+     * Kiek simvolių būtų kainavę tie patys `symbol_fragments`, jei kiekvienas jų būtų nešęs
+     * pilną source pjūvį. Skaičiuojama TIK iš tų simbolių, kurių pjūvio pack'as nebeneša
+     * (`source` nėra): SRC simbolių tikrasis svoris jau matuojamas iš paties pack'o, tad jo
+     * dubliuoti čia nereikia — pilna „raw" pusė yra šis laukas PLIUS pack'e esantys `source`.
+     *
+     * Užpildomas surinkimo (miss) metu, kai `candidates.sourceSlices` tekstas dar rankose —
+     * be jokio papildomo source I/O. Cache hit'as jį grąžina iš `context_pack_json`, tad
+     * skaitytojui nereikia šakotis pagal hit/miss. Nėra visai, kai reikšmė būtų 0:
+     * `symbol_slices` išjungtas (pjūvių niekas neskaitė) arba visi simboliai gavo SRC.
+     */
+    symbol_hypothetical_src_chars: z.number().int().nonnegative().optional(),
   })
   .passthrough();
 

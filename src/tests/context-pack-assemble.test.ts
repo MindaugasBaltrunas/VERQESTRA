@@ -8,6 +8,14 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { assembleContextPack } from "../application/context-pack/assemble/assemble.js";
+import {
+  applyCodeContextTiers,
+  measureHypotheticalSourceChars,
+  measureSymbolTierChars,
+} from "../application/context-pack/assemble/tiers.js";
+import type { CodeContextCandidates, TieredContextSymbol } from "../application/context-pack/assemble/gather.js";
+import type { SourceSlice } from "../application/context-pack/source-slice.js";
+import { contextPackSchema } from "../application/context-pack/context-pack-schema.js";
 import { buildCodeIndex } from "../application/code-intelligence/indexing/builder.js";
 import { parseExecutionContextMetadata, contextArtifactSha256 } from "../application/context-pack/execution-context-fingerprint.js";
 import { computeContextCacheKey } from "../application/context-pack/context-cache-key.js";
@@ -326,5 +334,103 @@ test("context-cache key: kind-ordered, collection-order independent fingerprint"
   assert.notEqual(
     a.fingerprint,
     computeContextCacheKey([{ kind: "task", path: "AG/tasks/queue/1.md", hash: "PAKITO" }]).fingerprint,
+  );
+});
+
+// Task 089: SIG pakopą gavęs simbolis pack'e nebeneša savo source pjūvio, tad iš pack'o
+// nebeišvesi, KIEK jis būtų kainavęs SRC pakopoje. Skaičius matuojamas surinkimo metu, kol
+// pjūvio tekstas dar rankose — be jokio papildomo source skaitymo.
+const tierCandidate = (id: string, signature: string): TieredContextSymbol => ({
+  id,
+  file: "src/a.ts",
+  name: id,
+  line: 1,
+  endLine: 4,
+  signature,
+  exported: true,
+  reason: "exported",
+  role: "target",
+});
+
+const tierSlice = (id: string, text: string): [string, SourceSlice] => [
+  id,
+  { file: "src/a.ts", line: 1, endLine: 4, text, hash: "a".repeat(64) },
+];
+
+const tierCandidates = (sliceText: string, signature: string, withSlices: boolean): CodeContextCandidates => ({
+  enabled: true,
+  architectureNodes: [],
+  codeGraphNeighbors: [],
+  impactedTests: [],
+  summary: [],
+  notes: [],
+  symbolFragments: [tierCandidate("a#x", signature), tierCandidate("a#y", signature)],
+  ...(withSlices ? { sourceSlices: new Map([tierSlice("a#x", sliceText), tierSlice("a#y", sliceText)]) } : {}),
+  rebuilt: false,
+});
+
+test("symbol tiers: hipotetinis SRC matuojamas SIG režimu, o SRC ir slices-off duoda nulį", () => {
+  const sliceText = "x".repeat(120);
+  const signature = "s".repeat(20);
+
+  // SIG režimas: pjūvis viršija per-simbolio lubas, tad abu simboliai nukrenta į SIG ir
+  // pack'e lieka be `source`.
+  const sigCandidates = tierCandidates(sliceText, signature, true);
+  const sig = applyCodeContextTiers(sigCandidates, { ...DEFAULT_CONTEXT_SELECTION_LIMITS, max_symbol_slice_chars: 40 }, 0);
+  assert.deepEqual(
+    sig.symbols.map((symbol) => symbol.tier),
+    ["SIG", "SIG"],
+  );
+  assert.ok(
+    sig.symbols.every((symbol) => symbol.source === undefined),
+    "SIG simbolis pjūvio nebeneša — būtent todėl skaičiaus iš pack'o nebeišvesi",
+  );
+
+  const hypothetical = measureHypotheticalSourceChars(sig.symbols, sigCandidates.sourceSlices);
+  assert.equal(hypothetical, 2 * sliceText.length);
+  assert.equal(measureSymbolTierChars(sig.symbols).symbolSourceChars, 0, "pack'o pusėje SRC vis dar nulis");
+  assert.ok(
+    hypothetical >= measureSymbolTierChars(sig.symbols).symbolSignatureChars,
+    "hipotetinis SRC negali būti mažesnis už tų pačių simbolių SIG svorį",
+  );
+
+  // SRC režimas: pjūvis telpa, simboliai jį neša, ir tikrasis svoris matuojamas iš paties
+  // pack'o — dubliuoti jį hipotetiniame lauke reikštų skaičiuoti tuos pačius simbolius du kartus.
+  const srcCandidates = tierCandidates(sliceText, signature, true);
+  const src = applyCodeContextTiers(srcCandidates, DEFAULT_CONTEXT_SELECTION_LIMITS, 0);
+  assert.deepEqual(
+    src.symbols.map((symbol) => symbol.tier),
+    ["SRC", "SRC"],
+  );
+  assert.equal(measureHypotheticalSourceChars(src.symbols, srcCandidates.sourceSlices), 0);
+  assert.equal(measureSymbolTierChars(src.symbols).symbolSourceChars, 2 * sliceText.length);
+
+  // `symbol_slices` išjungtas: pjūvių niekas neskaitė, tad matuoti nėra ko — ir laukas neatsiranda.
+  const off = tierCandidates(sliceText, signature, false);
+  assert.equal(measureHypotheticalSourceChars(off.symbolFragments, off.sourceSlices), 0);
+
+  // Pack'o projekcija: laukas pereina schemą kaip yra, o jo NEturintis pack'as lieka be jo —
+  // ne su nuliu. Nulinis default'as būtų tylus melas „SRC pusėje nieko neprarasta".
+  const withField = contextPackSchema.parse({
+    task_id: "089-tiers",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+    code_context: { enabled: true, symbol_fragments: [], symbol_hypothetical_src_chars: hypothetical },
+  });
+  assert.equal(withField.code_context?.symbol_hypothetical_src_chars, hypothetical);
+  const without = contextPackSchema.parse({
+    task_id: "089-tiers",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+    code_context: { enabled: true, symbol_fragments: [] },
+  });
+  assert.equal(without.code_context?.symbol_hypothetical_src_chars, undefined);
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(without.code_context ?? {}, "symbol_hypothetical_src_chars"),
+    "senas pack'as lauko neįgyja net kaip undefined — projekcija nepakitusi",
   );
 });

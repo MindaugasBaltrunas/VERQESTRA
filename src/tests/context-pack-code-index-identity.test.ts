@@ -51,5 +51,5 @@ test("code-index manifestas neša versiją, iš kurios statoma pack'o tapatybė"
 // deskriptorius jau tvarko invalidaciją pats, tad čia liko tik sąmoningumo vartas.
 test("indekso ir kešo versijos: kėlimas turi būti sąmoningas", () => {
   assert.equal(codeIndexVersion, "4.6.0", "ciklo inicializatoriaus vardas dalyvauja scope — references ir imports");
-  assert.equal(CONTEXT_CACHE_VERSION, 9, "pakelta kartu su fence-aware `parseBacktickChecks`");
+  assert.equal(CONTEXT_CACHE_VERSION, 10, "pakelta kartu su `code_context.symbol_hypothetical_src_chars`");
 });

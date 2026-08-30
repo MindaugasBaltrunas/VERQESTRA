@@ -176,7 +176,7 @@ test("planSessionStaging: gap saugiklis praleidžia aktyvacijos metu jau purvin�
 // 020-a-02 (R1 iš 020 diagnozės): ledger'is yra įrankio kilmės — Bash/PowerShell parašytas darbas
 // jam nematomas, o abu senieji saugikliai kaip tik ilgame bandyme išsijungia (rescue reikalauja
 // švaraus baseline'o, gap — kad savo baseline'o nebebūtų). Fallback'as dengia likusią spragą
-// SCOPE įrodymu: visi purvini produkto keliai privalo tilpti į task'o Leidžiama aibę.
+// SCOPE įrodymu: kiekvienas kandidatas tikrinamas PAVIENIUI (072 P0 fix — žr. žemiau).
 test("planSessionStaging: 018 regresija — Bash rašytas darbas grįžta per allowed-paths fallback", () => {
   // NEDENGTOJI zona, kurią vardija 020 diagnozė: SAVO baseline galioja (attemptStartKnown=true —
   // gap saugiklis IŠJUNGTAS), bet jis PURVINAS nepaaiškintu purvu (daugiaetapio bandymo ankstesnės
@@ -204,7 +204,11 @@ test("planSessionStaging: 018 regresija — Bash rašytas darbas grįžta per al
   assert.deepEqual(plan.gap, [], "gap saugiklis su galiojančiu baseline'u lieka išjungtas");
 });
 
-test("planSessionStaging: fallback SIAURINANTIS — vienas kelias už scope išjungia jį visiškai", () => {
+// 072 P0 (task 055 incidentas): senasis fallback tikrino „VISI ar NĖ VIENAS" — vienas nesusijęs
+// co-tenant'o kelias BET KUR medyje (net už scope ribų) išjungdavo fallback'ą VISIEMS
+// kandidatams, įskaitant tuos, kurie patys puikiai telpa į task'o Leidžiama aibę. Nuo 072
+// sprendžiama PAVIENIUI: kiekvienas kandidatas vertinamas savo scope atitikimu, ne kaimyno.
+test("planSessionStaging: fallback SPRENDŽIA PAVIENIUI — scope viduje esantis kelias grįžta net kai šalia yra svetimo scope purvo", () => {
   const outside = planSessionStaging(
     input({
       statusOutput: " M src/app/mine.ts\n M src/other/foreign-work.ts\n",
@@ -218,8 +222,8 @@ test("planSessionStaging: fallback SIAURINANTIS — vienas kelias už scope išj
       allowedPaths: ["src/app/**"],
     }),
   );
-  assert.deepEqual(outside.fallback, [], "svetimas purvas medyje — scope įrodymas nebegalioja NĖ VIENAM keliui");
-  assert.deepEqual(outside.paths, []);
+  assert.deepEqual(outside.fallback, ["src/app/mine.ts"], "mine.ts scope viduje — grįžta nepaisant kaimyninio purvo");
+  assert.deepEqual(outside.paths, ["src/app/mine.ts"]);
 
   // Be nonce (interaktyvi sesija) ir be allowed aibės fallback'as neegzistuoja.
   const interactive = planSessionStaging(
@@ -240,7 +244,8 @@ test("planSessionStaging: fallback SIAURINANTIS — vienas kelias už scope išj
 });
 
 test("planSessionStaging: fallback'o negauna svetimas ir aktyvacijoje jau purvinas kelias", () => {
-  // Įrodytai svetimas kandidatas išjungia fallback'ą VISĄ: svetimumas stipresnis už scope.
+  // Įrodytai svetimas kandidatas nedalyvauja pats, bet nebeišjungia fallback'o VISO (072 P0) —
+  // scope viduje esantis likęs darbas grįžta.
   const foreign = planSessionStaging(
     input({
       statusOutput: " M src/app/mine.ts\n M src/app/theirs.ts\n",
@@ -255,7 +260,7 @@ test("planSessionStaging: fallback'o negauna svetimas ir aktyvacijoje jau purvin
       allowedPaths: ["src/app/**"],
     }),
   );
-  assert.deepEqual(foreign.fallback, []);
+  assert.deepEqual(foreign.fallback, ["src/app/mine.ts"]);
 
   // Aktyvacijos purvas įrodytai ne šio bandymo — jis atmetamas pavieniui, likęs darbas grįžta.
   const preDirty = planSessionStaging(

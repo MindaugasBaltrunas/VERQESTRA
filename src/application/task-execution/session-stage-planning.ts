@@ -116,7 +116,11 @@ export function planSessionStaging(input: SessionStagingInput): SessionStagingPl
  * Ir TIK tada, kai bandymo starto momento nebežinome. Galiojantis SAVO baseline su nepaaiškintu
  * purvu reiškia, kad co-tenant'as buvo gyvas, tad NIEKAS už ledger'io ribų nestage'inama — ta
  * apsauga lieka stipresnė. Kai baseline'o nebėra, apie co-tenant'ą nėra jokio įrodymo, o apie
- * darbą — yra: jis purvinas medyje.
+ * darbą — yra: jis purvinas medyje. Scope-įrodymu paremtas atvejis (galiojantis baseline, bet
+ * kelias task'o Leidžiama aibėje) dengiamas ŽEMIAU, `resolveAllowedPathsFallback` — čia
+ * NELIEČIAMA, kad Stop hook'o `STAGING LEDGER GAP` / `STAGING LEDGER FALLBACK` žurnalo eilutės
+ * liktų kvietėjui tiksliai tos pačios, kaip anksčiau (`src/interfaces/hooks/on-stop.ts` jomis
+ * skiria du atskirus signalus).
  */
 function resolveLedgerGap(
   input: SessionStagingInput,
@@ -154,10 +158,12 @@ function resolveLedgerGap(
  * Įsijungia tik kai galioja VISOS sąlygos vienu metu:
  *   1. sesija dispatch'inta (nonce netuščias) — interaktyviame Stop'e išjungtas visada;
  *   2. žinoma aktyvaus task'o `Leidžiama` aibė ir ji netuščia;
- *   3. VISI ne-runtime purvini `git status` produkto keliai (ne tik kandidatai) telpa į tą aibę —
- *      VIENAS kelias už ribos išjungia fallback'ą VISIŠKAI, ne dalinai: svetimas purvas medyje
- *      reiškia, kad scope įrodymas nebeatskiria mūsų darbo nuo co-tenant'o;
- *   4. joks kandidatas nėra įrodytai svetimas (owners) — svetimumas stipresnis už scope;
+ *   3. kandidatas PATS telpa į tą aibę (072 P0 — task 055 incidentas: senasis „visi arba nė
+ *      vienas" tikrinimas prieš VISĄ medžio purvą reiškė, kad VIENAS nesusijęs co-tenant'o
+ *      kelias kitur medyje išjungdavo fallback'ą net leidžiamam keliui; dabar sprendžiama
+ *      PAVIENIUI — svetimas kaimyninis purvas nebeatima scope įrodymo nuo kandidato, kuris jį
+ *      turi savarankiškai);
+ *   4. kandidatas nėra įrodytai svetimas (owners) — svetimumas stipresnis už scope;
  *   5. kandidatas nebuvo purvinas jau task'o aktyvacijoje (tas purvas įrodytai ne šio bandymo).
  *
  * Kiekvieną suveikimą kvietėjas skelbia garsia `STAGING LEDGER FALLBACK` eilute — fallback'as
@@ -175,24 +181,22 @@ function resolveAllowedPathsFallback(
   const candidates = unplannedProductPaths(input.statusOutput, planned);
   if (candidates.length === 0) return [];
 
-  // Sąlyga 3 tikrinama prieš VISĄ produkto purvą, ne tik prieš kandidatus: jau suplanuotas, bet
-  // už scope ribų esantis kelias lygiai taip pat įrodo, kad medyje yra ne šio task'o darbo.
-  const allProductDirt = unplannedProductPaths(input.statusOutput, []);
   const fitsScope = (candidate: string): boolean => allowed.some((pattern) => matchesAllowedPath(candidate, pattern));
-  if (!allProductDirt.every(fitsScope)) return [];
+  const inScope = candidates.filter(fitsScope);
+  if (inScope.length === 0) return [];
 
   // Svetimumas tikrinamas TIESIAI per owners sidecar'ą, ne per ledger'io foreignSet: šio
   // fallback'o prielaida ir yra tuščias/nepilnas ledger'is, tad iš jo išvestas foreignSet čia
   // nieko nemato. Kanoninis filtras tas pats kaip pagrindiniame plane — svetimumo apibrėžimas
   // negali skirtis pagal tai, kuris saugiklis klausia.
-  if (filterStagePathsByOwnership(candidates, input.owners, identity).foreign.length > 0) return [];
+  const owned = filterStagePathsByOwnership(inScope, input.owners, identity).paths;
 
   const preAttemptDirty = new Set(
     (input.taskBaseline.task_id === input.taskId ? (input.taskBaseline.non_runtime_dirty_entries ?? []) : []).map(
       (entry) => normalizeGitPath(entry.path),
     ),
   );
-  return candidates.filter((candidate) => !preAttemptDirty.has(candidate));
+  return owned.filter((candidate) => !preAttemptDirty.has(candidate));
 }
 
 /** Ta pati normalizacija kaip diagnozės pusėje (`dispositions.ts`): markdown backtick'ai kerpami. */

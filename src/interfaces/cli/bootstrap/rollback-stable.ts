@@ -39,6 +39,23 @@ export type TaskScopeRestoreOutcome =
   | { ok: true; restored: string[]; preserved?: PreservedTaskScope }
   | { ok: false; failures: string[] };
 
+/** Kelias, kurio savininkystė NEĮRODYTA mūsų — praleistas fail-closed, su priežastimi (etalonas: `RestoreSkipReason`). */
+export type TaskScopeSkippedPath = { path: string; reason: string };
+
+/**
+ * `taskScopePaths()` praturtinta forma: nuosavi keliai PLIUS praleisti (076-a-02). Atskira nuo
+ * `string[]`, o ne jį pakeičianti, nes producer'as (`rollback-scope.ts:readTaskScopePaths`) šiuo
+ * metu grąžina tik plikus kelius — šis tipas jam lieka suderinamas be jokio pakeitimo.
+ */
+export type TaskScopeCandidates = {
+  /** Keliai, kuriuos rollback'as turi teisę atstatyti. */
+  paths: string[];
+  /** Keliai, ĮRODYTAI priklausantys svetimai sesijai ar užduočiai. */
+  foreign: string[];
+  /** Keliai, kurių savininkystė nenustatoma. */
+  skipped: TaskScopeSkippedPath[];
+};
+
 export type RollbackStablePorts = {
   ensureDirs(): Promise<void>;
   isGitRepository(projectRoot: string): Promise<boolean>;
@@ -53,8 +70,14 @@ export type RollbackStablePorts = {
   makeDirectory(absoluteDir: string): Promise<void>;
   /** Untracked įrašo kopija į snapshot katalogą (etalono `cp` recursive, esamo neperrašo). */
   copyPath(source: string, destination: string): Promise<void>;
-  /** Šios sesijos ledger keliai, jau filtruoti pagal nuosavybę (adapteris — VQ-502 hooks). */
-  taskScopePaths(): Promise<string[]>;
+  /**
+   * Šios sesijos ledger keliai, jau filtruoti pagal nuosavybę (adapteris — VQ-502 hooks).
+   * Unija sąmoninga: dabartinis producer'as grąžina plikus kelius (`string[]`), o
+   * `TaskScopeCandidates` yra praturtinta forma vėlesniam producer'iui, kuris kartu su
+   * atstatomais keliais atskleistų praleistus (076-a-02) — abi formos suderinamos be jokio
+   * pakeitimo šio porto realizacijoje.
+   */
+  taskScopePaths(): Promise<string[] | TaskScopeCandidates>;
   detectPushedRollback(projectRoot: string, ref: string): Promise<PushedRollbackDecision>;
   committedTaskWorkSince(projectRoot: string, baseRef: string, paths: readonly string[]): Promise<string[]>;
   restoreTaskScope(projectRoot: string, ref: string, paths: readonly string[]): Promise<TaskScopeRestoreOutcome>;
@@ -158,6 +181,32 @@ async function block(context: RollbackContext, message: string): Promise<number>
   context.io.error(message);
   await context.ports.agLog(message);
   return 1;
+}
+
+function normalizeTaskScopeCandidates(result: string[] | TaskScopeCandidates): TaskScopeCandidates {
+  return Array.isArray(result) ? { paths: result, foreign: [], skipped: [] } : result;
+}
+
+/**
+ * P1 matomumas (076-a-02): tylus praleidimas yra tokia pat spraga kaip tylus revertas —
+ * operatorius turi matyti, kad medyje liko neliestas svetimas ar nenustatomos savininkystės
+ * necommit'intas darbas. Tas pats kanalas kaip užblokuoto rollback'o pranešimas (stderr + AG
+ * žurnalas), bet NEblokuoja: geri keliai vis tiek atstatomi.
+ */
+async function reportSkippedTaskScopePaths(context: RollbackContext, candidates: TaskScopeCandidates): Promise<void> {
+  if (candidates.foreign.length === 0 && candidates.skipped.length === 0) return;
+
+  const parts: string[] = [];
+  if (candidates.foreign.length > 0) {
+    parts.push(`foreign=${candidates.foreign.join(", ")}`);
+  }
+  if (candidates.skipped.length > 0) {
+    parts.push(`unknown-owner=${candidates.skipped.map((s) => `${s.path} (${s.reason})`).join(", ")}`);
+  }
+
+  const message = `ROLLBACK SKIPPED PATHS: ${parts.join("; ")} — left untouched, not restored.`;
+  context.io.error(message);
+  await context.ports.agLog(message);
 }
 
 /** `undefined` — užblokuota (skambutis jau parašė žinutę); kitaip — atstatymo taikinys. */
@@ -268,7 +317,9 @@ async function runTaskScopedRestore(
   targetRef: string,
   taskId: string | undefined,
 ): Promise<number> {
-  const paths = await context.ports.taskScopePaths();
+  const candidates = normalizeTaskScopeCandidates(await context.ports.taskScopePaths());
+  const paths = candidates.paths;
+  await reportSkippedTaskScopePaths(context, candidates);
 
   // Task 1077: jei dalis ledger kelių jau UŽCOMMITINTA nuo base_head (pvz. stop hook'as
   // sukommitino darbą prieš diagnozei nusprendžiant rollback'ą), content-revert'as

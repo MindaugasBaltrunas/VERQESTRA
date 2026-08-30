@@ -16,6 +16,7 @@ import {
   rollbackStableCommand,
   type RollbackCommandResult,
   type RollbackStablePorts,
+  type TaskScopeCandidates,
   type TaskScopeRestoreOutcome,
 } from "../interfaces/cli/bootstrap/rollback-stable.js";
 
@@ -157,7 +158,7 @@ function world(
     pushedBlocked?: string;
     committedPaths?: string[];
     restore?: TaskScopeRestoreOutcome;
-    scopePaths?: string[];
+    scopePaths?: string[] | TaskScopeCandidates;
     resetCode?: number;
     cleanUntracked?: boolean;
   } = {},
@@ -372,6 +373,55 @@ test("rollbackStableCommand: kai išsaugojimo nėra, elgesys nesikeičia — jok
   assert.ok(!out.some((line) => line.startsWith("ROLLBACK PRESERVED:")));
   assert.ok(!scoped.logs.some((line) => line.startsWith("ROLLBACK PRESERVED:")));
   assert.ok(![...scoped.writes.keys()].some((key) => norm(key).includes("rollback-preserved")));
+});
+
+test("rollbackStableCommand: svetimas ir nenustatomos savininkystės keliai išvardyti ataskaitoje ir NEatstatyti", async () => {
+  const candidates: TaskScopeCandidates = {
+    paths: ["src/a.ts"],
+    foreign: ["src/foreign.ts"],
+    skipped: [{ path: "src/unknown.ts", reason: "no-ownership-record" }],
+  };
+  const scoped = world({
+    files: { "vq/state/task-start-status.json": JSON.stringify(VALID_BASELINE) },
+    scopePaths: candidates,
+    restore: { ok: true, restored: ["src/a.ts"] },
+  });
+  const { io, err } = captureIo();
+  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
+    "--allow-task-changes",
+    "--task-id",
+    "0042",
+  ]);
+
+  assert.equal(exit, 0, "geri keliai vis tiek atstatomi — praleidimas neblokuoja");
+  assert.ok(!gitVerbs(scoped.gitCalls).includes("reset"));
+  const message = err.find((line) => line.startsWith("ROLLBACK SKIPPED PATHS: "));
+  assert.ok(message, "svetimi/nežinomi keliai turi pasiekti stderr");
+  assert.match(message ?? "", /foreign=src\/foreign\.ts/);
+  assert.match(message ?? "", /unknown-owner=src\/unknown\.ts \(no-ownership-record\)/);
+  assert.ok(
+    scoped.logs.some((line) => line.startsWith("ROLLBACK SKIPPED PATHS: ")),
+    "ta pati eilutė turi eiti ir į AG žurnalą",
+  );
+  assert.ok(scoped.logs.some((line) => line.startsWith("ROLLBACK TASK-SCOPED: restored 1 task path(s)")));
+});
+
+test("rollbackStableCommand: be praleistų kelių — jokios ROLLBACK SKIPPED PATHS eilutės", async () => {
+  const scoped = world({
+    files: { "vq/state/task-start-status.json": JSON.stringify(VALID_BASELINE) },
+    scopePaths: ["src/a.ts", "src/b.ts"],
+    restore: { ok: true, restored: ["src/a.ts", "src/b.ts"] },
+  });
+  const { io, err } = captureIo();
+  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
+    "--allow-task-changes",
+    "--task-id",
+    "0042",
+  ]);
+
+  assert.equal(exit, 0);
+  assert.ok(!err.some((line) => line.startsWith("ROLLBACK SKIPPED PATHS:")));
+  assert.ok(!scoped.logs.some((line) => line.startsWith("ROLLBACK SKIPPED PATHS:")));
 });
 
 test("rollbackStableCommand: jau užcommitintas task'o kelias ir nepavykęs atstatymas — blokuoja", async () => {

@@ -35,7 +35,7 @@ import { createWaveSchedulerState } from "./wave-scheduler-state.js";
 import { createSafeTelemetry } from "./safe-telemetry.js";
 import { persistWaveSnapshot } from "./wave-snapshot-persist.js";
 import { planWavePool } from "./wave-pool-planning.js";
-import { PRIMARY_SLOT_CLAIM_SUPPORTED, type WaveProvisioningCoordinator } from "./wave-provisioning.js";
+import type { WaveProvisioningCoordinator } from "./wave-provisioning.js";
 import type { WavePlan } from "./schedule-next-wave.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 import type { WorkerPoolPlan } from "./worker-pool-plan.js";
@@ -213,7 +213,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       runId: deps.runId,
       current,
       requestedWorkers: state.requestedWorkers,
-      primaryClaimSupported: PRIMARY_SLOT_CLAIM_SUPPORTED,
+      primaryClaimSupported: false,
       now: deps.now,
       log: safeLog,
       recordEvent: safeEvent,
@@ -232,7 +232,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
   const refill = createWaveRefillCoordinator({
     absolutePath: deps.absolutePath,
     runId: deps.runId,
-    primaryClaimSupported: PRIMARY_SLOT_CLAIM_SUPPORTED,
+    primaryClaimSupported: false,
     now: deps.now,
     log: safeLog,
     recordEvent: safeEvent,

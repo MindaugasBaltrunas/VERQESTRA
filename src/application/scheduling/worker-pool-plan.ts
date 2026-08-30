@@ -122,7 +122,7 @@ export function planWorkerPool(input: PlanWorkerPoolInput): WorkerPoolPlan {
 
   const primary = ordered[0];
   if (!primary) return finish("sequential");
-  slots.push(buildWorkerSlot(input.run_id, 1, primary));
+  slots.push(buildWorkerSlot(input.run_id, PRIMARY_WORKER_INDEX, primary));
 
   const rest = ordered.slice(1);
   if (rest.length === 0) {
@@ -201,14 +201,8 @@ export function planWorkerPool(input: PlanWorkerPoolInput): WorkerPoolPlan {
 export const PRIMARY_WORKER_INDEX = 1;
 
 export type SlotProvisionRefusalReason =
-  /**
-   * Pirminiam slot'ui lease išduoti negalima, nes rašymo autoriteto patikra claim'o iš
-   * loop'o proceso negauna: aktyvus lease be claim'o virsta `foreign-lease`, tad slot'as
-   * užsirakintų nuo savo paties rašymų. Claim'o pateikimas gyvena už šio modulio ribų.
-   */
-  | "primary-claim-unsupported"
   /** Visi `MAX_WORKERS` indeksai jau išduoti — provizinti nėra kam. */
-  | "hard-cap";
+  "hard-cap";
 
 /** Vienas provisioning'o adresatas: KAM (task) ir KURIO slot'o tapatybe (worker index). */
 export type SlotProvisionTarget = {
@@ -234,18 +228,11 @@ export type SlotProvisionPlan = {
  *
  * Taisyklė VIENA ir ji nežiūri, kelintas slot'as prašo: kiekvienas `missing-lease`
  * atmetimas yra provisioning'o adresatas, o jo tapatybė yra slot'o indeksas — jau turimas
- * (pirminis prašo SAVO indeksui) arba žemiausias laisvas. Vienintelė išimtis ĮVARDINTA, ne
- * tyli: kol pirminio slot'o claim'as nekeliauja į rašymo autoriteto patikrą
- * (`primary_claim_supported === false`), jam išduotas lease būtų jo paties deadlock'as,
- * tad jis gauna `primary-claim-unsupported` atmetimą su vardu, o ne dingsta iš plano.
+ * (pirminis prašo SAVO indeksui) arba žemiausias laisvas.
  *
  * Gryna: jokio FS, laikrodžio ar politikos skaitymo — tai daro iškvietėjas, gavęs adresatus.
  */
-export function planSlotProvisioning(input: {
-  plan: WorkerPoolPlan;
-  /** Ar pirminio slot'o lease claim'as pasiekia rašymo autoriteto patikrą. */
-  primary_claim_supported: boolean;
-}): SlotProvisionPlan {
+export function planSlotProvisioning(input: { plan: WorkerPoolPlan }): SlotProvisionPlan {
   const targets: SlotProvisionTarget[] = [];
   const refused: SlotProvisionRefusal[] = [];
 
@@ -274,18 +261,6 @@ export function planSlotProvisioning(input: {
 
     const workerIndex = granted ?? nextFreeIndex;
     if (granted === undefined) nextFreeIndex += 1;
-
-    if (workerIndex === PRIMARY_WORKER_INDEX && !input.primary_claim_supported) {
-      refused.push({
-        task_id: rejection.task_id,
-        worker_index: workerIndex,
-        reason: "primary-claim-unsupported",
-        detail:
-          "pirminis slot'as dirba pirminiame medyje, o jo rašymo autoriteto patikra lease claim'o " +
-          "negauna — išduotas lease taptų jo paties `foreign-lease` blokada",
-      });
-      continue;
-    }
 
     targets.push({ task_id: rejection.task_id, worker_index: workerIndex });
   }

@@ -96,9 +96,6 @@ export type WaveProvisioningCoordinator = {
   releaseWaveProvisionLease: (target: SlotProvisionTarget) => Promise<void>;
 };
 
-/** Pirminis slot'as dirba pirminiame medyje BE lease'o — žr. `planSlotProvisioning` paaiškinimą. */
-export const PRIMARY_SLOT_CLAIM_SUPPORTED = false;
-
 export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): WaveProvisioningCoordinator {
   // Kandidato write-set taisyklė yra VIENA visai sistemai — `wave-live-slots.candidateWriteSet`.
   // Iki 2026-08-23 čia gyveno jos pažodinė kopija (plius negyvas interface narys, kurio niekas
@@ -358,7 +355,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
     },
 
     async provisionMissingSlotLeases(pool, candidates): Promise<SlotProvisionTarget[]> {
-      const provisioning = planSlotProvisioning({ plan: pool, primary_claim_supported: PRIMARY_SLOT_CLAIM_SUPPORTED });
+      const provisioning = planSlotProvisioning({ plan: pool });
       // Atsisakymai rašomi VISI, net jei nė vienas lease neišduodamas: be jų operatorius matytų
       // tuščią aprūpinimą ir negalėtų pasakyti, ar nebuvo adresatų, ar jie buvo atmesti.
       for (const refusal of provisioning.refused) {

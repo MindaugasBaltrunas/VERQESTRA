@@ -107,22 +107,19 @@ test("planWorkerPool primary-tree mode: primary without lease/worktree is design
   assert.equal(relaxed.mode, "parallel", "primary-tree exception admits the fully-proven second candidate");
 });
 
-test("planSlotProvisioning targets missing-lease rejections and names the primary exception", () => {
+test("planSlotProvisioning targets missing-lease rejections, including the primary's own slot", () => {
   const primary = candidate("0001", "src/a/");
   const second = candidate("0002", "src/b/");
   const plan = planWorkerPool({ run_id: "r1", candidates: [primary, second], requested_workers: 2, now: NOW });
   assert.equal(plan.rejected[0]?.reason, "missing-lease", "strict mode rejects the primary itself first");
 
-  const provisioning = planSlotProvisioning({ plan, primary_claim_supported: false });
-  const refusedPrimary = provisioning.refused.find((entry) => entry.task_id === "0001");
-  assert.equal(refusedPrimary?.reason, "primary-claim-unsupported");
-
-  const supported = planSlotProvisioning({ plan, primary_claim_supported: true });
+  const provisioning = planSlotProvisioning({ plan });
   assert.deepEqual(
-    supported.targets.map((target) => [target.task_id, target.worker_index]),
+    provisioning.targets.map((target) => [target.task_id, target.worker_index]),
     [["0001", 1]],
-    "primary asks for its own index when claims are supported",
+    "primary's own missing-lease rejection becomes a provisioning target for its own index",
   );
+  assert.deepEqual(provisioning.refused, []);
 });
 
 test("resolveWorkerOutcomes: a missing outcome means still running (fail-closed)", () => {

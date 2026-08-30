@@ -8,25 +8,22 @@
 // `remove` jis tikrina dvi ribas (`assertInsideProject` projektui IR `WORKTREE_ROOT_DIR`),
 // o planuoklis tikrino tik pirmąją. Tad tai ne „prarastas mechanizmas", o pakeistas aktyviu.
 
-import path from "node:path";
-
 // `GitCommandPlan` PAŠALINTAS 2026-08-24 (audito patikra). Pirmą kartą jį palikau pagrindęs tuo,
 // kad „jį naudoja `infrastructure/git/git-client#runGitPlan`" — bet `runGitPlan` pats kvietėjų
 // neturėjo, tad grandinė buvo mirusi visa. Aktyvus kelias (`infrastructure/git/worktrees`) git
 // argumentus statosi ir vykdo pats, be tarpinio plano tipo.
+//
+// 2026-08-30 (077): `root`/`branchPrefix`/`pathPrefix` PAŠALINTI iš tipo. Gyvos konstantos yra
+// `.ag/worktrees` ir `ag/worker` (`worktree-layout.ts`), o abu produkciniai skaitytojai
+// (`wave-scheduler-adapters.ts`, `router-adapters.ts`) skaitė TIK `.enabled`. Konfigo JSON su
+// senais laukais toliau parsinamas — pertekliniai laukai tiesiog ignoruojami.
 
 export type WorktreePolicy = {
   enabled: boolean;
-  root: string;
-  branchPrefix: string;
-  pathPrefix: string;
 };
 
 export const defaultWorktreePolicy: WorktreePolicy = {
   enabled: false,
-  root: ".ag-worktrees",
-  branchPrefix: "ag-task",
-  pathPrefix: "task",
 };
 
 export type WorktreePolicyFsPort = {
@@ -48,30 +45,5 @@ export function parseWorktreePolicy(raw: unknown): WorktreePolicy {
   if (typeof record["enabled"] !== "boolean") {
     throw new Error("Invalid worktree policy: enabled must be boolean.");
   }
-  return {
-    enabled: record["enabled"],
-    root: safeRelativePath(stringField(record["root"], defaultWorktreePolicy.root), "root"),
-    branchPrefix: safeName(stringField(record["branchPrefix"], defaultWorktreePolicy.branchPrefix), "branchPrefix"),
-    pathPrefix: safeName(stringField(record["pathPrefix"], defaultWorktreePolicy.pathPrefix), "pathPrefix"),
-  };
-}
-
-function stringField(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
-}
-
-function safeRelativePath(value: string, field: string): string {
-  const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "").trim();
-  if (!normalized || normalized.includes("..") || path.isAbsolute(normalized) || /^[A-Za-z]:[\\/]/.test(normalized)) {
-    throw new Error(`Invalid worktree policy: ${field} must be a safe relative path.`);
-  }
-  return normalized;
-}
-
-function safeName(value: string, field: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!normalized) {
-    throw new Error(`Invalid worktree policy: ${field} must contain a safe name.`);
-  }
-  return normalized.slice(0, 80);
+  return { enabled: record["enabled"] };
 }

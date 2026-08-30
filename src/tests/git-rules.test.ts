@@ -107,12 +107,16 @@ test("taskBaselineWasClean: reikalauja task-id atitikmens, validaus baseline ir 
 // (`infrastructure/git/worktrees/worktree-reaper`) prieš destruktyvų `remove` tikrina DVI ribas —
 // projekto ir `WORKTREE_ROOT_DIR` — o planuoklis tikrino tik pirmąją. Politikos parse'as, kuris
 // TURI kvietėją (`wave-scheduler-adapters#loadWorktreePolicy`), toliau tikrinamas čia.
-test("worktree policy: parse atmeta nesaugias reikšmes", () => {
+// 2026-08-30 (077): `root`/`branchPrefix`/`pathPrefix` PAŠALINTI iš `WorktreePolicy` — jie neturėjo
+// nė vieno produkcinio skaitytojo (abu kvietėjai ima tik `.enabled`). Parseris lieka pereinamas:
+// senas konfigas su šiais laukais toliau parsinamas, laukai tiesiog ignoruojami.
+test("worktree policy: parse reikalauja boolean enabled ir ignoruoja perteklinius laukus", () => {
   assert.throws(() => parseWorktreePolicy({}), /enabled must be boolean/);
-  assert.throws(() => parseWorktreePolicy({ enabled: true, root: "../pabėgimas" }), /safe relative path/);
+  assert.throws(() => parseWorktreePolicy({ enabled: "true" }), /enabled must be boolean/);
 
-  const policy = parseWorktreePolicy({ enabled: true, root: ".ag-worktrees", branchPrefix: "AG Task", pathPrefix: "task" });
-  assert.equal(policy.branchPrefix, "ag-task");
-  assert.equal(policy.root, ".ag-worktrees");
-  assert.equal(policy.pathPrefix, "task");
+  const minimal = parseWorktreePolicy({ enabled: true });
+  assert.deepEqual(minimal, { enabled: true });
+
+  const legacy = parseWorktreePolicy({ enabled: true, root: ".ag-worktrees", branchPrefix: "AG Task", pathPrefix: "task" });
+  assert.deepEqual(legacy, { enabled: true }, "senas konfigas su root/branchPrefix/pathPrefix neLūžta, laukai ignoruojami");
 });

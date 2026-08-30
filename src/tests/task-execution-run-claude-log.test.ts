@@ -6,7 +6,7 @@
 // 017-A-02 `routingAdapterInput` testas), o failas atskiras, nes `task-execution-run.test.ts`
 // jau yra prie 500-eilučių vartų ribos (architecture-gates.test.ts, jokios baseline).
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { createAttempt, openAttempt } from "../infrastructure/persistence/runtim
 import { noRuntimeAttemptResolution, type AttemptResolutionPort } from "../infrastructure/state/attempt-resolution.js";
 import type { AttemptRef } from "../application/scheduling/worker-limits.js";
 import { coordinatorStatePort, type CoordinatorAdapterInput } from "../composition/loop/coordinator-adapters.js";
+import { readClaudeSessionLog } from "../composition/quality/diagnose-adapters.js";
 
 const TASK = "0042";
 
@@ -141,6 +142,43 @@ test("coordinatorStatePort.readClaudeLog: attempt žurnalas su Write įrankiu �
     const state = coordinatorStatePort(adapterInput(projectRoot, runtimeRoot, attemptOnlyResolution(runtimeRoot, REF)));
     const activity = classifyDispatchWriteOutcome(extractDispatchToolUsage(await state.readClaudeLog(TASK)));
     assert.equal(activity, "wrote");
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+// Task 090-B-03: dispatch'as nuo 090-A-02 turi attempt kanalo `claude-last` kelią, tad NAUJI
+// bandymai rašo į savo katalogą. SENI bandymai to failo neturi — jie buvo paleisti, kai
+// `resolveAttempt` grąžindavo stub'ą, ir jų žurnalas liko tik globaliame veidrodyje.
+// Šis testas fiksuoja, kad įvielinimas tos grupės NESULAUŽĖ: attempt'as, kuris rezoliucijoje
+// randamas, bet neturi savo `logs/claude-last.log`, toliau nukrenta į legacy veidrodį.
+test("claude-last: IŠSPRĘSTAS attempt'as be savo žurnalo → legacy veidrodis, be lūžio (task 090-b-03)", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "vq-090b03-legacy-"));
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const mirror = '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"w1","name":"Write"}]}}';
+  try {
+    // Bandymas EGZISTUOJA (kitaip būtų tikrinama jau padengta `no-runtime` šaka), bet nė vienos
+    // `appendLog("claude-last", …)` eilutės — tiksliai senų, dar neįvielintų bandymų forma.
+    await withTaskAttempt(runtimeRoot);
+    const resolution = attemptOnlyResolution(runtimeRoot, REF);
+    await mkdir(path.join(runtimeRoot, "logs"), { recursive: true });
+    await writeFile(path.join(runtimeRoot, "logs", "claude-last.log"), mirror, "utf8");
+
+    // Kilmė tikrinama prie šaltinio: `readClaudeLog` grąžina vien tekstą, tad be šio tvirtinimo
+    // testas praeitų ir tada, jei tas pats turinys ateitų per kokį nors kitą kanalą.
+    const session = await readClaudeSessionLog(runtimeRoot, TASK, resolution);
+    assert.equal(session.origin, "legacy");
+    assert.equal(session.text, mirror);
+
+    const state = coordinatorStatePort(adapterInput(projectRoot, runtimeRoot, resolution));
+    const claudeLog = await state.readClaudeLog(TASK);
+    assert.equal(claudeLog, mirror);
+    assert.equal(classifyDispatchWriteOutcome(extractDispatchToolUsage(claudeLog)), "wrote");
+
+    // Fallback'as yra matomas, ne tylus: operatorius turi atskirti savo bandymo žurnalą nuo
+    // veidrodžio, kurį galėjo perrašyti lygiagretus worker'is.
+    const orchestratorLog = await readFile(path.join(runtimeRoot, "logs", "orchestrator.log"), "utf8");
+    assert.match(orchestratorLog, /WRITE ACTIVITY LOG FALLBACK: task=0042 origin=legacy/);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
   }

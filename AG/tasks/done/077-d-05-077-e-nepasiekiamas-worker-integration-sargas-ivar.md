@@ -1,5 +1,12 @@
 # Task
 
+UŽDARYTA KAIP KLAIDINGA PRIELAIDA: mindebaltru 2026-08-30 (atsakymas „b" į vykdytojo
+stop klausimą). Šaka `worker-integration.ts:180` (`live.length === 0`) NĖRA nepasiekiama —
+tai dokumentuotas fail-safe kontraktas: pačios funkcijos JSDoc (`worker-integration.ts:222-226`,
+„NEPADUOTAS reiškia 'nežinome, kas dirba' — tokie iškviestėjai laukia tylos") ir tiesioginis
+kontrakto testas `src/tests/scheduling-pool.test.ts:248-249`. Kodo darbo neatlikta ir nereikia;
+šakos šalinimas ar „nepasiekiamumo" komentaras būtų faktiškai klaidingi.
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1
 

@@ -161,6 +161,7 @@ function world(
     scopePaths?: string[] | TaskScopeCandidates;
     resetCode?: number;
     cleanUntracked?: boolean;
+    gitCommonDir?: string;
   } = {},
 ): World {
   const files = { ...(input.files ?? {}) };
@@ -173,6 +174,9 @@ function world(
     gitCalls.push(args);
     if (args[0] === "status") return { code: 0, stdout: input.statusOutput ?? "", stderr: "" };
     if (args[0] === "reset") return { code: input.resetCode ?? 0, stdout: "", stderr: "reset failed" };
+    if (args[0] === "rev-parse" && input.gitCommonDir !== undefined) {
+      return { code: 0, stdout: `${input.gitCommonDir}\n`, stderr: "" };
+    }
     return { code: 0, stdout: "", stderr: "" };
   };
 
@@ -354,6 +358,32 @@ test("rollbackStableCommand: išsaugotas necommit'intas darbas matomas išvestyj
   assert.equal(record["base_ref"], BASE_HEAD);
   assert.deepEqual(record["paths"], preserved.paths);
   assert.equal(record["recorded_at"], NOW.toISOString());
+  assert.equal(record["created_at"], NOW.toISOString());
+  assert.equal(record["run_id"], undefined);
+  assert.ok(scoped.logs.some((line) => line.startsWith("ROLLBACK PRESERVED ROOT FALLBACK: ")));
+});
+
+test("rollbackStableCommand: preserved įrašas eina į PIRMINIO medžio vq/ ir neša --run-id", async () => {
+  const worktreeRoot = path.join(ROOT, "worktrees", "w1");
+  const worktreeRuntimeRoot = path.join(worktreeRoot, "vq");
+  const preserved = { ref: `refs/verqestra/preserved/${"d".repeat(40)}`, commit: "d".repeat(40), baseRef: BASE_HEAD, paths: ["src/a.ts"] };
+  const scoped = world({
+    files: { [rel(path.join(worktreeRuntimeRoot, "state", "task-start-status.json"))]: JSON.stringify(VALID_BASELINE) },
+    scopePaths: ["src/a.ts"],
+    restore: { ok: true, restored: ["src/a.ts"], preserved },
+    gitCommonDir: path.join(ROOT, ".git"),
+  });
+  const { io, out } = captureIo();
+  const args = ["--allow-task-changes", "--task-id", "0042", "--run-id", "run-777"];
+  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: worktreeRoot, runtimeRoot: worktreeRuntimeRoot, io }, args);
+
+  assert.equal(exit, 0);
+  const preservedLine = norm(out.find((line) => line.startsWith("ROLLBACK PRESERVED: ")) ?? "");
+  const expectedRecordPath = norm(path.join(RUNTIME_ROOT, "state", "rollback-preserved", "0042.json"));
+  assert.ok(preservedLine.includes(`record=${expectedRecordPath}`), "įrašas turi gulėti pirminio medžio vq/");
+  const recordEntry = [...scoped.writes.entries()].find(([key]) => norm(key) === "vq/state/rollback-preserved/0042.json");
+  assert.ok(recordEntry, "įrašas turi gulėti pirminio medžio vq/state/rollback-preserved/ kelyje");
+  assert.equal((JSON.parse(recordEntry?.[1] ?? "{}") as Record<string, unknown>)["run_id"], "run-777");
 });
 
 test("rollbackStableCommand: kai išsaugojimo nėra, elgesys nesikeičia — jokios PRESERVED eilutės ar įrašo", async () => {

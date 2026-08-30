@@ -279,6 +279,28 @@ async function resolveStableTarget(context: RollbackContext): Promise<{ targetRe
 }
 
 /**
+ * 083: `context.runtimeRoot` gali būti worktree KOPIJOS `vq/` — kopijai dingus, ref'as lieka
+ * beveidis (GeoGravity 2026-08-29: 15 ref'ų, 14 be įrašo). `git rev-parse --git-common-dir`
+ * worktree'e grąžina PAGRINDINIO `.git` kelią (ne worktree-specifinį gitdir), tad jo tėvinis
+ * katalogas yra pirminio medžio šaknis. Nepavykus — fail-closed grįžimas į `context.runtimeRoot`
+ * su aiškia log eilute, kad operatorius matytų, jog įrašas gali dingti kartu su kopija.
+ */
+async function resolvePreservedRecordRoot(context: RollbackContext): Promise<string> {
+  const result = await context.ports.runGit(
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    context.root,
+  );
+  const gitCommonDir = result.code === 0 ? result.stdout.trim() : "";
+  if (gitCommonDir === "") {
+    await context.ports.agLog(
+      `ROLLBACK PRESERVED ROOT FALLBACK: git-common-dir lookup failed (code=${result.code}), using runtimeRoot=${context.runtimeRoot}`,
+    );
+    return context.runtimeRoot;
+  }
+  return path.join(path.dirname(gitCommonDir), "vq");
+}
+
+/**
  * 021-b-03: kai `restoreTaskScope` grąžina `preserved`, operatorius turi sužinoti, KUR
  * necommit'intas darbas guli, PRIEŠ pamatydamas, ką rollback'as atstatė — kitaip įrodymas apie
  * atkuriamą kopiją pasimeta už "restored N path(s)" eilutės. Būsenos įrašas leidžia `verify-task`
@@ -288,8 +310,11 @@ async function recordPreservedTaskScope(
   context: RollbackContext,
   taskId: string,
   preserved: PreservedTaskScope,
+  runId: string | undefined,
 ): Promise<void> {
-  const recordPath = path.join(context.runtimeRoot, "state", "rollback-preserved", `${taskId}.json`);
+  const recordRoot = await resolvePreservedRecordRoot(context);
+  const recordPath = path.join(recordRoot, "state", "rollback-preserved", `${taskId}.json`);
+  const timestamp = context.now().toISOString();
   await context.ports.makeDirectory(path.dirname(recordPath));
   await context.ports.writeTextFile(
     recordPath,
@@ -300,7 +325,9 @@ async function recordPreservedTaskScope(
         commit: preserved.commit,
         base_ref: preserved.baseRef,
         paths: preserved.paths,
-        recorded_at: context.now().toISOString(),
+        recorded_at: timestamp,
+        created_at: timestamp,
+        ...(runId === undefined ? {} : { run_id: runId }),
       },
       null,
       2,
@@ -316,6 +343,7 @@ async function runTaskScopedRestore(
   context: RollbackContext,
   targetRef: string,
   taskId: string | undefined,
+  runId: string | undefined,
 ): Promise<number> {
   const candidates = normalizeTaskScopeCandidates(await context.ports.taskScopePaths());
   const paths = candidates.paths;
@@ -341,7 +369,7 @@ async function runTaskScopedRestore(
   }
 
   if (restore.preserved) {
-    await recordPreservedTaskScope(context, taskId ?? "", restore.preserved);
+    await recordPreservedTaskScope(context, taskId ?? "", restore.preserved, runId);
   }
 
   await context.ports.agLog(`ROLLBACK TASK-SCOPED: restored ${restore.restored.length} task path(s) to ${targetRef}`);
@@ -383,6 +411,7 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
   await deps.ports.ensureDirs();
   const allowTaskChanges = args.includes("--allow-task-changes");
   const taskId = argValue(args, "--task-id");
+  const runId = argValue(args, "--run-id");
 
   if (!(await deps.ports.isGitRepository(root))) {
     io.error(`Rollback requires a git repository: ${root}`);
@@ -413,7 +442,7 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
   );
 
   const exitCode = allowTaskChanges
-    ? await runTaskScopedRestore(context, targetRef, taskId)
+    ? await runTaskScopedRestore(context, targetRef, taskId, runId)
     : await runHardReset(context, targetRef);
   if (exitCode !== 0) return exitCode;
 

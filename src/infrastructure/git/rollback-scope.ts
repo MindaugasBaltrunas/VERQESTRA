@@ -22,6 +22,9 @@ async function git(root: string, args: string[]): Promise<CommandResult> {
   return await run("git", ["-C", root, ...args]);
 }
 
+/** GC apsaugos ref'ų šaknis (žr. `preserveTaskScope`) — 075-a-02 retencijos modulis skaito šį patį prefiksą. */
+export const PRESERVED_REF_PREFIX = "refs/verqestra/preserved/";
+
 /** Surenka git faktus {@link pushedRollbackBlock} sprendimui prieš realų repo. */
 export async function detectPushedRollback(root: string, stableRef: string): Promise<PushedRollbackDecision> {
   const head = await gitHead(root);
@@ -104,7 +107,7 @@ async function preserveTaskScope(root: string, stableRef: string, paths: readonl
     const commitTree = await runGit(["commit-tree", tree, "-p", stableRef, "-m", "verqestra: preserved task scope"]);
     if (commitTree.code !== 0) return failure("commit-tree", commitTree);
     const commit = commitTree.stdout.trim();
-    const ref = `refs/verqestra/preserved/${commit}`;
+    const ref = `${PRESERVED_REF_PREFIX}${commit}`;
 
     const updateRef = await runGit(["update-ref", ref, commit]);
     if (updateRef.code !== 0) return failure("update-ref", updateRef);

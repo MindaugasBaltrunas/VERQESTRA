@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 import { isGitMutationCommand } from "../domain/policies/index.js";
+import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { collectKnownTaskIds } from "../interfaces/hooks/index.js";
 import type { HookFsPort, HookIo } from "../interfaces/hooks/protocol.js";
 import {
   evaluateRuntimeOwnership,
@@ -403,6 +405,7 @@ test("hookPreWrite: examples/done/human-review bucket'ai praleidžiami be etalon
 test("hookPreWrite: visi esami AG/tasks/queue ir AG/tasks/active failai atitinka etalono struktūrą", async () => {
   const { readFile, readdir } = await import("node:fs/promises");
   const repoRoot = path.resolve(process.cwd());
+  const runtimeRoot = path.join(repoRoot, "vq");
   const bucketFiles = async (bucket: string): Promise<string[]> => {
     const dir = path.join(repoRoot, "AG", "tasks", bucket);
     try {
@@ -412,15 +415,17 @@ test("hookPreWrite: visi esami AG/tasks/queue ir AG/tasks/active failai atitinka
     }
   };
 
-  const knownTaskIds = new Set<string>();
-  for (const bucket of ["queue", "done"]) {
-    for (const file of await bucketFiles(bucket)) knownTaskIds.add(path.basename(file, ".md"));
-  }
+  // `collectKnownTaskIds` (žr. `pre-hooks.ts`) yra TIKRAS domenas: bucket'ų failai SĄJUNGOJE su
+  // ledger'iu, ne vien bucket'ai. Anksčiau čia buvo siauresnė kopija be ledger sąjungos — ji
+  // klaidingai skelbė `priklausomybe-unknown-id` task'ui, kuris dispatch'o metu laikinai gyvena
+  // ne queue/done bucket'e (pvz. `active`/`delegated`), bet TURI ledger įrašą (2026-08-30
+  // incidentas, žr. interfaces-hooks-pre-hooks-known-ids.test.ts).
+  const knownTaskIds = await collectKnownTaskIds(nodeFsAdapter, repoRoot, runtimeRoot);
 
   const { validateTaskAgainstEtalonas } = await import("../domain/tasks/etalonas-rules.js");
   for (const bucket of ["queue", "active"]) {
     for (const file of await bucketFiles(bucket)) {
-      const violations = validateTaskAgainstEtalonas(await readFile(file, "utf8"), Array.from(knownTaskIds));
+      const violations = validateTaskAgainstEtalonas(await readFile(file, "utf8"), knownTaskIds);
       assert.deepEqual(violations, [], `${file}: ${JSON.stringify(violations)}`);
     }
   }

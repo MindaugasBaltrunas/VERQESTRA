@@ -124,6 +124,7 @@ export function preHookPorts(runtimeRoot: string): PreHookPorts {
       writeTextFile: (absolutePath, text) => nodeFsAdapter.writeTextFile(absolutePath, text),
       appendTextFile: (absolutePath, text) => nodeFsAdapter.appendTextFile(absolutePath, text),
       makeDirectory: (absoluteDir) => nodeFsAdapter.makeDirectory(absoluteDir),
+      listDirectoryIfExists: (absoluteDir) => nodeFsAdapter.listDirectoryIfExists(absoluteDir),
     },
     stdin: { readStdin: () => readStdin() },
     loadProjectProfile: () => loadProjectProfile(runtimeRoot),

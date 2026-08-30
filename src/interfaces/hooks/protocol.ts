@@ -30,6 +30,12 @@ export type HookFsPort = {
   writeTextFile(absolutePath: string, text: string): Promise<void>;
   appendTextFile(absolutePath: string, text: string): Promise<void>;
   makeDirectory(absoluteDir: string): Promise<void>;
+  /**
+   * Katalogo įrašų vardai arba `undefined`, kai katalogo nėra. NEPRIVALOMAS: skaitytojas be jo
+   * krenta į siauresnį šaltinį (žr. `collectKnownTaskIds`) — trūkstamas portas gali tik
+   * SUSIAURINTI leidžiamą aibę, niekada jos neišplėsti, tad seni fake'ai lieka galiojantys.
+   */
+  listDirectoryIfExists?(absoluteDir: string): Promise<string[] | undefined>;
 };
 
 /** Standartinės įvesties skaitymas iki EOF — vienintelis hook'o IO įėjimas. */

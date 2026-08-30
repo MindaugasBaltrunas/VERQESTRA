@@ -32,6 +32,7 @@ import {
 } from "../../infrastructure/adapters/claude-dispatch-delivery.js";
 import { launchClaudeProcess } from "../../infrastructure/adapters/claude-dispatch-process.js";
 import { createProjectContainment } from "../../infrastructure/fs/project-containment.js";
+import { attemptLogPath } from "../../infrastructure/runtime-paths.js";
 import { resolveDispatchOutcome } from "../../infrastructure/adapters/claude-dispatch-outcome.js";
 import { finalizeDispatch } from "../../infrastructure/adapters/claude-dispatch-finalize.js";
 import { claudeLastLogWriteFatal, writeClaudeLastLog } from "../../infrastructure/adapters/claude-last-log.js";
@@ -90,6 +91,18 @@ export async function powerShellCommand(): Promise<string | undefined> {
   return (await commandExists("powershell.exe")) ? "powershell.exe" : undefined;
 }
 
+/**
+ * Attempt kanalo praradimo įspėjimas su ĮVARDYTA priežastimi. Priežastis yra visa vertė:
+ * „nėra attempt'o" be jos neatskiria normalios repo būsenos (`no-runtime`) nuo tapatybės
+ * konflikto (`identity-mismatch`) ar sugadinto kelio segmento (`charset`).
+ */
+function attemptChannelWarning(taskFile: string, reason: string): string {
+  return (
+    `runtime attempt namespace unavailable task=${taskLedgerKey(taskFile)} reason=${reason}` +
+    " — artifacts fall back to global mirrors"
+  );
+}
+
 export type ClaudeDispatchAdapterInput = {
   projectRoot: string;
   runtimeRoot: string;
@@ -100,14 +113,14 @@ export type ClaudeDispatchAdapterInput = {
 /**
  * Visi `claude-dispatch` portai vienu pjūviu.
  *
- * `resolveAttempt` kol kas VISADA grąžina „be attempt'o" su įvardyta priežastimi. Loop'as JAU
- * migruotas ir pilnas resolveris (`activeAttemptResolution`) aptarnauja stop-hooks, diagnozę
- * ir telemetriją, bet dispatch attempt KANALAS (interfaces `DispatchAttemptView` closures virš
- * runtime-artifact-store, 1117a) dar neįvielintas — tai užfiksuotas nukrypimas nuo etalono
- * (migration-coverage.json, 2026-08-25). Tai NĖRA tylus praleidimas: įspėjimas keliauja į
- * dispatch žurnalą, artefaktai rašomi į globalius veidrodžius, o supervisor SPRENDIMAS
- * dispatch'ą pasiekia per `readSupervisorDecision` globalaus veidrodžio fallback'ą su
- * task_id nuosavybės patikra (0941 kanalas atkurtas 2026-08-25, auditas P0-1).
+ * `resolveAttempt` grąžina attempt'o `claude-last` KELIĄ (2026-08-30), bet dar ne pilną
+ * `DispatchAttemptView`: interfaces closures virš runtime-artifact-store (1117a) tebėra
+ * neįvielintos, tad decision, promote-execution-context, promote-context-pack ir
+ * execution-result kanalai vis dar eina per globalius veidrodžius — užfiksuotas nukrypimas
+ * nuo etalono (migration-coverage.json, 2026-08-25). Tai NĖRA tylus praleidimas: įspėjimas
+ * keliauja į dispatch žurnalą, o supervisor SPRENDIMAS dispatch'ą pasiekia per
+ * `readSupervisorDecision` globalaus veidrodžio fallback'ą su task_id nuosavybės patikra
+ * (0941 kanalas atkurtas 2026-08-25, auditas P0-1).
  */
 export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDispatchPorts {
   const deliveries = new WeakMap<DispatchDeliveryHandle, DispatchPromptDelivery>();
@@ -127,13 +140,23 @@ export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDi
     readCurrentTaskId: async () => (await readCurrentTaskId(input.runtimeRoot)) ?? "",
     readRetryCounts: () => retryCountsStore(input.runtimeRoot).read(),
 
-    resolveAttempt: (attemptInput): Promise<ResolveAttemptResult> =>
-      Promise.resolve({
-        warnings: [
-          `runtime attempt namespace unavailable task=${taskLedgerKey(attemptInput.taskFile)} reason=no-runtime` +
-            " — artifacts fall back to global mirrors",
-        ],
-      }),
+    // Pilno `DispatchAttemptView` čia dar nėra (1117a closures virš runtime-artifact-store —
+    // atskiras task'as), bet SESIJOS ŽURNALO kelias išsprendžiamas jau dabar. Be jo
+    // `claude-last` gyvena tik globaliame veidrodyje, kurį lygiagretus worker'is perrašo, ir
+    // `readClaudeSessionLog` grąžina `legacy` — t. y. SVETIMO task'o tekstą — vietoj `attempt`.
+    //
+    // Fail-open: repo be `vq/runtime` būsenos yra `no-runtime`, o ne klaida. Rezoliucijai ar
+    // kelio validacijai nepavykus dispatch'as TĘSIAMAS su įvardyta priežastimi žurnale — tas
+    // pats įspėjimas kaip iki šiol, tik nebe besąlygiškas.
+    resolveAttempt: async (attemptInput): Promise<ResolveAttemptResult> => {
+      const resolved = await input.resolution.resolveActiveAttempt(attemptInput.taskId);
+      if (resolved.ok) {
+        const target = attemptLogPath(input.runtimeRoot, resolved.attempt.handle.ref, "claude-last");
+        if (target.ok) return { claudeLogPath: target.value, warnings: [] };
+        return { warnings: [attemptChannelWarning(attemptInput.taskFile, target.reason)] };
+      }
+      return { warnings: [attemptChannelWarning(attemptInput.taskFile, resolved.reason)] };
+    },
 
     // Nuosavybės taisyklė ta pati kaip `coordinator-adapters.readDecision`, bet griežtesnė
     // kryptimi: veidrodis be `task_id` čia NEPRIIMAMAS (preflight jį rašo visada, tad jo

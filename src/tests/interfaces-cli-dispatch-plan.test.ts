@@ -38,6 +38,8 @@ import {
 import { claudeDispatchTimeoutMs, DEFAULT_CLAUDE_DISPATCH_TIMEOUT_MS } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-timeout.js";
 import { resolveDispatchRoutingPlan } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-routing-plan.js";
 import { resolveDispatchBudgetPlan } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-budget-plan.js";
+import { buildBasePrompt, ETALONAS_TEMPLATE_PATH, splitDirective, type PreflightPromptContext } from "../interfaces/cli/dispatch/claude-preflight/preflight-llm.js";
+import { DEFAULT_PREFLIGHT_LIMITS } from "../application/policy-governance/preflight-limits-policy.js";
 
 const emptyFs = { readTextFileIfExists: async (): Promise<string | undefined> => undefined };
 
@@ -426,6 +428,34 @@ test("dispatch-routing-plan: maršruto log eilutės ir eskalacijos žinutė per 
   // failedAttempts=2 su default defer_steps=1 → viena eskalacijos pakopa virš bazės.
   assert.notEqual(plan.routing.tier, plan.routing.base_tier);
   assert.match(lines[1] ?? "", /^MODEL ESCALATION: task=0042/);
+});
+
+const ETALONAS_SECTION_LIST = [
+  "# Task", "## Spec source", "## Priklausomybės", "## Žingsnis 0", "## Tikslas",
+  "## Agentai", "## Failai", "## Veiksmas", "## Patikra", "## Stop", "## Neįtraukta",
+];
+
+function assertEtalonasTemplate(prompt: string, extra: RegExp[], label: string): void {
+  assert.ok(prompt.includes(ETALONAS_TEMPLATE_PATH), `${label} cituoja etalono kelią`);
+  for (const heading of ETALONAS_SECTION_LIST) assert.ok(prompt.includes(heading), `${label}: ${heading}`);
+  for (const pattern of extra) assert.match(prompt, pattern, `${label}: ${pattern}`);
+}
+
+test("preflight-llm: reformulacijos ir skėlimo prompt'ai gauna etalono šabloną (070-c-04)", () => {
+  const context: PreflightPromptContext = {
+    taskId: "0042", activeText: "# Task\n", openSpecContext: "", architectureRules: "",
+    availableAgents: "coder, reviewer, tester", modelSelectionRules: "",
+  };
+  assertEtalonasTemplate(
+    buildBasePrompt(context, "full"),
+    [/katalogo wildcard'as/, /savo testo failu/, /I18nContext\.tsx/, /dashboard\.css/],
+    "reformulacijos promptas",
+  );
+  assertEtalonasTemplate(
+    splitDirective(["10 domenų > 5"], DEFAULT_PREFLIGHT_LIMITS, false),
+    [/## Failai`\s*scope NEGALI persidengti/, /duplicate_scope/, /UI vaikas `## Priklausomybės` PRIVALO nurodyti serverio vaiko task id/],
+    "skėlimo promptas",
+  );
 });
 
 test("dispatch-budget-plan: paskelbtas tier'as, reduced šaka ir stebimi šaltiniai log eilutėse", async () => {

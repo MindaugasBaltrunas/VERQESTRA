@@ -13,6 +13,35 @@ import type { ClaudePreflightPorts, PreflightDecision } from "./preflight-ports.
 
 export type PromptScale = "full" | "reduced";
 
+/**
+ * Kanoninio task šablono kelias citavimui prompt'uose (070-c-04). Etalono pilnas turinys
+ * (`AG/tasks/examples/000-etalonas.md`, ~120 eilučių) NEĮtraukiamas į kiekvieną preflight LLM
+ * kvietimą — tai sudegintų `taskChars`/`specChars` biudžetą be proporcingo naudos; vietoje to
+ * čia gyvena deterministiškai iš jo išvestas kompaktiškas taisyklių rinkinys, kurio LLM
+ * negali praleisti pro akis (visada prisegtas, ne `.slice()`-inamas kaip kintantis kontekstas).
+ */
+export const ETALONAS_TEMPLATE_PATH = "AG/tasks/examples/000-etalonas.md";
+
+/** Etalono kanoninė sekcijų tvarka (000-etalonas.md), abiem promptams — 1:1 su antraštėmis. */
+const ETALONAS_SECTION_ORDER =
+  "# Task / ## Spec source / ## Priklausomybės / ## Žingsnis 0 — ar jau įgyvendinta? / ## Tikslas / " +
+  "## Agentai / ## Failai / ## Veiksmas / ## Patikra / ## Stop / ## Neįtraukta";
+
+/**
+ * `## Failai` taisyklės iš etalono (2026-08-28: 5 parkavimai „changed files outside allowed
+ * paths" kilo iš improvizuotų kelių šioje sekcijoje). Tas pats tekstas, kurį jau naudoja
+ * deterministinis vartas (`evaluateEtalonasRuleViolations`), kad LLM ir vartas sutartų, KO
+ * tikimasi, PRIEŠ reformulaciją, ne po jos.
+ */
+const ETALONAS_FAILAI_RULES =
+  `- Etalono šablonas (${ETALONAS_TEMPLATE_PATH}) sekcijų tvarka: ${ETALONAS_SECTION_ORDER}.\n` +
+  "- `## Failai` keliai PRIVALO būti konkretūs, ne katalogo wildcard'as (`src/tests/**`, `components/`) — " +
+  "wildcard'as leidžiamas TIK visos apimties migracijai su pagrindimo tekstu šalia kelio.\n" +
+  "- Kiekvienas produkcinis failas `## Failai` sąraše ateina su savo testo failu (numatomas vardas su " +
+  "išlyga, jei tikslus dar nežinomas).\n" +
+  "- UI task'as VISADA įtraukia `ui-app/src/i18n/I18nContext.tsx` ir `ui-app/src/view/styles/dashboard.css`.\n" +
+  "- `Draudžiama:` įvardija gretimą sluoksnį, svetimą modulį, `dist/**`, `node_modules/**`.";
+
 export type PreflightPromptContext = {
   taskId: string;
   activeText: string;
@@ -66,6 +95,7 @@ Taisyklės:
 - target_agent_chain gali naudoti tik agentus iš šio sąrašo (automatiškai nuskaitytas iš .claude/agents/): ${context.availableAgents}.
 - readme-guard VISADA turi būti pirmas grandinėje kai keičiamas source kodas — leidimą suteikia tik PostToolUse Read hooko įrašytas README skaitymo įrodymas, ne rankinis flagas.
 - Claude užduotyje aiškiai nurodyk: ką daryti, kad privaloma naudoti nurodytą agentų grandinę, kokias patikras paleisti, kada commitinti ir sustoti.
+${ETALONAS_FAILAI_RULES}
 ${context.modelSelectionRules}
 - SVARBU: Grąžink TIK JSON objektą be jokių markdown, komentarų ar paaiškinimų. Tiksliai šie laukai:
   {
@@ -93,13 +123,24 @@ ${context.openSpecContext.slice(0, specChars)}
 ${context.architectureRules.slice(0, rulesChars)}`;
 }
 
-/** Skaldymo direktyva (etalono splitDirective 1:1). */
+/**
+ * Skaldymo direktyva (etalono splitDirective 1:1 + 070-c-04 etalono papildymai). 2026-08-28
+ * per parą 2 skėlimai krito `duplicate_scope` vartu (`enqueueChildTasks`,
+ * `application/task-execution/enqueue-child-tasks.ts`) — vaikai gavo TAPAČIĄ `## Failai`
+ * aibę, ir antrasis brolis neturėjo ką dispatch'inti. Šios dvi papildomos eilutės uždaro tą
+ * spragą PRIEŠ generavimą, ne po nepavykusio bandymo.
+ */
 export function splitDirective(sizeViolations: string[], limits: PreflightLimits, strict: boolean): string {
   return (
     `\n\n## DYDŽIO RIBA VIRŠYTA\nŠi užduotis VIRŠIJA konfigūruotą dydžio ribą: ${sizeViolations.join("; ")}.\n` +
     `PRIVALAI grąžinti \`child_tasks\` su bent viena papildoma nuoseklia užduotimi (iš viso ≥2 mažos užduotys).\n` +
     `\`claude_task\` privalo apimti TIK pirmą mažą, savarankiškai vykdomą dalį ir pats NEVIRŠYTI ribų ` +
-    `(≤${limits.maxDomains} domenai, ≤${limits.maxAllowedPaths} failai, ≤${limits.maxActionBullets} veiksmai, ≤${limits.maxLines} eilutės).` +
+    `(≤${limits.maxDomains} domenai, ≤${limits.maxAllowedPaths} failai, ≤${limits.maxActionBullets} veiksmai, ≤${limits.maxLines} eilutės).\n` +
+    `Etalono šablonas (${ETALONAS_TEMPLATE_PATH}) sekcijų tvarka: ${ETALONAS_SECTION_ORDER}.\n` +
+    `SVARBU (skėlimas): kiekvieno \`child_tasks[].claude_task\` \`## Failai\` scope NEGALI persidengti nė vienu keliu su kitu vaiku — ` +
+    `bendras failas reiškia arba sujungti abu vaikus į vieną, arba iškelti bendrą pakeitimą į atskirą, pirmesnį vaiką, ` +
+    `nuo kurio kiti priklauso per \`## Priklausomybės\`. Persidengęs scope blokuoja VISĄ skėlimą (\`duplicate_scope\`).\n` +
+    `SVARBU (skėlimas): jei skeli UI ir serverio darbą, UI vaikas \`## Priklausomybės\` PRIVALO nurodyti serverio vaiko task id — niekada atvirkščiai.` +
     (strict
       ? `\nANKSTESNIS bandymas nesuskaldė pakankamai — skaldyk SMULKIAU: kiekvieną domeną/feature į atskirą child task.`
       : "")

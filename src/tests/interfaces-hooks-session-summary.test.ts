@@ -141,12 +141,12 @@ test("taskScopeRestorePaths: atstatomi TIK šio dispatch'o nuosavi produkto keli
     ["src/mine.ts"],
   );
 
-  // Be tapatybės niekas negali būti įrodyta svetimu — elgesys lieka toks, koks buvo iki
-  // nuosavybės sidecar'o.
-  assert.deepEqual(
-    taskScopeRestorePaths(["src/mine.ts", "src/theirs.ts"], owners, { session: "", taskId: "" }).sort(),
-    ["src/mine.ts", "src/theirs.ts"],
-  );
+  // Be nonce savininkystę sprendžia TIK sidecar'as: šio task'o įrašas atstatomas, svetimas —
+  // ne. Anksčiau čia grįždavo abu keliai, tad rollback'as revertindavo lygiagrečios sesijos
+  // necommit'intą darbą (auditas 2026-08-29, P1).
+  assert.deepEqual(taskScopeRestorePaths(["src/mine.ts", "src/theirs.ts"], owners, { session: "", taskId: "890" }), [
+    "src/mine.ts",
+  ]);
 
   // To paties task'o kitas bandymas nėra svetimas.
   assert.deepEqual(

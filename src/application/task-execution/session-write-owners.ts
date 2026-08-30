@@ -117,22 +117,97 @@ export function filterStagePathsByOwnership(
   return { paths: kept, foreign };
 }
 
+/** Kodėl rollback'as NEatstatė kelio, kurio savininkystės sidecar'as neįrodo. */
+export type RestoreSkipReason =
+  /** Sidecar'e nėra įrašo (legacy ledger'is, rašytas dar be savininkų failo). */
+  | "no-ownership-record"
+  /** Įrašas yra, bet jis tuščias — nei sesijos, nei užduoties. */
+  | "empty-ownership-record"
+  /** Nėra nei nonce, nei `current-task-id`: nėra su kuo lyginti savininkų įrašo. */
+  | "unknown-current-task";
+
+export type RestoreSkip = { path: string; reason: RestoreSkipReason };
+
+export type TaskScopeRestorePlan = {
+  /** Keliai, kuriuos rollback'as turi teisę atstatyti. */
+  paths: string[];
+  /** Keliai, ĮRODYTAI priklausantys svetimai sesijai ar užduočiai — paliekami nepaliesti. */
+  foreign: string[];
+  /** Keliai, kurių savininkystė nenustatoma — praleisti fail-closed, su priežastimi. */
+  skipped: RestoreSkip[];
+};
+
 /**
- * Task'o NUOSAVI produkto keliai, kuriuos rollback'as gali atstatyti: šios sesijos rašymų
- * ledger'is be runtime kelių, paliekant tik tai, ką šis dispatch'as realiai turi.
+ * Rollback'o atstatymo planas: kas nuosava, kas svetima ir kas praleista dėl neįrodomos
+ * savininkystės.
  *
- * Etalono task 0018: čia buvo skaitomas VISAS ledger'is be nuosavybės filtro, tad co-tenant'o
- * dispatch'o rašymas bendrame ledger'yje būdavo priskiriamas šiam task'ui IR jam turinio
- * lygiu revertinamas. Stop staging'as tą pačią problemą jau išsprendė
- * {@link filterStagePathsByOwnership} — čia taikomas tas pats šablonas su ta pačia tapatybe.
+ * Rollback'as yra DESTRUKTYVUS ten, kur Stop staging'as tik pasyvus, tad taisyklė čia
+ * apverčiama. {@link filterStagePathsByOwnership} be nonce sąmoningai nemeta nieko (jo
+ * kontraktą dalijasi 3 kiti kvietėjai — Stop staging'as, package guard'as, diagnozė), bet tas
+ * pats „nieko neįrodyta" rollback'e reiškia, kad į atstatymo aibę pakliūva VISAS bendras
+ * ledger'is, įskaitant lygiagrečios sesijos necommit'intą darbą, ir jis revertinamas.
+ *
+ * Todėl be nonce sprendžia TIK savininkų sidecar'as, ne kvietėjo tapatybė: kelias atstatomas
+ * vien tada, kai jo įrašas vardija šio task'o `current-task-id`. Įrašas, vardijantis ką nors
+ * kita, yra `foreign`; įrašo nebuvimas, tuščias įrašas ar nežinomas einamasis task'as —
+ * `skipped` su priežastimi (fail-closed: neatstatyti yra atstatoma klaida, atstatyti svetimą —
+ * ne).
+ *
+ * Su nonce elgesys nesikeičia: ten tapatybė žinoma, ir tinka ta pati įrodyto svetimumo
+ * taisyklė kaip staging'e.
  *
  * GRYNA sąmoningai: etalono `readFileSync` viduje yra jo silpnybė, ne kontraktas — IO lieka
  * adapteryje, kad rollback kelią būtų galima įrodyti be tikro repo.
+ */
+export function taskScopeRestorePlan(
+  sessionWrites: readonly string[],
+  owners: SessionWriteOwners,
+  identity: SessionWriteIdentity,
+): TaskScopeRestorePlan {
+  // Runtime keliai nukrenta PIRMI: jie yra loop'o buhalterija, tad nei atstatomi, nei verti
+  // eilutės ataskaitoje apie svetimą darbą.
+  const candidates = sessionScopedChangedFiles(sessionWrites);
+  const session = identity.session.trim();
+  const taskId = identity.taskId.trim();
+
+  if (session !== "") {
+    const owned = filterStagePathsByOwnership(candidates, owners, { session, taskId });
+    return { paths: owned.paths, foreign: owned.foreign, skipped: [] };
+  }
+
+  const paths: string[] = [];
+  const foreign: string[] = [];
+  const skipped: RestoreSkip[] = [];
+  for (const candidate of candidates) {
+    const owner = owners[normalizeGitPath(candidate)];
+    const ownerSessions = owner?.sessions ?? [];
+    const ownerTasks = owner?.tasks ?? [];
+    if (taskId === "") {
+      skipped.push({ path: candidate, reason: "unknown-current-task" });
+    } else if (ownerTasks.includes(taskId)) {
+      paths.push(candidate);
+    } else if (ownerSessions.length > 0 || ownerTasks.length > 0) {
+      foreign.push(candidate);
+    } else {
+      skipped.push({
+        path: candidate,
+        reason: owner === undefined ? "no-ownership-record" : "empty-ownership-record",
+      });
+    }
+  }
+  return { paths, foreign, skipped };
+}
+
+/**
+ * Task'o NUOSAVI produkto keliai, kuriuos rollback'as gali atstatyti.
+ *
+ * Parašas laikomas siauras (`string[]`) dėl `infrastructure/git/rollback-scope.ts`
+ * `taskScopePaths` porto — `foreign`/`skipped` prieinami per {@link taskScopeRestorePlan}.
  */
 export function taskScopeRestorePaths(
   sessionWrites: readonly string[],
   owners: SessionWriteOwners,
   identity: SessionWriteIdentity,
 ): string[] {
-  return sessionScopedChangedFiles(filterStagePathsByOwnership(sessionWrites, owners, identity).paths);
+  return taskScopeRestorePlan(sessionWrites, owners, identity).paths;
 }

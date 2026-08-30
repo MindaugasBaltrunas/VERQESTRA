@@ -11,7 +11,7 @@ import type { TokenAnalyticsSnapshot } from "../application/learning/token-analy
 import type { CliIo } from "../interfaces/cli/registry.js";
 import { policyCommand, type PolicyCommandPorts } from "../interfaces/cli/admin/policy.js";
 import { agentCommand, type AgentCommandPorts } from "../interfaces/cli/admin/agent.js";
-import { statusCommand, type StatusPorts } from "../interfaces/cli/admin/status.js";
+import { statusCommand, type StatusPorts, type StatusPreservedWorkView } from "../interfaces/cli/admin/status.js";
 
 const ROOT = path.resolve("/repo");
 const RUNTIME_ROOT = path.join(ROOT, "vq");
@@ -431,4 +431,55 @@ test("statusCommand: be analitikos ir be stop įrodymo sekcijos praleidžiamos; 
   );
   assert.ok(corrupted.out.includes("claude_stop_status: <corrupted>"));
   assert.ok(corrupted.out.includes("claude_stop_source: legacy"));
+});
+
+test("statusCommand: preserved darbo sąrašas — atributuotas ir unattributed įrašai matomi", async () => {
+  const items: StatusPreservedWorkView[] = [
+    { taskId: "0083", ref: "refs/verqestra/preserved/aaa111", fileCount: 3, recordedAt: "2026-08-28T10:00:00.000Z" },
+    { taskId: "unattributed", ref: "refs/verqestra/preserved/bbb222", fileCount: 1, recordedAt: "2026-08-29T10:00:00.000Z" },
+  ];
+  const ports = statusPorts({}, { listPreservedWork: async () => items });
+  const { io, out } = captureIo();
+  assert.equal(await statusCommand({ ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }), 0);
+
+  assert.ok(out.includes("preserved_work:"));
+  assert.ok(
+    out.includes("  task=0083 ref=refs/verqestra/preserved/aaa111 files=3 recorded_at=2026-08-28T10:00:00.000Z"),
+  );
+  assert.ok(
+    out.includes(
+      "  task=unattributed ref=refs/verqestra/preserved/bbb222 files=1 recorded_at=2026-08-29T10:00:00.000Z",
+    ),
+  );
+});
+
+test("statusCommand: preserved darbas — tuščias sąrašas sekcijos nespausdina, be porto — taip pat", async () => {
+  const empty = captureIo();
+  const emptyPorts = statusPorts({}, { listPreservedWork: async () => [] });
+  assert.equal(
+    await statusCommand({ ports: emptyPorts, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io: empty.io }),
+    0,
+  );
+  assert.ok(!empty.out.includes("preserved_work:"));
+
+  const noPort = captureIo();
+  assert.equal(
+    await statusCommand({ ports: statusPorts(), projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io: noPort.io }),
+    0,
+  );
+  assert.ok(!noPort.out.some((line) => line.startsWith("preserved_work")));
+});
+
+test("statusCommand: preserved darbo porto klaida duoda vieną aiškią eilutę ir nekrenta", async () => {
+  const ports = statusPorts(
+    {},
+    {
+      listPreservedWork: async () => {
+        throw new Error("git nepasiekiamas");
+      },
+    },
+  );
+  const { io, out } = captureIo();
+  assert.equal(await statusCommand({ ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }), 0);
+  assert.ok(out.includes("preserved_work: <unknown — portas nepavyko, žr. logus>"));
 });

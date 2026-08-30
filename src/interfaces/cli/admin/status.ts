@@ -46,6 +46,15 @@ export type StatusDecisionView = {
   reason?: string;
 };
 
+/** Vienas neintegruotas preserved darbas (žr. `preserved-ref-reconcile.ts`). */
+export type StatusPreservedWorkView = {
+  /** Task id arba `"unattributed"`, kai commit žinutėje nėra `task=` žymos. */
+  taskId: string;
+  ref: string;
+  fileCount: number;
+  recordedAt: string;
+};
+
 export type StatusPorts = {
   ensureDirs(): Promise<void>;
   countMarkdownFiles(absoluteDir: string): Promise<number>;
@@ -57,6 +66,11 @@ export type StatusPorts = {
   readTokenAnalytics(): Promise<TokenAnalyticsSnapshot | null>;
   /** `git status --porcelain` išvestis; tuščia eilutė — švarus medis. */
   gitStatus(): Promise<string>;
+  /**
+   * Neintegruoto preserved darbo sąrašas (žr. `preserved-ref-reconcile.ts`). Optional — kol
+   * composition wiring jo nepaduoda, statusas tiesiog praleidžia sekciją, kaip ir be jos.
+   */
+  listPreservedWork?(): Promise<StatusPreservedWorkView[]>;
 };
 
 export type StatusCommandDeps = {
@@ -117,6 +131,7 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<number> {
   await renderStopEvidence(deps, io, currentTaskId ?? "");
   await renderResumePoints(deps, io, statePath);
   await renderLatestDecision(deps, io, path.join(runtimeRoot, "supervisor", "decision.json"));
+  await renderPreservedWork(deps, io);
 
   const gitOutput = await deps.ports.gitStatus();
   io.out("");
@@ -184,6 +199,34 @@ async function renderResumePoints(
     io.out(
       `  ${resume.actor}: ${resume.status ?? "none"} ${resume.phase ?? ""} task=${resume.task_id ?? ""} log=${resume.log_file ?? ""} lines=${resume.log_lines ?? 0} next=${resume.next_action ?? ""}`,
     );
+  }
+}
+
+/**
+ * Neintegruotas preserved darbas (žr. `preserved-ref-reconcile.ts`) buvo archeologuojamas
+ * rankomis (2026-08-28/29 sesija, 6 task'ai, kelios žmogaus valandos) — operatorius jį matė tik
+ * naršydamas git ref'us. Sekcija spausdinama tik kai sąrašas netuščias; porto klaida NIEKADA
+ * netampa tylia tuščia sekcija — operatorius turi matyti, kad duomenų nepavyko gauti, ne kad jų
+ * nėra.
+ */
+async function renderPreservedWork(deps: StatusCommandDeps, io: CliIo): Promise<void> {
+  if (!deps.ports.listPreservedWork) return;
+
+  let items: StatusPreservedWorkView[];
+  try {
+    items = await deps.ports.listPreservedWork();
+  } catch {
+    io.out("");
+    io.out("preserved_work: <unknown — portas nepavyko, žr. logus>");
+    return;
+  }
+
+  if (items.length === 0) return;
+
+  io.out("");
+  io.out("preserved_work:");
+  for (const item of items) {
+    io.out(`  task=${item.taskId} ref=${item.ref} files=${item.fileCount} recorded_at=${item.recordedAt}`);
   }
 }
 

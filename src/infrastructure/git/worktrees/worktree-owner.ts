@@ -103,15 +103,3 @@ export async function quarantineWorktree(input: {
 
   return { status: "quarantined", record };
 }
-
-export async function readWorktreeQuarantine(worktreePath: string): Promise<WorktreeQuarantineRecord | undefined> {
-  const gitDir = await worktreeGitDir(worktreePath);
-  if (!gitDir) return undefined;
-  const raw = await nodeFsAdapter.readTextFileIfExists(path.join(gitDir, WORKTREE_QUARANTINE_FILE));
-  if (raw === undefined) return undefined;
-  try {
-    return JSON.parse(raw) as WorktreeQuarantineRecord;
-  } catch {
-    return undefined;
-  }
-}

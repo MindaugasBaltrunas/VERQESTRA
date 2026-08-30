@@ -13,16 +13,12 @@ import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../infrastructure/process/run-process.js";
 import { gitCurrentBranch, gitHead, gitResolveCommit } from "../infrastructure/git/git-client.js";
 import { applyIntegrationPlan } from "../infrastructure/git/integration-branch.js";
-import {
-  planParallelWorktrees,
-  worktreeLayout,
-  WORKTREE_TASK_SEGMENT_MAX_LENGTH,
-} from "../infrastructure/git/worktrees/worktree-layout.js";
+import { worktreeLayout, WORKTREE_TASK_SEGMENT_MAX_LENGTH } from "../infrastructure/git/worktrees/worktree-layout.js";
 import {
   deleteWorktreeBranch,
   integrateWorktreeBranch,
 } from "../infrastructure/git/worktrees/worktree-branch-integration.js";
-import { readWorktreeQuarantine, readWorktreeOwner } from "../infrastructure/git/worktrees/worktree-owner.js";
+import { readWorktreeOwner } from "../infrastructure/git/worktrees/worktree-owner.js";
 import { createTaskWorktree, inspectTaskWorktree } from "../infrastructure/git/worktrees/worktree-provision.js";
 import { removeTaskWorktree } from "../infrastructure/git/worktrees/worktree-removal.js";
 import { findOrphanWorktrees, reapOrphanWorktree } from "../infrastructure/git/worktrees/worktree-reaper.js";
@@ -92,15 +88,11 @@ function lease(overrides: Partial<WorkerLease> = {}): WorkerLease {
 
 const identity = { run_id: "r1", worker_id: "w1", task_id: "t1", attempt: 1 };
 
-test("layout: per ilgas task segmentas gauna hash uodegą, lygiagretus planas mato kolizijas", () => {
+test("layout: per ilgas task segmentas gauna hash uodegą", () => {
   const long = worktreeLayout(root, { ...identity, task_id: "x".repeat(60) });
   const segment = path.basename(long.path).split("-").slice(1, -1).join("-");
   assert.ok(segment.length <= WORKTREE_TASK_SEGMENT_MAX_LENGTH);
   assert.match(path.basename(long.path), /-[0-9a-f]{8}-a1$/);
-
-  const plan = planParallelWorktrees(root, [identity, identity]);
-  assert.equal(plan.disjoint, false);
-  assert.equal(plan.collisions.length, 1);
 });
 
 test("provision: created -> reused tam pačiam lease; owner žyma gyvena git admin kataloge", async () => {
@@ -134,8 +126,6 @@ test("svetimas lease ant nešvarios kopijos -> karantinas su lock ir įrašu", a
   if (foreign.status !== "quarantined") return;
   assert.ok(foreign.reasons.includes("dirty-worktree"));
   assert.ok(foreign.reasons.includes("foreign-owner"));
-  const record = await readWorktreeQuarantine(layout.path);
-  assert.deepEqual(record?.reasons, foreign.reasons.slice().sort());
 });
 
 test("branch integracija: commit worktree'e -> integrated į pirminę šaką, idempotentiškas pakartojimas, remove + branch delete", async () => {

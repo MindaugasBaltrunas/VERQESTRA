@@ -81,40 +81,6 @@ export function worktreeLayout(projectRoot: string, identity: WorktreeIdentity):
   };
 }
 
-export type ParallelWorktreePlan = {
-  layouts: WorktreeLayout[];
-  disjoint: boolean;
-  collisions: string[];
-};
-
-function isNestedOrEqual(left: string, right: string): boolean {
-  const a = path.resolve(left).toLowerCase();
-  const b = path.resolve(right).toLowerCase();
-  if (a === b) return true;
-  return a.startsWith(`${b}${path.sep}`) || b.startsWith(`${a}${path.sep}`);
-}
-
-/** Grynas izoliuotų kopijų planas lygiagrečiam vykdymui. */
-export function planParallelWorktrees(
-  projectRoot: string,
-  identities: readonly WorktreeIdentity[],
-): ParallelWorktreePlan {
-  const layouts = identities.map((identity) => worktreeLayout(projectRoot, identity));
-  const collisions: string[] = [];
-
-  for (let i = 0; i < layouts.length; i += 1) {
-    for (let j = i + 1; j < layouts.length; j += 1) {
-      const left = layouts[i]!;
-      const right = layouts[j]!;
-      if (isNestedOrEqual(left.path, right.path) || left.branch === right.branch) {
-        collisions.push(`${left.relative_path} <-> ${right.relative_path}`);
-      }
-    }
-  }
-
-  return { layouts, disjoint: collisions.length === 0, collisions: collisions.sort() };
-}
-
 /** Worktree šaknis turi būti gitignore'inta, kad pagrindinis medis liktų švarus. */
 export async function worktreeRootIsIgnored(projectRoot: string): Promise<boolean> {
   const ignored = await filterGitIgnored([WORKTREE_ROOT_DIR], projectRoot);

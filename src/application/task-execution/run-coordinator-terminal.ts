@@ -197,14 +197,24 @@ export async function applyTerminal(
     log_file: ports.state.logPath(doneLogFile),
     next_action: "Pick next task from queue",
   });
+  // Task 095: `audit-complete` NĖRA ALREADY_IMPLEMENTED semantiškai (žr. `AlreadyImplementedVia`
+  // komentarą) — žurnalo ir log'o eilutė jį įvardija atskirai, kad operatorius neieškotų
+  // markerio, kurio sesija niekada neparašė.
+  const isAuditComplete = transition.kind === "done-already-implemented" && transition.via === "audit-complete";
   await ports.journal.recordEvent({
     task_id: state.taskId,
     to_state: "done",
-    reason: alreadyImplemented ? `done already_implemented (${transition.via})` : "done",
+    reason: alreadyImplemented
+      ? isAuditComplete
+        ? `done audit_complete (${transition.via})`
+        : `done already_implemented (${transition.via})`
+      : "done",
   });
   await ports.log.write(
     alreadyImplemented
-      ? `TASK DONE (ALREADY_IMPLEMENTED): ${state.taskId} via=${transition.via}`
+      ? isAuditComplete
+        ? `TASK DONE (AUDIT_COMPLETE): ${state.taskId} via=${transition.via}`
+        : `TASK DONE (ALREADY_IMPLEMENTED): ${state.taskId} via=${transition.via}`
       : `TASK DONE: ${state.taskId}`,
   );
   await ports.completion.syncArchitectureCompletion(state.taskId, moved);

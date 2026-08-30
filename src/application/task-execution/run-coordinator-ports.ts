@@ -13,15 +13,19 @@ export type TerminalTaskBucket = Extract<TaskBucket, "done" | "human-review">;
 export type InterruptedTaskBucket = "active" | "delegated" | "error";
 
 /**
- * Kuriuo įrodymu „done" suteiktas be naujo commit'o. Trys kilmės, viena semantika (nieko naujo
- * necommit'inta, tad `markStable` nekviečiamas), bet skirtingas pėdsakas loge ir žurnale:
- *   `marker`        — vykdytojas parašė `ALREADY_IMPLEMENTED`;
- *   `clean-tree`    — švarus medis + darbo įrodymas po dispatch'o (`verify-task.ts`);
- *   `skip-dispatch` — darbo įrodymas rastas PRIEŠ dispatch'ą, LLM sesijos apskritai nebuvo.
+ * Kuriuo įrodymu „done" suteiktas be naujo commit'o. Keturios kilmės, viena semantika (nieko
+ * naujo necommit'inta, tad `markStable` nekviečiamas), bet skirtingas pėdsakas loge ir žurnale:
+ *   `marker`         — vykdytojas parašė `ALREADY_IMPLEMENTED`;
+ *   `clean-tree`     — švarus medis + darbo įrodymas po dispatch'o (`verify-task.ts`);
+ *   `skip-dispatch`  — darbo įrodymas rastas PRIEŠ dispatch'ą, LLM sesijos apskritai nebuvo;
+ *   `audit-complete` — task 095: vykdytojas parašė `AUDIT_COMPLETE` (auditas be radinių, nėra
+ *     deliverable komito) IR skaitytojas patvirtino nulinį rašymo aktyvumą švariame medyje.
+ *     SEMANTIŠKAI ne tas pats kaip `marker` (žr. `dispositions.ts#resolveNoCommitDisposition`),
+ *     tad log/žurnalo eilutė (`run-coordinator-terminal.ts`) jo neįvardija ALREADY_IMPLEMENTED.
  * Kanoninis namas — čia (etalone gyveno run-coordinator.ts; VERQESTRA koordinatorius
  * re-eksportuoja per savo `export * from ports`).
  */
-export type AlreadyImplementedVia = "marker" | "clean-tree" | "skip-dispatch";
+export type AlreadyImplementedVia = "marker" | "clean-tree" | "skip-dispatch" | "audit-complete";
 
 /**
  * Sprendimo įrašo (decision.json) laukai, kurių reikia vykdymo sekai. Struktūriškai
@@ -248,6 +252,14 @@ export type DiagnosisRulesPort = {
   readExecutorWriteActivity(claudeLog: string): ExecutorWriteActivity;
   /** Human-review priežasties eilutė, kai „done" verdiktas be commit'o (task 032). */
   resolveNoCommitReviewReason(inputs: NoCommitDoneInputs): string;
+  /**
+   * Task 095: AUDIT_COMPLETE markeris sesijos log'e (kanoninė implementacija —
+   * `domain/diagnosis/stream-log.ts#logHasAuditCompleteMarker`). Neprivalomas ta pačia
+   * priežastimi kaip `writeActivity?` NoCommitDoneInputs lauke — kompozicijos adapteris
+   * (095-a-03) jo dar neprijungė, tad esami `DiagnosisRulesPort` implementuotojai turi likti
+   * kompiliuojami be šio metodo.
+   */
+  hasAuditCompleteMarker?(claudeLog: string): boolean;
 };
 
 export type CompletionPort = {

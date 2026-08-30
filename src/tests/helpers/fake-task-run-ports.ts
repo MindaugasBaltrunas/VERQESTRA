@@ -1,6 +1,7 @@
 // Fake TaskRunPorts rinkinys task-execution unit testams: jokios realios FS/git (WBR E3).
 // Diagnozės taisyklės čia REALIOS (domain/diagnosis) — fake'inami tik efektai.
 import { resolveNoCommitDisposition, resolveNoCommitReviewReason } from "../../domain/diagnosis/dispositions.js";
+import { logHasAuditCompleteMarker } from "../../domain/diagnosis/stream-log.js";
 import { classifyDispatchWriteOutcome, extractDispatchToolUsage } from "../../infrastructure/adapters/claude-tool-schema.js";
 import type {
   DecisionReadResult,
@@ -217,6 +218,7 @@ export function createFakeTaskRunEnv(): FakeTaskRunEnv {
       resolveNoCommitDisposition: (inputs) => resolveNoCommitDisposition(inputs),
       readExecutorWriteActivity: (claudeLog) => classifyDispatchWriteOutcome(extractDispatchToolUsage(claudeLog)),
       resolveNoCommitReviewReason: (inputs) => resolveNoCommitReviewReason(inputs),
+      hasAuditCompleteMarker: (claudeLog) => logHasAuditCompleteMarker(claudeLog),
     },
     completion: {
       async markStable() {},

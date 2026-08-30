@@ -160,6 +160,9 @@ async function classifyDoneVerdict(
   // `logs/changes.log` pagrindu surinkti pakeitimai, o work evidence netaikoma.
   const claudeLog = await ports.state.readClaudeLog(state.taskId);
   const hasMarker = ports.rules.hasAlreadyImplementedMarker(claudeLog);
+  // Task 095: neprivalomas port'o metodas — kol kompozicijos adapteris (095-a-03) jo neturi,
+  // saugus default yra `false` ir visos esamos šakos elgiasi lygiai kaip iki šio task'o.
+  const hasAuditCompleteMarker = ports.rules.hasAuditCompleteMarker?.(claudeLog) ?? false;
   const writeActivity = ports.rules.readExecutorWriteActivity(claudeLog);
   const productDirtyCount = isRepo ? await ports.git.productDirtyCount() : await ports.git.recordedChangeCount();
   const noCommitInputs = {
@@ -179,10 +182,14 @@ async function classifyDoneVerdict(
     // (`resolveNoCommitReviewReason`) — disposition (done/rollback/human-review) šio lauko
     // nekeičia.
     writeActivity,
+    hasAuditCompleteMarker,
   };
   const disposition = ports.rules.resolveNoCommitDisposition(noCommitInputs);
   if (disposition === "done") {
-    return { kind: "done-already-implemented", via: hasMarker ? "marker" : "clean-tree" };
+    return {
+      kind: "done-already-implemented",
+      via: hasAuditCompleteMarker ? "audit-complete" : hasMarker ? "marker" : "clean-tree",
+    };
   }
 
   // `rollback` (necommit'intas produkto darbas) arba `human-review` (švarus medis be

@@ -6,7 +6,7 @@ HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-29 GeoGravity audito radinys — 15 p
 openspec/changes/verqestra-backlog-v1
 
 ## Priklausomybės
-- 075-preserved-ref-retencija-ir-hooks-log-archyvas
+- 075-a-02-preserved-ref-retencijos-modulis-infrastructure
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei egzistuoja preserved ref↔state sutaikinimo praėjimas (arba CLI

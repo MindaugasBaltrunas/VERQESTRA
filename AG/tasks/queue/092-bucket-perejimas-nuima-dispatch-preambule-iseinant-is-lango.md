@@ -60,6 +60,10 @@ Leidžiama:
 - `src/tests/task-execution-bucket-transition.test.ts` (numatomas naujas:
   `task-execution-rules.test.ts` jau 434 eil. ir nauji testai gali kirsti
   500 eil. vartą; jei telpa esamame — naujo nekurti, įrašyti į ataskaitą)
+- `src/composition/runtime/node-adapters.ts` (2026-08-30 implementacijos
+  radinys: `moveToHumanReview` blocked-task maršrutizavime ėjo tiesiai per
+  `store.moveTaskState` — trečias chokepoint'o apėjimas šalia HTTP triažo;
+  nukreiptas per `moveTaskToBucket`)
 
 Draudžiama:
 - `src/interfaces/hooks/**` (093 scope)

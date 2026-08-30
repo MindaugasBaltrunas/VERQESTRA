@@ -492,8 +492,8 @@ test("070-a-02: wildcard be pagrindimo, UI be I18nContext, etaloną atitinkantis
   const ok = "# Task\n\n## Failai\nLeidžiama:\n- `src/application/quality-gates/preflight-fastpath.ts`\n- `src/tests/quality-gates-preflight.test.ts`\n\n## Patikra\n- `pnpm test`\n";
   assert.deepEqual(evaluateEtalonasRuleViolations(ok), []);
   const queueDir = "AG/tasks/queue";
+  // Tuščia eilė — teisėta sėkmės būsena (2026-08-30); klaidingą kelią tebegaudo readdir ENOENT.
   const files = (await fs.readdir(queueDir)).filter((name) => name.endsWith(".md"));
-  assert.ok(files.length > 0, "sanity: queue turi bent vieną task'ą šiam regresijos testui");
   for (const name of files) {
     assert.deepEqual(evaluateEtalonasRuleViolations(await fs.readFile(`${queueDir}/${name}`, "utf8")), [], name);
   }

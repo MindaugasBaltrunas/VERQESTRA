@@ -46,9 +46,13 @@ function logHasLineStartMarker(logText: string, marker: RegExp): boolean {
   return marker.test(result);
 }
 
-const ALREADY_IMPLEMENTED_MARKER = /^\s*ALREADY_IMPLEMENTED\b/m;
+// `(?:[*_`]{1,3})?` — markdown įvyniojimo tolerancija (2026-08-30, task 072 antras bėgimas):
+// vykdytojas markerį parašė `**ALREADY_IMPLEMENTED**:` ir eilutės-pradžios regex jo nebematė —
+// sąžiningas ALREADY_IMPLEMENTED su įrodymais parkavosi human-review. Tolerancija neatlaisvina
+// vartų: dispozicija tebereiklauja antro, NEPRIKLAUSOMO įrodymo (no-writes + švarus medis).
+const ALREADY_IMPLEMENTED_MARKER = /^\s*(?:[*_`]{1,3})?ALREADY_IMPLEMENTED\b/m;
 
-const AUDIT_COMPLETE_MARKER = /^\s*AUDIT_COMPLETE\b/m;
+const AUDIT_COMPLETE_MARKER = /^\s*(?:[*_`]{1,3})?AUDIT_COMPLETE\b/m;
 
 /**
  * Tai yra `DiagnosisRulesPort.hasAlreadyImplementedMarker` kanoninė implementacija:

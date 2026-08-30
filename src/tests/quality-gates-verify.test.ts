@@ -35,6 +35,14 @@ test("stream-log: markeris randamas plain-text ir stream-json envelope, o JSON s
   assert.equal(logHasAlreadyImplementedMarker(""), false);
   assert.equal(logHasAlreadyImplementedMarker("tekstas be markerio"), false);
 
+  // 2026-08-30 (072 antras bėgimas): vykdytojas markerį įvyniojo į markdown bold ir sąžiningas
+  // ALREADY_IMPLEMENTED parkavosi human-review. Markdown įvyniojimas eilutės pradžioje toleruojamas;
+  // markeris teksto VIDURYJE (ne eilutės pradžioje) tebeatmetamas.
+  assert.equal(logHasAlreadyImplementedMarker("**ALREADY_IMPLEMENTED**: darbas jau kode\n"), true);
+  assert.equal(logHasAlreadyImplementedMarker("`ALREADY_IMPLEMENTED`: žr. failą\n"), true);
+  assert.equal(logHasAuditCompleteMarker("**AUDIT_COMPLETE**: radinių nėra\n"), true);
+  assert.equal(logHasAlreadyImplementedMarker("žodis **ALREADY_IMPLEMENTED** viduryje"), false);
+
   // Etalono 1048/1049 pamoka: stream-json log'e markeris gyvena result lauke su tikrais \n.
   const streamLog = [
     '{"type":"system","noise":true}',

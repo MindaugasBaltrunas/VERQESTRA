@@ -219,6 +219,58 @@ test("decideCompression: vėliava su pakankamai mažėjančių palyginimų, be s
   assert.deepEqual(symbol, { key: "symbol_slices", action: "optional", reason: "smaller-no-pressure" });
 });
 
+// Task 087-a-02: rašytojo pusė (task 087, `assemble.ts`/`tiers.ts`) pridėjo
+// `symbol_hypothetical_src_chars`, kad SIG režimo pack'as (symbol_slices įjungtas ar canary, dalis
+// simbolių nuleista iki SIG dėl biudžeto) rašytų nenulinį `symbol_source_chars` net kai pack'e
+// nelieka nė vieno SRC simbolio. Prieš tai laukas realiuose `context-size.jsonl` įrašuose visada
+// buvo 0, tad `FEATURE_PAIR_SELECTORS.symbol_slices` (reikalaujantis `raw > 0`) niekada
+// nesulygindavo poros — vėliava liko amžinai "unmeasured". Šis mėginys atkartoja realų rašytojo
+// įrašą (2026-08-30, task 087-a-02 paties dispatch'o telemetrija su
+// `canary_features: ["symbol_slices", ...]`): `symbol_source_chars` — hipotetinis SRC dydis
+// demotintiems simboliams, `symbol_signature_chars` — jų faktinė SIG suma.
+const SIG_MODE_SYMBOL_PAIR_SAMPLE: ContextSizeSample = {
+  ts: "2026-08-30T04:57:56.311Z",
+  symbol_source_chars: 3133,
+  symbol_signature_chars: 632,
+};
+
+test("summarizeContextSizeSamples: realaus rašytojo SIG-režimo mėginys duoda matuojamą symbol_slices porą", () => {
+  const summary = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(SIG_MODE_SYMBOL_PAIR_SAMPLE));
+
+  assert.equal(summary.feature_pairs?.symbol_slices?.compared_count, MIN_DECISION_SAMPLES);
+  assert.equal(summary.feature_pairs?.symbol_slices?.avg_delta_percent, -79.8, "632 vs 3133 — realus sumažėjimas");
+
+  const decision = decideCompression(summary);
+  const symbol = decision.recommendations.find((r) => r.key === "symbol_slices");
+  assert.notEqual(symbol?.action, "unmeasured", "raw>0 rašytojo pusėje — vėliava nebelieka amžinai unmeasured");
+  assert.deepEqual(symbol, { key: "symbol_slices", action: "optional", reason: "smaller-no-pressure" });
+});
+
+test("summarizeContextSizeSamples: realaus rašytojo SIG-režimo mėginys nekeičia kitų keturių vėliavų suvestinių", () => {
+  const withoutSymbolPair: ContextSizeSample = {
+    ts: "x",
+    dsl_ir_chars: 1000,
+    dsl_compiled_chars: 400,
+    tool_raw_chars: 1000,
+    tool_digest_chars: 700,
+    tool_schema_full_chars: 1000,
+    tool_schema_reduced_chars: 1200,
+    raw_prompt_chars: 5000,
+    compiled_prompt_chars: 2500,
+  };
+  const withSymbolPair: ContextSizeSample = { ...withoutSymbolPair, ...SIG_MODE_SYMBOL_PAIR_SAMPLE };
+
+  const without = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(withoutSymbolPair));
+  const withSymbol = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(withSymbolPair));
+
+  assert.deepEqual(withSymbol.feature_pairs?.compact_dsl, without.feature_pairs?.compact_dsl);
+  assert.deepEqual(withSymbol.feature_pairs?.bash_output_digest, without.feature_pairs?.bash_output_digest);
+  assert.deepEqual(withSymbol.feature_pairs?.dispatch_tool_schema, without.feature_pairs?.dispatch_tool_schema);
+  assert.equal(withSymbol.ir_compared_count, without.ir_compared_count);
+  assert.equal(withSymbol.avg_ir_delta_percent, without.avg_ir_delta_percent);
+  assert.ok(withSymbol.feature_pairs?.symbol_slices, "symbol_slices dabar matuojama tame pačiame mėginyje");
+});
+
 test("decideCompression: vėliava, kur compiled VIDUTINIŠKAI didesnis, gauna 'hold'", () => {
   const summary = summarizeContextSizeSamples(Array(MIN_DECISION_SAMPLES).fill(TOOL_SCHEMA_PAIR_SAMPLE));
   const decision = decideCompression(summary);

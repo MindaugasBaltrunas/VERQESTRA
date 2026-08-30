@@ -458,8 +458,10 @@ h2 {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
+/* „Gyva" būseną žymi spalva, rėmelis ir platesnis PASTOVUS taško žiedas — be judesio:
+   amžina animacija dashboard'e uždrausta, o judesys čia nieko nepasako, ko nepasako spalva. */
 .status-live::before {
-  animation: pulse 1.4s var(--ease) infinite;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 28%, transparent);
 }
 .status-neutral {
   color: var(--muted);
@@ -1829,12 +1831,7 @@ button.system-status-hero-stat-link:hover {
    eye on it without relying on the small task list alone. */
 .workflow-card--running {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
-  animation: running-glow 2.2s ease-in-out infinite;
-}
-@keyframes running-glow {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
-  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 /* "Vykdoma: <task>" strip in the workflow board header */
@@ -3546,18 +3543,15 @@ body.has-expanded-log::after {
   opacity: 0.55;
 }
 .agent-step--pending .agent-step-name { color: var(--muted); }
+/* Aktyvaus žingsnio signalo taškas: pastovus akcento žiedas, jokio pulsavimo. Vardas
+   (`agent-step-pulse`) lieka, nes jis yra komponento kontraktas, o ne animacijos pavadinimas. */
 .agent-step-pulse {
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
-  animation: pulse 1.3s var(--ease) infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.35; transform: scale(0.7); }
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .agent-idle {

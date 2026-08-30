@@ -12,6 +12,7 @@ import type { LlmCallAuthorization } from "../application/token-governance/tool-
 import type { AgentPolicy } from "../domain/policies/agent-selection.js";
 import { USAGE_ERROR_EXIT_CODE, USAGE_LIMIT_EXIT_CODE } from "../shared/exit-codes.js";
 import { claudePreflight } from "../interfaces/cli/dispatch/claude-preflight/index.js";
+import { validatePreflightDecision } from "../interfaces/cli/dispatch/claude-preflight/preflight-validate.js";
 import {
   appendSpecSourceRef,
   hasValidArchitectureNodeReference,
@@ -87,19 +88,10 @@ const STALE_PREAMBLE = "## Žingsnis 0 — SENA-VERSIJA-QWERTY\nSENA-KOMANDA-QWE
 
 function auth(overrides: Partial<LlmCallAuthorization> = {}): LlmCallAuthorization {
   return {
-    allowed: true,
-    task_id: "0042-demo",
-    phase: "preflight",
-    reduce_context: false,
-    hard_reasons: [],
-    soft_reasons: [],
-    raw_notices: [],
-    total_llm_calls: 1,
-    total_tokens: 0,
-    billable_tokens: 0,
-    remaining_total_llm_calls: null,
-    remaining_total_tokens: null,
-    phase_status: [],
+    allowed: true, task_id: "0042-demo", phase: "preflight", reduce_context: false,
+    hard_reasons: [], soft_reasons: [], raw_notices: [], total_llm_calls: 1,
+    total_tokens: 0, billable_tokens: 0, remaining_total_llm_calls: null,
+    remaining_total_tokens: null, phase_status: [],
     ...overrides,
   };
 }
@@ -171,8 +163,7 @@ function makeHarness(input: {
     writeTemplateChange: async () => null,
     resolveModel: async (tier) => `model-${tier}`,
     modelSelectionRules: "- MODELIO TAISYKLĖS",
-    runHeadless: async (prompt) =>
-      input.llm ? await input.llm(prompt) : { stdout: "{}", stderr: "", code: 0 },
+    runHeadless: async (prompt) => (input.llm ? await input.llm(prompt) : { stdout: "{}", stderr: "", code: 0 }),
     parseDecision: (stdout) => {
       try {
         return JSON.parse(stdout) as PreflightDecision;
@@ -181,41 +172,23 @@ function makeHarness(input: {
       }
     },
     isUsageLimitOutput: (stdout) => stdout.includes("USAGE_LIMIT"),
-    logTokenUsage: async (phase, model, stdout) => {
-      usageLogs.push([phase, model, stdout]);
-    },
+    logTokenUsage: async (phase, model, stdout) => { usageLogs.push([phase, model, stdout]); },
     ensureFreshCodeIndex: async () => ({ kind: "skip" }),
     attempt: {
-      writeDecision: async (decision) => {
-        attemptDecisions.push(decision);
-      },
-      writeTask: async (body) => {
-        attemptTasks.push(body);
-      },
-      appendPreflightInput: async (prompt) => {
-        preflightInputs.push(prompt);
-      },
+      writeDecision: async (decision) => { attemptDecisions.push(decision); },
+      writeTask: async (body) => { attemptTasks.push(body); },
+      appendPreflightInput: async (prompt) => { preflightInputs.push(prompt); },
     },
     files: {
-      writeDecision: async (json) => {
-        fileDecisions.push(JSON.parse(json) as PreflightDecision);
-      },
-      writeReformulated: async (body) => {
-        reformulated.push(body);
-      },
+      writeDecision: async (json) => { fileDecisions.push(JSON.parse(json) as PreflightDecision); },
+      writeReformulated: async (body) => { reformulated.push(body); },
       writePreflightInput: async () => {},
       writeSupervisorLog: async () => {},
       dirExists: async () => true,
     },
-    recordResumeCheckpoint: async (entry) => {
-      checkpoints.push(`${entry.phase}:${entry.status}`);
-    },
-    agLog: async (line) => {
-      agLines.push(line);
-    },
-    stderr: (line) => {
-      errs.push(line);
-    },
+    recordResumeCheckpoint: async (entry) => { checkpoints.push(`${entry.phase}:${entry.status}`); },
+    agLog: async (line) => { agLines.push(line); },
+    stderr: (line) => { errs.push(line); },
   };
   return { ports, fileDecisions, attemptDecisions, reformulated, attemptTasks, preflightInputs, usageLogs, agLines, errs, checkpoints };
 }
@@ -244,6 +217,36 @@ test("preflight-fastpath taisyklė: Neįtraukta exempt, signalų vartai, grandin
     /unknown agent tokens/,
   );
   assert.equal(extractChainFromAgentaiSection("").length, 0);
+});
+
+function preflightDecisionFixture(claudeTask: string): PreflightDecision {
+  return {
+    verdict: "delegate", task_id: "0042-demo", selected_model: "sonnet",
+    target_agent_chain: ["readme-guard", "coder"], reason: "ok", claude_task: claudeTask, child_tasks: [],
+  };
+}
+
+// CANONICAL_TASK deklaruoja `src/a.ts` be testo kelio — pažeidžia 000-etalonas.md ## Failai (2).
+test("validatePreflightDecision: kanoniškumo pažeidimas → reformulate_delegate su citata; atitinkantis task'as nepakinta (070-b-03)", () => {
+  const violating = validatePreflightDecision({
+    decision: preflightDecisionFixture(CANONICAL_TASK),
+    sourceChangeTask: false,
+    availableAgentNames: ["readme-guard", "coder"],
+    activeChangeDirs: [],
+  });
+  assert.equal(violating.decision.verdict, "reformulate_delegate", "pažeidimas → reformulate, ne dispatch");
+  assert.match(violating.decision.reason ?? "", /000-etalonas\.md ## Failai \(2\)/, "žinutė cituoja pažeistą taisyklę");
+  assert.equal(violating.validationErrors.length, 0, "pažeidimas neparkuoja į human_review");
+
+  const compliantTask = CANONICAL_TASK.replace("- `src/a.ts`", "- `src/a.ts`\n- `src/a.test.ts`");
+  const compliant = validatePreflightDecision({
+    decision: preflightDecisionFixture(compliantTask),
+    sourceChangeTask: false,
+    availableAgentNames: ["readme-guard", "coder"],
+    activeChangeDirs: [],
+  });
+  assert.equal(compliant.decision.verdict, "delegate", "be pažeidimo — verdiktas nepakitęs");
+  assert.equal(compliant.decision.reason, "ok", "be pažeidimo — reason nepapildytas citata");
 });
 
 test("spec-source pagalbininkai: appendSpecSourceRef be dublikatinės antraštės; architecture-node validacija", async () => {

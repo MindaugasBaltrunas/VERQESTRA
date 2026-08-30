@@ -8,7 +8,11 @@ import {
   parseBacktickChecks,
   syncAgentsSection,
 } from "../../../../application/quality-gates/preflight-rules.js";
-import { allowedPaths, serializeAgentChain } from "../../../../application/quality-gates/preflight-fastpath.js";
+import {
+  allowedPaths,
+  evaluateEtalonasRuleViolations,
+  serializeAgentChain,
+} from "../../../../application/quality-gates/preflight-fastpath.js";
 import type { PreflightDecision } from "./preflight-ports.js";
 
 export type PreflightValidationInput = {
@@ -48,6 +52,21 @@ export function validatePreflightDecision(input: PreflightValidationInput): Pref
     decision.target_agent_chain = chain;
     decision.claude_task = syncAgentsSection(decision.claude_task ?? "", chain);
     readmeGuardPrepended = true;
+  }
+
+  // 070-b-03: etalono kanoniškumo taisyklės (070-a-02, evaluateEtalonasRuleViolations)
+  // surišamos su verdiktu ČIA — pažeidus, „dispatch" (delegate) niekada nepraeina tyliai:
+  // verdiktas priverstinai tampa reformulate_delegate, o reason cituoja konkrečią pažeistą
+  // etalono taisyklę, kad kito bandymo LLM turėtų ką taisyti.
+  if (delegateVerdict && decision.verdict !== "reformulate_delegate") {
+    const canonicityViolations = evaluateEtalonasRuleViolations(decision.claude_task ?? "");
+    if (canonicityViolations.length > 0) {
+      decision.verdict = "reformulate_delegate";
+      const citations = canonicityViolations.map((violation) => violation.citation).join(" | ");
+      decision.reason = decision.reason
+        ? `${decision.reason} | Etalono kanoniškumo pažeidimas — reformulate: ${citations}`
+        : `Etalono kanoniškumo pažeidimas — reformulate: ${citations}`;
+    }
   }
 
   const availableAgentSet = new Set(input.availableAgentNames);

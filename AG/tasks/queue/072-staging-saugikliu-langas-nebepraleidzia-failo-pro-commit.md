@@ -1,14 +1,3 @@
-## Žingsnis 0 — ar jau įgyvendinta?
-Prieš keisdamas kodą patikrink, ar ## Tikslas ir ## Patikra jau tenkinami esamame kode.
-Jei taip — NEDARYK jokių pakeitimų ir galutinę ataskaitą pradėk atskira eilute:
-ALREADY_IMPLEMENTED: <failai/eilutės, įrodančios kad darbas jau padarytas>
-
-## Sandbox taisyklės (privaloma — taupo turns)
-- Po BET KOKIO `src` pakeitimo `dist` pasensta ir hook'ai blokuoja bash komandas. Pirma perbuild'ink TIKSLIA forma be pipe/redirect: `pnpm build`
-- Patikroms naudok tik: `pnpm build` ir `pnpm test` (be `--`, be pipe į kitas komandas).
-- `echo`, `sed`, `node -e` ir kompound komandos su neleistinais segmentais VISADA atmetamos — nekartok jų kitomis formomis; failams skaityti naudok Read/Grep tools.
-- Rašymo darbą atlik PATS šioje sesijoje (Write/Edit) ir neatidėk jo vėlesniam laikui: headless sesija po paskutinio tavo žingsnio baigiasi, o bėgimas be nė vieno Write/Edit parkuojamas human-review. `## Agentai` grandinė yra orkestratoriaus maršruto metaduomuo — jei subagentas negrąžina rezultato šiame bėgime, įgyvendink pakeitimą tiesiogiai.
-
 # Task
 
 HUMAN-REVIEW-APPROVED: mindebaltru 2026-08-29 operatoriaus užsakytas w1/w2 auditas — GeoGravity w1/w2 veikia su klaidomis, tai viena iš šaknų (P0)
@@ -59,8 +48,9 @@ readme-guard -> architect -> schedule-domain -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `src/application/task-execution/session-stage-planning.ts`
-- `src/tests/task-execution-session-stage-planning.test.ts` (numatomas; jei
-  testas gyvena kitur — tas failas vietoje šio, įrašyti į ataskaitą)
+- `src/tests/application-session-stage-planning.test.ts` (realus vardas —
+  ankstesnio bandymo verify atmetė numatomą task-execution-… vardą, nors
+  išlyga tą leido; 2026-08-30 diagnosis „changed files outside allowed paths")
 
 Draudžiama:
 - `src/interfaces/hooks/**` (Stop hook'o kvietėjas nesikeičia)

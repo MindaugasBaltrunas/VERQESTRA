@@ -7,7 +7,7 @@ openspec/changes/verqestra-backlog-v1
 `planIncrementalStep` sargas `worker-integration.ts:180` (`live.length === 0`) yra nepasiekiamas: kvietėjas visada paduoda bent vieną gyvą slot'ą (patį baigusįjį). Klaidinanti „gyva" blokavimo šaka pakeičiama assert'u arba komentaru, kuris įvardija nepasiekiamumą, kad kitas skaitytojas nebandytų jos dengti testu.
 
 ## Agentai
-PRIVALOMA grandinė (ta pati eilės tvarka, be praleidimų): `readme-guard -> architect -> coder -> reviewer -> tester`.
+PRIVALOMA grandinė (ta pati eilės tvarka, be praleidimų): readme-guard -> architect -> coder -> reviewer -> tester
 
 ## Failai
 Leidžiama:

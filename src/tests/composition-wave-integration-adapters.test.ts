@@ -26,6 +26,8 @@ const taskStore: TaskStateStorePort = {
     return Promise.resolve(path.join(toDir, path.basename(from)));
   },
   activateTaskFile: (taskFile) => Promise.resolve(taskFile),
+  readTaskText: () => Promise.resolve(undefined),
+  writeTaskText: () => Promise.resolve(),
 };
 
 function adapters(): ReturnType<typeof createWaveIntegrationAdapters> {

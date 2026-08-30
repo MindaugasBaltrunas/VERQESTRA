@@ -285,6 +285,8 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
   moveTaskState(from: string, toDir: string, taskName: string, options?: MoveTaskOptions): Promise<string>;
   finishTaskState(from: string, toDir: string, taskName: string, cleanupFiles: string[]): Promise<string>;
   activateTaskFile(taskFile: string, activeFile: string, taskId: string): Promise<string>;
+  readTaskText(absolutePath: string): Promise<string | undefined>;
+  writeTaskText(absolutePath: string, text: string): Promise<void>;
 } {
   const assertAuthority = async (taskId: string): Promise<void> => {
     await deps.assertAuthority?.(taskId);
@@ -311,6 +313,17 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
       }
       await setCurrentTaskFile(deps, to);
       return to;
+    },
+
+    // Turinio prieiga bucket-transition preambulės nuėmimui (092). Be lock'o sąmoningai:
+    // kritinę sekciją saugo pats move'as, o strip yra idempotentiškas — pralaimėta lenktynė
+    // blogiausiu atveju palieka turinį, kurį nuims kitas perėjimas.
+    async readTaskText(absolutePath) {
+      return await nodeFsAdapter.readTextFileIfExists(absolutePath);
+    },
+
+    async writeTaskText(absolutePath, text) {
+      await nodeFsAdapter.writeTextFile(absolutePath, text);
     },
 
     async activateTaskFile(taskFile, activeFile, taskId) {

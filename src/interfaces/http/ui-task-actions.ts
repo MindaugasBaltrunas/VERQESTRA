@@ -12,7 +12,7 @@
 // dviejų leistinų krypčių, arba klaida.
 
 import path from "node:path";
-import { taskBucketDir } from "../../application/task-execution/bucket-transition.js";
+import { moveTaskToBucket, taskBucketDir } from "../../application/task-execution/bucket-transition.js";
 import type { TaskStateStorePort } from "../../application/task-execution/bucket-transition.js";
 import { taskBuckets, type TaskBucket } from "../../domain/tasks/buckets.js";
 
@@ -202,7 +202,10 @@ export async function applyTaskTriage(
   // `complete` yra žmogaus verdiktas „darbas priimtas". Ledger'io ir biudžeto įrašai NELIEČIAMI:
   // jie yra istorija apie tai, kas su task'u vyko, o užvertimas jos neatšaukia.
 
-  const moved = await ports.store.moveTaskState(source, taskBucketDir(deps.agRoot, to), taskName, {
+  // Per `moveTaskToBucket`, ne tiesiai per store: bendras perėjimo taškas nuima dispatch
+  // preambulę (092) — HTTP triažo requeue kelias human-review → queue laikosi to paties
+  // invarianto kaip CLI `requeue`.
+  const moved = await moveTaskToBucket(ports.store, deps.agRoot, source, to, taskName, {
     updateCurrent: false,
   });
 

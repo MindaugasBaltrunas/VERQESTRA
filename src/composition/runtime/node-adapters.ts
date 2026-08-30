@@ -10,6 +10,7 @@ import path from "node:path";
 import type { LearningFsPort } from "../../application/learning/ports.js";
 import type { JsonSchemaExportPorts } from "../../application/policy-governance/json-schema-export.js";
 import type { ApiContractExportPorts } from "../../application/task-planning/api-contract-export.js";
+import { moveTaskToBucket } from "../../application/task-execution/bucket-transition.js";
 import type { OpenSpecReconcileFsPort } from "../../application/task-execution/openspec-reconcile.js";
 import { taskLedgerPath } from "../../application/task-execution/task-ledger-rules.js";
 import type { TaskLedgerEntry } from "../../application/task-execution/task-ledger-rules.js";
@@ -274,7 +275,9 @@ export function blockedTaskRoutingPorts(projectRoot: string, agRoot: string, run
     writeTaskText: (file, text) => nodeFsAdapter.writeTextFile(absolute(file), text),
     moveToHumanReview: async (file) => {
       const from = absolute(file);
-      const moved = await store.moveTaskState(from, tasksDir("human-review"), path.basename(from), {
+      // Per `moveTaskToBucket`, ne tiesiai per store: bendras perėjimo taškas nuima dispatch
+      // preambulę (092) — blocked-task maršrutizavimas laikosi to paties invarianto.
+      const moved = await moveTaskToBucket(store, agRoot, from, "human-review", path.basename(from), {
         updateCurrent: false,
       });
       return path.relative(projectRoot, moved).split(path.sep).join("/");

@@ -125,6 +125,7 @@ type TriageWorld = {
   deps: TaskTriageDeps;
   files: Map<string, string[]>;
   moves: { from: string; toDir: string; name: string }[];
+  reads: string[];
   ledgerCleared: string[];
   resets: string[];
   authority: { ok: boolean; reason?: string };
@@ -134,6 +135,7 @@ function triageWorld(files: Record<string, string[]> = {}): TriageWorld {
   const world: TriageWorld = {
     files: new Map(Object.entries(files)),
     moves: [],
+    reads: [],
     ledgerCleared: [],
     resets: [],
     authority: { ok: true },
@@ -159,6 +161,11 @@ function triageWorld(files: Record<string, string[]> = {}): TriageWorld {
       },
       finishTaskState: (_from, toDir, name) => Promise.resolve(path.join(toDir, name)),
       activateTaskFile: (taskFile) => Promise.resolve(taskFile),
+      readTaskText: (p) => {
+        world.reads.push(p);
+        return Promise.resolve(undefined);
+      },
+      writeTaskText: () => Promise.resolve(),
     },
   };
 
@@ -191,6 +198,9 @@ test("applyTaskTriage: requeue eina ledger → biudžetas → perkėlimas", asyn
   assert.deepEqual(world.ledgerCleared, ["0042"]);
   assert.deepEqual(world.resets, ["0042"]);
   assert.equal(world.moves[0]?.toDir, QUEUE);
+  // 092: triažas eina per `moveTaskToBucket` chokepoint'ą (preambulės strip), ne tiesiai per
+  // store — įrodymas yra `readTaskText` kvietimas šaltiniui prieš move.
+  assert.equal(world.reads.length, 1, "perkėlimas ėjo per bendrą perėjimo tašką");
 });
 
 test("applyTaskTriage: complete NELIEČIA ledger'io ir biudžeto", async () => {

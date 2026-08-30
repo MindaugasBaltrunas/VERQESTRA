@@ -67,7 +67,7 @@ function makeGeneratePorts(files: Map<string, string>): TaskGeneratePorts {
 
 type MoveCall = { from: string; toDir: string; taskName: string; updateCurrent: boolean | undefined };
 
-function makeStore(calls: MoveCall[]): TaskStateStorePort {
+function makeStore(calls: MoveCall[], reads: string[] = []): TaskStateStorePort {
   return {
     async moveTaskState(from, toDir, taskName, options) {
       calls.push({ from, toDir, taskName, updateCurrent: options?.updateCurrent });
@@ -78,6 +78,13 @@ function makeStore(calls: MoveCall[]): TaskStateStorePort {
     },
     async activateTaskFile(_taskFile, activeFile) {
       return activeFile;
+    },
+    async readTaskText(absolutePath) {
+      reads.push(absolutePath);
+      return undefined;
+    },
+    async writeTaskText() {
+      return undefined;
     },
   };
 }
@@ -219,8 +226,9 @@ test("requeueTask: usage/ne-failas → 2; sėkmė — ledger clear + biudžeto r
   const budget = makeBudgetPorts();
   const ledger = makeLedgerStore({ "0013-api": { state: "human-review" } });
   const calls: MoveCall[] = [];
+  const reads: string[] = [];
   const deps = {
-    store: makeStore(calls),
+    store: makeStore(calls, reads),
     ledger: ledger.store,
     budget: budget.ports,
     isFile: async () => true,
@@ -242,6 +250,9 @@ test("requeueTask: usage/ne-failas → 2; sėkmė — ledger clear + biudžeto r
   assert.equal(budget.resets.length, 1);
   assert.ok("0013-api" in budget.resets[0]!, "biudžeto reset žyma įrašyta task'ui");
   assert.equal(calls[0]!.toDir, path.join(AG_ROOT, "tasks", "queue"));
+  // 092: requeue eina per `moveTaskToBucket` chokepoint'ą (preambulės strip) — įrodymas yra
+  // `readTaskText` kvietimas šaltinio failui prieš move.
+  assert.equal(reads.length, 1, "perkėlimas ėjo per bendrą perėjimo tašką");
 
   // Įrašo nebuvimas — be "ledger cleared" eilutės (clearTaskLedgerEntry → false).
   const empty = makeLedgerStore({});

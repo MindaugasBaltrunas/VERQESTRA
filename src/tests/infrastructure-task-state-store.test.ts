@@ -48,6 +48,19 @@ test("moveTaskState: perkelia, atnaujina žymę ir kolizijai duoda sufiksą", as
   }
 });
 
+test("readTaskText/writeTaskText: apvalus ratas ir trūkstamas failas kaip atsakymas (092)", async () => {
+  const world = await makeWorld();
+  try {
+    const store = createTaskStateStore({ agRoot: world.agRoot, runtimeRoot: world.runtimeRoot });
+    const file = path.join(world.agRoot, "tasks", "queue", "0042.md");
+    assert.equal(await store.readTaskText(file), undefined, "nebuvimas — atsakymas, ne klaida");
+    await store.writeTaskText(file, "# Task\n");
+    assert.equal(await store.readTaskText(file), "# Task\n");
+  } finally {
+    await world.cleanup();
+  }
+});
+
 test("moveTaskState: `failed` nusileidžia į `human-review` (domain taisyklė)", async () => {
   const world = await makeWorld();
   try {

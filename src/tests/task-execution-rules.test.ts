@@ -421,6 +421,12 @@ test("bucket-transition: taskBucketDir forma ir terminal vartas finishTaskInBuck
       calls.push(`activate:${activeFile}`);
       return activeFile;
     },
+    async readTaskText() {
+      return undefined;
+    },
+    async writeTaskText() {
+      return undefined;
+    },
   };
   await assert.rejects(
     () => finishTaskInBucket(store, "/repo/AG", "/from/x.md", "queue", "x.md"),

@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
+import { verificationPreamble } from "../application/quality-gates/preflight-rules.js";
 import { isGitMutationCommand } from "../domain/policies/index.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { collectKnownTaskIds } from "../interfaces/hooks/index.js";
@@ -391,6 +392,25 @@ test("hookPreWrite: etalonui atitinkantis task'as leidžiamas per Write, Edit ir
   assert.equal(knownDep.exit, 0);
 });
 
+// --- 093: dispatch'o forma (verificationPreamble) yra teisėta TIK active/delegated lange ------
+
+test("hookPreWrite: preambulė active/delegated praeina; queue blokuojama; nevalidus kūnas krenta kūno taisykle", async () => {
+  const preamble = verificationPreamble({ rebuild: "pnpm build", checks: ["pnpm build", "pnpm test"] });
+  const withPreamble = `${preamble}${VALID_ETALONAS_TASK}`;
+  for (const bucket of ["active", "delegated"]) {
+    const { exit } = await runWrite(readmeOkFiles(), WRITE_CONTENT(`AG/tasks/${bucket}/098-pvz.md`, withPreamble));
+    assert.equal(exit, 0, `${bucket}: dispatch'o forma bandymo lange teisėta`);
+  }
+
+  const queue = await runWrite(readmeOkFiles(), WRITE_CONTENT("AG/tasks/queue/098-pvz.md", withPreamble));
+  assert.equal(queue.exit, PRE_TOOL_BLOCK_EXIT_CODE, "queue: preambulė = 092 invarianto pažeidimas");
+  assert.match(queue.err[0] ?? "", /mandatory-section-order/);
+
+  const invalidBody = await runWrite(readmeOkFiles(), WRITE_CONTENT("AG/tasks/active/098-pvz.md", `${preamble}${NO_STOP}`));
+  assert.equal(invalidBody.exit, PRE_TOOL_BLOCK_EXIT_CODE, "strip nepaslepia tikros kūno klaidos");
+  assert.match(invalidBody.err[0] ?? "", /mandatory-section-missing/, "žinutė apie kūno taisyklę, ne preambulės artefaktą");
+});
+
 test("hookPreWrite: examples/done/human-review bucket'ai praleidžiami be etalono validacijos", async () => {
   for (const filePath of [
     "AG/tasks/examples/000-etalonas.md",
@@ -423,10 +443,19 @@ test("hookPreWrite: visi esami AG/tasks/queue ir AG/tasks/active failai atitinka
   const knownTaskIds = await collectKnownTaskIds(nodeFsAdapter, repoRoot, runtimeRoot);
 
   const { validateTaskAgainstEtalonas } = await import("../domain/tasks/etalonas-rules.js");
+  const { stripVerificationPreamble } = await import("../application/quality-gates/preflight-rules.js");
+  // 093: active bucket'e dispatch'o forma (preambulė) yra teisėta bandymo lango būsena —
+  // validuojamas kanoninis kūnas po strip; queue — žalias tekstas (ten preambulė = 092
+  // invarianto pažeidimas). Violations kaupiamos per VISUS failus ir assert'inamos gale:
+  // fail-fast per pirmą failą 2026-08-30 tris kartus iš eilės maskavo likusius pažeidimus.
+  const offenders: string[] = [];
   for (const bucket of ["queue", "active"]) {
     for (const file of await bucketFiles(bucket)) {
-      const violations = validateTaskAgainstEtalonas(await readFile(file, "utf8"), knownTaskIds);
-      assert.deepEqual(violations, [], `${file}: ${JSON.stringify(violations)}`);
+      const raw = await readFile(file, "utf8");
+      const text = bucket === "active" ? stripVerificationPreamble(raw) : raw;
+      const violations = validateTaskAgainstEtalonas(text, knownTaskIds);
+      if (violations.length > 0) offenders.push(`${file}: ${JSON.stringify(violations)}`);
     }
   }
+  assert.deepEqual(offenders, [], offenders.join("\n"));
 });

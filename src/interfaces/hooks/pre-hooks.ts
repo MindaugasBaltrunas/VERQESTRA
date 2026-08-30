@@ -26,6 +26,7 @@ import {
   type ReadmeGuardRequirements,
   type WritePolicyBlock,
 } from "../../domain/policies/index.js";
+import { stripVerificationPreamble } from "../../application/quality-gates/preflight-rules.js";
 import { validateTaskAgainstEtalonas } from "../../domain/tasks/etalonas-rules.js";
 import {
   consoleHookIo,
@@ -198,20 +199,29 @@ export async function collectKnownTaskIds(
 /**
  * `AG/tasks/{queue,active,delegated}/*.md` etalono struktūros vartai. Kelias, kuris nepatenka
  * į validuojamą bucket'ą, arba kurio busimo turinio nustatyti negalima, praeina be patikros.
+ *
+ * 093: active/delegated bucket'uose dispatch'o forma (`verificationPreamble` failo pradžioje,
+ * instaliuota `installReformulatedTask` keliu) yra TEISĖTA bandymo lango būsena, tad validacijai
+ * paduodamas tekstas PO `stripVerificationPreamble` — vartai vertina kanoninį kūną, ne delivery
+ * artefaktą. Queue validuojamas žalias tekstas: ten preambulė yra 092 invarianto pažeidimas ir
+ * privalo krist kaip struktūros klaida.
  */
 async function etalonasStructureBlock(
   context: PreHookContext,
   input: Record<string, unknown>,
   filePath: string,
 ): Promise<WritePolicyBlock | undefined> {
-  if (!ETALONAS_VALIDATED_TASK_PATH_PATTERN.test(filePath)) return undefined;
+  const bucketMatch = ETALONAS_VALIDATED_TASK_PATH_PATTERN.exec(filePath);
+  if (!bucketMatch) return undefined;
+  const bucket = (bucketMatch[2] ?? "").toLowerCase();
 
   const absoluteFilePath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(context.root, filePath);
   const text = await prospectiveTaskFileText(input, absoluteFilePath, context.deps.ports.fs);
   if (text === undefined) return undefined;
 
+  const validatedText = bucket === "active" || bucket === "delegated" ? stripVerificationPreamble(text) : text;
   const knownTaskIds = await collectKnownTaskIds(context.deps.ports.fs, context.root, context.runtimeRoot);
-  const violation = validateTaskAgainstEtalonas(text, knownTaskIds)[0];
+  const violation = validateTaskAgainstEtalonas(validatedText, knownTaskIds)[0];
   if (!violation) return undefined;
 
   return {

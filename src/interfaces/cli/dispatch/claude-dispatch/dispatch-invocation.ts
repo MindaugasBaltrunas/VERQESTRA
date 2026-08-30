@@ -17,6 +17,8 @@ export type PrepareDispatchInvocationResult =
       decision: DispatchDecision;
       selected: string;
       active?: DispatchAttemptView;
+      /** `resolved.claudeLogPath` — attempt claude-last kelias net be pilno `active` view. */
+      claudeLogPath?: string;
       warnings: string[];
     };
 
@@ -110,6 +112,7 @@ export async function prepareDispatchInvocation(
     // `decision.selected_model`), tad reikšmė čia yra grynai žurnalo/įrašų tiesa.
     selected: decision.selected_model ?? "none",
     ...(active === undefined ? {} : { active }),
+    ...(resolved.claudeLogPath === undefined ? {} : { claudeLogPath: resolved.claudeLogPath }),
     warnings,
   };
 }

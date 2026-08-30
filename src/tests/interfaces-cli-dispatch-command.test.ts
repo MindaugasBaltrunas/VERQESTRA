@@ -70,9 +70,10 @@ type Harness = {
   errs: string[];
   writes: Map<string, string>;
   removed: string[];
-  launchCalls: Array<{ nonce: string; promptPathModel: string; maxTurns?: number }>;
+  launchCalls: Array<{ nonce: string; promptPathModel: string; maxTurns?: number; attemptClaudeLog?: string }>;
   finalizeCalls: Array<{ exitCode: number; toolSchemaMode: string }>;
   outcomeCalls: number;
+  readClaudeLastLogCalls: Array<{ attemptPath?: string; globalPath: string }>;
 };
 
 function makeHarness(input: {
@@ -82,16 +83,18 @@ function makeHarness(input: {
   requiredContext?: boolean;
   retryCounts?: Record<string, number>;
   attempt?: DispatchAttemptView;
+  resolvedClaudeLogPath?: string;
   supervisorDecision?: Awaited<ReturnType<ClaudeDispatchPorts["readSupervisorDecision"]>>;
 } = {}): Harness {
   const agLines: string[] = [];
   const errs: string[] = [];
   const writes = new Map<string, string>();
   const removed: string[] = [];
-  const launchCalls: Array<{ nonce: string; promptPathModel: string; maxTurns?: number }> = [];
+  const launchCalls: Array<{ nonce: string; promptPathModel: string; maxTurns?: number; attemptClaudeLog?: string }> = [];
   const finalizeCalls: Array<{ exitCode: number; toolSchemaMode: string }> = [];
+  const readClaudeLastLogCalls: Array<{ attemptPath?: string; globalPath: string }> = [];
   const files = new Map(Object.entries(input.files ?? {}).map(([k, v]) => [k.replace(/\\/g, "/"), v]));
-  const harness: Harness = { ports: undefined as never, agLines, errs, writes, removed, launchCalls, finalizeCalls, outcomeCalls: 0 };
+  const harness: Harness = { ports: undefined as never, agLines, errs, writes, removed, launchCalls, finalizeCalls, outcomeCalls: 0, readClaudeLastLogCalls };
 
   const ports: ClaudeDispatchPorts = {
     projectRoot: ROOT,
@@ -111,7 +114,7 @@ function makeHarness(input: {
     },
     readCurrentTaskId: async () => "",
     readRetryCounts: async () => input.retryCounts ?? {},
-    resolveAttempt: async () => ({ ...(input.attempt ? { attempt: input.attempt } : {}), warnings: [] }),
+    resolveAttempt: async () => ({ ...(input.attempt ? { attempt: input.attempt } : {}), ...(input.resolvedClaudeLogPath === undefined ? {} : { claudeLogPath: input.resolvedClaudeLogPath }), warnings: [] }),
     readSupervisorDecision: async () => input.supervisorDecision ?? { kind: "missing" },
     policyFs: { readTextFileIfExists: async () => undefined },
     workerPromptDeps: {
@@ -141,10 +144,11 @@ function makeHarness(input: {
         nonce: launchInput.dispatchNonce,
         promptPathModel: (launchInput.delivery as { promptPathModel?: string }).promptPathModel ?? "",
         ...(launchInput.dispatchMaxTurns === undefined ? {} : { maxTurns: launchInput.dispatchMaxTurns }),
+        ...(launchInput.attemptClaudeLog === undefined ? {} : { attemptClaudeLog: launchInput.attemptClaudeLog }),
       });
       return input.launch ?? { status: "finished", claudeExit: 0, budgetAborted: false, toolSchemaOutcome: { mode: "off", candidates: [], applied: [], reason: "disabled" } };
     },
-    readClaudeLastLog: async () => "stream log",
+    readClaudeLastLog: async (logInput) => { readClaudeLastLogCalls.push({ ...(logInput.attemptPath === undefined ? {} : { attemptPath: logInput.attemptPath }), globalPath: logInput.globalPath }); return "stream log"; },
     resolveOutcome: async (outcomeInput) => {
       harness.outcomeCalls += 1;
       return {
@@ -318,6 +322,16 @@ test("claudeDispatch: be decision + failed_attempts → MODEL ESCALATION eilutė
   assert.notEqual(escalationLine, "", "failed_attempts=2 su default defer_steps=1 kelia pakopą");
   assert.match(escalationLine, /selected=none failed_attempts=2/, "eskalacija nepridengia tuščio pasirinkimo");
   assert.doesNotMatch(escalationLine, /selected=(sonnet|opus|haiku)/);
+});
+
+// 090: `resolveAttempt` be `attempt` gali grąžinti VIEN `claudeLogPath` — kanalas turi pasiekti launchProcess/readClaudeLastLog `attemptPath`; be lauko jis lieka undefined (regresijos apsauga).
+test("claudeDispatch: resolveAttempt claudeLogPath be attempt → launchProcess/readClaudeLastLog attemptPath", async () => {
+  const withPath = makeHarness({ files: { [TASK_FILE.replace(/\\/g, "/")]: TASK_TEXT }, resolvedClaudeLogPath: "/att/claude-last.log" });
+  assert.equal(await claudeDispatch(["AG/tasks/queue/0042-demo.md"], withPath.ports), 0);
+  assert.deepEqual([withPath.launchCalls[0]?.attemptClaudeLog, withPath.readClaudeLastLogCalls[0]?.attemptPath], ["/att/claude-last.log", "/att/claude-last.log"]);
+  const withoutPath = makeHarness({ files: { [TASK_FILE.replace(/\\/g, "/")]: TASK_TEXT } });
+  assert.equal(await claudeDispatch(["AG/tasks/queue/0042-demo.md"], withoutPath.ports), 0);
+  assert.deepEqual([withoutPath.launchCalls[0]?.attemptClaudeLog, withoutPath.readClaudeLastLogCalls[0]?.attemptPath], [undefined, undefined]);
 });
 
 test("prepareDispatchArtifacts: attempt kopija pirmi; legacy promotinamas; write klaidos — WARNING", async () => {

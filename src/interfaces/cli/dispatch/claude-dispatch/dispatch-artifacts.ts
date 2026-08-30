@@ -29,11 +29,13 @@ export async function prepareDispatchArtifacts(input: {
   taskId: string;
   rawTaskText: string;
   active?: DispatchAttemptView;
+  /** `resolveAttempt` grąžintas claude-last kelias, kai `active` view dar nėra. */
+  resolvedClaudeLogPath?: string;
 }): Promise<DispatchArtifacts> {
   const { ports, active } = input;
   const dispatchLog = path.join(ports.runtimeRoot, "logs", "claude-dispatch-last.md");
   const claudeLog = path.join(ports.runtimeRoot, "logs", "claude-last.log");
-  const attemptClaudeLog = active?.claudeLogPath;
+  const attemptClaudeLog = active?.claudeLogPath ?? input.resolvedClaudeLogPath;
 
   if (active) {
     const written = await active.writeTaskOnce(input.rawTaskText);

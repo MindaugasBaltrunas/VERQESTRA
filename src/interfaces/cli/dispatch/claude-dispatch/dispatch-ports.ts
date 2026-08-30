@@ -98,7 +98,16 @@ export type DispatchAttemptView = {
   readStopState(): Promise<AttemptStopStateReadView>;
 };
 
-export type ResolveAttemptResult = { attempt?: DispatchAttemptView; warnings: string[] };
+export type ResolveAttemptResult = {
+  attempt?: DispatchAttemptView;
+  /**
+   * Attempt kanalo `claude-last` kelias, kai pilno `DispatchAttemptView` dar nėra (rezoliucijos
+   * spraga uždaroma kompozicijos pusėje vėlesniu task'u) — leidžia `attemptClaudeLog` pasiekti
+   * `launchProcess` `logChannels.attemptPath` net be `active`.
+   */
+  claudeLogPath?: string;
+  warnings: string[];
+};
 
 export type ClaudeDispatchPorts = {
   projectRoot: string;

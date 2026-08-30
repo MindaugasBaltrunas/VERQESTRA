@@ -42,7 +42,7 @@ export async function claudeDispatch(args: string[], ports: ClaudeDispatchPorts)
     return USAGE_ERROR_EXIT_CODE;
   }
   for (const warning of invocation.warnings) await ports.agLog(warning);
-  const { taskFile, rawTaskText, dispatchPhase, taskId, decision, selected, active } = invocation;
+  const { taskFile, rawTaskText, dispatchPhase, taskId, decision, selected, active, claudeLogPath } = invocation;
 
   /** Vienas dispatch žurnalo įrašas dviese: globalus + attempt'o dispatch.log (append-only). */
   const logDispatch = async (line: string): Promise<void> => {
@@ -60,7 +60,13 @@ export async function claudeDispatch(args: string[], ports: ClaudeDispatchPorts)
   // Tas pats bandymo numeris eina ir į usage ledger'į, ir į execution-result (1117a).
   const attempt = failedAttempts + 1;
 
-  const artifacts = await prepareDispatchArtifacts({ ports, taskId, rawTaskText, ...(active ? { active } : {}) });
+  const artifacts = await prepareDispatchArtifacts({
+    ports,
+    taskId,
+    rawTaskText,
+    ...(active ? { active } : {}),
+    ...(claudeLogPath === undefined ? {} : { resolvedClaudeLogPath: claudeLogPath }),
+  });
   const {
     dispatchLog,
     claudeLog,

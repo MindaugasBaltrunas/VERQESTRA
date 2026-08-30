@@ -44,9 +44,7 @@ function fakeFs(files: Record<string, string> = {}): { fs: HookFsPort; store: Ma
   };
 }
 
-// ---------------------------------------------------------------------------
-// domain: git mutacijos atpažinimas
-// ---------------------------------------------------------------------------
+// --- domain: git mutacijos atpažinimas --------------------------------------------------------
 
 test("isGitMutationCommand: mutuojantys verbai pagaunami ir grandinės viduryje, read-only — ne", () => {
   assert.equal(isGitMutationCommand("git commit -m x"), true);
@@ -61,9 +59,7 @@ test("isGitMutationCommand: mutuojantys verbai pagaunami ir grandinės viduryje,
   assert.equal(isGitMutationCommand("pnpm test"), false);
 });
 
-// ---------------------------------------------------------------------------
-// runtime ownership
-// ---------------------------------------------------------------------------
+// --- runtime ownership -------------------------------------------------------------------------
 
 type OwnershipWorld = {
   ports: RuntimeOwnershipPorts;
@@ -184,19 +180,16 @@ test("evaluateRuntimeOwnership: be filePath (git kelias) scope lock netikrinamas
   assert.equal(world.authorityCalls[0]?.guardedPath, undefined, "git veiksmas liečia visą medį");
 });
 
-// ---------------------------------------------------------------------------
-// pre-hooks
-// ---------------------------------------------------------------------------
+// --- pre-hooks -----------------------------------------------------------------------------------
 
-function preHookPorts(
-  fs: HookFsPort,
-  input: {
-    stdin?: string;
-    ownership?: OwnershipWorld;
-    contextThrows?: boolean;
-    profile?: { source_roots?: string[]; architecture_doc?: string };
-  } = {},
-): PreHookPorts {
+type PortsExtra = {
+  stdin?: string;
+  ownership?: OwnershipWorld;
+  contextThrows?: boolean;
+  profile?: { source_roots?: string[]; architecture_doc?: string };
+};
+
+function preHookPorts(fs: HookFsPort, input: PortsExtra = {}): PreHookPorts {
   const ownership = input.ownership ?? ownershipPorts();
   return {
     ...ownership.ports,
@@ -214,33 +207,49 @@ function preHookPorts(
 const BASH = (command: string): string => JSON.stringify({ tool_name: "Bash", tool_input: { command } });
 const WRITE = (filePath: string): string => JSON.stringify({ tool_name: "Write", tool_input: { file_path: filePath } });
 
-test("hookPreBash: neperskaitomas input blokuoja fail-closed", async () => {
+/** Vienas `hookPreBash` bėgimas su pasirenkamu ownership/contextThrows overridu. */
+async function runBash(
+  stdin: string,
+  extra: Omit<PortsExtra, "stdin"> = {},
+): Promise<{ exit: number; err: string[]; store: Map<string, string> }> {
   const world = fakeFs();
   const { io, err } = captureIo();
   const exit = await hookPreBash({
-    ports: preHookPorts(world.fs, { stdin: "{ broken" }),
+    ports: preHookPorts(world.fs, { stdin, ...extra }),
     projectRoot: ROOT,
     runtimeRoot: RUNTIME_ROOT,
     io,
   });
+  return { exit, err, store: world.store };
+}
 
+/** Vienas `hookPreWrite` bėgimas: `files` — pradinis fakeFs turinys, `stdin` — hook payload'as. */
+async function runWrite(
+  files: Record<string, string>,
+  stdin: string,
+  extra: Omit<PortsExtra, "stdin"> = {},
+): Promise<{ exit: number; err: string[]; store: Map<string, string> }> {
+  const world = fakeFs(files);
+  const { io, err } = captureIo();
+  const exit = await hookPreWrite({
+    ports: preHookPorts(world.fs, { stdin, ...extra }),
+    projectRoot: ROOT,
+    runtimeRoot: RUNTIME_ROOT,
+    io,
+  });
+  return { exit, err, store: world.store };
+}
+
+test("hookPreBash: neperskaitomas input blokuoja fail-closed", async () => {
+  const { exit, err, store } = await runBash("{ broken");
   assert.equal(exit, PRE_TOOL_BLOCK_EXIT_CODE);
   assert.match(err[1] ?? "", /blokuojama fail-closed/);
-  assert.match(world.store.get("vq/logs/hooks.log") ?? "", /neperskaitomas hook input/);
+  assert.match(store.get("vq/logs/hooks.log") ?? "", /neperskaitomas hook input/);
 });
 
 test("hookPreBash: draudžiamas šablonas blokuoja PRIEŠ nuosavybės patikrą", async () => {
   const ownership = ownershipPorts();
-  const world = fakeFs();
-  const { io, err } = captureIo();
-
-  const exit = await hookPreBash({
-    ports: preHookPorts(world.fs, { stdin: BASH("rm -rf /"), ownership }),
-    projectRoot: ROOT,
-    runtimeRoot: RUNTIME_ROOT,
-    io,
-  });
-
+  const { exit, err } = await runBash(BASH("rm -rf /"), { ownership });
   assert.equal(exit, PRE_TOOL_BLOCK_EXIT_CODE);
   assert.match(err[0] ?? "", /atitinka draudziama sablona/);
   assert.equal(ownership.authorityCalls.length, 0, "pigus vartas atmeta anksčiau už brangų");
@@ -248,179 +257,171 @@ test("hookPreBash: draudžiamas šablonas blokuoja PRIEŠ nuosavybės patikrą",
 
 test("hookPreBash: git mutacija be nuosavybės blokuoja; leidžiama komanda praeina", async () => {
   const denied = ownershipPorts({ authority: { status: "lease-expired", ok: false, reason: "lease baigėsi" } });
-  const world = fakeFs();
-  const { io, err } = captureIo();
-
   // Komanda privalo PRAEITI bash allowlist'ą, kad pasiektų nuosavybės vartus — kitaip testas
   // tikrintų ankstesnį vartą. Operatorinis merge kanalas yra allowlist'e ir yra mutacija.
-  assert.equal(
-    await hookPreBash({
-      ports: preHookPorts(world.fs, { stdin: BASH("git merge worktree-operator-fix"), ownership: denied }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io,
-    }),
-    PRE_TOOL_BLOCK_EXIT_CODE,
-  );
-  assert.match(err[0] ?? "", /neturi galiojančios worker lease \(lease-expired\)/);
+  const blocked = await runBash(BASH("git merge worktree-operator-fix"), { ownership: denied });
+  assert.equal(blocked.exit, PRE_TOOL_BLOCK_EXIT_CODE);
+  assert.match(blocked.err[0] ?? "", /neturi galiojančios worker lease \(lease-expired\)/);
 
-  const allowed = fakeFs();
-  assert.equal(
-    await hookPreBash({
-      ports: preHookPorts(allowed.fs, { stdin: BASH("git status --porcelain") }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io: captureIo().io,
-    }),
-    0,
-  );
+  const allowed = await runBash(BASH("git status --porcelain"));
+  assert.equal(allowed.exit, 0);
   assert.match(allowed.store.get("vq/logs/hooks.log") ?? "", /bash: git status --porcelain/);
 });
 
 test("hookPreBash: neperskaitoma komandų politika NEBLOKUOJA (fail-safe)", async () => {
-  const world = fakeFs();
-  const exit = await hookPreBash({
-    ports: preHookPorts(world.fs, { stdin: BASH("pnpm test"), contextThrows: true }),
-    projectRoot: ROOT,
-    runtimeRoot: RUNTIME_ROOT,
-    io: captureIo().io,
-  });
+  const { exit } = await runBash(BASH("pnpm test"), { contextThrows: true });
   assert.equal(exit, 0);
 });
 
 test("hookPreWrite: tuščias kelio laukas blokuoja fail-closed", async () => {
-  const world = fakeFs();
-  const { io, err } = captureIo();
-  const exit = await hookPreWrite({
-    ports: preHookPorts(world.fs, { stdin: JSON.stringify({ tool_name: "Write", tool_input: { target: "x.ts" } }) }),
-    projectRoot: ROOT,
-    runtimeRoot: RUNTIME_ROOT,
-    io,
-  });
-
+  const { exit, err } = await runWrite({}, JSON.stringify({ tool_name: "Write", tool_input: { target: "x.ts" } }));
   assert.equal(exit, PRE_TOOL_BLOCK_EXIT_CODE);
   assert.match(err[0] ?? "", /negavo rašymo kelio/);
 });
 
 test("hookPreWrite: rašymo politika atmeta PRIEŠ readme guard'ą", async () => {
-  const world = fakeFs();
-  const { io, err } = captureIo();
-  const exit = await hookPreWrite({
-    ports: preHookPorts(world.fs, { stdin: WRITE("vq/state/task-ledger.json") }),
-    projectRoot: ROOT,
-    runtimeRoot: RUNTIME_ROOT,
-    io,
-  });
-
+  const { exit, err, store } = await runWrite({}, WRITE("vq/state/task-ledger.json"));
   assert.equal(exit, PRE_TOOL_BLOCK_EXIT_CODE);
   assert.match(err[0] ?? "", /saugoma orkestratoriaus busena/);
-  assert.match(world.store.get("vq/logs/hooks.log") ?? "", /orkestratoriaus failas/);
+  assert.match(store.get("vq/logs/hooks.log") ?? "", /orkestratoriaus failas/);
 });
 
 test("hookPreWrite: sugadinti readme įrodymai blokuoja, o ne virsta „nėra įrodymų“", async () => {
-  const corrupt = fakeFs({ "vq/state/readme-read-events.json": "{ not an array" });
-  const { io, err } = captureIo();
-  assert.equal(
-    await hookPreWrite({
-      ports: preHookPorts(corrupt.fs, { stdin: WRITE("src/a.ts") }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io,
-    }),
-    PRE_TOOL_BLOCK_EXIT_CODE,
-  );
-  assert.match(err[0] ?? "", /sugadintas arba suklastotas/);
+  const corrupt = await runWrite({ "vq/state/readme-read-events.json": "{ not an array" }, WRITE("src/a.ts"));
+  assert.equal(corrupt.exit, PRE_TOOL_BLOCK_EXIT_CODE);
+  assert.match(corrupt.err[0] ?? "", /sugadintas arba suklastotas/);
 
   // Ne masyvas irgi yra klastojimas, ne tuščias įrodymų sąrašas.
-  const notArray = fakeFs({ "vq/state/readme-read-events.json": '{"README.md":true}' });
-  assert.equal(
-    await hookPreWrite({
-      ports: preHookPorts(notArray.fs, { stdin: WRITE("src/a.ts") }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io: captureIo().io,
-    }),
-    PRE_TOOL_BLOCK_EXIT_CODE,
-  );
+  const notArray = await runWrite({ "vq/state/readme-read-events.json": '{"README.md":true}' }, WRITE("src/a.ts"));
+  assert.equal(notArray.exit, PRE_TOOL_BLOCK_EXIT_CODE);
 });
 
 test("hookPreWrite: be readme įrodymų blokuoja, su įrodymais ir nuosavybe — leidžia", async () => {
-  const blocked = fakeFs({ "vq/state/readme-read-events.json": "[]" });
-  const { io, err } = captureIo();
-  assert.equal(
-    await hookPreWrite({
-      ports: preHookPorts(blocked.fs, { stdin: WRITE("src/a.ts") }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io,
-    }),
-    PRE_TOOL_BLOCK_EXIT_CODE,
-  );
-  assert.match(err[0] ?? "", /readme-guard dar nepaleistas/);
+  const blocked = await runWrite({ "vq/state/readme-read-events.json": "[]" }, WRITE("src/a.ts"));
+  assert.equal(blocked.exit, PRE_TOOL_BLOCK_EXIT_CODE);
+  assert.match(blocked.err[0] ?? "", /readme-guard dar nepaleistas/);
 
-  const allowed = fakeFs({ "vq/state/readme-read-events.json": JSON.stringify(["README.md"]) });
-  const ok = captureIo();
-  assert.equal(
-    await hookPreWrite({
-      ports: preHookPorts(allowed.fs, { stdin: WRITE("src/a.ts") }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io: ok.io,
-    }),
-    0,
-  );
+  const allowed = await runWrite({ "vq/state/readme-read-events.json": JSON.stringify(["README.md"]) }, WRITE("src/a.ts"));
+  assert.equal(allowed.exit, 0);
   assert.match(allowed.store.get("vq/logs/hooks.log") ?? "", /rašymas leidžiamas: src\/a\.ts/);
 });
 
 test("hookPreWrite: architektūros dokumentas reikalaujamas TIK kai jis realiai yra diske", async () => {
+  const profile = { source_roots: ["src"], architecture_doc: "doc/architecture/README.md" };
   // Profilis jį deklaruoja, bet failo nėra — reikalavimas nekeliamas (task 885).
-  const withoutDoc = fakeFs({ "vq/state/readme-read-events.json": JSON.stringify(["README.md"]) });
-  assert.equal(
-    await hookPreWrite({
-      ports: preHookPorts(withoutDoc.fs, {
-        stdin: WRITE("src/a.ts"),
-        profile: { source_roots: ["src"], architecture_doc: "doc/architecture/README.md" },
-      }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io: captureIo().io,
-    }),
-    0,
+  const withoutDoc = await runWrite(
+    { "vq/state/readme-read-events.json": JSON.stringify(["README.md"]) },
+    WRITE("src/a.ts"),
+    { profile },
   );
+  assert.equal(withoutDoc.exit, 0);
 
-  const withDoc = fakeFs({
-    "vq/state/readme-read-events.json": JSON.stringify(["README.md"]),
-    "doc/architecture/README.md": "# arch\n",
-  });
-  const { io, err } = captureIo();
-  assert.equal(
-    await hookPreWrite({
-      ports: preHookPorts(withDoc.fs, {
-        stdin: WRITE("src/a.ts"),
-        profile: { source_roots: ["src"], architecture_doc: "doc/architecture/README.md" },
-      }),
-      projectRoot: ROOT,
-      runtimeRoot: RUNTIME_ROOT,
-      io,
-    }),
-    PRE_TOOL_BLOCK_EXIT_CODE,
+  const withDoc = await runWrite(
+    { "vq/state/readme-read-events.json": JSON.stringify(["README.md"]), "doc/architecture/README.md": "# arch\n" },
+    WRITE("src/a.ts"),
+    { profile },
   );
-  assert.match(err[0] ?? "", /doc\/architecture\/README\.md/);
+  assert.equal(withDoc.exit, PRE_TOOL_BLOCK_EXIT_CODE);
+  assert.match(withDoc.err[0] ?? "", /doc\/architecture\/README\.md/);
 });
 
 test("hookPreWrite: nuosavybės atmetimas blokuoja paskutinis, jau praėjus pigiems vartams", async () => {
   const denied = ownershipPorts({ authority: { status: "foreign-lease", ok: false, reason: "svetimas lease" } });
-  const world = fakeFs({ "vq/state/readme-read-events.json": JSON.stringify(["README.md"]) });
-  const { io, err } = captureIo();
-
-  const exit = await hookPreWrite({
-    ports: preHookPorts(world.fs, { stdin: WRITE("src/a.ts"), ownership: denied }),
-    projectRoot: ROOT,
-    runtimeRoot: RUNTIME_ROOT,
-    io,
-  });
-
+  const { exit, err } = await runWrite(
+    { "vq/state/readme-read-events.json": JSON.stringify(["README.md"]) },
+    WRITE("src/a.ts"),
+    { ownership: denied },
+  );
   assert.equal(exit, PRE_TOOL_BLOCK_EXIT_CODE);
   assert.match(err[0] ?? "", /worker lease \(foreign-lease\)/);
   assert.equal(denied.authorityCalls[0]?.guardedPath, "src/a.ts", "žinomas kelias siaurina aprėptį");
+});
+
+// --- 071-a-02: etalono struktūros vartai AG/tasks/{queue,active,delegated}/*.md ----------------
+
+/** Minimal etalono-shaped task; viena šaltinio eilutė, kad file-length vartai netemptų. */
+const VALID_ETALONAS_TASK =
+  "# Task\n\n## Spec source\nopenspec/changes/example\n\n## Tikslas\nProblema su irodymu.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/domain/example.ts`\n\nDraudziama:\n- `dist/**`\n- `node_modules/**`\n\n## Veiksmas\n- Padaryti X.\n\n## Patikra\n- `pnpm build`\n- `pnpm test`\n\n## Stop\nCommit'ink, kai patikros zalios.\n\n## Neitraukta\nY liks kitam task'ui.\n";
+const NO_STOP = VALID_ETALONAS_TASK.replace("## Stop\nCommit'ink, kai patikros zalios.\n\n", "");
+const readmeOkFiles = (extra: Record<string, string> = {}): Record<string, string> => ({
+  "vq/state/readme-read-events.json": JSON.stringify(["README.md"]),
+  ...extra,
+});
+const WRITE_CONTENT = (p: string, content: string): string =>
+  JSON.stringify({ tool_name: "Write", tool_input: { file_path: p, content } });
+const EDIT_CONTENT = (p: string, o: string, n: string): string =>
+  JSON.stringify({ tool_name: "Edit", tool_input: { file_path: p, old_string: o, new_string: n } });
+
+type RuleCase = { bucket: string; ruleId: string; ledger?: Record<string, unknown>; mutate: (t: string) => string };
+const RULE_CASES: RuleCase[] = [
+  { bucket: "queue", ruleId: "mandatory-section-missing", mutate: () => NO_STOP },
+  { bucket: "active", ruleId: "failai-wildcard-without-justification", mutate: (t) => t.replace("- `src/domain/example.ts`", "- `src/tests/**`") },
+  { bucket: "delegated", ruleId: "priklausomybe-placeholder", mutate: (t) => t.replace("## Tikslas", "## Priklausomybės\n- none\n\n## Tikslas") },
+  { bucket: "queue", ruleId: "priklausomybe-unknown-id", ledger: { "010-zinomas": {} }, mutate: (t) => t.replace("## Tikslas", "## Priklausomybės\n- 999-nezinomas\n\n## Tikslas") },
+  { bucket: "queue", ruleId: "patikra-unknown-command", mutate: (t) => t.replace("- `pnpm test`", "- `pnpm lint`") },
+];
+
+test("hookPreWrite: kiekviena etalono taisyklė blokuoja su savo ruleId ir etalono nuoroda", async () => {
+  for (const { bucket, mutate, ledger, ruleId } of RULE_CASES) {
+    const files = readmeOkFiles(ledger ? { "vq/state/task-ledger.json": JSON.stringify(ledger) } : {});
+    const stdin = WRITE_CONTENT(`AG/tasks/${bucket}/099-pvz.md`, mutate(VALID_ETALONAS_TASK));
+    const { exit, err } = await runWrite(files, stdin);
+    assert.equal(exit, PRE_TOOL_BLOCK_EXIT_CODE, ruleId);
+    assert.match(err[0] ?? "", new RegExp(`\\(${ruleId}\\)`), ruleId);
+    assert.match(err[0] ?? "", /000-etalonas\.md/, ruleId);
+  }
+});
+
+test("hookPreWrite: etalonui atitinkantis task'as leidžiamas per Write, Edit ir žinomą Priklausomybės id", async () => {
+  const write = await runWrite(readmeOkFiles(), WRITE_CONTENT("AG/tasks/queue/095-pvz.md", VALID_ETALONAS_TASK));
+  assert.equal(write.exit, 0);
+
+  // Edit: busimas turinys skaičiuojamas iš disko esančio (invalid) failo + pakeitimo.
+  const tail = "## Neitraukta\nY liks kitam task'ui.\n";
+  const restored = "## Stop\nCommit'ink, kai patikros zalios.\n\n## Neitraukta\nY liks kitam task'ui.\n";
+  const editFiles = readmeOkFiles({ "AG/tasks/queue/096-pvz.md": NO_STOP });
+  const edit = await runWrite(editFiles, EDIT_CONTENT("AG/tasks/queue/096-pvz.md", tail, restored));
+  assert.equal(edit.exit, 0);
+
+  const withKnownDep = VALID_ETALONAS_TASK.replace("## Tikslas", "## Priklausomybės\n- 999-zinomas\n\n## Tikslas");
+  const knownFiles = readmeOkFiles({ "vq/state/task-ledger.json": JSON.stringify({ "999-zinomas": {} }) });
+  const knownDep = await runWrite(knownFiles, WRITE_CONTENT("AG/tasks/queue/097-pvz.md", withKnownDep));
+  assert.equal(knownDep.exit, 0);
+});
+
+test("hookPreWrite: examples/done/human-review bucket'ai praleidžiami be etalono validacijos", async () => {
+  for (const filePath of [
+    "AG/tasks/examples/000-etalonas.md",
+    "AG/tasks/done/010-pvz.md",
+    "AG/tasks/human-review/011-pvz.md",
+  ]) {
+    const { exit } = await runWrite(readmeOkFiles(), WRITE_CONTENT(filePath, NO_STOP));
+    assert.equal(exit, 0, filePath);
+  }
+});
+
+test("hookPreWrite: visi esami AG/tasks/queue ir AG/tasks/active failai atitinka etalono struktūrą", async () => {
+  const { readFile, readdir } = await import("node:fs/promises");
+  const repoRoot = path.resolve(process.cwd());
+  const bucketFiles = async (bucket: string): Promise<string[]> => {
+    const dir = path.join(repoRoot, "AG", "tasks", bucket);
+    try {
+      return (await readdir(dir)).filter((name) => name.endsWith(".md")).map((name) => path.join(dir, name));
+    } catch {
+      return [];
+    }
+  };
+
+  const knownTaskIds = new Set<string>();
+  for (const bucket of ["queue", "done"]) {
+    for (const file of await bucketFiles(bucket)) knownTaskIds.add(path.basename(file, ".md"));
+  }
+
+  const { validateTaskAgainstEtalonas } = await import("../domain/tasks/etalonas-rules.js");
+  for (const bucket of ["queue", "active"]) {
+    for (const file of await bucketFiles(bucket)) {
+      const violations = validateTaskAgainstEtalonas(await readFile(file, "utf8"), Array.from(knownTaskIds));
+      assert.deepEqual(violations, [], `${file}: ${JSON.stringify(violations)}`);
+    }
+  }
 });

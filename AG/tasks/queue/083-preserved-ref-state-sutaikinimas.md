@@ -25,17 +25,8 @@ retencija negali nuspręsti, ar jį saugoti, o operatorius darbo vertę
 atkuria tik git archeologija (2026-08-28/29 rankinis 6 taskų recovery —
 kelios valandos žmogaus darbo).
 
-Taisymas:
-1. Preserved įrašo METADUOMENYS rašomi kartu su ref'u į PATVARIĄ vietą
-   (pirminio medžio runtime root, ne kopijos) — task id, base head,
-   paths sąrašas, sukūrimo laikas, run id.
-2. Sutaikinimo praėjimas (loop starto metu arba `verqestra` komanda):
-   ref be state įrašo → bandoma atkurti metaduomenis iš commit'o
-   (žinutė, diff paths, data) ir įrašyti; nepavykus — ref žymimas
-   `unattributed` su log eilute, retencijai perduodamas kaip kandidatas.
-3. UI/status komandoje matomas preserved darbų sąrašas su task id ir
-   apimtimi (kiek failų/eilučių) — kad neintegruotas darbas būtų MATOMAS,
-   ne archeologuojamas.
+Sprendimo kryptis: metaduomenys rašomi patvariai kartu su ref'u, o
+sutaikinimo praėjimas uždaro jau atsivėrusią spragą (žr. ## Veiksmas).
 
 ## Agentai
 readme-guard -> architect -> coder -> reviewer -> tester
@@ -45,17 +36,32 @@ Leidžiama:
 - `src/application/task-execution/` (rollback preserve kelias)
 - `src/infrastructure/git/` (ref'ų enumeracija/atributacija)
 - `src/interfaces/cli/` (status/sutaikinimo komanda, jei ten gimsta)
-- `src/tests/`
+- `src/tests/` (konkretūs failai paaiškės po architect sprendimo, kur
+  gimsta sutaikinimo praėjimas — wildcard sąmoningas, task serializuojasi)
 
 Draudžiama:
 - `dist/**`
 - `node_modules/**`
 - `ui-app/**` (UI vaizdas — 065 scope)
 
+## Veiksmas
+- Preserved įrašo METADUOMENYS rašomi kartu su ref'u į PATVARIĄ vietą
+  (pirminio medžio runtime root, ne kopijos) — task id, base head,
+  paths sąrašas, sukūrimo laikas, run id.
+- Sutaikinimo praėjimas (loop starto metu arba `verqestra` komanda):
+  ref be state įrašo → bandoma atkurti metaduomenis iš commit'o
+  (žinutė, diff paths, data) ir įrašyti; nepavykus — ref žymimas
+  `unattributed` su log eilute, retencijai perduodamas kaip kandidatas.
+- Status komandoje matomas preserved darbų sąrašas su task id ir
+  apimtimi (kiek failų/eilučių) — kad neintegruotas darbas būtų MATOMAS,
+  ne archeologuojamas.
+- Testų lūkestis: ref be state įrašo gauna atkurtus metaduomenis;
+  neatkuriamas ref pažymimas `unattributed` ir perduodamas retencijai;
+  ref su state įrašu nepaliečiamas.
+
 ## Patikra
-- `pnpm typecheck`
-- `pnpm lint`
-- `pnpm test:only`
+- `pnpm build`
+- `pnpm test`
 
 ## Stop
 Commit'ink, kai patikros žalios.

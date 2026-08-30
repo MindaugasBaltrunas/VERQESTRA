@@ -74,6 +74,15 @@ Draudžiama:
 - `dist/**`
 - `node_modules/**`
 
+## Veiksmas
+- Kiekvieną iš 10 `## Tikslas` punktų patikrinti kode (grep/Read) ir
+  ataskaitoje pažymėti ✅/❌ su `failas:eilutė` įrodymu.
+- Smulkius neatitikimus (trūkstamas i18n raktas, CSS taisyklė be skaitytojo,
+  trūkstamas `title`) taisyti leidžiamų failų ribose; didelius — NETAISYTI,
+  įrašyti į ataskaitą su siūlomu atskiru task'u.
+- Pabaigoje `pnpm --dir ui-app build`; ataskaitoje nurodyti naujus bundle
+  hash'us.
+
 ## Patikra
 - `pnpm build`
 - `pnpm test`

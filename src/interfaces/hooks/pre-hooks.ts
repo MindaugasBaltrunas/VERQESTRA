@@ -3,8 +3,9 @@
 //
 // Vartų SEKA yra kontraktas, ne stilius:
 //   Bash:  input → bash politika → git mutacijos nuosavybė → jautrumo žyma → leidžiama
-//   Write: input → tuščias kelias → rašymo politika → readme įrodymų vientisumas →
-//          readme guard → nuosavybė → leidžiama
+//   Write: input → tuščias kelias → rašymo politika → etalono struktūra (tik AG/tasks
+//          queue/active/delegated) → readme įrodymų vientisumas → readme guard → nuosavybė →
+//          leidžiama
 // Nuosavybė tikrinama PASKUTINĖ, nes ji brangiausia (lease store + realpath + scope lock), o
 // pigios, deterministinės taisyklės turi atmesti kuo anksčiau.
 //
@@ -23,10 +24,13 @@ import {
   EMPTY_CHECK_COMMAND_CONTEXT,
   type CheckCommandContext,
   type ReadmeGuardRequirements,
+  type WritePolicyBlock,
 } from "../../domain/policies/index.js";
+import { validateTaskAgainstEtalonas } from "../../domain/tasks/etalonas-rules.js";
 import {
   consoleHookIo,
   getHookPathField,
+  getHookToolName,
   getToolInputField,
   parseHookInputStrict,
   type HookFsPort,
@@ -112,6 +116,113 @@ async function readmeGuardRequirements(context: PreHookContext): Promise<ReadmeG
   });
 }
 
+/**
+ * Bucket'ai, kuriuose etalono struktūra PRIVALO laikytis: `queue`/`active`/`delegated` yra
+ * gyvos darbo eilės būsenos. `examples/**` yra pats šablonas, o `done/**` ir `human-review/**`
+ * jau užbaigti arba žmogaus peržiūrėti — šis kelias jų neliečia.
+ */
+const ETALONAS_VALIDATED_TASK_PATH_PATTERN = /(^|\/)AG\/tasks\/(queue|active|delegated)\/[^/]+\.md$/i;
+
+/** `Edit` įrankio `tool_input` pora, jei ji tos formos (abu laukai — string). */
+function editReplacementFields(
+  input: Record<string, unknown>,
+): { oldString: string; newString: string; replaceAll: boolean } | undefined {
+  const toolInput = input["tool_input"];
+  if (!toolInput || typeof toolInput !== "object") return undefined;
+  const record = toolInput as Record<string, unknown>;
+  const oldString = record["old_string"];
+  const newString = record["new_string"];
+  if (typeof oldString !== "string" || typeof newString !== "string") return undefined;
+  return { oldString, newString, replaceAll: record["replace_all"] === true };
+}
+
+/**
+ * Etalono struktūros patikrai reikalingas PILNAS busimas failo turinys. `Write` jį neša
+ * tiesiai (`content`); `Edit` neša tik pakeitimo porą, tad busimas turinys skaičiuojamas iš
+ * disko esančio failo + pakeitimo. Kai turinio nustatyti negalima (naujas failas per `Edit`,
+ * `old_string` neatitinka disko turinio), patikra PRALEIDŽIAMA — ji negali spręsti apie tai,
+ * ko nemato; kiti vartai (readme guard, nuosavybė) šitos šakos nesusilpnina.
+ */
+async function prospectiveTaskFileText(
+  input: Record<string, unknown>,
+  absoluteFilePath: string,
+  fs: HookFsPort,
+): Promise<string | undefined> {
+  if (getHookToolName(input) === "Write") return getToolInputField(input, "content");
+
+  const edit = editReplacementFields(input);
+  if (!edit) return undefined;
+  const current = await fs.readTextFileIfExists(absoluteFilePath);
+  if (current === undefined || !current.includes(edit.oldString)) return undefined;
+  return edit.replaceAll
+    ? current.split(edit.oldString).join(edit.newString)
+    : current.replace(edit.oldString, edit.newString);
+}
+
+/**
+ * `## Priklausomybės` nuorodų domenas. Etalono taisyklė sako „TIK queue arba done bucket'ų id",
+ * tad tiesos šaltinis yra BUCKET'Ų FAILAI, o ne vien ledger'is: ledger įrašą gauna tik būsenos
+ * perėjimą turėjęs task'as, ir niekada nebėgęs queue gyventojas jame neegzistuoja (2026-08-30:
+ * 075 gulėjo queue be ledger įrašo, ir `priklausomybe-unknown-id` klaidingai blokavo teisėtą
+ * 083 pataisą). Ledger'is lieka sąjungoje dėl backward compatibility (istoriniai id, kurių
+ * failas pervadintas ar suskeltas). Nerandamas katalogas, trūkstamas listingo portas ar
+ * sugadintas ledger'is virsta tuščiu indėliu: taisyklė gali tik SUSIAURINTI leidžiamas
+ * nuorodas, niekada jų neišplėsti.
+ */
+export async function collectKnownTaskIds(
+  fs: HookFsPort,
+  projectRoot: string,
+  runtimeRoot: string,
+): Promise<string[]> {
+  const ids = new Set<string>();
+  try {
+    const raw = await fs.readTextFileIfExists(path.join(runtimeRoot, "state", "task-ledger.json"));
+    if (raw !== undefined && raw.trim() !== "") {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const key of Object.keys(parsed)) ids.add(key);
+      }
+    }
+  } catch {
+    // Sugadintas ledger'is — be indėlio; bucket'ų failai lieka šaltiniu.
+  }
+  for (const bucket of ["queue", "done"]) {
+    const entries = (await fs.listDirectoryIfExists?.(path.join(projectRoot, "AG", "tasks", bucket))) ?? [];
+    for (const entry of entries) {
+      if (entry.toLowerCase().endsWith(".md")) ids.add(entry.slice(0, -".md".length));
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * `AG/tasks/{queue,active,delegated}/*.md` etalono struktūros vartai. Kelias, kuris nepatenka
+ * į validuojamą bucket'ą, arba kurio busimo turinio nustatyti negalima, praeina be patikros.
+ */
+async function etalonasStructureBlock(
+  context: PreHookContext,
+  input: Record<string, unknown>,
+  filePath: string,
+): Promise<WritePolicyBlock | undefined> {
+  if (!ETALONAS_VALIDATED_TASK_PATH_PATTERN.test(filePath)) return undefined;
+
+  const absoluteFilePath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(context.root, filePath);
+  const text = await prospectiveTaskFileText(input, absoluteFilePath, context.deps.ports.fs);
+  if (text === undefined) return undefined;
+
+  const knownTaskIds = await collectKnownTaskIds(context.deps.ports.fs, context.root, context.runtimeRoot);
+  const violation = validateTaskAgainstEtalonas(text, knownTaskIds)[0];
+  if (!violation) return undefined;
+
+  return {
+    reason: `etalono struktura: ${violation.ruleId}`,
+    stderr: [
+      `BLOCKED: '${filePath}' pazeidzia etalono struktura (${violation.ruleId}).`,
+      `  ${violation.message}`,
+    ].join("\n"),
+  };
+}
+
 export async function hookPreBash(deps: PreHookDeps): Promise<number> {
   const context = contextOf(deps);
 
@@ -184,6 +295,13 @@ export async function hookPreWrite(deps: PreHookDeps): Promise<number> {
   if (block) {
     await context.log(`BLOCKED rašymas: ${filePath} (${block.reason})`);
     context.io.error(block.stderr);
+    return PRE_TOOL_BLOCK_EXIT_CODE;
+  }
+
+  const etalonasBlock = await etalonasStructureBlock(context, parsed.value, filePath);
+  if (etalonasBlock) {
+    await context.log(`BLOCKED rašymas: ${filePath} (${etalonasBlock.reason})`);
+    context.io.error(etalonasBlock.stderr);
     return PRE_TOOL_BLOCK_EXIT_CODE;
   }
 

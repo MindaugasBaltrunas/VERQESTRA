@@ -4,7 +4,7 @@
 openspec/changes/verqestra-backlog-v1
 
 ## Priklausomybės
-- 077-a (parseris jau tolerantiškas pertekliniams laukams ir tipe lieka tik `enabled`)
+- 077-worktree-mirusio-kodo-ir-melagingu-konfigo-lauku-valymas
 
 ## Tikslas
 Suderinti konfigo failus su išvalytu `WorktreePolicy` kontraktu: template'e ir gyvame runtime konfige lieka TIK `enabled`. Melagingi `root`/`branchPrefix`/`pathPrefix` laukai klaidina operatorių apie tai, ką jis valdo.

@@ -4,8 +4,8 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- `095-auditas-be-radiniu-gali-uzsidaryti-kaip-done-audit-complete` (domain markeris).
-- „AUDIT_COMPLETE markeris per DiagnosisRulesPort ir verify-task“ (port'o metodas privalo egzistuoti).
+- 095-auditas-be-radiniu-gali-uzsidaryti-kaip-done-audit-complete
+- 095-a-02-audit-complete-markeris-per-diagnosisrulesport-ir
 
 ## Tikslas
 Prijungti kanoninę domain implementaciją prie `DiagnosisRulesPort` kompozicijos adapteryje, kad audito markerio kelias veiktų gyvame loop'e, o ne tik testų fake'e.

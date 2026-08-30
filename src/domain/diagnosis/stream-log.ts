@@ -28,19 +28,46 @@ export function extractResultEnvelopeFromStreamJsonLog(logText: string): Record<
 }
 
 /**
- * ALREADY_IMPLEMENTED markerio paieška vykdytojo log'e (etalono 1048/1049 pamoka):
- * markeris istoriškai tikrintas /^\s*ALREADY_IMPLEMENTED\b/m regex'u ant ŽALIO log'o —
- * bet dispatch log'as yra stream-json, kuriame sesijos tekstas gyvena JSON string'ų viduje
- * ir NIEKADA neprasideda eilutės pradžioje, todėl markeris nebuvo aptinkamas niekada.
- * Čia markeris papildomai ieškomas išparsintame result envelope (result laukas turi tikrus
+ * Vykdytojo markerio paieška ta pačia DVIGUBA paieška visiems markeriams (etalono 1048/1049
+ * pamoka): markeris istoriškai tikrintas eilutės-pradžios regex'u ant ŽALIO log'o — bet
+ * dispatch log'as yra stream-json, kuriame sesijos tekstas gyvena JSON string'ų viduje ir
+ * NIEKADA neprasideda eilutės pradžioje, todėl markeris nebuvo aptinkamas niekada. Čia
+ * markeris papildomai ieškomas išparsintame result envelope (result laukas turi tikrus
  * newline'us). Plain-text šaka palikta seniems/ne-stream log'ams.
  *
- * Tai yra `DiagnosisRulesPort.hasAlreadyImplementedMarker` kanoninė implementacija.
+ * `marker` privalo būti be `g` vėliavos — `RegExp.test` su `g` neša `lastIndex` būseną tarp
+ * kvietimų ir tas pats log'as duotų skirtingus atsakymus.
  */
-export function logHasAlreadyImplementedMarker(logText: string): boolean {
+function logHasLineStartMarker(logText: string, marker: RegExp): boolean {
   if (!logText) return false;
-  if (/^\s*ALREADY_IMPLEMENTED\b/m.test(logText)) return true;
+  if (marker.test(logText)) return true;
   const envelope = extractResultEnvelopeFromStreamJsonLog(logText);
   const result = envelope && typeof envelope["result"] === "string" ? envelope["result"] : "";
-  return /^\s*ALREADY_IMPLEMENTED\b/m.test(result);
+  return marker.test(result);
+}
+
+const ALREADY_IMPLEMENTED_MARKER = /^\s*ALREADY_IMPLEMENTED\b/m;
+
+const AUDIT_COMPLETE_MARKER = /^\s*AUDIT_COMPLETE\b/m;
+
+/**
+ * Tai yra `DiagnosisRulesPort.hasAlreadyImplementedMarker` kanoninė implementacija:
+ * „darbo nedariau, nes jis jau buvo padarytas".
+ */
+export function logHasAlreadyImplementedMarker(logText: string): boolean {
+  return logHasLineStartMarker(logText, ALREADY_IMPLEMENTED_MARKER);
+}
+
+/**
+ * Task 095: sėkmingas auditas, kuris nieko taisytino neranda, iki šiol negalėjo užsidaryti kaip
+ * done — commit'o nėra (nėra ko keisti), o ALREADY_IMPLEMENTED jo deliverable neatitinka
+ * SEMANTIŠKAI: audito užduotis nebuvo „jau įgyvendinta", ji buvo ĮVYKDYTA, o jos rezultatas —
+ * ataskaita, kad radinių nėra. Toks bėgimas parkuodavosi human-review.
+ *
+ * `AUDIT_COMPLETE: <santrauka>` yra atskiras vykdytojo žodis būtent tam atvejui. Kaip ir
+ * ALREADY_IMPLEMENTED, jis vienas nieko neuždaro — dispozicijos pusėje
+ * (`resolveNoCommitDisposition`) reikalaujamas antras, NEPRIKLAUSOMAS įrodymas.
+ */
+export function logHasAuditCompleteMarker(logText: string): boolean {
+  return logHasLineStartMarker(logText, AUDIT_COMPLETE_MARKER);
 }

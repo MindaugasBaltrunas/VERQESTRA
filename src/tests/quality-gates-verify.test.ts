@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   extractResultEnvelopeFromStreamJsonLog,
   logHasAlreadyImplementedMarker,
+  logHasAuditCompleteMarker,
 } from "../domain/diagnosis/stream-log.js";
 import {
   loadSecurityPolicy,
@@ -50,6 +51,23 @@ test("stream-log: markeris randamas plain-text ir stream-json envelope, o JSON s
   const envelope = extractResultEnvelopeFromStreamJsonLog(streamLog);
   assert.equal(envelope?.["type"], "result");
   assert.equal(extractResultEnvelopeFromStreamJsonLog("jokio result"), undefined);
+});
+
+// Task 095: abu markeriai dalijasi ta pačia dviguba paieška (`logHasLineStartMarker`), tad
+// refaktoringas galėtų juos sulieti nepastebimai. Šis testas laiko juos atskirus: kiekvienas
+// atpažįsta TIK savo žodį, o `RegExp.test` be `g` vėliavos neneša būsenos tarp kvietimų —
+// tas pats log'as antrą kartą privalo duoti tą patį atsakymą.
+test("stream-log: ALREADY_IMPLEMENTED ir AUDIT_COMPLETE markeriai nesipainioja ir yra be būsenos", () => {
+  const auditLog = "AUDIT_COMPLETE: radinių nėra\n";
+  const alreadyLog = "ALREADY_IMPLEMENTED: darbas jau padarytas\n";
+
+  assert.equal(logHasAuditCompleteMarker(auditLog), true);
+  assert.equal(logHasAuditCompleteMarker(alreadyLog), false);
+  assert.equal(logHasAlreadyImplementedMarker(alreadyLog), true);
+  assert.equal(logHasAlreadyImplementedMarker(auditLog), false);
+
+  assert.equal(logHasAuditCompleteMarker(auditLog), true, "antras kvietimas duoda tą patį");
+  assert.equal(logHasAlreadyImplementedMarker(alreadyLog), true, "antras kvietimas duoda tą patį");
 });
 
 function fakeFs(files: Record<string, string>): { readTextFileIfExists: (p: string) => Promise<string | undefined> } {

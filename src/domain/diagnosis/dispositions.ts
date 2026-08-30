@@ -218,6 +218,13 @@ export type NoCommitDoneInputs = {
    * žr. komentarą ten.
    */
   writeActivity?: ExecutorWriteActivity;
+  /**
+   * Task 095: vykdytojo log'as turi eilutę, prasidedančią `AUDIT_COMPLETE` — auditas ĮVYKDYTAS
+   * ir taisytinų radinių nerado. Neprivalomas, kad esami kvietėjai liktų kompiliuojami;
+   * nepaduotas laukas reiškia „markerio nėra" ir visų esamų šakų elgesio nekeičia.
+   * Kanoninė atpažinimo vieta — `stream-log.ts#logHasAuditCompleteMarker`.
+   */
+  hasAuditCompleteMarker?: boolean;
 };
 
 export type NoCommitDisposition = "done" | "rollback" | "human-review";
@@ -228,6 +235,8 @@ export type NoCommitDisposition = "done" | "rollback" | "human-review";
  * (rollback) ar "švarus medis be darbo įrodymo" (human-review).
  *
  * done kai:
+ *   - yra AUDIT_COMPLETE markeris IR skaitytojas PATVIRTINO nulinį rašymo aktyvumą
+ *     (`writeActivity === "no-writes"`) IR medis švarus nuo produkto pakeitimų (task 095), ARBA
  *   - yra ALREADY_IMPLEMENTED markeris IR darbo įrodymas istorijoje, ARBA
  *   - yra ALREADY_IMPLEMENTED markeris IR darbo įrodymo istorijoje NĖRA, bet skaitytojas
  *     PATVIRTINO nulinį rašymo aktyvumą (`writeActivity === "no-writes"`) IR medis švarus
@@ -244,6 +253,20 @@ export type NoCommitDisposition = "done" | "rollback" | "human-review";
  * 884–893).
  */
 export function resolveNoCommitDisposition(inputs: NoCommitDoneInputs): NoCommitDisposition {
+  // Task 095: sėkmingas auditas be radinių yra baigtis, kurios nė vienas iki šiol buvęs kelias
+  // neaprašė. Commit'o nėra, nes taisyti nebuvo ko; `hasWorkEvidence` nėra, nes read-only
+  // auditas neturi git deliverable; ALREADY_IMPLEMENTED čia yra SEMANTIŠKAI ne tas žodis —
+  // task'as nebuvo „jau įgyvendintas", jis buvo įvykdytas ir jo deliverable yra ataskaita.
+  //
+  // Šaka tokia pat siaura ir su tokiu pat DVIGUBU įrodymu kaip task 060 išimtis žemiau:
+  // (1) vykdytojo žodis (AUDIT_COMPLETE markeris) IR (2) NEPRIKLAUSOMAS skaitytojo signalas,
+  // kad rašymų tikrai nebuvo (`writeActivity === "no-writes"` — `"unknown"` NĖRA įrodymas, žr.
+  // `ExecutorWriteActivity`) IR (3) švarus produkto medis: dirty įrašai prieštarauja „nulis
+  // rašymų" tvirtinimui, tad auditas, kuris ką nors paliko medyje, čia neįeina. Trūkstant bet
+  // kurio įrodymo, elgesys lieka lygiai toks, koks buvo iki 095.
+  if (inputs.hasAuditCompleteMarker === true && inputs.writeActivity === "no-writes" && inputs.productDirtyCount === 0) {
+    return "done";
+  }
   // 2026-08-14 false-done epidemija (0000-1 07:47, 0000-loop 08:03 — abu be jokio Edit/Write):
   // ALREADY_IMPLEMENTED markeris yra VYKDYTOJO ŽODIS, ne įrodymas — sesijos jį spausdina
   // per lengvai (Žingsnio 0 tekstas neverčia pateikti patikrinamų nuorodų). Žodis be darbo
@@ -275,10 +298,18 @@ export function resolveNoCommitDisposition(inputs: NoCommitDoneInputs): NoCommit
  * nebuvo. `"no-writes"` — patikimas skaitytojo signalas, kad rašymo-įrankio kvietimų nebuvo —
  * gauna savo, tikslesnę priežastį. `"unknown"` NIEKADA negamina naujos priežasties: tyli ar
  * neatpažinta sesija nėra įrodymas, kad rašymų nebuvo, tad grąžinama esama priežastis.
+ *
+ * Task 095: kai yra AUDIT_COMPLETE markeris, bet nulinis rašymo aktyvumas NEPATVIRTINTAS,
+ * dispozicija lieka human-review — ir operatoriui reikia žinoti, KURIO iš dviejų įrodymų
+ * trūksta. Bendra „clean tree without work evidence" eilutė čia siųstų ieškoti dingusio
+ * deliverable, nors auditas deliverable ir neturi: trūksta būtent skaitytojo signalo.
  */
 export function resolveNoCommitReviewReason(inputs: NoCommitDoneInputs): string {
   if (inputs.writeActivity === "no-writes") {
     return "executor made no write-tool calls";
+  }
+  if (inputs.hasAuditCompleteMarker === true) {
+    return "AUDIT_COMPLETE marker without confirmed zero-write evidence";
   }
   return "clean tree without work evidence (deliverable missing — possibly rolled back)";
 }

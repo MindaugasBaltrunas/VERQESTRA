@@ -217,6 +217,34 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
   );
 });
 
+test("095-b-03: taskRunPorts.rules.hasAuditCompleteMarker atpažįsta AUDIT_COMPLETE tiek žaliame, tiek stream-json log'e", async () => {
+  const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-coord-auditmarker-"));
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const agRoot = path.join(projectRoot, "AG");
+  try {
+    const ports = taskRunPorts({
+      projectRoot,
+      runtimeRoot,
+      agRoot,
+      resolution: noRuntimeAttemptResolution,
+      runCli: async () => 0,
+      runCliCaptured: async () => ({ code: 0, output: "" }),
+    });
+
+    assert.equal(typeof ports.rules.hasAuditCompleteMarker, "function");
+    assert.equal(ports.rules.hasAuditCompleteMarker?.("AUDIT_COMPLETE: nieko taisytino nerasta"), true);
+    assert.equal(ports.rules.hasAuditCompleteMarker?.("kažkas kita, jokio markerio"), false);
+
+    const resultLine = JSON.stringify({
+      type: "result",
+      result: "eiga...\nAUDIT_COMPLETE: 12 failų patikrinta, radinių nėra\n",
+    });
+    assert.equal(ports.rules.hasAuditCompleteMarker?.(`${resultLine}\n`), true);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("021-d-05: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ quality-gates (own-done greitai, timeout nekeičia elgesio)", async () => {
   const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-coord-stopwait-"));
   const runtimeRoot = path.join(projectRoot, "vq");

@@ -30,7 +30,7 @@ import {
 import { classifyDispatchWriteOutcome, extractDispatchToolUsage } from "../../infrastructure/adapters/claude-tool-schema.js";
 import { loadProjectProfile } from "../agent/preflight-adapters.js";
 import { buildTaskUsageLedger, parseTaskUsageEntries } from "../../domain/tokens/usage-ledger.js";
-import { logHasAlreadyImplementedMarker } from "../../domain/diagnosis/stream-log.js";
+import { logHasAlreadyImplementedMarker, logHasAuditCompleteMarker } from "../../domain/diagnosis/stream-log.js";
 import { resolveNoCommitDisposition, resolveNoCommitReviewReason } from "../../domain/diagnosis/dispositions.js";
 import { nonRuntimeDirtyEntriesFromStatus } from "../../domain/git/changes.js";
 import {
@@ -201,6 +201,7 @@ export const coordinatorRulesPort: DiagnosisRulesPort = {
   resolveNoCommitDisposition: (inputs) => resolveNoCommitDisposition(inputs),
   readExecutorWriteActivity: (claudeLog) => classifyDispatchWriteOutcome(extractDispatchToolUsage(claudeLog)),
   resolveNoCommitReviewReason: (inputs) => resolveNoCommitReviewReason(inputs),
+  hasAuditCompleteMarker: (claudeLog) => logHasAuditCompleteMarker(claudeLog),
 };
 
 /** Užbaigimas: stable-ref, architektūros sinchronizacija, kaskada, archyvavimas, vaikai. */

@@ -23,9 +23,15 @@ function waveModeMetric(workerControl?: WorkerControlView): OverviewMetric | nul
   return { label: "Wave mode", value, variant: "neutral" };
 }
 
+function w2LastFailureMetric(slotProgress?: SlotProgressView[]): OverviewMetric | null {
+  const w2 = slotProgress?.find((s) => s.workerId === "w2");
+  if (!w2 || w2.lastError === null) return null;
+  return { label: "W2 last failure", value: w2.lastError.reason, variant: "error" };
+}
+
 export const OverviewPanel = memo(function OverviewPanel({ metrics, slotProgress, workerControl }: Props) {
   const { t } = useI18n();
-  const extraMetrics = [w2LiveMetric(slotProgress), waveModeMetric(workerControl)].filter(
+  const extraMetrics = [w2LiveMetric(slotProgress), waveModeMetric(workerControl), w2LastFailureMetric(slotProgress)].filter(
     (m): m is OverviewMetric => m !== null,
   );
   const allMetrics = [...metrics, ...extraMetrics];

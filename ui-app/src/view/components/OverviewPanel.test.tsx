@@ -94,4 +94,20 @@ describe("OverviewPanel w2 and wave signals", () => {
 
     expect(screen.queryByText("Wave mode")).not.toBeInTheDocument();
   });
+
+  it("shows the w2 last failure reason when lastError is set", () => {
+    renderPanel({
+      slotProgress: [
+        slotView({ lastError: { ts: "2026-08-30T00:00:00.000Z", taskId: "1234-backend", reason: "timeout" } }),
+      ],
+    });
+
+    expect(screen.getByText("timeout")).toBeInTheDocument();
+  });
+
+  it("does not show a w2 last failure row when lastError is null", () => {
+    renderPanel({ slotProgress: [slotView({ lastError: null })] });
+
+    expect(screen.queryByText("W2 last failure")).not.toBeInTheDocument();
+  });
 });

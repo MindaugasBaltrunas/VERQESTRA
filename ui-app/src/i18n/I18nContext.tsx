@@ -537,6 +537,7 @@ const lt: Record<string, string> = {
   "Stale task state": "Pasenusi užduoties būsena",
   "W2 live task": "W2 gyva užduotis",
   "Wave mode": "Bangos režimas",
+  "W2 last failure": "W2 paskutinė nesėkmė",
   // 2026-08-24 („viskas matoma"): biudžeto ir diagnostikos panelės.
   "Cost control": "Kaštų kontrolė",
   "Token budget": "Token biudžetas",

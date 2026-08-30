@@ -58,7 +58,7 @@ import { cliEntryPath, type RuntimeRoots } from "../runtime/context.js";
 import { createWaveIntegrationAdapters } from "./wave-integration-adapters.js";
 import { taskRunPorts } from "./coordinator-execution-adapters.js";
 import { cliChildRunner } from "./coordinator-adapters.js";
-import { preservedWorkReviewPort } from "./preserved-work-adapters.js";
+import { preservedRefRetentionPort, preservedWorkReviewPort } from "./preserved-work-adapters.js";
 import { createTaskStateStore } from "../../infrastructure/state/task-state-store.js";
 import { createCheapFinishEnvOverlay } from "../quality/cheap-finish-adapters.js";
 import {
@@ -123,6 +123,15 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
   const absolutePath = (relativeFile: string): string => path.join(projectRoot, relativeFile);
   const stateDir = path.join(runtimeRoot, "state");
   const cheapFinishOverlay = createCheapFinishEnvOverlay();
+  const preservedRefRetention = preservedRefRetentionPort({ projectRoot, runtimeRoot });
+  // N parų riba (075-b-03) ateina per konfigūraciją, ne hardcode'inta čia: nenurodžius
+  // `AG_PRESERVED_REF_RETENTION_DAYS`, `expirePreservedRefs` naudoja savo numatytąją (14).
+  const preservedRefRetentionDays = (): number | undefined => {
+    const raw = (deps.env ?? process.env)["AG_PRESERVED_REF_RETENTION_DAYS"];
+    if (raw === undefined) return undefined;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
 
   // Aprūpinimas gauna PLANUOKLIO būseną (grafą ir tai, kas dirba) per fabriką: konstantos čia
   // reikštų aklą aprūpinimą — be grafo write-set'as tuščias, o be „kas dirba" tas pats task'as
@@ -334,6 +343,15 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       const evidenceless = await reclaimEvidencelessSynthesizedTasks(wavePorts, projectRoot);
       if (evidenceless.nodes.length > 0) {
         lines.push(`ARCHITECTURE EVIDENCE-LESS TASKS RECLAIMED: ${evidenceless.nodes.join(", ")}`);
+      }
+      // Preserved-ref retencija (075-b-03): pasenę `refs/verqestra/preserved/*` niekada savaime
+      // nedingsta, tad valymas priklauso ČIA — prieš imant naują darbą. Klaida NIEKADA
+      // nenutraukia likusio priežiūros ciklo: ji tik prarastų vieną žurnalo eilutę, taip pat
+      // kaip aukščiau esantis architektūros reklaimas.
+      try {
+        await preservedRefRetention.expire(deps.log, preservedRefRetentionDays());
+      } catch (error) {
+        lines.push(`PRESERVED REF RETENTION FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
       return lines;
     },

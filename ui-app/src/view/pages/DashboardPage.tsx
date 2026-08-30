@@ -192,7 +192,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
             {/* VISOS metrikos. Iki 2026-08-24 čia stovėjo `.slice(0, 4)`, tad „Latest activity" ir
                 „Stable commit" buvo skaičiuojamos serveryje, siunčiamos laidu ir NIEKADA nerodomos
                 — o `stableRef` yra vienintelė nuoroda, nuo kurio commit'o atkuriamas medis. */}
-            <OverviewPanel metrics={dashboard.overview} />
+            <OverviewPanel metrics={dashboard.overview} slotProgress={slotProgress} workerControl={dashboard.workerControl} />
             <div className="command-grid">
               {agentActivity && (
                 <AgentChainProgress

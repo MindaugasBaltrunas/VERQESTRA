@@ -535,6 +535,8 @@ const lt: Record<string, string> = {
   "Upload failed": "Nepavyko įkelti",
   "Current task": "Dabartinė užduotis",
   "Stale task state": "Pasenusi užduoties būsena",
+  "W2 live task": "W2 gyva užduotis",
+  "Wave mode": "Bangos režimas",
   // 2026-08-24 („viskas matoma"): biudžeto ir diagnostikos panelės.
   "Cost control": "Kaštų kontrolė",
   "Token budget": "Token biudžetas",

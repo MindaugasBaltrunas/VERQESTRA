@@ -173,7 +173,7 @@ export function planWorkerPool(input: PlanWorkerPoolInput): WorkerPoolPlan {
       continue;
     }
 
-    slots.push(buildWorkerSlot(input.run_id, 2, candidate));
+    slots.push(buildWorkerSlot(input.run_id, PRIMARY_WORKER_INDEX + 1, candidate));
     // Likę kandidatai net nevertinami: limitas užpildytas, ir tylus jų praleidimas
     // atrodytų kaip „netiko", o ne kaip „vietos nebėra".
     for (const skipped of rest.slice(index + 1)) {

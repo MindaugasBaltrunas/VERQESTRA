@@ -153,8 +153,8 @@ export type RetryGuardAdapters = {
   counts: RetryCountsStorePort;
   maxRetriesPerError(): Promise<number>;
   readCurrentTaskId(): Promise<string | undefined>;
-  readErrorSignatures(): Promise<Record<string, string>>;
-  writeErrorSignatures(signatures: Record<string, string>): Promise<void>;
+  /** Serializuotas read-modify-write; žr. `retryGuardAdapters` ir `RetryGuardCommandDeps`. */
+  updateErrorSignatures(mutate: (signatures: Record<string, string>) => void): Promise<void>;
   writeLegacyErrorSignature(text: string): Promise<void>;
   agLog(line: string): Promise<void>;
   appendErrorLog(text: string): Promise<void>;
@@ -186,9 +186,18 @@ export function retryGuardAdapters(runtimeRoot: string): RetryGuardAdapters {
     counts: retryCountsStore(runtimeRoot),
     maxRetriesPerError: () => maxRetriesPerError(runtimeRoot),
     readCurrentTaskId: () => readCurrentTaskId(runtimeRoot),
-    readErrorSignatures: () => readJsonOrEmpty<Record<string, string>>(statePath("last-error-signatures.json")),
-    writeErrorSignatures: (signatures) =>
-      nodeFsAdapter.writeTextFile(statePath("last-error-signatures.json"), toPrettyJson(signatures)),
+    // Tas PATS primityvas kaip retry skaitikliams (`retryCountsStore.update`), o ne antra jo
+    // kopija: parašų žemėlapį irgi rašo du lygiagretūs slot'ai, ir be abipusio išskyrimo antras
+    // rašytojas perrašydavo pirmojo įrašą — diagnozė paskui skaitydavo ne to task'o parašą.
+    // `writeTextFile` jau atominis (tmp + rename); trūko ne atomiškumo, o serializacijos.
+    updateErrorSignatures: async (mutate) => {
+      const file = statePath("last-error-signatures.json");
+      await withStateFileLock(file, async () => {
+        const signatures = await readJsonOrEmpty<Record<string, string>>(file);
+        mutate(signatures);
+        await nodeFsAdapter.writeTextFile(file, toPrettyJson(signatures));
+      });
+    },
     writeLegacyErrorSignature: (text) => nodeFsAdapter.writeTextFile(statePath("last-error-signature"), text),
     agLog: (line) => appendLogLine(runtimeRoot, "orchestrator.log", line),
     // Klaidų žurnalas gauna PARUOŠTUS blokus (kelios eilutės) — antspaudas jiems netaikomas.

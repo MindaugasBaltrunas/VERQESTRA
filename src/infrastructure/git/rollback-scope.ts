@@ -25,6 +25,12 @@ async function git(root: string, args: string[]): Promise<CommandResult> {
 /** GC apsaugos ref'ų šaknis (žr. `preserveTaskScope`) — 075-a-02 retencijos modulis skaito šį patį prefiksą. */
 export const PRESERVED_REF_PREFIX = "refs/verqestra/preserved/";
 
+/** `rev-list --count` nesėkmė ant push'inimo varto yra fail-closed, ne tylus 0/NaN „leidžiama". */
+function revListCountFailure(command: string, result: CommandResult): PushedRollbackDecision {
+  const stderrSummary = (result.stderr || result.stdout).trim() || `exit code ${result.code}`;
+  return { blocked: true, detail: `unable to verify pushed rollback safety: ${command} failed (${stderrSummary})` };
+}
+
 /** Surenka git faktus {@link pushedRollbackBlock} sprendimui prieš realų repo. */
 export async function detectPushedRollback(root: string, stableRef: string): Promise<PushedRollbackDecision> {
   const head = await gitHead(root);
@@ -34,15 +40,26 @@ export async function detectPushedRollback(root: string, stableRef: string): Pro
   const upstream = `origin/${branch}`;
   const upstreamExists = (await git(root, ["rev-parse", "--verify", `${upstream}^{commit}`])).code === 0;
   if (!upstreamExists) return { blocked: false };
-  const total = await git(root, ["rev-list", "--count", `${stableRef}..HEAD`]);
-  const unpushed = await git(root, ["rev-list", "--count", `${stableRef}..HEAD`, "--not", upstream]);
+
+  const totalArgs = ["rev-list", "--count", `${stableRef}..HEAD`];
+  const total = await git(root, totalArgs);
+  if (total.code !== 0) return revListCountFailure(`git ${totalArgs.join(" ")}`, total);
+  const totalCommitsSince = Number(total.stdout.trim());
+  if (!Number.isFinite(totalCommitsSince)) return revListCountFailure(`git ${totalArgs.join(" ")}`, total);
+
+  const unpushedArgs = ["rev-list", "--count", `${stableRef}..HEAD`, "--not", upstream];
+  const unpushed = await git(root, unpushedArgs);
+  if (unpushed.code !== 0) return revListCountFailure(`git ${unpushedArgs.join(" ")}`, unpushed);
+  const unpushedCommitsSince = Number(unpushed.stdout.trim());
+  if (!Number.isFinite(unpushedCommitsSince)) return revListCountFailure(`git ${unpushedArgs.join(" ")}`, unpushed);
+
   return pushedRollbackBlock({
     head,
     stableRef,
     branch,
     upstreamExists,
-    totalCommitsSince: Number(total.stdout.trim() || "0"),
-    unpushedCommitsSince: Number(unpushed.stdout.trim() || "0"),
+    totalCommitsSince,
+    unpushedCommitsSince,
   });
 }
 

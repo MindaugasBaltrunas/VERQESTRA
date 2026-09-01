@@ -16,6 +16,7 @@ import {
   HumanReviewApprovalRequiredError,
   listPolicyProposals,
   ProposalCancelConflictError,
+  ProposalNoOpError,
   ProposalNotApprovedError,
   type PolicyProposalServicePorts,
 } from "../application/policy-governance/policy-proposal-service.js";
@@ -95,18 +96,59 @@ test("buildPolicyProposal: reason neprivalomas — nepaduotas tampa \"\", senas 
   assert.equal(withoutReason.reason, "");
   await appendPolicyProposal(ports.fs, RUNTIME_ROOT, withoutReason);
 
+  // Kitas nustatymas, ne ta pati vėliava atgal į `false`: žurnalo append'as policy failo
+  // nekeičia, tad `require_tests_for_code_changes: false` čia būtų no-op ir kristų ties
+  // `ProposalNoOpError` — testas apie `reason` matuotų nebe `reason`.
   const withReason = await buildPolicyProposal(
     ports,
     RUNTIME_ROOT,
     "enforcement",
-    "require_tests_for_code_changes",
-    false,
+    "max_files_per_task",
+    5,
     "sena priežastis",
   );
   assert.equal(withReason.reason, "sena priežastis");
   await appendPolicyProposal(ports.fs, RUNTIME_ROOT, withReason);
 
   assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 2);
+});
+
+// 2026-08-31 UI audito P1: forma prisipildo dabartinėmis reikšmėmis, tad neliestas laukas
+// nusiunčiamas nepakeistas. Vartai stovi application pusėje, nes tik ji žino dabartinę reikšmę.
+test("no-op pasiūlymas: sutampanti reikšmė atmetama, žurnalas nepaliečiamas, kitokia — praeina", async () => {
+  const ports = makePorts();
+
+  // Būtent audito atvejis: dabartinis `style` yra "layered" (schemos default), ir forma jį
+  // grąžina nepakeistą.
+  await assert.rejects(
+    () => buildPolicyProposal(ports, RUNTIME_ROOT, "architecture-style", "style", "layered", "nieko nekeičiam"),
+    ProposalNoOpError,
+  );
+
+  // GILI lygybė: `layers` yra masyvas, tad `===` čia niekada nesutaptų ir vartai objektams
+  // tiesiog neveiktų.
+  await assert.rejects(
+    () => buildPolicyProposal(ports, RUNTIME_ROOT, "architecture-style", "layers", [], "tas pats masyvas"),
+    ProposalNoOpError,
+  );
+
+  // Nė vienas atmestas pasiūlymas nepasiekė append-only žurnalo.
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 0);
+  assert.equal(ports.files.size, 0);
+
+  // Skirtinga reikšmė toliau praeina visą kelią.
+  const changed = await buildPolicyProposal(
+    ports,
+    RUNTIME_ROOT,
+    "architecture-style",
+    "style",
+    "hexagonal",
+    "keičiam stilių",
+  );
+  assert.equal(changed.old_value, "layered");
+  assert.equal(changed.requested_value, "hexagonal");
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, changed);
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 1);
 });
 
 test("apply vartai: be approve — klaida; approved + human-review be markerio — klaida; su markeriu — failas įrašomas", async () => {

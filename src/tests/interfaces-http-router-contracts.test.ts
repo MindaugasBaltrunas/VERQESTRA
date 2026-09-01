@@ -20,6 +20,7 @@ import { InvalidLoopControlError } from "../application/scheduling/loop-control-
 import { UnsupportedPolicyFileError } from "../application/policy-governance/policy-file-registry.js";
 import {
   HumanReviewApprovalRequiredError,
+  ProposalNoOpError,
   ProposalNotApprovedError,
 } from "../application/policy-governance/policy-proposal-service.js";
 
@@ -270,6 +271,32 @@ test("governance klaidos gauna SAVO statusą: 400 / 409 / 403", async () => {
     assert.equal(response.status, status, `${error.name} privalo duoti ${status}`);
     // 403 čia yra atsisakymas suteikti teisę, ne būsenos konfliktas: pasiūlymas maršrutizuotas į
     // human-review, o UI nėra tas žmogus.
+    assert.equal(state.errors.length, 0);
+  }
+});
+
+// Pasiūlymo maršrutas naudoja TĄ PATĮ `mapPolicyDecisionError`, tad jo statusų aibė turi būti
+// pin'inama atskirai: iki 2026-08-31 audito P1 pataisos jis pro save praleisdavo tik registro ir
+// schemos klaidas, ir no-op sėkmingai grįždavo 200 su beprasmiu žurnalo įrašu.
+test("pasiūlymo maršruto klaidos: no-op — 409, netinkama reikšmė — 400", async () => {
+  const noOp = new ProposalNoOpError("vq/architecture/architecture-style.json", "style", "layered");
+  const cases: [Error, number][] = [
+    [noOp, 409],
+    [new UnsupportedPolicyFileError("vq/nezinomas.json"), 400],
+  ];
+
+  for (const [error, status] of cases) {
+    const state = world();
+    state.throwOn.set("propose", error);
+    const response = await post(state, "/api/policies/architecture-style/set", {
+      setting_id: "style",
+      requested_value: "layered",
+      reason: "auditas",
+    });
+    assert.equal(response.status, status, `${error.name} privalo duoti ${status}`);
+    // 409 čia yra būsenos konfliktas, ne įvesties forma: `"layered"` yra teisėta reikšmė ir ta
+    // pati užklausa taps priimtina, vos tik dabartinė reikšmė pasikeis.
+    assert.deepEqual(response.data, { error: error.message });
     assert.equal(state.errors.length, 0);
   }
 });

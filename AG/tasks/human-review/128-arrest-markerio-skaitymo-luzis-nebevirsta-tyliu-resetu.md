@@ -37,6 +37,10 @@ Leidžiama:
 - `src/tests/context-pack.test.ts` (effective policy testai gyvena čia;
   jei arrest skaitymo atvejai natūraliau gula kitame context-pack teste —
   tas failas vietoje šio, įrašyti į ataskaitą)
+- `src/tests/context-pack-guards.test.ts` (context-pack.test.ts spillover
+  failas prie 500 eil. ribos; 2026-09-01 dispatch parkavosi su „changed
+  files outside allowed paths: src/tests/context-pack-guards.test.ts" —
+  worker'iui arrest skaitymo testams objektyviai reikėjo šio failo)
 
 Draudžiama:
 - `src/application/context-pack/compression-arrest-observer.ts` (guard'as

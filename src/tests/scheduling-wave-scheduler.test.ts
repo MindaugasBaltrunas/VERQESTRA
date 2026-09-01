@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWaveScheduler, type WaveSchedulerDeps } from "../application/scheduling/wave-scheduler.js";
+import { decideResume } from "../application/scheduling/resume-run.js";
 import { computeTaskWriteSet } from "../application/scheduling/conflict-detector.js";
 import type { SchedulableTask } from "../application/scheduling/schedule-next-wave.js";
 import type { WorkerCandidate } from "../application/scheduling/worker-pool-admission.js";
@@ -372,6 +373,36 @@ test("priimtas darbas per resume UŽDAROMAS, o ne kartojamas", async () => {
   // Uždarytas task'as antrą kartą nebesiūlomas.
   const next = await scheduler.nextTask();
   assert.equal(next.kind === "task" ? next.task.task_id : next.kind, "0002");
+});
+
+// Task 115 (2026-09-01): decideResume taisyklių tvarka — terminal-bucket dabar sprendžia PRIEŠ
+// grafo hash'ą, tad `done` task'as su svetimu checkpoint.graph_hash gauna `skip-completed`, o
+// ne `discard-stale`; resumable vietai stale grafo apsauga (žr. scheduling-waves.test.ts) lieka.
+test("decideResume: terminal-bucket trumpa graph-hash mismatch (task 115)", () => {
+  const checkpoint = { status: "started" as const, task_id: "0007", graph_hash: "wg1:old" };
+  const evidence = { acceptedCommit: false, currentGraphHash: "wg1:new" };
+  const terminal = decideResume(checkpoint, { ...evidence, location: "terminal-bucket" });
+  assert.equal(terminal.action, "skip-completed");
+  assert.deepEqual(terminal.reason_codes, ["terminal-bucket"]);
+  assert.equal(decideResume(checkpoint, { ...evidence, location: "resumable-bucket" }).action, "discard-stale");
+});
+
+// Task 115 (operatoriaus radinys 095-b-03): `done` bucket'e gulintis task'as su PASENUSIU
+// checkpoint'o `graph_hash` anksčiau kiekvieną startą gaudavo `discard-stale` (be uždarymo
+// kelio) ir kartojosi be galo, nes checkpoint'as niekad nebuvo perrašomas.
+test("terminaliniam task'ui su svetimu graph_hash resume UŽDARO, o ne kartoja discard-stale", async () => {
+  const w = world({
+    checkpoint: { status: "started", task_id: "0001", updated_at: NOW, graph_hash: "wg1:stale-plan" },
+    locate: () => Promise.resolve("terminal-bucket"),
+    accepted: false,
+  });
+  const scheduler = createWaveScheduler(w.deps);
+  const decision = await scheduler.recoverFromCrash();
+
+  assert.equal(decision.action, "skip-completed");
+  assert.deepEqual(decision.reason_codes, ["terminal-bucket"]);
+  assert.ok(w.logs.some((line) => line.includes("WAVE RESUME TASK CLOSED")), "uždarymo kelias privalo suveikti, ne tik log'as");
+  assert.equal(w.logs.some((line) => line.includes("discard-stale")), false, "terminaliniam task'ui discard-stale nebekartojama");
 });
 
 test("neatstatytas task failas per resume ESKALUOJAMAS", async () => {

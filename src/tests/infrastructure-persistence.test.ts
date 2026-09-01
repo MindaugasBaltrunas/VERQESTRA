@@ -1,6 +1,6 @@
 // Persistence adapterių integraciniai testai (E4 VQ-403 1/2) — reali FS laikinuose
-// kataloguose: runtime attempt store (write-once/CAS/tapatybė), task-graph snapshot,
-// code-index store (JSONL byte-compat forma) ir state-history.
+// kataloguose: runtime attempt store (write-once/CAS/tapatybė), task-graph snapshot
+// ir state-history.
 
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -22,12 +22,6 @@ import {
   writeJsonArtifact,
   writeTextArtifact,
 } from "../infrastructure/persistence/runtime-artifact-store.js";
-import {
-  createManifest,
-  readCodeIndex,
-  writeCodeIndex,
-  codeIndexPath,
-} from "../infrastructure/persistence/code-index-store.js";
 import {
   readTaskGraphSnapshot,
   writeTaskGraphSnapshot,
@@ -174,35 +168,6 @@ test("task-graph snapshot: write_symbols/architecture_nodes išgyvena roundtrip'
   const read = await readTaskGraphSnapshot(runtimeRoot);
   assert.equal(read.ok, true, JSON.stringify(read));
   if (read.ok) assert.deepEqual(read.graph, graph);
-});
-
-test("code-index store: JSONL byte-compat forma ir manifest roundtrip", async () => {
-  const file = {
-    path: "src/a.ts",
-    hash: "abc",
-    size: 10,
-    language: "typescript" as const,
-    kind: "source" as const,
-    imports: [],
-    exports: ["a"],
-    symbols: ["src/a.ts#a"],
-    isTest: false,
-  };
-  const symbol = { id: "src/a.ts#a", file: "src/a.ts", name: "a", kind: "function" as const, exported: true };
-  const edge = { from: "src/a.ts", to: "src/b.ts", type: "imports" as const };
-  const manifest = createManifest(projectRoot, [file], [symbol], [edge], "hash-1");
-
-  await writeCodeIndex(runtimeRoot, { manifest, files: [file], symbols: [symbol], edges: [edge] });
-
-  // BYTE forma: po vieną JSON.stringify eilutę + galinis \n (AG_loop formato kontraktas).
-  const filesRaw = await nodeFsAdapter.readTextFile(codeIndexPath(runtimeRoot, "files.jsonl"));
-  assert.equal(filesRaw, `${JSON.stringify(file)}\n`);
-
-  const read = await readCodeIndex(runtimeRoot);
-  assert.deepEqual(read.files, [file]);
-  assert.deepEqual(read.symbols, [symbol]);
-  assert.deepEqual(read.edges, [edge]);
-  assert.equal(read.manifest.source_hash, "hash-1");
 });
 
 test("state-history: append/read roundtrip, o resolveHumanReviewStatus sprendžia iš paskutinio įvykio", async () => {

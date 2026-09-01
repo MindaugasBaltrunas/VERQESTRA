@@ -21,6 +21,31 @@ async function workspace(): Promise<{ projectRoot: string; runtimeRoot: string }
 
 const overlay = (): ReturnType<typeof createCheapFinishEnvOverlay> => createCheapFinishEnvOverlay();
 
+/**
+ * Aplinkos izoliacija „nėra runtime namespace'o" scenarijui.
+ *
+ * `mkdtemp` workspace izoliuoja tik FAILŲ sistemą, o `resolveActiveAttempt` run id'ą pirmiausia
+ * ima iš `process.env` (`active-attempt.ts:140` — env nusveria ir bangos snapshot'ą, ir resume
+ * checkpoint'ą). Dispatch'inta sesija `AG_RUN_ID` turi, tad prielaida „namespace'o nėra"
+ * neišsipildydavo: attempt'as sėkmingai atsidarydavo tuščiame temp root'e, `prepared.ok` grįždavo
+ * `true`, ir testas krisdavo BET KURIAME dispatch'e — žalias tik švarioje lokalioje sesijoje.
+ *
+ * Todėl scenarijaus prielaida įgyvendinama, o ne prielaidaujama. `AG_RUNTIME_ARTIFACTS` čia
+ * SĄMONINGAI neliečiamas: jo išjungimas duotų `disabled`, o testas tikrina būtent `no-runtime`
+ * kelią — run evidence nebuvimą prie įjungtų artefaktų.
+ */
+function withoutRuntimeNamespace<T>(body: () => Promise<T>): Promise<T> {
+  const keys = ["AG_RUN_ID", "AG_ATTEMPT_ID", "AG_WORKER_ID"] as const;
+  const saved = keys.map((key) => [key, process.env[key]] as const);
+  for (const key of keys) delete process.env[key];
+  return body().finally(() => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+}
+
 test("env overlay SUNAUDOJAMAS vieną kartą", () => {
   const one = overlay();
   assert.equal(one.consume(), undefined, "be paruošimo overlay nėra");
@@ -93,21 +118,23 @@ test("retry biudžetas skaičiuoja KITĄ bandymą", async () => {
 test("be runtime namespace'o `prepareDispatch` krenta PRIEŠ retry inkrementą", async () => {
   const world = await workspace();
   try {
-    const port = cheapFinishPort(world, overlay());
-    const before = await port.retryBudget("0042");
+    await withoutRuntimeNamespace(async () => {
+      const port = cheapFinishPort(world, overlay());
+      const before = await port.retryBudget("0042");
 
-    const prepared = await port.prepareDispatch({
-      taskId: "0042",
-      promptText: "# task\n",
-      desiredTierStep: 1,
-      tokenBudgetTier: "small",
-      resetTaskLedger: false,
+      const prepared = await port.prepareDispatch({
+        taskId: "0042",
+        promptText: "# task\n",
+        desiredTierStep: 1,
+        tokenBudgetTier: "small",
+        resetTaskLedger: false,
+      });
+
+      assert.equal(prepared.ok, false);
+      assert.ok(prepared.errors.some((error) => error.includes("runtime attempt namespace unavailable")));
+      // Būsena lieka NEPAJUDINTA: kitaip task'as netektų bandymo, kurio niekada negavo.
+      assert.equal((await port.retryBudget("0042")).count, before.count);
     });
-
-    assert.equal(prepared.ok, false);
-    assert.ok(prepared.errors.some((error) => error.includes("runtime attempt namespace unavailable")));
-    // Būsena lieka NEPAJUDINTA: kitaip task'as netektų bandymo, kurio niekada negavo.
-    assert.equal((await port.retryBudget("0042")).count, before.count);
   } finally {
     await rm(world.projectRoot, { recursive: true, force: true });
   }

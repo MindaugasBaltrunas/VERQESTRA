@@ -312,6 +312,42 @@ test("write-set konfliktas slot'o NEPRARANDA — jį gauna švarus pakaitalas", 
   assert.ok(w.logs.some((line) => line.includes("write-set-conflict")));
 });
 
+// P2 (2026-09-01, W1/w2 slot'ų auditas): pakaitalą turėjo TIK write-set konflikto šaka, o
+// `provisionSlotLease` nesėkmė darydavo `continue` — kandidatui specifinė klaida sudegindavo
+// vienintelį laisvą indeksą, ir kita banga ta pačia deterministine tvarka vėl imdavo tą patį
+// kritusį kandidatą. Šie du testai prikala pakaitalą nesėkmės šakoje ir raundo baigtinumą.
+test("aprūpinimo NESĖKMĖ slot'o nepraranda — jį gauna kitas kandidatas tame pačiame raunde", async () => {
+  const w = world({
+    // Kandidatui SPECIFINĖ nesėkmė: 0002 kopija karantinuota, 0003 sveikas.
+    create: (taskId) =>
+      taskId === "0002" ? { status: "quarantined", reason: "dirty-tree" } : { status: "created", relativePath: ".worktrees/w2" },
+  });
+  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+    pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
+    [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"]), candidate("0003", ["src/c.ts"])],
+  );
+
+  assert.deepEqual(provisioned, [{ task_id: "0003", worker_index: 2 }], "laisvas indeksas lieka bangoje, o ne sudega");
+  // Operatorius turi matyti GRANDINĘ, ne tik galutinį rezultatą.
+  assert.ok(
+    w.logs.some((line) => line.includes("SLOT PROVISION RETRY:") && line.includes("task=0002") && line.includes("task=0003")),
+    "žurnale matyti, kuris kandidatas krito ir kas bandomas vietoje jo",
+  );
+});
+
+test("visiems kandidatams kritus raundas BAIGIASI — kiekvienas bandomas daugiausia kartą", async () => {
+  const w = world({ create: () => ({ status: "quarantined", reason: "dirty-tree" }) });
+  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+    pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
+    [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"]), candidate("0003", ["src/c.ts"])],
+  );
+
+  assert.deepEqual(provisioned, []);
+  // `claimed` daro aibę baigtinę: be jo pakaitalo ciklas suktųsi amžinai.
+  assert.deepEqual(w.created, ["0002", "0003"], "kiekvienas kandidatas bandytas lygiai kartą");
+  assert.ok(w.logs.some((line) => line.includes("SLOT PROVISION EXHAUSTED:")), "pabaiga įvardijama, o ne tyli");
+});
+
 test("nepavykęs išdavimas į rezultatą NEPATENKA", async () => {
   const w = world({ create: () => ({ status: "infrastructure", message: "no git" }) });
   const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(

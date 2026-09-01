@@ -377,6 +377,31 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       const claimed = new Set<string>();
       const provisioned: SlotProvisionTarget[] = [];
 
+      /**
+       * Kitas laisvas kandidatas ta pačia deterministine tvarka.
+       *
+       * VIENA vieta abiem pakaitalo šakoms — write-set konfliktui ir aprūpinimo nesėkmei. Iki
+       * 2026-09-01 pakaitalą turėjo tik konflikto šaka, o `provisionSlotLease` nesėkmė darydavo
+       * `continue`: kandidatui SPECIFINĖ klaida (jo paties scope lock'as, karantinuota kopija)
+       * sudegindavo vienintelį laisvą indeksą, o kita banga ta pačia tvarka vėl imdavo TĄ PATĮ
+       * kandidatą — žemesni eilėje badaudavo neribotai. Dvi kopijos to paties filtro būtų
+       * išsiskyrusios tyliai, tad jis laikomas čia.
+       *
+       * `occupants` skaitomas gyvas (masyvas auga kartu su išdavimu), o `claimed` garantuoja
+       * baigtinumą: kiekvienas kandidatas bandomas daugiausia kartą per raundą.
+       */
+      const nextFreeCandidate = (): WorkerCandidate | undefined =>
+        ordered.find(
+          (candidate) =>
+            !claimed.has(candidate.task_id) &&
+            !grantedTaskIds.has(candidate.task_id) &&
+            !deps.isRunning(candidate.task_id) &&
+            !deps.hasStarted(candidate.task_id) &&
+            candidate.lease === undefined &&
+            missingLease.has(candidate.task_id) &&
+            findWriteSetConflict(candidate, occupants) === undefined,
+        );
+
       for (const target of provisioning.targets) {
         if (claimed.has(target.task_id)) continue;
         claimed.add(target.task_id);
@@ -395,26 +420,40 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
             // Slot'as neprarandamas: jį gauna ŽEMIAUSIAS eilėje kandidatas, kuris irgi laukia
             // lease'o ir su niekuo nekonfliktuoja. Pakaitalas ieškomas ta pačia tvarka, kad
             // pasirinkimas nepriklausytų nuo to, kuris task'as krito.
-            chosen = ordered.find(
-              (candidate) =>
-                !claimed.has(candidate.task_id) &&
-                !grantedTaskIds.has(candidate.task_id) &&
-                !deps.isRunning(candidate.task_id) &&
-                !deps.hasStarted(candidate.task_id) &&
-                candidate.lease === undefined &&
-                missingLease.has(candidate.task_id) &&
-                findWriteSetConflict(candidate, occupants) === undefined,
-            );
+            chosen = nextFreeCandidate();
             if (chosen === undefined) continue;
             claimed.add(chosen.task_id);
           }
         }
 
-        const resolved = chosen === undefined ? target : { task_id: chosen.task_id, worker_index: target.worker_index };
-        if (!(await provisionSlotLease(resolved))) continue;
-        provisioned.push(resolved);
-        const admitted = byTask.get(resolved.task_id);
-        if (admitted !== undefined) occupants.push(admitted);
+        // Aprūpinimo nesėkmė indekso NEBESUDEGINA: bandomas kitas kandidatas ta pačia tvarka ir
+        // tais pačiais filtrais kaip konflikto šakoje. Ciklas baigtinis — kiekvienas bandytas
+        // kandidatas jau yra `claimed`, tad `nextFreeCandidate` jo antrą kartą negrąžins.
+        let attempt: SlotProvisionTarget | undefined =
+          chosen === undefined ? target : { task_id: chosen.task_id, worker_index: target.worker_index };
+        while (attempt !== undefined) {
+          if (await provisionSlotLease(attempt)) {
+            provisioned.push(attempt);
+            const admitted = byTask.get(attempt.task_id);
+            if (admitted !== undefined) occupants.push(admitted);
+            break;
+          }
+          // Grandinė turi būti matoma: kuris kandidatas krito ir kas bandomas vietoje jo. Vien
+          // galutinis rezultatas neleistų operatoriui atskirti „nebuvo adresatų" nuo „visi krito".
+          const replacement = nextFreeCandidate();
+          const slot = `worker=${formatWorkerId(target.worker_index)}`;
+          if (replacement === undefined) {
+            await deps.log(
+              `SLOT PROVISION EXHAUSTED: ${slot} — task=${attempt.task_id} negavo lease'o ir laisvų pakaitalų eilėje nebeliko`,
+            );
+            break;
+          }
+          await deps.log(
+            `SLOT PROVISION RETRY: ${slot} — task=${attempt.task_id} negavo lease'o, vietoje jo bandomas task=${replacement.task_id}`,
+          );
+          claimed.add(replacement.task_id);
+          attempt = { task_id: replacement.task_id, worker_index: target.worker_index };
+        }
       }
       return provisioned;
     },

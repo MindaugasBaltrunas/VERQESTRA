@@ -121,10 +121,17 @@ function isCompleted(taskId: string, candidates: Iterable<string>): boolean {
  *  1. Nėra checkpoint'o arba task ID — nėra ko atkurti.
  *  2. Task'as jau užvertas šiame run'e — praleidžiamas (apsauga nuo dvigubo vykdymo).
  *  3. PRIIMTAS COMMIT nustelbia viską, įskaitant stale grafą (WAVE-2).
- *  4. Grafo hash'o nesutapimas — checkpoint'as priklauso kitam planui; atmetamas, ne
- *     interpretuojamas prieš dabartinį grafą.
- *  5. Toliau sprendžia task'o VIETA: terminal = užversta; resumable = tęsiam attempt'ą;
- *     queue = saugus pakartojimas; nėra failo = neaiški būsena žmogui.
+ *  4. Task'as guli terminal bucket'e (done | human-review | duplicate) — lifecycle jau
+ *     užvertas NEPRIKLAUSOMAI nuo to, kuriam grafui priklausė checkpoint'as; bucket'as yra
+ *     stipresnis įrodymas už checkpoint'o kilmę (task 115, 2026-09-01: priešingu atveju
+ *     `done` task'as su svetimu `graph_hash` kiekvieną startą gaudavo `discard-stale`
+ *     vietoje `skip-completed`, checkpoint'as niekad neatsinaujindavo, ir tas pats task'as
+ *     kartojosi be galo kiekviename cikle).
+ *  5. Grafo hash'o nesutapimas — checkpoint'as priklauso kitam planui; atmetamas, ne
+ *     interpretuojamas prieš dabartinį grafą. (Terminaliniam bucket'ui ši taisyklė
+ *     nebepasiekiama — 4 punktas jį jau uždarė.)
+ *  6. Toliau sprendžia likusią task'o VIETĄ: resumable = tęsiam attempt'ą; queue = saugus
+ *     pakartojimas; nėra failo = neaiški būsena žmogui.
  *
  * Idempotentiškumas: tie patys įėjimai visada duoda tą patį sprendimą, o „skip-completed"
  * ir „escalate-human" šakos NIEKADA negrąžina `replay_safe: true`.
@@ -146,12 +153,12 @@ export function decideResume(
     return decision("skip-completed", ["accepted-commit"], false, taskId);
   }
 
-  if (checkpoint.graph_hash && evidence.currentGraphHash && checkpoint.graph_hash !== evidence.currentGraphHash) {
-    return decision("discard-stale", ["graph-hash-mismatch"], false, taskId);
-  }
-
   if (evidence.location === "terminal-bucket") {
     return decision("skip-completed", ["terminal-bucket"], false, taskId);
+  }
+
+  if (checkpoint.graph_hash && evidence.currentGraphHash && checkpoint.graph_hash !== evidence.currentGraphHash) {
+    return decision("discard-stale", ["graph-hash-mismatch"], false, taskId);
   }
 
   if (evidence.location === "absent") {

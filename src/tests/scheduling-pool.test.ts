@@ -122,6 +122,75 @@ test("planSlotProvisioning targets missing-lease rejections, including the prima
   assert.deepEqual(provisioning.refused, []);
 });
 
+test("planSlotProvisioning hard-cap refusal names the real cause: round reservation vs. already-granted slots", () => {
+  const grantedSlot = {
+    worker_id: "w1",
+    worker_index: 1,
+    task_id: "0001",
+    file: "AG/tasks/active/0001.md",
+    attempt: 1,
+    attempt_ref: { runId: "r1", workerId: "w1", taskId: "0001", attemptId: "a1" },
+  };
+  const basePlan = {
+    pool_version: 1,
+    run_id: "r1",
+    max_workers: 2,
+    requested_workers: 2,
+    mode: "sequential" as const,
+    verdicts: [],
+    conflicts: [],
+    plan_hash: "wp1:0000000000000000",
+  };
+
+  // Vienas granted slot'as (indeksas 1) → šiame raunde laisvas TIK indeksas 2. Du
+  // missing-lease kandidatai eilėje: pirmas jį gauna, antras krenta į hard-cap — bet
+  // NIEKAS antram dar nebuvo išduota, tad detail neturi teigti „jau išduotas".
+  const roundReservationPlan = {
+    ...basePlan,
+    slots: [grantedSlot],
+    rejected: [
+      { task_id: "0002", reason: "missing-lease" as const, detail: "n/a" },
+      { task_id: "0003", reason: "missing-lease" as const, detail: "n/a" },
+    ],
+  };
+  const roundProvisioning = planSlotProvisioning({ plan: roundReservationPlan });
+  assert.deepEqual(
+    roundProvisioning.targets.map((target) => [target.task_id, target.worker_index]),
+    [["0002", 2]],
+    "first missing-lease candidate claims the single free index this round",
+  );
+  assert.equal(roundProvisioning.refused.length, 1);
+  assert.equal(roundProvisioning.refused[0]?.task_id, "0003");
+  assert.equal(roundProvisioning.refused[0]?.reason, "hard-cap");
+  assert.doesNotMatch(
+    roundProvisioning.refused[0]?.detail ?? "",
+    /jau išduotas/,
+    "refusal must not claim the limit was already issued when it was only reserved this round",
+  );
+  assert.match(roundProvisioning.refused[0]?.detail ?? "", /ankstesniam kandidatui/);
+
+  // Abu indeksai (1 ir 2) jau turi granted slot'us PRIEŠ šį raundą — čia „jau išduotas"
+  // yra tikra priežastis, tad ta žinutė lieka.
+  const alreadyIssuedPlan = {
+    ...basePlan,
+    slots: [
+      grantedSlot,
+      {
+        ...grantedSlot,
+        worker_id: "w2",
+        worker_index: 2,
+        task_id: "0002",
+        attempt_ref: { runId: "r1", workerId: "w2", taskId: "0002", attemptId: "a1" },
+      },
+    ],
+    rejected: [{ task_id: "0003", reason: "missing-lease" as const, detail: "n/a" }],
+  };
+  const issuedProvisioning = planSlotProvisioning({ plan: alreadyIssuedPlan });
+  assert.deepEqual(issuedProvisioning.targets, []);
+  assert.equal(issuedProvisioning.refused[0]?.reason, "hard-cap");
+  assert.match(issuedProvisioning.refused[0]?.detail ?? "", /jau išduotas/);
+});
+
 test("resolveWorkerOutcomes: a missing outcome means still running (fail-closed)", () => {
   const primary = candidate("0001", "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" });
   const second = candidate("0002", "src/b/", { lease: lease("0002", "w2", { worktreePath: "worktrees/w2" }), worktree: "worktrees/w2" });

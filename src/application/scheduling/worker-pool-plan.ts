@@ -242,7 +242,8 @@ export function planSlotProvisioning(input: { plan: WorkerPoolPlan }): SlotProvi
 
   const grantedIndexByTask = new Map(input.plan.slots.map((slot) => [slot.task_id, slot.worker_index]));
   const seen = new Set<string>();
-  let nextFreeIndex = input.plan.slots.length + 1;
+  const initialFreeIndex = input.plan.slots.length + 1;
+  let nextFreeIndex = initialFreeIndex;
 
   for (const rejection of input.plan.rejected) {
     if (rejection.reason !== "missing-lease") continue;
@@ -251,10 +252,21 @@ export function planSlotProvisioning(input: { plan: WorkerPoolPlan }): SlotProvi
 
     const granted = grantedIndexByTask.get(rejection.task_id);
     if (granted === undefined && nextFreeIndex > MAX_WORKERS) {
+      // Dvi skirtingos priežastys po tuo pačiu "hard-cap" vardu: arba visi MAX_WORKERS
+      // indeksai jau turėjo granted slot'us prieš šį raundą (initialFreeIndex > MAX_WORKERS),
+      // arba laisvas indeksas šiame raunde buvo, bet jį jau paėmė ankstesnis šio paties
+      // raundo missing-lease kandidatas (nextFreeIndex peršoko MAX_WORKERS TIK šio ciklo
+      // metu). Antrasis atvejis nėra pasenęs lease — tai grynas šio raundo eiliškumas.
+      const detail =
+        initialFreeIndex > MAX_WORKERS
+          ? `worker limitas ${MAX_WORKERS} jau išduotas — laisvo slot'o indekso nebėra`
+          : initialFreeIndex === MAX_WORKERS
+            ? `šiame raunde laisvas tik vienas worker indeksas ir jis skirtas ankstesniam kandidatui`
+            : `šiame raunde buvo ${MAX_WORKERS - initialFreeIndex + 1} laisvi worker indeksai — juos jau paskyrė ankstesni šio raundo kandidatai`;
       refused.push({
         task_id: rejection.task_id,
         reason: "hard-cap",
-        detail: `worker limitas ${MAX_WORKERS} jau išduotas — laisvo slot'o indekso nebėra`,
+        detail,
       });
       continue;
     }

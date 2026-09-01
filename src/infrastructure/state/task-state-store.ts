@@ -265,8 +265,26 @@ function taskIdFromName(taskName: string): string {
   return path.basename(taskName).replace(/\.md$/i, "");
 }
 
+function currentTaskFilePath(deps: TaskStateStoreDeps): string {
+  return path.join(deps.runtimeRoot, "state", "current-task-file");
+}
+
 async function setCurrentTaskFile(deps: TaskStateStoreDeps, filePath: string): Promise<void> {
-  await nodeFsAdapter.writeTextFile(path.join(deps.runtimeRoot, "state", "current-task-file"), `${filePath}\n`);
+  await nodeFsAdapter.writeTextFile(currentTaskFilePath(deps), `${filePath}\n`);
+}
+
+/**
+ * Compare-and-clear (126): išvalo `current-task-file` žymę TIK jei jos turinys ŠIUO METU rodo į
+ * `expectedFilePath`. Besąlyginis trynimas ištrintų lygiagretaus slot'o ką tik aktyvuoto task'o
+ * žymę — čia tikrinama tapatybė prieš kiekvieną trynimą, kaip ir lock'o atlaisvinime
+ * ({@link taskMoveLockReleaseDecision}).
+ */
+async function clearCurrentTaskFileIfMatches(deps: TaskStateStoreDeps, expectedFilePath: string): Promise<boolean> {
+  const markerPath = currentTaskFilePath(deps);
+  const current = await nodeFsAdapter.readTextFileIfExists(markerPath);
+  if (current?.trim() !== expectedFilePath) return false;
+  await nodeFsAdapter.removeIfExists(markerPath);
+  return true;
 }
 
 async function moveWithUniqueName(deps: TaskStateStoreDeps, from: string, preferredTo: string): Promise<string> {
@@ -287,6 +305,8 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
   activateTaskFile(taskFile: string, activeFile: string, taskId: string): Promise<string>;
   readTaskText(absolutePath: string): Promise<string | undefined>;
   writeTaskText(absolutePath: string, text: string): Promise<void>;
+  /** Compare-and-clear `current-task-file` žymei; `true`, kai ji realiai išvalyta. */
+  clearCurrentTaskFile(expectedFilePath: string): Promise<boolean>;
 } {
   const assertAuthority = async (taskId: string): Promise<void> => {
     await deps.assertAuthority?.(taskId);
@@ -337,5 +357,7 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
       await setCurrentTaskFile(deps, to);
       return to;
     },
+
+    clearCurrentTaskFile: (expectedFilePath) => clearCurrentTaskFileIfMatches(deps, expectedFilePath),
   };
 }

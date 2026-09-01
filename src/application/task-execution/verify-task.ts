@@ -160,8 +160,9 @@ async function classifyDoneVerdict(
   // `logs/changes.log` pagrindu surinkti pakeitimai, o work evidence netaikoma.
   const claudeLog = await ports.state.readClaudeLog(state.taskId);
   const hasMarker = ports.rules.hasAlreadyImplementedMarker(claudeLog);
-  // Task 095: neprivalomas port'o metodas — kol kompozicijos adapteris (095-a-03) jo neturi,
-  // saugus default yra `false` ir visos esamos šakos elgiasi lygiai kaip iki šio task'o.
+  // Task 095: neprivalomas port'o metodas — kompozicijos adapteris (`coordinator-execution-adapters.ts`)
+  // jį jau suriša, bet `?? false` lieka kontrakto suderinamumui: bet kuris kitas `TaskRunPorts`
+  // realizavimas (testų fake'ai, būsimi adapteriai) gali jo neturėti ir tada elgiasi kaip iki šio task'o.
   const hasAuditCompleteMarker = ports.rules.hasAuditCompleteMarker?.(claudeLog) ?? false;
   const writeActivity = ports.rules.readExecutorWriteActivity(claudeLog);
   const productDirtyCount = isRepo ? await ports.git.productDirtyCount() : await ports.git.recordedChangeCount();

@@ -122,6 +122,15 @@ export type TaskFilePort = {
    * išsaugo prieš perrašymą, kad vetuotas dispatch'as galėtų grąžinti originalią užduotį.
    */
   readTaskBody(taskFile: string): Promise<string>;
+  /**
+   * Compare-and-clear `vq/state/current-task-file` žymei (126): išvalo ją TIK jei ji ŠIUO METU
+   * rodo į `expectedFilePath`. Grąžina `true`, kai realiai išvalyta.
+   *
+   * Port'as NEPRIVALOMAS: jo nebuvimas reiškia „žymė lieka nepaliesta po terminalinio perėjimo",
+   * t. y. elgesį, kuris buvo iki šio metodo atsiradimo — esami `TaskRunPorts` fake'ai lieka
+   * galiojantys be pakeitimų.
+   */
+  clearCurrentTaskFile?(expectedFilePath: string): Promise<boolean>;
 };
 
 export type RepairPromptPort = {

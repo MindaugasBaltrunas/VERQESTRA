@@ -1,5 +1,7 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-09-01 („tvirtinu 122" — operatoriaus sprendimas per Claude sesiją; parkavimo priežastis buvo tik apimties slenkstis context files 9 > 8, o `## Failai` sąrašas peržiūrėtas ir pagrįstas: 3 iš 6 kelių sąlyginiai, karpyti nėra ko neprarandant tikslumo)
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

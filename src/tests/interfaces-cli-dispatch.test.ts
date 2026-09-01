@@ -2,6 +2,8 @@
 // application taisyklės: loop-preconditions vartai ir retry skaitiklių mutacija.
 
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
@@ -25,6 +27,7 @@ import { printCodexDispatch } from "../interfaces/cli/dispatch/codex-dispatch.js
 import { onStopBridge } from "../interfaces/cli/dispatch/on-stop-bridge.js";
 import { loopGuard } from "../interfaces/cli/dispatch/loop-guard.js";
 import { retryGuard, type RetryGuardCommandDeps } from "../interfaces/cli/dispatch/retry-guard.js";
+import { retryGuardAdapters } from "../composition/loop/adapters.js";
 
 function captureIo(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -129,6 +132,38 @@ test("loop-preconditions: dirty produkto medis, stale index.lock ir stable-ref b
   assert.ok(lines.some((line) => line.trim().startsWith("fix:")));
   assert.equal(renderLoopPreconditionReport(await evaluateLoopPreconditions(GREEN_PORTS, "/r", "/o", "/s")).at(-1), "AG_LOOP_PRECONDITIONS_OK");
   assert.equal(loopPreconditionsOk(blocked.checks), false);
+});
+
+test("loop-preconditions: dist šviežumo NEŽINIA blokuoja taip pat, kaip pasenęs dist", async () => {
+  // 2026-09-01 (auditas): `catch(() => [])` paversdavo skaitymo klaidą tuščiu sąrašu, tad
+  // neperskaitomas build stamp'as praeidavo kaip „dist up to date" — ir loop'as dispatch'indavo
+  // pasenusiu dist, kurį pats ir vykdo.
+  const unknownDist = await evaluateLoopPreconditions(
+    { ...GREEN_PORTS, findStaleDistFiles: () => Promise.reject(new Error("build stamp unreadable")) },
+    "/repo",
+    "/repo/orch",
+    "/repo/vq/state",
+    1_000_000,
+  );
+  assert.equal(unknownDist.ok, false, "nežinia apie šviežumą nėra šviežumas");
+  const unknownCheck = unknownDist.checks.find((check) => check.name === "fresh-dist");
+  assert.equal(unknownCheck?.ok, false);
+  assert.equal(unknownCheck?.severity, "block");
+  assert.match(unknownCheck?.detail ?? "", /dist freshness unknown: build stamp unreadable/);
+  assert.ok(unknownCheck?.fix, "blokas visada neša taisymo eilutę");
+
+  const staleDist = await evaluateLoopPreconditions(
+    { ...GREEN_PORTS, findStaleDistFiles: async () => [{ sourcePath: "/repo/src/cli.ts" }] },
+    "/repo",
+    "/repo/orch",
+    "/repo/vq/state",
+    1_000_000,
+  );
+  assert.equal(staleDist.ok, false);
+  assert.match(
+    staleDist.checks.find((check) => check.name === "fresh-dist")?.detail ?? "",
+    /1 stale\/missing dist file\(s\), e\.g\. cli\.ts/,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -339,9 +374,10 @@ function retryGuardDeps(overrides: Partial<RetryGuardCommandDeps> = {}): {
     },
     maxRetriesPerError: async () => 3,
     readCurrentTaskId: async () => undefined,
-    readErrorSignatures: async () => ({}),
-    writeErrorSignatures: async (value) => {
-      signatures.push(value);
+    updateErrorSignatures: async (mutate) => {
+      const next = { ...(signatures.at(-1) ?? {}) };
+      mutate(next);
+      signatures.push(next);
     },
     writeLegacyErrorSignature: async (text) => {
       legacy.push(text);
@@ -399,4 +435,26 @@ test("retry-guard: ne-repair skip, trūkstamas taskId → 1, skaitiklis+parašai
   assert.equal(await retryGuard([], limited.deps), 1, "trečias dispatch'as pasiekia max=3");
   assert.match(limited.errorLogs[0] ?? "", /MAX RETRIES REACHED/);
   assert.match(limited.errorLogs[0] ?? "", /routing=human-review-after-rollback/);
+});
+
+test("retry-guard parašai: du lygiagretūs slot'ai nebepameta vienas kito įrašo", async () => {
+  // 2026-09-01 (auditas): parašų žemėlapis ėjo per skaitymo/rašymo porą BE lock'o, nors retry
+  // skaitikliai tame pačiame kelyje jau seniau serializuoti. Abu slot'ai perskaitydavo tą patį
+  // žemėlapį, ir antrasis rašytojas ištrindavo pirmojo parašą.
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "vq-131-signatures-"));
+  try {
+    const adapters = retryGuardAdapters(runtimeRoot);
+    await Promise.all([
+      adapters.updateErrorSignatures((signatures) => {
+        signatures["0042"] = "type-error";
+      }),
+      adapters.updateErrorSignatures((signatures) => {
+        signatures["0043"] = "test-failure";
+      }),
+    ]);
+    const raw = await readFile(path.join(runtimeRoot, "state", "last-error-signatures.json"), "utf8");
+    assert.deepEqual(JSON.parse(raw) as Record<string, string>, { "0042": "type-error", "0043": "test-failure" });
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
 });

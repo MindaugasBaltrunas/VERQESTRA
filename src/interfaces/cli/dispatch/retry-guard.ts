@@ -27,9 +27,17 @@ export type RetryGuardCommandDeps = {
   maxRetriesPerError(): Promise<number>;
   /** Aktyvaus task'o id iš `vq/state/current-task-id`; `undefined` kai failo nėra. */
   readCurrentTaskId(): Promise<string | undefined>;
-  /** `vq/state/last-error-signatures.json` (task-scoped žemėlapis diagnozei). */
-  readErrorSignatures(): Promise<Record<string, string>>;
-  writeErrorSignatures(signatures: Record<string, string>): Promise<void>;
+  /**
+   * `vq/state/last-error-signatures.json` (task-scoped žemėlapis diagnozei) — VIENAS
+   * read-modify-write, ne skaitymo ir rašymo pora.
+   *
+   * 2026-09-01: pora `readErrorSignatures`/`writeErrorSignatures` reiškė, kad du lygiagretūs
+   * slot'ai (w1+w2 dabar tikrai sukasi kartu) perskaitydavo tą patį žemėlapį ir vienas kito
+   * įrašą perrašydavo — tas pats prarastas atnaujinimas, dėl kurio retry SKAITIKLIAI tame
+   * pačiame kelyje jau seniau serializuoti per `withStateFileLock`. Mutacija čia lieka gryna
+   * (žemėlapis keičiamas vietoje), o abipusį išskyrimą uždeda adapteris.
+   */
+  updateErrorSignatures(mutate: (signatures: Record<string, string>) => void): Promise<void>;
   /** Legacy operatoriaus artefaktas `vq/state/last-error-signature` (sena įranga jį skaito). */
   writeLegacyErrorSignature(text: string): Promise<void>;
   /** Bendra loop žurnalo eilutė (etalono agLog). */
@@ -102,9 +110,9 @@ export async function retryGuard(args: string[], deps: RetryGuardCommandDeps): P
   const countUpdate = await incrementTaskRetryCount(deps.counts, taskId, retryKey);
   const limit = evaluateRetryLimit(countUpdate.taskCount, await deps.maxRetriesPerError());
 
-  const signatures = await deps.readErrorSignatures();
-  signatures[taskId] = retryKey;
-  await deps.writeErrorSignatures(signatures);
+  await deps.updateErrorSignatures((signatures) => {
+    signatures[taskId] = retryKey;
+  });
   // Legacy operatoriaus artefaktas paliekamas senai įrangai; diagnozė skaito task-scoped žemėlapį.
   await deps.writeLegacyErrorSignature(`${retryKey}\n`);
   await deps.agLog(

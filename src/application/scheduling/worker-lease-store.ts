@@ -31,10 +31,29 @@ import { releaseScopeLocksInStore } from "./scope-lock-store.js";
 export type WorkerLeaseStoreDeps = {
   fs: SchedulingFileSystemPort;
   clock?: SchedulingClockPort;
+  /**
+   * Higienos žurnalo kanalas (ta pati `(message) => Promise<void>` forma kaip `loop-cycle.ports.log`).
+   * NEPRIVALOMAS: be jo store elgiasi lygiai kaip anksčiau. Su juo best-effort valymas nustoja
+   * būti TYLUS — žr. `releaseWorkerLease` scope lock'ų šaką.
+   */
+  log?: (message: string) => Promise<void> | void;
 };
 
 function clockOf(deps: WorkerLeaseStoreDeps): SchedulingClockPort {
   return deps.clock ?? systemSchedulingClock;
+}
+
+/**
+ * Best-effort žurnalo eilutė. Paties žurnalo klaida praryjama: jis kelio, kurį tik aprašo,
+ * griauti negali.
+ */
+async function logLeaseStoreLine(deps: WorkerLeaseStoreDeps, line: string): Promise<void> {
+  if (!deps.log) return;
+  try {
+    await deps.log(line);
+  } catch {
+    // Nutylima sąmoningai — žurnalo gedimas nėra lease operacijos gedimas.
+  }
 }
 
 /** Naujas lease iš tapatybės. `fencingToken` privalo ateiti iš `nextFencingToken`. */
@@ -307,8 +326,20 @@ export async function releaseWorkerLease(input: {
   // UŽ lease užrakto ribų: scope registras turi SAVO užraktą, ir jų lizdavimas duotų dvi
   // skirtingas įgijimo tvarkas (lease→scope čia, scope→lease aprūpinime) — klasikinį deadlock'ą.
   if (result.status === "ok") {
+    const leaseId = result.lease.lease_id;
     await releaseScopeLocksInStore({ fs: input.deps.fs, ...(input.deps.clock ? { clock: input.deps.clock } : {}) },
-      input.projectRoot, result.lease.lease_id).catch(() => 0);
+      input.projectRoot, leaseId).catch(async (error: unknown) => {
+      // BEST-EFFORT NĖRA TAS PATS, KAS TYLU (2026-09-01 auditas). Verdiktas lieka `ok` — čia
+      // niekas nesikeičia — bet nenuimti lock'ai kabo iki TTL (15 min), ir be šios eilutės
+      // operatorius prarastą lygiagretumą mato tik kaip nepaaiškinamai lėtą loop'ą.
+      await logLeaseStoreLine(
+        input.deps,
+        `SCOPE LOCK RELEASE FAILED: lease_id=${leaseId} worker_id=${input.workerId} reason=${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return 0;
+    });
   }
   return result;
 }

@@ -192,6 +192,33 @@ test("heartbeat and release enforce ownership via the claim", async () => {
   assert.equal(leases[0]?.status, "released");
 });
 
+test("release: scope lock valymo klaida lieka best-effort, bet nebetyli", async () => {
+  // 2026-09-01 (auditas): klaida buvo ryjama `catch(() => 0)` BE jokios eilutės — lock'ai kabo
+  // iki TTL (15 min), o operatoriui tai atrodo kaip nepaaiškinamai lėtas loop'as.
+  const { files, port } = memorySchedulingFs();
+  const lines: string[] = [];
+  const deps = {
+    fs: port,
+    log: async (line: string): Promise<void> => {
+      lines.push(line);
+    },
+  };
+  const identity = { owner_id: "loop-100", run_id: "r1", worker_id: "w1", task_id: "0001", attempt: 1 };
+  const acquired = await acquireWorkerLease({ deps, projectRoot: ROOT, identity, now: NOW });
+  assert.equal(acquired.status, "acquired");
+  if (acquired.status !== "acquired") return;
+
+  // Sugadintas registras — deterministinis būdas priversti valymą mesti (skaitytojas fail-closed).
+  files.set(scopeLockFile(ROOT).replace(/\\/g, "/"), "{ not json");
+  const claim = { lease_id: acquired.lease.lease_id, owner_id: identity.owner_id, fencing_token: 1 };
+  const released = await releaseWorkerLease({ deps, projectRoot: ROOT, claim, workerId: "w1", now: new Date(NOW.getTime() + 1000) });
+
+  assert.equal(released.status, "ok", "pakibęs lease būtų blogiau nei pakibęs lock'as — verdiktas nesikeičia");
+  assert.equal(lines.length, 1, "tyla nėra best-effort dalis");
+  assert.match(lines[0] ?? "", /^SCOPE LOCK RELEASE FAILED: lease_id=/);
+  assert.match(lines[0] ?? "", /worker_id=w1/);
+});
+
 test("resolveWorkerLeaseClaim: partial env claim is an error, never 'no claim'", () => {
   assert.equal(resolveWorkerLeaseClaim({}), undefined);
   assert.throws(() => resolveWorkerLeaseClaim({ AG_WORKER_LEASE_ID: "x" }), WorkerLeaseClaimError);

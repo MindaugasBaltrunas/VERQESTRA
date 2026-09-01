@@ -124,16 +124,28 @@ export async function evaluateLoopPreconditions(
     );
   }
 
-  const staleDist = await ports.findStaleDistFiles(orchestratorRoot).catch(() => []);
+  // NEŽINIA apie dist šviežumą yra blokas, lygiai kaip pats pasenęs dist (2026-09-01 auditas).
+  // Iki tol čia buvo `catch(() => [])`: neperskaitomas build stamp'as duodavo TUŠČIĄ sąrašą, tad
+  // vartas praleisdavo pasenusį dist kaip šviežią — o loop'as ir hook'ai vykdo būtent `dist`.
+  // Gretimas reaper'io `catch` (aukščiau) klaidą ryja teisėtai: jis yra higiena, ne vartai.
+  const staleDist = await ports
+    .findStaleDistFiles(orchestratorRoot)
+    .then((files) => ({ scanned: true as const, files }))
+    .catch((error: unknown) => ({
+      scanned: false as const,
+      reason: error instanceof Error ? error.message : String(error),
+    }));
+  const distFresh = staleDist.scanned && staleDist.files.length === 0;
   checks.push({
     name: "fresh-dist",
-    ok: staleDist.length === 0,
+    ok: distFresh,
     severity: "block",
-    detail:
-      staleDist.length === 0
+    detail: !staleDist.scanned
+      ? `dist freshness unknown: ${staleDist.reason}`
+      : distFresh
         ? "orchestrator dist is up to date"
-        : `${staleDist.length} stale/missing dist file(s), e.g. ${path.basename(staleDist[0]!.sourcePath)}`,
-    ...(staleDist.length === 0 ? {} : { fix: "rebuild the orchestrator dist" }),
+        : `${staleDist.files.length} stale/missing dist file(s), e.g. ${path.basename(staleDist.files[0]!.sourcePath)}`,
+    ...(distFresh ? {} : { fix: "rebuild the orchestrator dist" }),
   });
 
   const dirty = await productTreeDirtyEntries(ports, projectRoot);

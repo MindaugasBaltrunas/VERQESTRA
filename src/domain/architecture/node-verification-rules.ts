@@ -7,6 +7,7 @@
 // policy-view tipai (vėlesnio sluoksnio schema juos TENKINA), path helper'iai — path-lite.
 
 import { dirOf, baseOf, splitExt, normalizeSlashes } from "./path-lite.js";
+import { detectForbiddenDependencyViolations } from "../policies/architecture-style.js";
 import type { ArchitectureGraph, ArchitectureNodeProgress, ArchitectureProgress } from "./graph.js";
 
 /** Domain view: laukai, kuriuos verifikacija realiai skaito + passthrough likusiems. */
@@ -119,8 +120,19 @@ export type NodeVerificationPolicies = {
 
 /**
  * Policy rule: derive warning/blocker messages from the node's contract state and the active
- * policies. `strictness === "block"` routes forbidden dependencies to blockers (which fail the
- * node); anything else routes them to warnings.
+ * policies. A forbidden dependency is reported only when the node's own `implemented_files`
+ * actually touch one of its endpoints; for a reported one, `strictness === "block"` routes it
+ * to blockers (which fail the node) and anything else routes it to warnings.
+ *
+ * NUKRYPIMAS NUO ETALONO (task 130, griežtinantis): etalonas kiekvieną
+ * `forbidden_dependencies` įrašą dėdavo į kiekvieno mazgo rezultatą be jokios sąsajos
+ * patikros. Su `strictness: "block"` ir bent vienu įrašu tai reiškia, kad NĖ VIENAS mazgas
+ * niekada nepasiekia "done" — block režimas tampa nenaudojamas, o ne griežtas. Sąsają
+ * vertina `detectForbiddenDependencyViolations` (domain/policies/architecture-style) — ta
+ * pati taisyklė, kurią jau naudoja preflight kelias; kopija čia sąmoningai nekuriama, nes
+ * tyliai išsiskiriančios dvi to paties sprendimo versijos yra būtent tai, ką šis modulis
+ * bando išvengti. Per-node kontekste teturime scope įrodymą (implemented_files), tad
+ * `taskText`/`codeGraphEdges` nepaduodami: čia atsiranda tik `confirmed` lygio radiniai.
  *
  * PC-CODING-01 / decision (task 924-05): `policies.codingPrinciples` is accepted for
  * schema-completeness but intentionally NOT read here. Its six per-principle levels grade
@@ -146,11 +158,12 @@ export function evaluatePolicies(
     );
   }
 
-  for (const dep of architectureStyle.forbidden_dependencies) {
+  for (const violation of detectForbiddenDependencyViolations(architectureStyle, nodeProgress.implemented_files)) {
+    const message = `Forbidden dependency: "${violation.dependency}" — ${violation.sources.join("; ")}`;
     if (architectureStyle.strictness === "block") {
-      policy_blockers.push(`Forbidden dependency: "${dep}"`);
+      policy_blockers.push(message);
     } else {
-      policy_warnings.push(`Forbidden dependency: "${dep}"`);
+      policy_warnings.push(message);
     }
   }
 

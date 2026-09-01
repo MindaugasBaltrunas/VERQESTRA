@@ -295,20 +295,33 @@ test("verifyNode: policy blockers krauna passed=false, warnings — ne", async (
   ]);
   const { ports } = verifierPorts(files);
   const progress: ArchitectureProgress = { graph_hash: "h", nodes: { n1: nodeProgress({ implemented_files: ["src/a.ts"] }) } };
+  // NUKRYPIMAS NUO ETALONO (task 130, griežtinantis): forbidden_dependencies įrašas
+  // pasiekia mazgo verdiktą TIK per realią sąsają su jo implemented_files. Anksčiau čia
+  // užteko bet kokio įrašo ("ui->db"), su kuriuo mazgas neturėjo nieko bendra — todėl
+  // block režimas su bent vienu įrašu neleisdavo NĖ VIENAM mazgui pasiekti "done".
   const policies = {
-    architectureStyle: { strictness: "block", forbidden_dependencies: ["ui->db"] },
+    architectureStyle: { strictness: "block", forbidden_dependencies: ["src/a.ts -> db"] },
     codingPrinciples: {},
     enforcement: { require_interface_contract_for_public_changes: true },
   };
   const blocked = await verifyNode(ports, "n1", GRAPH, progress, ROOT, policies);
   assert.equal(blocked.passed, false);
-  assert.deepEqual(blocked.policy_blockers, ['Forbidden dependency: "ui->db"']);
+  assert.equal(blocked.policy_blockers.length, 1);
+  assert.match(blocked.policy_blockers[0] ?? "", /Forbidden dependency: "src\/a\.ts -> db"/);
   assert.match(blocked.policy_warnings[0] ?? "", /missing an interface_contract/);
 
   const warned = await verifyNode(ports, "n1", GRAPH, progress, ROOT, {
     ...policies,
-    architectureStyle: { strictness: "warn", forbidden_dependencies: ["ui->db"] },
+    architectureStyle: { strictness: "warn", forbidden_dependencies: ["src/a.ts -> db"] },
   });
   assert.equal(warned.passed, true);
   assert.deepEqual(warned.policy_blockers, []);
+
+  // Nesusijęs įrašas block režime mazgo NEBEBLOKUOJA — mazgas pasiekia "done".
+  const unrelated = await verifyNode(ports, "n1", GRAPH, progress, ROOT, {
+    ...policies,
+    architectureStyle: { strictness: "block", forbidden_dependencies: ["ui->db"] },
+  });
+  assert.equal(unrelated.passed, true);
+  assert.deepEqual(unrelated.policy_blockers, []);
 });

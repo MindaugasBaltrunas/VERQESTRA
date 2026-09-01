@@ -16,6 +16,14 @@ export type ChildExitDiagnosticsInput = {
   taskId: string;
   /** Tik jei `run` rezultatas jį jau turi — porto kontraktas (CommandResult) šio lauko šiuo metu neturi. */
   signal?: string;
+  /**
+   * Vaiko worktree'io `vq/logs/orchestrator.log` turinys (RAW; uodega atpjaunama čia).
+   * Vaikas log'ina į SAVO worktree runtime, ne į tėvo, todėl preflight/phase klaidos
+   * (pvz. „domains 4 > 2" size gate) tėvui atrodė kaip CHILD EXIT SILENT, o po orphan
+   * reap'o worktree logai dingsta visam laikui (GeoGravity 1141 2026-08-31, 1188
+   * 2026-09-01). Perduodama tik nesėkmės atveju ir tik kai failas egzistuoja.
+   */
+  worktreeLogTail?: string;
 };
 
 const SLOT_LOG_PATH_SEPARATOR_PATTERN = /[\\/]+/g;
@@ -48,10 +56,21 @@ export function formatChildExitDiagnostics(input: ChildExitDiagnosticsInput): st
 
   const stderrBlock = stderrTrimmed === "" ? "\n--- child stderr: EMPTY ---" : tailOf("stderr", input.stderr);
   const stdoutBlock = tailOf("stdout", input.stdout);
+  // Kito medžio (worktree) orchestrator.log — vienintelis pėdsakas, kai vaikas savo lūžį
+  // aprašė TIK savo runtime žurnale (stderr/stdout tušti). Etiketė skiriasi nuo child
+  // stderr/stdout blokų, kad grep'as vienareikšmiškai atskirtų šaltinį.
+  const worktreeTailTrimmed = (input.worktreeLogTail ?? "").trim();
+  const worktreeBlock =
+    worktreeTailTrimmed === ""
+      ? ""
+      : `\n--- worktree vq/logs/orchestrator.log (tail) ---\n${worktreeTailTrimmed.slice(-TAIL_CHAR_LIMIT)}`;
 
   const signalSuffix = input.signal === undefined ? "" : ` signal=${input.signal}`;
   const exitContextLine = `\nchild exit context: code=${input.code} duration=${input.durationMs}${signalSuffix}`;
 
+  // SILENT žyma lieka pririšta prie proceso srautų (stderr/stdout), ne prie worktree
+  // žurnalo: ji reiškia „vaikas pats nieko neparašė", o worktree blokas šalia jos
+  // paaiškina priežastį, kai ją pavyko išgelbėti.
   const nothingCollected = stderrTrimmed === "" && stdoutTrimmed === "";
   const silentLine = nothingCollected ? `\nCHILD EXIT SILENT: ${input.workerId} ${input.taskId}` : "";
 
@@ -59,6 +78,7 @@ export function formatChildExitDiagnostics(input: ChildExitDiagnosticsInput): st
     `WAVE SLOT CHILD EXIT ${input.code}: slot=${input.workerId} task=${input.taskId}` +
     stderrBlock +
     stdoutBlock +
+    worktreeBlock +
     exitContextLine +
     silentLine
   );

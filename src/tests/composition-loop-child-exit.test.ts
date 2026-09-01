@@ -57,6 +57,64 @@ test("abu tušti: EMPTY žyma + CHILD EXIT SILENT eilutė", () => {
   assert.match(message, /CHILD EXIT SILENT: worker-3 task-3$/m);
 });
 
+test("worktree log uodega: blokas rašomas, SILENT žyma lieka (tylus vaikas su išgelbėta priežastimi)", () => {
+  const message = formatChildExitDiagnostics({
+    code: 1,
+    stdout: "",
+    stderr: "",
+    durationMs: 549313,
+    workerId: "w2",
+    taskId: "task-5",
+    worktreeLogTail: "[ts] PHASE FAILED: phase=preflight exit=1 Task exceeds size limits\n[ts] TASK HUMAN REVIEW: task-5 preflight_failed=1\n",
+  });
+
+  assert.match(message, /--- worktree vq\/logs\/orchestrator\.log \(tail\) ---\n\[ts\] PHASE FAILED/);
+  assert.match(message, /TASK HUMAN REVIEW: task-5 preflight_failed=1$/m);
+  // SILENT semantika nesikeičia: proceso srautai tušti, žyma lieka — blokas šalia paaiškina priežastį.
+  assert.match(message, /CHILD EXIT SILENT: w2 task-5$/m);
+});
+
+test("worktree log uodega: tuščia/neperduota → bloko nėra", () => {
+  const withoutField = formatChildExitDiagnostics({
+    code: 1,
+    stdout: "",
+    stderr: "err",
+    durationMs: 10,
+    workerId: "w1",
+    taskId: "task-6",
+  });
+  assert.doesNotMatch(withoutField, /worktree vq\/logs\/orchestrator\.log/);
+
+  const blankField = formatChildExitDiagnostics({
+    code: 1,
+    stdout: "",
+    stderr: "err",
+    durationMs: 10,
+    workerId: "w1",
+    taskId: "task-6",
+    worktreeLogTail: "   \n  ",
+  });
+  assert.doesNotMatch(blankField, /worktree vq\/logs\/orchestrator\.log/);
+});
+
+test("worktree log uodega: ilgas žurnalas atpjaunamas iš galo (paskutinės eilutės — priežastis)", () => {
+  const filler = "x".repeat(10_000);
+  const message = formatChildExitDiagnostics({
+    code: 1,
+    stdout: "",
+    stderr: "",
+    durationMs: 5,
+    workerId: "w1",
+    taskId: "task-7",
+    worktreeLogTail: `${filler}\nPHASE FAILED: galas`,
+  });
+
+  assert.match(message, /PHASE FAILED: galas$/m);
+  const block = message.split("--- worktree vq/logs/orchestrator.log (tail) ---\n")[1] ?? "";
+  const blockBody = block.split("\nchild exit context:")[0] ?? "";
+  assert.ok(blockBody.length <= 4000, `worktree bloko kūnas ${blockBody.length} > 4000`);
+});
+
 test("signal pridedamas tik jei perduotas", () => {
   const withoutSignal = formatChildExitDiagnostics({
     code: 1,

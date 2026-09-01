@@ -268,6 +268,15 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
         // nepatenka (jo paties vq/logs miršta kartu su procesu ankstyvo lūžio atveju), tad
         // diagnostika log'inama ČIA — vienintelėje vietoje, kuri išgyvena vaiką. Ji VISADA palieka
         // exit kontekstą ir bent vieną grep'inamą eilutę, net kai vaikas nieko neparašė.
+        //
+        // Vaikas savo preflight/phase klaidas rašo į SAVO worktree runtime žurnalą (cwd =
+        // worktree), tėvui palikdamas tuščią stderr — GeoGravity 1188 (2026-09-01) „domains 4 > 2"
+        // size gate atrodė kaip CHILD EXIT SILENT, o 1141 priežastis po orphan reap'o prarasta
+        // visam laikui. Uodega išgelbstima čia, kol worktree dar gyvas; skaitymo klaida NIEKADA
+        // nenutraukia slot'o kelio (best-effort, kaip ir kiti šio bloko žurnalai).
+        const worktreeLogTail = await nodeFsAdapter
+          .readTextFileIfExists(path.join(worktreeAbs, path.relative(projectRoot, runtimeRoot), "logs", "orchestrator.log"))
+          .catch(() => undefined);
         const diagnostics = formatChildExitDiagnostics({
           code: result.code,
           stdout: result.stdout,
@@ -275,6 +284,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           durationMs: Date.now() - startedAt,
           workerId: slot.worker_id,
           taskId: slot.task_id,
+          ...(worktreeLogTail === undefined ? {} : { worktreeLogTail }),
         });
         await deps.log(diagnostics);
         // `deps.log` (orchestrator.log) rotuojasi; ta pati diagnostika ANTRĄ kartą lieka

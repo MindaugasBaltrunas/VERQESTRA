@@ -75,6 +75,68 @@ test("start: pilnas kelias queue→preflight→delegate→dispatch→verify→do
   assert.ok(env.logs.some((line) => line === `TASK DONE: ${TASK}`));
 });
 
+test("start: done kelias išvalo current-task-file žymę per compare-and-clear portą (126)", async () => {
+  const env = createFakeTaskRunEnv();
+  const queuedFile = seedQueue(env);
+  const clearCalls: string[] = [];
+  env.ports.tasks.clearCurrentTaskFile = async (expected) => {
+    clearCalls.push(expected);
+    return true;
+  };
+  env.behavior.decision = { status: "ok", decision: { verdict: "delegate" } };
+  env.behavior.cli = (args) => {
+    if (args[0] === "claude-diagnose") {
+      env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
+      env.behavior.git.hasNewHeadSince = true;
+      env.behavior.git.changedProductPaths = ["src/x.txt"];
+    }
+    return 0;
+  };
+  const coordinator = createRunCoordinator(env.ports);
+  const result = await coordinator.start(queuedFile);
+  assert.equal(result, true);
+  assert.deepEqual(clearCalls, [fakeBucketPath("done", TASK_MD)], "valoma su TERMINALINIU (done) keliu");
+});
+
+test("start: current-task-file valymo klaida virsta WARNING log'u, perėjimas lieka sėkmingas (126)", async () => {
+  const env = createFakeTaskRunEnv();
+  const queuedFile = seedQueue(env);
+  env.ports.tasks.clearCurrentTaskFile = async () => {
+    throw new Error("marker io error");
+  };
+  env.behavior.decision = { status: "ok", decision: { verdict: "delegate" } };
+  env.behavior.cli = (args) => {
+    if (args[0] === "claude-diagnose") {
+      env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
+      env.behavior.git.hasNewHeadSince = true;
+      env.behavior.git.changedProductPaths = ["src/x.txt"];
+    }
+    return 0;
+  };
+  const coordinator = createRunCoordinator(env.ports);
+  const result = await coordinator.start(queuedFile);
+  assert.equal(result, true, "valymo klaida nesulaužo terminalinio perėjimo");
+  assert.ok(env.files.has(fakeBucketPath("done", TASK_MD)));
+  assert.ok(
+    env.logs.some((line) => line.includes(`WARNING: current-task-file clear failed task=${TASK}`) && line.includes("marker io error")),
+  );
+});
+
+test("start: duplicate fingerprint taip pat išvalo current-task-file žymę (126)", async () => {
+  const env = createFakeTaskRunEnv();
+  const queuedFile = seedQueue(env);
+  const clearCalls: string[] = [];
+  env.ports.tasks.clearCurrentTaskFile = async (expected) => {
+    clearCalls.push(expected);
+    return true;
+  };
+  env.ports.ledger.seenBefore = async () => true;
+  const coordinator = createRunCoordinator(env.ports);
+  const result = await coordinator.start(queuedFile);
+  assert.equal(result, false);
+  assert.deepEqual(clearCalls, [fakeBucketPath("human-review", TASK_MD)]);
+});
+
 test("start: work-evidence skip uždaro kaip done-already-implemented be jokios LLM sesijos", async () => {
   const env = createFakeTaskRunEnv();
   const queuedFile = seedQueue(env);

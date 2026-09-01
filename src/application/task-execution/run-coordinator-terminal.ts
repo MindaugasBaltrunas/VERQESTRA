@@ -57,6 +57,23 @@ async function finishKnownTaskState(
   return moved;
 }
 
+/**
+ * Compare-and-clear kvietimas po sėkmingo terminalinio perėjimo (126): 06:07 incidentas —
+ * `current-task-file` liko rodyti į ką tik pasibaigusį task'ą, Stop hook'o scope filtras
+ * mirusio task'o vardu atmetė svetimą pakeitimą. Žymė yra PATOGUMO veidrodis, ne tiesos
+ * šaltinis, tad valymo klaida virsta log eilute, ne perėjimo lūžiu.
+ */
+async function clearCurrentTaskFileMarker(ports: TaskRunPorts, state: TaskRunState, movedFile: string): Promise<void> {
+  try {
+    await ports.tasks.clearCurrentTaskFile?.(movedFile);
+  } catch (error) {
+    await ports.log.write(
+      `WARNING: current-task-file clear failed task=${state.taskId} file=${movedFile}` +
+        ` error=${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 /** Pirmas dar egzistuojantis žinomas task failas, išskyrus jau atmestą `except` kelią. */
 async function firstExistingKnownFile(
   ports: TaskRunPorts,
@@ -92,6 +109,7 @@ export async function applyTerminal(
       reason: "duplicate moved_to=human-review",
     });
     await ports.log.write(`TASK DUPLICATE: ${state.taskId} moved_to=human-review`);
+    await clearCurrentTaskFileMarker(ports, state, duplicateFile);
     // A duplicate is PARKED in human-review, never finished: `taskSeenBefore` also flags task
     // ids last seen as active/error/human-review, i.e. tasks that never completed. Reporting
     // success here made the wave scheduler mark it `task_completed` and release its blocked
@@ -106,6 +124,7 @@ export async function applyTerminal(
     await ports.ledger.recordState(state.taskId, state.taskName, "human-review", moved, state.fingerprint);
     await ports.journal.recordEvent({ task_id: state.taskId, to_state: "human-review", reason: transition.reason });
     await ports.log.write(transition.reason);
+    await clearCurrentTaskFileMarker(ports, state, moved);
     await ports.completion.cascadeBlockedDependents(state.taskId);
     return false;
   }
@@ -124,6 +143,7 @@ export async function applyTerminal(
     );
     await ports.journal.recordEvent({ task_id: state.taskId, to_state: "human-review", reason: "failed retry_limit" });
     await ports.log.write(`TASK FAILED AFTER RETRY LIMIT: ${state.taskId}`);
+    await clearCurrentTaskFileMarker(ports, state, moved);
     await ports.completion.cascadeBlockedDependents(state.taskId);
     return false;
   }
@@ -169,6 +189,7 @@ export async function applyTerminal(
       await ports.tasks.fingerprint(moved),
     );
     await ports.log.write(`TASK HUMAN REVIEW/ROLLBACK: task=${state.taskId} verdict=${decision.verdict}`);
+    await clearCurrentTaskFileMarker(ports, state, moved);
     await ports.completion.cascadeBlockedDependents(state.taskId);
     return false;
   }
@@ -217,6 +238,7 @@ export async function applyTerminal(
         : `TASK DONE (ALREADY_IMPLEMENTED): ${state.taskId} via=${transition.via}`
       : `TASK DONE: ${state.taskId}`,
   );
+  await clearCurrentTaskFileMarker(ports, state, moved);
   await ports.completion.syncArchitectureCompletion(state.taskId, moved);
   await ports.completion.archiveAutoOpenSpecChange?.(state.taskId, moved);
   return true;
@@ -413,6 +435,7 @@ async function applySplitSupersede(
   await ports.log.write(
     `TASK SPLIT (runtime-oversize): parent=${state.taskId} parts=${plan.parts} po ${attempts} timeout`,
   );
+  await clearCurrentTaskFileMarker(ports, state, moved);
   await ports.completion.cascadeBlockedDependents(state.taskId);
   return false;
 }

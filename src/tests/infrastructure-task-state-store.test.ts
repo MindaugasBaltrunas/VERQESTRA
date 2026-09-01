@@ -167,6 +167,68 @@ test("nesamas šaltinis meta, o lock'as vis tiek atlaisvinamas", async () => {
   }
 });
 
+test("clearCurrentTaskFile: išvalo žymę, kai ji rodo į nurodytą kelią (126)", async () => {
+  const world = await makeWorld();
+  try {
+    const store = createTaskStateStore({ agRoot: world.agRoot, runtimeRoot: world.runtimeRoot });
+    const source = path.join(world.agRoot, "tasks", "active", "0042.md");
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "# Task", "utf8");
+
+    const done = await store.finishTaskState(source, path.join(world.agRoot, "tasks", "done"), "0042.md", []);
+    assert.equal(
+      (await readFile(path.join(world.runtimeRoot, "state", "current-task-file"), "utf8")).trim(),
+      done,
+    );
+
+    const cleared = await store.clearCurrentTaskFile(done);
+    assert.equal(cleared, true);
+    await assert.rejects(() => readFile(path.join(world.runtimeRoot, "state", "current-task-file"), "utf8"));
+  } finally {
+    await world.cleanup();
+  }
+});
+
+test("clearCurrentTaskFile: nepaliečia SVETIMOS žymės — lygiagretus slot'as ją perrašė (126)", async () => {
+  const world = await makeWorld();
+  try {
+    const store = createTaskStateStore({ agRoot: world.agRoot, runtimeRoot: world.runtimeRoot });
+    const first = path.join(world.agRoot, "tasks", "active", "0042.md");
+    await mkdir(path.dirname(first), { recursive: true });
+    await writeFile(first, "# Task", "utf8");
+    const finished = await store.finishTaskState(first, path.join(world.agRoot, "tasks", "done"), "0042.md", []);
+
+    // Lygiagretus slot'as tarpe aktyvavo kitą task'ą — žymė dabar rodo į JĮ, ne į `finished`.
+    const other = path.join(world.agRoot, "tasks", "queue", "0099.md");
+    await writeFile(other, "# Kitas", "utf8");
+    const otherActive = await store.activateTaskFile(
+      other,
+      path.join(world.agRoot, "tasks", "active", "0099.md"),
+      "0099",
+    );
+
+    const cleared = await store.clearCurrentTaskFile(finished);
+    assert.equal(cleared, false, "svetima žymė negali būti ištrinta");
+    assert.equal(
+      (await readFile(path.join(world.runtimeRoot, "state", "current-task-file"), "utf8")).trim(),
+      otherActive,
+    );
+  } finally {
+    await world.cleanup();
+  }
+});
+
+test("clearCurrentTaskFile: žymės nesant grąžina false ir nemeta", async () => {
+  const world = await makeWorld();
+  try {
+    const store = createTaskStateStore({ agRoot: world.agRoot, runtimeRoot: world.runtimeRoot });
+    const cleared = await store.clearCurrentTaskFile(path.join(world.agRoot, "tasks", "done", "nera.md"));
+    assert.equal(cleared, false);
+  } finally {
+    await world.cleanup();
+  }
+});
+
 test("lygiagretūs perkėlimai serializuojami: abu failai išlieka su skirtingais vardais", async () => {
   const world = await makeWorld();
   try {

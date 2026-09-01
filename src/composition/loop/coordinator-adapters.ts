@@ -145,6 +145,7 @@ export function coordinatorTaskFilePort(input: CoordinatorAdapterInput): TaskFil
     },
     writeTaskBody: (taskFile, content) => nodeFsAdapter.writeTextFile(taskFile, content),
     readTaskBody: (taskFile) => readOptionalFile(taskFile),
+    clearCurrentTaskFile: (expectedFilePath) => store.clearCurrentTaskFile(expectedFilePath),
   };
 }
 

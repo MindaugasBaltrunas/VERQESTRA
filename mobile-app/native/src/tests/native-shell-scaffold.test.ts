@@ -41,6 +41,12 @@ test("native package declares the MVC core as a workspace dependency", async () 
 test("Expo entry and native config files exist", async () => {
   const entry = await readPackageFile("index.js");
   assert.match(entry, /registerRootComponent\s*\(/);
+  // The entry is also the composition point: a root registered without props
+  // can never receive a port, so the scaffold is only complete once it goes
+  // through the platform composition root. `native-runtime.test.ts` owns what
+  // that composition must produce.
+  assert.match(entry, /composition\/native-runtime/);
+  assert.doesNotMatch(entry, /registerRootComponent\(\s*App\s*\)/);
 
   for (const configFile of ["app.json", "babel.config.js", "metro.config.js"]) {
     const text = await readPackageFile(configFile);

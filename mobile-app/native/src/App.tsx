@@ -39,10 +39,17 @@ import { TerminalScreen } from "./screens/TerminalScreen";
 /**
  * Root component of the product spaces.
  *
- * Ports are injected, never constructed here: the read-only AG Loop channel and
- * the terminal transport adapters land with the remaining adapter tasks, and
- * until they are passed in the screens honestly report what is not wired
- * instead of inventing data or offering controls that lead nowhere.
+ * Ports are injected, never constructed here. `composition/native-runtime.ts`
+ * is the one place that decides which of them this installation has, and the
+ * Expo entry registers this component with exactly what it composed — the
+ * configured project and session included.
+ *
+ * What that composition can hand over today is still less than the props
+ * declare: the read-only AG Loop, review, connections and projects ports have
+ * no adapter yet, the secure credential store is task 119, the biometric write
+ * gate task 120 and speech recognition task 121. Every one of them is absent
+ * rather than stubbed, so the screens keep reporting honestly what is not
+ * wired instead of inventing data or offering controls that lead nowhere.
  */
 export type AppProps = Readonly<{
   agLoopReads?: AgLoopUiReadPort;

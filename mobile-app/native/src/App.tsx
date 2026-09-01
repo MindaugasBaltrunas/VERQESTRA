@@ -39,10 +39,14 @@ import { TerminalScreen } from "./screens/TerminalScreen";
 /**
  * Root component of the product spaces.
  *
- * Ports are injected, never constructed here: the read-only AG Loop channel and
- * the terminal transport adapters land with the remaining adapter tasks, and
- * until they are passed in the screens honestly report what is not wired
- * instead of inventing data or offering controls that lead nowhere.
+ * Ports are injected, never constructed here. `composition/native-runtime.ts`
+ * is what builds them and mounts this component with them; it also records, per
+ * port, what is still missing before a space can go live. As of today none of
+ * them can be handed over yet — the four read ports have no adapter written
+ * anywhere in the workspace, and the terminal ports additionally wait on the
+ * keystore, biometric and speech adapters (tasks 119-121). Until each arrives
+ * the screens honestly report what is not wired instead of inventing data or
+ * offering controls that lead nowhere.
  */
 export type AppProps = Readonly<{
   agLoopReads?: AgLoopUiReadPort;

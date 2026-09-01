@@ -48,6 +48,23 @@ test("Expo entry and native config files exist", async () => {
   }
 });
 
+test("the Expo entry mounts App with composed ports, never bare", async () => {
+  const entry = await readPackageFile("index.js");
+
+  // The regression this pins: the entry registered `App` itself, with no props
+  // at all. Every port of `AppProps` is optional, so that compiled, ran, and
+  // left every space permanently reporting itself unwired — the shell looked
+  // finished and read as an empty product.
+  assert.match(entry, /createNativeAppProps\s*\(/);
+  assert.match(entry, /composition\/native-runtime/);
+  assert.match(entry, /createElement\s*\(\s*App\s*,\s*props\s*\)/);
+  assert.doesNotMatch(
+    entry,
+    /registerRootComponent\s*\(\s*App\s*\)/,
+    "the entry registers App directly again, so no port can reach it",
+  );
+});
+
 test("Metro declares the temporary runtime seam for the MVC core", async () => {
   const metroConfig = await readPackageFile("metro.config.js");
 

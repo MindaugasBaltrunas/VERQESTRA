@@ -136,6 +136,13 @@ test("agent selection: chain parsing, kv form, validation and model hint resolut
   ]);
   assert.deepEqual(parseAgentChain("coder. paaiškinimas sakinyje"), ["coder"]);
 
+  // Task 138: vedanti etiketė iki dvitaškio NĖRA agentai — 2026-09-01 UI grandinė rodė čipus
+  // „privaloma", „grandinė", „šia", „tvarka:" iš šios frazės žodžių.
+  assert.deepEqual(parseAgentChain("PRIVALOMA grandinė šia tvarka: readme-guard -> coder"), ["readme-guard", "coder"]);
+  const labeled = parseAgentBlock("# Task\n\n## Agentai\nprivaloma grandinė šia tvarka: readme-guard -> coder -> reviewer\n");
+  assert.equal(labeled.primary, "readme-guard", "etiketės žodžiai netampa primary");
+  assert.deepEqual(labeled.supporting, ["coder", "reviewer"]);
+
   const selection = parseAgentBlock("# Task\n\n## Agentai\nreadme-guard -> coder -> reviewer\nmodel_hint: opus\n");
   assert.equal(selection.primary, "readme-guard");
   assert.deepEqual(selection.supporting, ["coder", "reviewer"]);

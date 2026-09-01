@@ -54,6 +54,15 @@ const EMPHASIS_WRAPPER = /^[`*_]+|[`*_]+$/g;
  */
 const TRAILING_PROSE = /[.;(].*$/s;
 
+/**
+ * VEDANTI etiketė iki paskutinio dvitaškio — „privaloma grandinė šia tvarka: readme-guard"
+ * pirmas agentas yra `readme-guard`, o ne keturi prozos žodžiai. Iki task 138 deklaruota
+ * intencija (žr. TRAILING_PROSE komentarą) neturėjo implementacijos: legacy šaka segmentą
+ * dar skaidė per whitespace, ir UI grandinė rodė čipus „privaloma", „grandinė", „šia",
+ * „tvarka:" (2026-09-01 gyvas incidentas 097 dispatch'e).
+ */
+const LEADING_LABEL = /^.*:\s*/s;
+
 export const DEFAULT_AGENT_CHAIN_SEPARATOR = " -> ";
 
 /** Skaido žalią `## Agentai` grandinę į tokenus (verbatim, be case foldingo). */
@@ -61,7 +70,9 @@ export function parseAgentChain(raw: string): string[] {
   if (!raw) return [];
   return raw
     .split(CHAIN_SEPARATOR)
-    .map((token) => token.trim().replace(BULLET_PREFIX, "").replace(EMPHASIS_WRAPPER, "").replace(TRAILING_PROSE, "").trim())
+    .map((token) =>
+      token.trim().replace(BULLET_PREFIX, "").replace(LEADING_LABEL, "").replace(EMPHASIS_WRAPPER, "").replace(TRAILING_PROSE, "").trim(),
+    )
     .filter((token) => token.length > 0);
 }
 

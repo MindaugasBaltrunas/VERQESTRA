@@ -14,11 +14,13 @@ import { readAgentActivity } from "../../interfaces/ui-model/agent-activity-read
 import type { AgentActivity } from "../../interfaces/ui-model/agent-activity.js";
 import type { SseActiveAttempt, SseLiveSlotSource, SsePorts } from "../../interfaces/http/sse-service.js";
 import { waveSnapshotSchema } from "../../application/scheduling/wave-snapshot.js";
+import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
 import { formatAttemptId, type AttemptRef } from "../../application/scheduling/worker-limits.js";
 import { attemptArtifactPath, attemptLogPath } from "../../infrastructure/runtime-paths.js";
 import { resolveActiveAttempt } from "../../infrastructure/state/active-attempt.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { tryParseJson } from "../../shared/json.js";
+import { schedulingFs } from "../loop/adapters.js";
 
 /** Claude srauto kanalas bandymo viduje — tas pats vardas kaip globaliame veidrodyje. */
 const CLAUDE_LOG_CHANNEL = "claude-last";
@@ -51,6 +53,33 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
   const { projectRoot, runtimeRoot } = input;
   const fs = { readTextFileIfExists: (file: string) => nodeFsAdapter.readTextFileIfExists(file) };
 
+  /**
+   * Task 139: worktree dispatch'o gyvas srautas gyvena KOPIJOS `vq/logs/claude-last.log` —
+   * vaikas rašo su savo runtimeRoot, tad tėvo attempt kanalas užsipildo tik kopija pabaigoje,
+   * o globalus veidrodis lieka paskutinio NE-worktree dispatch'o fosilija (2026-09-01: UI
+   * „gyva komanda" rodė 8 val. senumo eilutę). Kelias į kopiją išvedamas iš GYVO lease
+   * (`worktree_path` — pagrindinio medžio vq/state), o ne spėjamas; nesant lease ar failo —
+   * `undefined`, ir kvietėjas lieka prie esamo elgesio (tuščia veikla, ne fosilija).
+   */
+  const worktreeLiveSources = async (
+    taskId: string,
+  ): Promise<{ logPath: string; taskFilePath: string } | undefined> => {
+    try {
+      const leases = await listWorkerLeases(schedulingFs, projectRoot);
+      const lease = leases.find((entry) => entry.status === "held" && entry.task_id === taskId && entry.worktree_path);
+      if (!lease?.worktree_path) return undefined;
+      const worktreeRoot = path.resolve(projectRoot, lease.worktree_path);
+      const logPath = path.join(worktreeRoot, "vq", "logs", "claude-last.log");
+      if (!(await nodeFsAdapter.exists(logPath))) return undefined;
+      // Grandinei — dispatch'o prompt'as kopijos supervisor kataloge: jis neša task tekstą su
+      // `## Agentai`. Nesamas failas ne klaida — reader'is tuščią turinį toleruoja.
+      return { logPath, taskFilePath: path.join(worktreeRoot, "vq", "supervisor", "claude-visible-prompt.md") };
+    } catch {
+      // Srautas yra ataskaita, ne vartai: lease skaitymo klaida negali nuversti SSE.
+      return undefined;
+    }
+  };
+
   return {
     fileMtimeMs: async (absolutePath) => (await nodeFsAdapter.fileMtimeMs(absolutePath)) ?? 0,
 
@@ -82,13 +111,17 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
         // Netinkamas segmentas (pvz. senas snapshot'as su svetimos formos id) PRALEIDŽIAMAS:
         // vienas neteisėtas slot'as negali nutildyti viso srauto.
         if (!logPath.ok || !taskPath.ok) continue;
+        // Task 139: tėvo attempt kanalas worktree dispatch'e gyvai nerašomas — kol failo nėra,
+        // gyvu šaltiniu tampa kopijos veidrodis per lease. Tėvo failas, vos atsiradęs (pabaigos
+        // kopija ar būsimas TEE), atgauna pirmenybę.
+        const worktree = (await nodeFsAdapter.exists(logPath.value)) ? undefined : await worktreeLiveSources(slot.task_id);
         sources.push({
           worker_id: slot.worker_id,
           task_id: slot.task_id,
           attempt: slot.attempt,
-          log_path: relativePosix(projectRoot, logPath.value),
-          logPath: logPath.value,
-          taskFilePath: taskPath.value,
+          log_path: relativePosix(projectRoot, worktree?.logPath ?? logPath.value),
+          logPath: worktree?.logPath ?? logPath.value,
+          taskFilePath: worktree?.taskFilePath ?? taskPath.value,
         });
       }
       return sources;
@@ -101,9 +134,15 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
 
       const resolved = await resolveActiveAttempt({ taskId, projectRoot, runtimeRoot });
       if (!resolved.ok) {
-        // Bandymo kopijos dar nėra: rodomas globalus veidrodis, ir tai PASAKOMA (`legacy`), o ne
-        // pateikiama kaip bandymo įrodymas.
-        return { taskId, watchFiles: [], stopStatusSource: "legacy" };
+        // Bandymo kopijos dar nėra: stebimas worktree veidrodis (task 139), jei gyvas lease jį
+        // turi — kitaip rodomas globalus, ir tai PASAKOMA (`legacy`), o ne pateikiama kaip
+        // bandymo įrodymas.
+        const worktree = await worktreeLiveSources(taskId);
+        return {
+          taskId,
+          watchFiles: worktree ? [worktree.logPath] : [],
+          stopStatusSource: "legacy",
+        };
       }
 
       const ref: AttemptRef = {
@@ -115,6 +154,13 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
       const stopStatus = attemptArtifactPath(runtimeRoot, ref, "stop-state");
       const claudeLog = attemptLogPath(runtimeRoot, ref, CLAUDE_LOG_CHANNEL);
       const watchFiles = [stopStatus, claudeLog].filter((result) => result.ok).map((result) => (result.ok ? result.value : ""));
+
+      // Task 139: kol tėvo attempt log'as neegzistuoja (worktree dispatch'as rašo kopijoje),
+      // stebimas kopijos veidrodis — kitaip SSE neturi kam reaguoti visą dispatch'ą.
+      if (claudeLog.ok && !(await nodeFsAdapter.exists(claudeLog.value))) {
+        const worktree = await worktreeLiveSources(taskId);
+        if (worktree) watchFiles.push(worktree.logPath);
+      }
 
       return {
         taskId,

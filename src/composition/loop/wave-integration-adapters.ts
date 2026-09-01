@@ -32,7 +32,7 @@ import { deleteWorktreeBranch, integrateWorktreeBranch } from "../../infrastruct
 import { removeTaskWorktree } from "../../infrastructure/git/worktrees/worktree-removal.js";
 import { worktreeLayout } from "../../infrastructure/git/worktrees/worktree-layout.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
-import { run } from "../../infrastructure/process/run-process.js";
+import { packageManagerExecutable, run } from "../../infrastructure/process/run-process.js";
 
 const REBUILD_TIMEOUT_MS = 300_000;
 
@@ -116,7 +116,10 @@ export function createWaveIntegrationAdapters(deps: WaveIntegrationAdapterDeps):
       }),
 
     async rebuildDist() {
-      const result = await run("pnpm", ["build"], { cwd: deps.projectRoot, timeoutMs: REBUILD_TIMEOUT_MS });
+      // `packageManagerExecutable` BŪTINAS: plikas "pnpm" Windows'e su shell:false duoda ENOENT
+      // (run-process .cmd kelią per cmd.exe įjungia tik komandai, kuri BAIGIASI .cmd) — 2026-09-01
+      // pirmoji reali integracija (099) sulietą kodą paliko be dist perstatymo ir parkavo done task'ą.
+      const result = await run(packageManagerExecutable("pnpm"), ["build"], { cwd: deps.projectRoot, timeoutMs: REBUILD_TIMEOUT_MS });
       return result.code === 0
         ? { ok: true, detail: "" }
         : { ok: false, detail: (result.stderr === "" ? result.stdout : result.stderr).trim() };

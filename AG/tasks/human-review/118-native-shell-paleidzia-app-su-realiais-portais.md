@@ -41,6 +41,14 @@ Leidžiama:
   vietoje šio, įrašyti į ataskaitą)
 - `mobile-app/native/src/App.tsx` (TIK 42-45 eil. komentaro atnaujinimas
   pagal realybę — props kontraktas nekinta)
+- `mobile-app/native/src/core.ts` (SCOPE SPRAGOS PATAISA 2026-09-01, antro
+  bandymo parkavimo pamoka: core.ts yra VIENINTELĖ leistina siūlė į
+  `@verqestra/mobile-app` — jo antraštės 1-4 eil. taisyklė, — tad kompozicija
+  `GatewayHttpClient`/`TerminalStreamClient` gali pasiekti TIK pridėjus jų
+  eksportus čia; worker'io darytas keitimas worktree kopijoje buvo būtent
+  šis ir buvo teisingas)
+- `mobile-app/native/src/tests/core-seam.test.ts` (siūlės paviršiaus testas
+  — atnaujinamas kartu su naujais eksportais)
 - `mobile-app/native/src/tests/native-shell-scaffold.test.ts`
 - `mobile-app/native/src/tests/native-runtime.test.ts` (numatomas naujas)
 
@@ -55,12 +63,16 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
+- `core.ts`: į esamą eksportų sąrašą pridėti `GatewayHttpClient` ir
+  `TerminalStreamClient` (bei kitus kompozicijai reikalingus vardus, jei jų
+  trūksta) — kompozicija importuoja TIK iš `../core`, ne tiesiai iš
+  `@verqestra/mobile-app` (siūlės taisyklė).
 - `native/src/composition/native-runtime.ts`: konstruoja
   `gateway-http-client` (transportas — RN `fetch` per
   `MobileHttpTransportPort`) ir `terminal-stream-client` (RN `WebSocket` per
-  `MobileWebSocketPort`), iš jų — read portus App'ui; gateway bazinį URL ima
-  iš aiškaus konfigūracijos taško (vykdytojo sprendimas, pagrįstas
-  ataskaitoje — be naujų dependencies).
+  `MobileWebSocketPort`) per `core` siūlę, iš jų — read portus App'ui;
+  gateway bazinį URL ima iš aiškaus konfigūracijos taško (vykdytojo
+  sprendimas, pagrįstas ataskaitoje — be naujų dependencies).
 - `index.js`: `registerRootComponent` gauna App su kompozicijos
   sukonstruotais props (wrapper komponentas ar bind — vykdytojo pasirinkimas,
   išlaikant CommonJS entry pastabą 1-2 eil.).

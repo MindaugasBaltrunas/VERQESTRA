@@ -4,7 +4,7 @@
 // human-review vartų pataisa). IO — per PolicyProposalServicePorts.
 
 import path from "node:path";
-import { toPrettyJson } from "../../shared/json.js";
+import { canonicalJsonStringify, toPrettyJson } from "../../shared/json.js";
 import { toPosixPath } from "../../shared/paths.js";
 import {
   applyPolicyProposal,
@@ -42,6 +42,52 @@ export class ProposalNotApprovedError extends Error {
     super(`Policy proposal must be approved before apply: ${policyFile}/${settingId}`);
     this.name = "ProposalNotApprovedError";
   }
+}
+
+/**
+ * Domain klaida: siūloma reikšmė jau YRA dabartinė — pasiūlymas nieko nepakeistų.
+ *
+ * 2026-08-31 UI auditas (P1, „Politikos forma leidžia siųsti `layered → layered`"): forma
+ * prisipildo dabartinėmis reikšmėmis, tad neliestas laukas nusiunčiamas nepakeistas. Toks
+ * pasiūlymas praeidavo visą kelią iki `proposals.jsonl` ir reikalaudavo approve + human-review
+ * žymės, kad pritaikytų... tą pačią reikšmę. Append-only žurnalas atgal negrįžta, tad kiekvienas
+ * toks įrašas amžinai lieka valdymo istorijoje kaip sprendimas, kurio niekas nepriėmė.
+ *
+ * Vartai stovi ČIA, o ne maršrute: dabartinę reikšmę žino tik policy loaderis, o CLI
+ * (`interfaces/cli/admin/policy.ts`) proposal'ą sudaro savo keliu ir šio use-case'o nekviečia —
+ * HTTP kontraktas nesišakoja.
+ */
+export class ProposalNoOpError extends Error {
+  constructor(readonly policyFile: string, readonly settingId: string, readonly currentValue: unknown) {
+    super(
+      `Policy setting ${settingId} in ${policyFile} already has this value ` +
+        `(${describePolicyValue(currentValue)}); the proposal would change nothing`,
+    );
+    this.name = "ProposalNoOpError";
+  }
+}
+
+/**
+ * Kanoninė JSON forma GILIAI lygybei. Policy reikšmės yra JSON tipo — `layers: ["a","b"]` ar
+ * `{...}` per `===` niekada nesutaptų, tad no-op vartai objektams tiesiog neveiktų.
+ *
+ * `undefined` grąžinamas dviem atvejais: reikšmės faile nėra, arba ji neapsiverčia į JSON
+ * (ne baigtinis skaičius ir pan.). Abu reiškia „palyginti negaliu", ir kvietėjas tokių NIEKADA
+ * nelaiko lygiomis — vartai fail-open, nes klaidingas atmetimas atimtų iš operatoriaus realų
+ * pakeitimą, o klaidingas praleidimas tik palieka bereikalingą žurnalo įrašą.
+ */
+function canonicalPolicyValue(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return canonicalJsonStringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reikšmė klaidos žinutei; ji keliauja į naršyklę, tad tai KLIENTO įvestis, ne vidinė detalė. */
+function describePolicyValue(value: unknown): string {
+  return canonicalPolicyValue(value) ?? String(value);
 }
 
 /**
@@ -129,10 +175,18 @@ export async function buildPolicyProposal(
   // Suliejama reikšmė validuojama prieš failo schemą DAR PRIEŠ siūlant.
   entry.schema.parse({ ...current, [setting_id]: requested_value });
 
+  // Ir tik tada — ar ji apskritai KĄ NORS keičia. Tvarka svarbi: netinkama reikšmė nusipelno
+  // schemos žinutės, o ne „jau tokia pati".
+  const currentValue = current[setting_id];
+  const currentCanonical = canonicalPolicyValue(currentValue);
+  if (currentCanonical !== undefined && currentCanonical === canonicalPolicyValue(requested_value)) {
+    throw new ProposalNoOpError(entry.policy_file, setting_id, currentValue);
+  }
+
   return {
     policy_file: entry.policy_file,
     setting_id,
-    old_value: current[setting_id],
+    old_value: currentValue,
     requested_value,
     reason: reason ?? "",
     timestamp: new Date().toISOString(),

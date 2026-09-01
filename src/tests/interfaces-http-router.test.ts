@@ -16,7 +16,10 @@ import {
 import { UI_IDENTITY_ROUTE, UI_IDENTITY_SERVICE, projectFingerprint } from "../interfaces/http/ui-port-rules.js";
 import { UI_TOKEN_HEADER } from "../interfaces/http/ui-security.js";
 import { InvalidUploadError } from "../interfaces/http/task-upload.js";
-import { ProposalCancelConflictError } from "../application/policy-governance/policy-proposal-service.js";
+import {
+  ProposalCancelConflictError,
+  ProposalNoOpError,
+} from "../application/policy-governance/policy-proposal-service.js";
 import { TaskNotFoundError } from "../interfaces/http/ui-task-actions.js";
 import { UnknownTaskBucketError } from "../interfaces/http/workflow-buckets.js";
 
@@ -383,6 +386,30 @@ test("`cancel` iš galutinės būsenos: 409 su paaiškinimu, o ne 500", async ()
     // serverio žurnalą ji nerašoma — ten lieka tik neatpažinti gedimai.
     assert.deepEqual(world.errors, []);
   }
+});
+
+// 2026-08-31 UI audito P1. Pasiūlymo maršrutas savo `catch` šaką jau turėjo, bet iki šiol pro ją
+// tekėjo tik registro ir schemos klaidos — no-op praeidavo iki žurnalo.
+test("no-op pasiūlymas: 409 su serverio paaiškinimu kūne, o ne 500 ir ne tyli sėkmė", async () => {
+  const world = routerWorld();
+  const noOp = new ProposalNoOpError("vq/architecture/architecture-style.json", "style", "layered");
+  world.failures.set("propose:architecture-style", noOp);
+
+  const response = await handleUiRequest(
+    world.deps,
+    request({
+      method: "POST",
+      url: "/api/policies/architecture-style/set",
+      readJsonBody: () => Promise.resolve({ setting_id: "style", requested_value: "layered", reason: "" }),
+    }),
+  );
+
+  assert.deepEqual(response, { kind: "json", status: 409, data: { error: noOp.message } });
+  // Žinutė įvardija ir nustatymą, ir reikšmę — būtent tai forma turi parodyti operatoriui.
+  assert.match(noOp.message, /style/);
+  assert.match(noOp.message, /"layered"/);
+  // Vartotojo klaida serverio žurnale nesikaupia.
+  assert.deepEqual(world.errors, []);
 });
 
 test("sprendimo verbų sąrašas lieka baigtinis: nežinomas verbas ir toliau atmetamas", async () => {

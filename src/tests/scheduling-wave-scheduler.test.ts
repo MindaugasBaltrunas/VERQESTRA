@@ -374,6 +374,24 @@ test("priimtas darbas per resume UŽDAROMAS, o ne kartojamas", async () => {
   assert.equal(next.kind === "task" ? next.task.task_id : next.kind, "0002");
 });
 
+test("terminaliniam task'ui su svetimu graph_hash resume UŽDARO, o ne kartoja discard-stale (095-b-03)", async () => {
+  // Audito P3 (2026-09-01): checkpoint'as terminaliniame bucket'e su senu `graph_hash`
+  // anksčiau kaskart gaudavo `discard-stale` ir niekada nesusivarydavo — operatoriaus log'e
+  // 095-b-03 tas pats įrašas pasikartojo penkis kartus. `graph_hash` čia SĄMONINGAI svetimas.
+  const w = world({
+    checkpoint: { status: "started", task_id: "0001", graph_hash: "wg-old:0000000000000000" },
+    locate: () => Promise.resolve("terminal-bucket"),
+    accepted: false,
+  });
+  const scheduler = createWaveScheduler(w.deps);
+  const decision = await scheduler.recoverFromCrash();
+
+  assert.equal(decision.action, "skip-completed");
+  assert.deepEqual(decision.reason_codes, ["terminal-bucket"]);
+  assert.ok(w.logs.some((line) => line.includes("WAVE RESUME TASK CLOSED")));
+  assert.ok(!w.logs.some((line) => line.includes("discard-stale")));
+});
+
 test("neatstatytas task failas per resume ESKALUOJAMAS", async () => {
   const w = world({
     checkpoint: { status: "finished", task_id: "0001", updated_at: NOW },

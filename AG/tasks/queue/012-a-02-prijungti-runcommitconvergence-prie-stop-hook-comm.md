@@ -29,7 +29,7 @@ Draudžiama:
 - Padengti `src/tests/composition-quality-commit-convergence.test.ts`: adapteriai surišti, telemetry įrašas atsiranda, commit'as išlieka sėkmingas kai convergence krenta.
 
 ## Patikra
-- `pnpm typecheck`
+- `pnpm build`
 - `pnpm test`
 
 ## Stop

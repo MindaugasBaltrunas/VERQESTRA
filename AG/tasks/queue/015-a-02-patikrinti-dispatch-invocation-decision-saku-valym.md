@@ -13,7 +13,8 @@ PRIVALOMA grandinė šia tvarka: readme-guard -> coder -> reviewer -> tester. re
 Leidžiama:
 - `src/interfaces/cli/dispatch/claude-dispatch/dispatch-invocation.ts`
 - `src/interfaces/cli/dispatch/claude-dispatch/dispatch-routing-plan.ts`
-- `src/tests/**`
+- `src/tests/interfaces-cli-dispatch-command.test.ts`
+- `src/tests/interfaces-cli-dispatch-plan.test.ts`
 
 Draudžiama:
 - `src/composition/agent/dispatch-adapters.ts`

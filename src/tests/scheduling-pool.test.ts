@@ -122,6 +122,56 @@ test("planSlotProvisioning targets missing-lease rejections, including the prima
   assert.deepEqual(provisioning.refused, []);
 });
 
+// Task 113: hard-cap atsisakymo `detail` privalo sakyti tiesą apie tai, KODĖL laisvo
+// indekso nebėra — o ne visada teigti "jau išduotas", kai realiai tai tik šio raundo
+// eiliškumas (ankstesnis kandidatas jau paėmė vienintelį laisvą indeksą).
+test("planSlotProvisioning: hard-cap detail distinguishes round-order from a genuinely full pool", () => {
+  // Primary turi pilnus įrodymus (nereikia provisioning'o), bet abu likę kandidatai
+  // neturi lease — nė vienas negauna antro slot'o, tad plan.slots lieka [primary] (length 1)
+  // ir laisvas TIK vienas indeksas šiam raundui.
+  const primary = candidate("0001", "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" });
+  const first = candidate("0002", "src/b/");
+  const second = candidate("0003", "src/c/");
+  const plan = planWorkerPool({ run_id: "r1", candidates: [primary, first, second], requested_workers: 2, now: NOW });
+  assert.equal(plan.slots.length, 1, "kontrolė: tik primary jau granted");
+
+  const provisioning = planSlotProvisioning({ plan });
+  assert.deepEqual(
+    provisioning.targets.map((target) => [target.task_id, target.worker_index]),
+    [["0002", 2]],
+    "the one free index this round goes to the first missing-lease candidate",
+  );
+  assert.equal(provisioning.refused.length, 1, "the second missing-lease candidate is refused");
+  const roundOrderRefusal = provisioning.refused[0];
+  assert.equal(roundOrderRefusal?.reason, "hard-cap", "reason code stays hard-cap for log parsers");
+  assert.doesNotMatch(
+    roundOrderRefusal?.detail ?? "",
+    /jau išduotas/,
+    "round-order refusal must not claim a lease was already issued when none was",
+  );
+  assert.match(
+    roundOrderRefusal?.detail ?? "",
+    /raunde|ankstesniam kandidatui/,
+    "detail names this round's ordering, not a fabricated issuance",
+  );
+
+  // Genuinely full pool: "0002" loses the write-set/lease race to "0003" (full proof),
+  // so by the time planSlotProvisioning runs, BOTH MAX_WORKERS indexes really do have a
+  // granted slot — here the hard-cap message correctly means "all issued".
+  const winner = candidate("0003", "src/c/", { lease: lease("0003", "w2", { worktreePath: "worktrees/w2" }), worktree: "worktrees/w2" });
+  const fullPlan = planWorkerPool({ run_id: "r1", candidates: [primary, first, winner], requested_workers: 2, now: NOW });
+  assert.equal(fullPlan.slots.length, 2, "kontrolė: abu indeksai jau granted");
+  assert.equal(fullPlan.rejected[0]?.task_id, "0002", "kontrolė: '0002' liko missing-lease, ne hard-cap, iš pool'o pačio");
+
+  const fullProvisioning = planSlotProvisioning({ plan: fullPlan });
+  assert.equal(fullProvisioning.refused[0]?.reason, "hard-cap");
+  assert.match(
+    fullProvisioning.refused[0]?.detail ?? "",
+    /visi indeksai turi granted slot/,
+    "genuinely full pool names the real state: every index already has a granted slot",
+  );
+});
+
 test("resolveWorkerOutcomes: a missing outcome means still running (fail-closed)", () => {
   const primary = candidate("0001", "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" });
   const second = candidate("0002", "src/b/", { lease: lease("0002", "w2", { worktreePath: "worktrees/w2" }), worktree: "worktrees/w2" });

@@ -47,6 +47,10 @@ Leidžiama:
   `implemented_files` ar pan.)
 - `src/tests/domain-vq204.test.ts` (245-258 eil. pin'o perrašymas su
   pagrindimu)
+- `src/tests/application-architecture.test.ts` (299 ir 310 eil.
+  `forbidden_dependencies` block/warn pin'ai — perrašomi pagal sąsajos
+  vertinimą; pridėta 2026-09-01 po dispatch parkavimosi su „changed files
+  outside allowed paths" šiam failui)
 - `migration-coverage.json` (nukrypimo įrašas su priežastimi)
 
 Draudžiama:

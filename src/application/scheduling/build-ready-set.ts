@@ -121,8 +121,9 @@ export type BuildReadySetInput = {
    * Tokenų biudžetas, ribojantis, kiek naujo darbo galima pradėti.
    *
    * Prijungtas per `run-budget.ts` (942c2eb): riba — neprivalomas `maxRunBillableTokens`
-   * raktas `vq/config/token-budget.json`, išlaidos — suma per `vq/logs/token-usage.jsonl`.
-   * Ribos nesant paduodamas `undefined`, ir tada abu biudžeto vartai neveikia — tai sąmoninga:
+   * raktas `vq/config/token-budget.json`, išlaidos — suma per `vq/logs/token-usage.jsonl`
+   * ĮRAŠUS, KURIŲ `run_id` sutampa su einamuoju run'u (task 133) — ankstesnių run'ų išlaidos
+   * naujo neriboja. Ribos nesant paduodamas `undefined`, ir tada abu biudžeto vartai neveikia — tai sąmoninga:
    * `undefined` reiškia „ribos nėra", ne „biudžetas išnaudotas". Tikroji prievarta lieka
    * dispatch'e (`enforceExecutionBudget`, kviečiamas `composition/loop/coordinator-execution`;
    * šalia veikia `authorizeLlmCall` ir mid-dispatch watchdog'as); šis vartas yra planavimo

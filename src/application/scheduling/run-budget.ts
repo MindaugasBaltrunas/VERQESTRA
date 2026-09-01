@@ -11,8 +11,14 @@
 //
 // Todėl riba yra atskira ir NEPRIVALOMA. Jos nesant grąžinama `undefined` — tiksliai ta elgsena,
 // kuri buvo iki šiol — tad niekam nieko neįjungiama be sprendimo. Ją įrašius, mechanizmas veikia.
+//
+// Semantika yra RUN pjūvis, ne viso gyvavimo suma (task 133): `maxRunBillableTokens` vardas žadėjo
+// per-run ribą nuo pat pradžių, bet iki šiol išlaidos buvo sumuojamos per VISĄ `token-usage.jsonl`
+// — kiekvienas naujas run paveldėdavo visų ankstesnių išlaidas, ir riba, kartą pasiekusi `exhausted`,
+// negrįždavo be rankinio žurnalo valymo. Žurnalo `run_id` laukas (jau egzistuoja, `token-usage-log.ts`)
+// leidžia pjūvį be schemos keitimo: sumuojami tik įrašai, kurių `run_id` sutampa su einamuoju.
 
-import { parseTaskUsageEntries, taskUsageTokenTotal } from "../../domain/tokens/usage-ledger.js";
+import { parseTaskUsageEntries, taskUsageTokenTotal, type TaskUsageEntry } from "../../domain/tokens/usage-ledger.js";
 import type { ReadySetBudget } from "./build-ready-set.js";
 
 /** Neprivalomas raktas `vq/config/token-budget.json` faile. */
@@ -23,6 +29,11 @@ export type RunBudgetPorts = {
   readBudgetConfig: () => Promise<string | undefined>;
   /** `vq/logs/token-usage.jsonl` turinys arba `undefined`, kai jo nėra. */
   readUsageLog: () => Promise<string | undefined>;
+  /**
+   * Einamojo run'o tapatybė (loop-command `runId`, `randomUUID()` vieną kartą per paleidimą).
+   * Filtruoja žurnalą į ŠIO run'o pjūvį — be jos suma būtų viso gyvavimo žurnalo suma.
+   */
+  runId: string;
 };
 
 function declaredCeiling(raw: string | undefined): number | undefined {
@@ -43,15 +54,32 @@ function declaredCeiling(raw: string | undefined): number | undefined {
 }
 
 /**
- * Kiek run'as jau išleido, pagal loop'o paties usage žurnalą.
+ * Įrašo `run_id`, arba `undefined`, kai žurnalo eilutė jo neneša (senas formatas, fastpath).
  *
- * Sumuojama per VISUS įrašus, ne per vieną task'ą: klausimas čia yra „kiek liko eilei", o ne
- * „kiek liko šitam darbui". `taskUsageTokenTotal` neša tą pačią apmokestinamą aritmetiką, kurią
- * naudoja likusi apskaita, tad riba ir išlaidos matuojamos ta pačia kiekybe.
+ * `TaskUsageEntry` (domain/tokens/usage-ledger) `run_id` lauko nedeklaruoja — jis rašomas
+ * (`infrastructure/state/token-usage-log.ts`), bet ledger'io grynoji pusė jo nenaudoja. Skaitymas
+ * per `Record<string, unknown>` čia neišplečia domeno tipo, tik pasiekia lauką, kurį JSON eilutė
+ * jau neša.
  */
-function spentBillableTokens(raw: string | undefined): number {
+function runIdOfEntry(entry: TaskUsageEntry): string | undefined {
+  const raw = (entry as unknown as Record<string, unknown>)["run_id"];
+  return typeof raw === "string" && raw.trim() ? raw : undefined;
+}
+
+/**
+ * Kiek ŠIS run'as jau išleido, pagal loop'o paties usage žurnalą.
+ *
+ * Sumuojama per įrašus, kurių `run_id` sutampa su einamuoju run'u — ankstesnių run'ų išlaidos
+ * neriboja naujo. `run_id` žurnale jau egzistuoja (`token-usage-log.ts`, sourced iš attempt
+ * manifest'o, kurį prirašo wave scheduler'io `runId`), tad pjūvis skaito esamą lauką, o ne prideda
+ * naują. `taskUsageTokenTotal` neša tą pačią apmokestinamą aritmetiką, kurią naudoja likusi
+ * apskaita, tad riba ir išlaidos matuojamos ta pačia kiekybe.
+ */
+function spentBillableTokens(raw: string | undefined, runId: string): number {
   if (raw === undefined) return 0;
-  return parseTaskUsageEntries(raw).reduce((total, entry) => total + taskUsageTokenTotal(entry), 0);
+  return parseTaskUsageEntries(raw)
+    .filter((entry) => runIdOfEntry(entry) === runId)
+    .reduce((total, entry) => total + taskUsageTokenTotal(entry), 0);
 }
 
 /**
@@ -63,6 +91,6 @@ function spentBillableTokens(raw: string | undefined): number {
 export async function readRunBudget(ports: RunBudgetPorts): Promise<ReadySetBudget | undefined> {
   const ceiling = declaredCeiling(await ports.readBudgetConfig());
   if (ceiling === undefined) return undefined;
-  const remaining = ceiling - spentBillableTokens(await ports.readUsageLog());
+  const remaining = ceiling - spentBillableTokens(await ports.readUsageLog(), ports.runId);
   return { remaining_tokens: Math.max(remaining, 0), exhausted: remaining <= 0 };
 }

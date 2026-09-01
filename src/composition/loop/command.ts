@@ -217,6 +217,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
       readRunBudget({
         readBudgetConfig: () => nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "config", "token-budget.json")),
         readUsageLog: () => nodeFsAdapter.readTextFileIfExists(path.join(runtimeRoot, "logs", "token-usage.jsonl")),
+        runId,
       }),
     // Patvirtinimai: veikiantis kanalas yra `HUMAN-REVIEW-APPROVED:` žyma task'o faile —
     // `task-graph-import` iš jos nustato `TaskNode.approved`. Šis run-scoped sąrašas yra ANTRAS

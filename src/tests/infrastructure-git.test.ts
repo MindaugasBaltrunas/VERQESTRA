@@ -107,6 +107,29 @@ test("rollback scope: committedTaskWorkSince mato commit'intą darbą, restoreTa
   assert.deepEqual(await detectPushedRollback(root, stable), { blocked: false });
 });
 
+test("detectPushedRollback: rev-list nesėkmė (neegzistuojantis stableRef) blokuoja, ne leidžia (fail-closed regresija)", async () => {
+  // Šiam vienam testui reikia realaus origin remote — kitaip upstreamExists patikra
+  // grąžina false anksčiau, nei kodas pasiekia rev-list kvietimą, kurio nesėkmę testuojame.
+  // Failo antraštės pastaba „be remote: push keliai netestuojami" liečia PUSH elgesį
+  // (commitAndPush push:true); čia originas skaitomas, o ne rašomas.
+  const originDir = await mkdtemp(path.join(tmpdir(), "vq-git-origin-"));
+  await run("git", ["init", "--bare", originDir]);
+  try {
+    await git("remote", "add", "origin", originDir);
+    const branch = await gitCurrentBranch(root);
+    assert.ok(branch);
+    await git("push", "origin", `HEAD:${branch}`);
+
+    const nonExistentStableRef = "0".repeat(40);
+    const decision = await detectPushedRollback(root, nonExistentStableRef);
+    assert.equal(decision.blocked, true);
+    assert.match(decision.detail ?? "", /rev-list/);
+  } finally {
+    await run("git", ["-C", root, "remote", "remove", "origin"]);
+    await rm(originDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
 test("gitLogNumstat: file-activity parserio laukiama forma (@@hash|iso|subject + name-status)", async () => {
   const log = await gitLogNumstat(root, 365);
   assert.ok(log !== undefined);

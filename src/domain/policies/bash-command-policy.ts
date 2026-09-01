@@ -162,11 +162,15 @@ const allowedCommandSegments = [
   // `pnpm exec`; anchor'ai neleidžia jai virsti bendru „pnpm exec bet kas".
   /^(?:pnpm\s+(?:exec\s+)?)?(?:ag|verqestra)\s+(?:loop|loop-guard|run-claude-loop|status)$/i,
   // Requeue saugus: tik perkelia task'ą human-review → queue ir išvalo ledger įrašą.
-  /^(?:pnpm\s+)?ag\s+requeue\s+[\w.-]+\.md$/i,
+  // `verqestra` alternatyva čia ir žemiau — ta pati 2026-08-25 rename parity taisyklė kaip
+  // loop komandoms aukščiau (GeoGravity 2026-09-01: `ag` bin'o nėra, `node dist/cli.js`
+  // kelio target repo neturi, tad sankcionuota human-review priežiūra buvo NEĮMANOMA per
+  // jokį leistą įėjimą). Subkomandos ir argumentų ribos identiškos — kitas VARDAS, ne galia.
+  /^(?:pnpm\s+(?:exec\s+)?)?(?:ag|verqestra)\s+requeue\s+[\w.-]+\.md$/i,
   // task-move leidžiamas tik viena kryptimi: human-review → done (patikrintiems taskams).
-  /^(?:pnpm\s+)?ag\s+task-move\s+AG[\\/]tasks[\\/]human-review[\\/][\w.-]+\.md\s+AG[\\/]tasks[\\/]done$/i,
+  /^(?:pnpm\s+(?:exec\s+)?)?(?:ag|verqestra)\s+task-move\s+AG[\\/]tasks[\\/]human-review[\\/][\w.-]+\.md\s+AG[\\/]tasks[\\/]done$/i,
   // Ledger sinchronizacija saugi: bucket'ų failai yra tiesos šaltinis, komanda be argumentų.
-  /^(?:pnpm\s+)?ag\s+task-ledger-sync$/i,
+  /^(?:pnpm\s+(?:exec\s+)?)?(?:ag|verqestra)\s+task-ledger-sync$/i,
   // Read-only patikros komandos, kurių reikalauja optimizavimo bangos užduočių ## Patikra.
   // Nė viena nekeičia task queue lifecycle (nejudina AG/tasks/* ir neliečia ledger įrašų);
   // jos arba tik skaito, arba rašo determinuotą ataskaitą.

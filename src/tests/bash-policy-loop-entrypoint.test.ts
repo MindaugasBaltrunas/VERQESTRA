@@ -49,3 +49,23 @@ test("loop entrypoint: `exec` netapo universaliu praleidimu", () => {
   blocked("pnpm exec verqestra loop; echo pwned", "kabliataškis atveria antrą segmentą");
   blocked("pnpm exec verqestra loop && rm -rf x", "grandinė atveria antrą segmentą");
 });
+
+// 2026-09-01 (GeoGravity human-review priežiūra): ta pati rename parity taisyklė
+// requeue/task-move/task-ledger-sync komandoms — `ag` bin'o target repo nėra, `node dist/cli.js`
+// kelio taip pat, tad sankcionuota human-review → done operacija buvo neįmanoma per jokį leistą
+// įėjimą. Testas gina plyšio DYDĮ: kitas vardas, tos pačios kryptys ir argumentų ribos.
+test("task priežiūra: `verqestra` forma leidžiama toms pačioms subkomandoms", () => {
+  allowed("verqestra requeue 1199_web_query_viewer_shell_completion_invalidation.md");
+  allowed("verqestra task-move AG/tasks/human-review/1196_geoobject_objecttype_passthrough.md AG/tasks/done");
+  allowed("verqestra task-ledger-sync");
+  allowed("pnpm exec verqestra task-ledger-sync");
+  allowed("ag task-move AG/tasks/human-review/x.md AG/tasks/done");
+});
+
+test("task priežiūra: kryptys ir argumentų ribos NEPRAPLĖSTOS", () => {
+  blocked("verqestra task-move AG/tasks/done/x.md AG/tasks/queue", "leidžiama tik human-review → done");
+  blocked("verqestra task-move AG/tasks/human-review/../secrets.md AG/tasks/done", "kelio traversal");
+  blocked("verqestra task-move AG/tasks/human-review/x.md AG/tasks/done --force", "papildomi argumentai");
+  blocked("verqestra requeue AG/tasks/queue/x.md", "requeue ima tik failo vardą be kelio");
+  blocked("verqestra task-ledger-sync --rebuild", "argumentai neleidžiami");
+});

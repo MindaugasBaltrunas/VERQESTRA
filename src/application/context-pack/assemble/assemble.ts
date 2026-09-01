@@ -32,7 +32,7 @@ import { measureTaskSize } from "../../../domain/tasks/size.js";
 import { contextPackSchema, type ContextPack } from "../context-pack-schema.js";
 import { loadEffectiveCompressionPolicy } from "../effective-compression-policy.js";
 import { contextCompressionCacheSources } from "../compression-cache-sources.js";
-import { computeContextCacheKey } from "../context-cache-key.js";
+import { codeGraphModeCacheSource, computeContextCacheKey } from "../context-cache-key.js";
 import { CODE_INDEX_STALE, CODE_INDEX_UNUSED } from "../context-cache-model.js";
 import { estimateTokensFromChars } from "../metrics.js";
 import { COMPRESSION_FALLBACK_SIZE, compileWorkerPromptTaskForDispatch } from "../worker-prompt-compilation.js";
@@ -149,7 +149,6 @@ export async function assembleContextPack(
   const cache = deps.cache;
   let cacheKey: ReturnType<typeof computeContextCacheKey> | undefined;
   // Šaltiniai renkami TIK kai kešas realiai naudojamas (2026-08-24, operatoriaus radinys).
-  //
   // `collectSources` perskaito ir suhash'uoja KIEKVIENĄ taikinį, spec šaltinį, architektūros ir
   // politikos failą — būtent tą darbą `--no-context-cache` ir turi praleisti. Iki tol raktas buvo
   // skaičiuojamas visada, o naudojamas tik dviejose vietose (`lookup` ir `save`), ir abi jau buvo
@@ -165,6 +164,7 @@ export async function assembleContextPack(
     // the arrest that narrows them (task 0038) — both must invalidate cached packs.
     cacheSources.push(
       ...(await contextCompressionCacheSources({ fs: deps.fs, root, runtimeRoot, arrestView })),
+      codeGraphModeCacheSource(withCodeGraph),
     );
     cacheKey = computeContextCacheKey(cacheSources);
     const lookup = await cache.lookup(cacheKey, () => currentCodeIndexDescriptor(deps.codeFs, root));

@@ -8,8 +8,7 @@ import { RETRIEVAL_PRIORITY_ORDER } from "../code-intelligence/retrieval/ranking
 import { BOUNDARY_MIN_RATIO, CHANGE_DIR_FILES, MAX_SPEC_CANDIDATES } from "../code-intelligence/retrieval/spec-fragments.js";
 import { IMPACTED_TEST_IMPORTER_DEPTH } from "../code-intelligence/query/query.js";
 import { MAX_SPEC_RETRIEVAL_WARNINGS } from "./assemble/spec-phase.js";
-import type { ContextCacheEntry, ContextCacheSource, ContextCacheSourceKind } from "./context-cache-model.js";
-import { CONTEXT_CACHE_VERSION } from "./context-cache-model.js";
+import { CONTEXT_CACHE_VERSION, type ContextCacheEntry, type ContextCacheSource, type ContextCacheSourceKind } from "./context-cache-model.js";
 
 export const CONTEXT_CACHE_SOURCE_KINDS: readonly ContextCacheSourceKind[] = [
   "task",
@@ -102,4 +101,19 @@ export function sortSources(sources: ContextCacheSource[]): ContextCacheSource[]
 
 export function normalizeRelative(value: string): string {
   return value.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+// `--with-code-graph` renka kandidatus per skirtingą kelią nei numatytas (auto) režimas
+// (`gatherCodeContextCandidates` vs `autoGatherCodeContextCandidates` assemble.ts faile), tad
+// pack'o `code_context` skiriasi TIEMS PATIEMS taikiniams. Be šio šaltinio abu režimai suktų į
+// tą patį fingerprint'ą, ir vienas režimas užrašytą įrašą grąžintų kitam kaip svetimą hit'ą.
+// Sintetinis šaltinis, pagal `contextCompressionArrestCacheSource` pavyzdį
+// (`compression-cache-sources.ts`): ne failo baitai, o iš režimo išvestas derived hash.
+export function codeGraphModeCacheSource(withCodeGraph: boolean): ContextCacheSource {
+  const mode = withCodeGraph ? "with-code-graph" : "auto";
+  return {
+    kind: "policy",
+    path: "context-pack/with-code-graph",
+    hash: createHash("sha256").update(mode, "utf8").digest("hex"),
+  };
 }

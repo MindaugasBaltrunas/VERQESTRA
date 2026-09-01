@@ -114,3 +114,40 @@ test("be vėliavos tas pats surinkimas kešo kelią naudoja", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// Task 097: `--with-code-graph` renka kandidatus per kitą kelią (`gatherCodeContextCandidates`)
+// nei numatytas režimas (`autoGatherCodeContextCandidates`), tad pack'o `code_context` gali
+// skirtis tiems patiems taikiniams. Iki pataisos kešo raktas šio skirtumo nematė: abu režimai
+// suktų į tą patį fingerprint'ą, ir vienas užrašytas pack'as grįždavo kaip svetimo režimo hit'as.
+test("--with-code-graph gauna kitą kešo raktą nei numatytas režimas", async () => {
+  const root = await world();
+  try {
+    const deps = {
+      fs: nodeFsAdapter,
+      codeFs: createCodeIntelligenceFsAdapter(root),
+      cache: createContextCacheAdapter(root, path.join(root, "vq")),
+    };
+
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+    assert.equal(await lastCacheStatus(root), "miss", "pirmas surinkimas numatytu režimu turi būti miss");
+
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md", "--with-code-graph"], root, deps);
+    assert.equal(
+      await lastCacheStatus(root),
+      "miss",
+      "grafo režimas neturi gauti numatyto režimo įrašo kaip hit",
+    );
+
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md", "--with-code-graph"], root, deps);
+    assert.equal(await lastCacheStatus(root), "hit", "tas pats grafo režimas antrą kartą turi hit'inti");
+
+    await assembleContextPack(["AG/tasks/queue/0042-demo.md"], root, deps);
+    assert.equal(
+      await lastCacheStatus(root),
+      "hit",
+      "numatytas režimas savo anksčiau įrašytą įrašą vis dar randa",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

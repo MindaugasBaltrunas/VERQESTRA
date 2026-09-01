@@ -7,14 +7,16 @@ openspec/changes/verqestra-backlog-v1/
 - 110-lt-datos-laukai-neberodo-dvieju-priestaraujanciu-formatu
 
 ## Žingsnis 0 — ar jau įgyvendinta?
-Jei `ui-app/src/view/pages/DashboardPage.tsx` `QueueSnapshot` (dabar 375-389
-eil.) arba gretimas apžvalgos blokas rodo in-flight eilutę iš waves duomenų
-(gyvi `UiWaveSlot`/`UiWaveLease` su worker ir task id) — ALREADY_IMPLEMENTED:
-cituok JSX, duomenų pravedimą ir testą kaip įrodymą.
+Jei (1) `ui-app/src/view/pages/DashboardPage.tsx` `QueueSnapshot` (dabar
+375-389 eil.) arba gretimas apžvalgos blokas rodo in-flight eilutę iš waves
+duomenų (gyvi `UiWaveSlot`/`UiWaveLease` su worker ir task id) IR (2)
+`ui-app/src/view/components/WorkflowBoard.tsx` kortelė su gyvo slot'o
+task_id gauna „vykdomas" badge — ALREADY_IMPLEMENTED: cituok abiejų vietų
+JSX, duomenų pravedimą ir testus kaip įrodymą.
 
 ## Tikslas
-Gyvas 2026-09-01 operatoriaus klausimas: apžvalgos „Workflow snapshot" NERODO,
-kad w1/w2 dirba. Patikrinta: `DashboardPage.tsx:375-389` `QueueSnapshot`
+Gyvas 2026-09-01 operatoriaus klausimas: NEI apžvalgos „Workflow snapshot",
+NEI Užduočių puslapio lenta nerodo, kad w1/w2 dirba. Patikrinta: `DashboardPage.tsx:375-389` `QueueSnapshot`
 rodo TIK pagrindinio medžio bucket'ų skaičius (`buckets` iš dashboard API,
 385 eil.), o worktree izoliacijoje dispatchinto task'o `queue→active/
 delegated` perėjimas vyksta tik worktree KOPIJOJE — pagrindiniame medyje
@@ -29,7 +31,15 @@ suvestinė papildoma in-flight eilute(-ėmis) — pvz. „Vykdoma dabar: w1 →
 <task>, w2 → <task>" — maitinama iš JAU turimų waves duomenų, perduodant
 juos į `QueueSnapshot` (ar gretimą bloką) be jokio naujo fetch kanalo;
 grynas išvedimas (kurie slot'ai rodomi: `running` ir ne-`stale`; lease
-fallback be `slots`) — model funkcija su unit testais.
+fallback be `slots`) — model funkcija su unit testais. TA PATI worktree
+akluma kartojasi Užduočių lentoje: `WorkflowBoard` (renderinamas tasks
+route, `DashboardPage.tsx:216-220`) vykdomus task'us rodo stovinčius
+`queue` stulpelyje be jokio ženklo — kortelė, kurios task_id sutampa su
+gyvu slot'u, gauna vizualinį „vykdomas (w1/w2)" badge iš to paties waves
+šaltinio. PASTABA dėl kanalo: `wavesEnabled` (`DashboardPage.tsx:67`)
+dabar dengia tik overview/system — tasks route įtraukiamas į TĄ PATĮ
+vieno polling'o kanalą (64-66 eil. komentaro taisyklė lieka galioti:
+vartotojų daugėja, kanalas lieka vienas).
 
 ## Agentai
 readme-guard -> architect -> coder -> reviewer -> i18n -> tester
@@ -44,6 +54,10 @@ Leidžiama:
 - `ui-app/src/dashboardSmoke.test.tsx` (apžvalgos renderio dengimas; jei
   QueueSnapshot dengiamas kitame esamame teste — tas failas vietoje šio,
   įrašyti į ataskaitą)
+- `ui-app/src/view/components/WorkflowBoard.tsx` (lentos kortelės badge —
+  108 scope failas, tvarką dengia priklausomybė, žr. Priklausomybės
+  pagrindimą Neįtrauktoje)
+- `ui-app/src/view/components/WorkflowBoard.test.tsx`
 - `ui-app/src/i18n/I18nContext.tsx` (nauji tekstai: „Vykdoma dabar" ir kt.)
 - `ui-app/src/view/styles/dashboard.css` (in-flight eilutės klasės — CSS
   dengiamumo vartas)
@@ -67,12 +81,22 @@ Draudžiama:
   worker → task poras; waves klaida ar `null` (dar neatsikrovė) — suvestinė
   atrodo kaip iki šiol, be klaidos triukšmo šiame bloke (klaidų kanalą jau
   turi kiti vartotojai).
+- `WorkflowBoard.tsx`: kortelė, kurios task_id sutampa su gyvu in-flight
+  įrašu (tas pats model išvedimas — worker→task žemėlapis paduodamas per
+  props iš DashboardPage), gauna matomą „vykdomas (w1/w2)" badge — TIK
+  vizualinis žymuo ant esamos kortelės; stulpeliai, bucket skaičiai ir
+  perkėlimo veiksmai NEKINTA. Sutapatinimas per kanoninį task id (kortelės
+  `taskFileLabel`/failo vardo kamienas), ne per pilno kelio lygybę.
+- `DashboardPage.tsx` 67 eil.: `wavesEnabled` papildomas `"tasks"` route —
+  vienas polling kanalas aptarnauja tris vartotojus.
 - i18n: nauji raktai su EN sentinelėmis ir LT vertimais; task id NEVERČIAMI
   (identifikatoriai).
 - Testų lūkestis: (1) model — slots atranka (running/ne-stale), lease
   fallback, tuščias atvejis; (2) render — su gyvu w1/w2 slot'u suvestinėje
-  matomos worker→task eilutės, be jų — esamas vaizdas nepakitęs; (3) esami
-  QueueSnapshot/bucket testai žali.
+  matomos worker→task eilutės, be jų — esamas vaizdas nepakitęs; (3)
+  `WorkflowBoard.test.tsx` — kortelė su in-flight task_id turi badge (LT ir
+  EN tekstai), be sutapimo badge nėra, `workflow-card--<name>` klasės ir
+  veiksmai nepakitę; (4) esami QueueSnapshot/bucket testai žali.
 
 ## Patikra
 - `pnpm build`
@@ -93,4 +117,11 @@ Draudžiami.
 - SSE/`/api/events` kanalo naudojimas šiai eilutei — waves polling'o
   pakanka suvestinei, o antro kanalo derinimas būtų naujas sudėtingumas.
 - Pagrindinio medžio bucket skaitliukų semantikos keitimas — jie rodo tai,
-  ką rodo (failų vietą), in-flight eilutė papildo, ne pakeičia.
+  ką rodo (failų vietą), in-flight eilutė ir badge papildo, ne pakeičia.
+- Kortelių perkėlimas tarp stulpelių pagal gyvą būseną — badge yra
+  vienintelis žymuo; stulpelis lieka failo vieta.
+- PRIKLAUSOMYBĖS PAGRINDIMAS: `WorkflowBoard.tsx` deklaruotas 108 scope, o
+  I18nContext/dashboard.css — visos 104→110 grandinės hotspot'ai;
+  priklausomybė nuo 110 (uodegos) transityviai serializuoja šį task'ą po
+  108 (grandinė 110→109→108 patikrinta 2026-09-01 — deklaruota abiejuose),
+  tad atskiros priklausomybės nuo 108 nereikia.

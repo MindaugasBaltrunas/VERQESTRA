@@ -90,7 +90,15 @@ test("retry biudžetas skaičiuoja KITĄ bandymą", async () => {
   }
 });
 
+// Env sandbox'as BŪTINAS: gyvo dispatch'o aplinka vaikams eksportuoja AG_RUN_ID/AG_WORKER_ID/
+// AG_ATTEMPT_ID, o `resolveActiveAttempt` run_id pirmiausia ima iš env (active-attempt.ts) —
+// be išvalymo šis testas worktree patikrose rasdavo „gyvą" namespace ir raudonuodavo vien dėl
+// aplinkos (2026-09-01: 096 worker'is dėl to bandė taisyti šį testą už savo scope ribų).
 test("be runtime namespace'o `prepareDispatch` krenta PRIEŠ retry inkrementą", async () => {
+  const savedEnv = new Map(
+    ["AG_RUN_ID", "AG_WORKER_ID", "AG_ATTEMPT_ID"].map((key) => [key, process.env[key]] as const),
+  );
+  for (const key of savedEnv.keys()) delete process.env[key];
   const world = await workspace();
   try {
     const port = cheapFinishPort(world, overlay());
@@ -109,6 +117,10 @@ test("be runtime namespace'o `prepareDispatch` krenta PRIEŠ retry inkrementą",
     // Būsena lieka NEPAJUDINTA: kitaip task'as netektų bandymo, kurio niekada negavo.
     assert.equal((await port.retryBudget("0042")).count, before.count);
   } finally {
+    for (const [key, value] of savedEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     await rm(world.projectRoot, { recursive: true, force: true });
   }
 });

@@ -113,7 +113,8 @@ export const readinessPorts: ReadinessPorts = {
  * atveju jis tik patvirtintų tai, kas jau yra.
  *
  * Skirtumas nuo etalono yra tik keliai: sluoksniai gyvena `src/*`, konfigai — `vq/config`
- * (o ne `AG/config`), o komandų registras yra `src/composition/cli-registry.ts`.
+ * (o ne `AG/config`), o komandų registras yra `src/composition/cli/` pjūvis
+ * (`registry.ts` surenka, `commands-*.ts` registruoja).
  */
 export const readinessRequirements: ReadinessRequirements = {
   folders: [
@@ -147,15 +148,23 @@ export const readinessRequirements: ReadinessRequirements = {
   // VISI registro pjūviai, ne vien surinkėjas. 11/N iškėlus komandas į teminius
   // `cli-commands-*` failus, sąrašas su vienu `cli-registry.ts` matė 4 komandas iš 53 —
   // auditas tyliai nustojo matuoti tai, ką turi matuoti. Naujas pjūvis privalo atsirasti ir čia.
+  //
+  // Ta pati klasė lūžo ANTRĄ kartą (2026-09-01): registras persikėlė į `src/composition/cli/`
+  // katalogą, o šis sąrašas liko rodyti į plokščius `src/composition/cli-*.ts` — visi aštuoni
+  // keliai tapo neegzistuojantys, `readTextFileIfExists` grąžino `undefined`, ir auditas skelbė
+  // `implementation:<komanda>` KIEKVIENAI dokumentuotai komandai, nes lygino README su tuščia
+  // aibe. Sąrašo dreifas yra tylus iš prigimties: mirusio kelio skaitymas nėra klaida. Todėl nuo
+  // dabar jį saugo `src/tests/readiness-command-sources.test.ts` — kelio egzistavimas ir
+  // netuščia sankirta su README yra VARTAS, ne susitarimas.
   commandSources: [
-    "src/composition/cli-registry.ts",
-    "src/composition/cli-commands-spec.ts",
-    "src/composition/cli-commands-tasks.ts",
-    "src/composition/cli-commands-audit.ts",
-    "src/composition/cli-commands-ops.ts",
-    "src/composition/cli-commands-architecture.ts",
-    "src/composition/cli-commands-integrations.ts",
-    "src/composition/cli-commands-hooks.ts",
+    "src/composition/cli/registry.ts",
+    "src/composition/cli/commands-spec.ts",
+    "src/composition/cli/commands-tasks.ts",
+    "src/composition/cli/commands-audit.ts",
+    "src/composition/cli/commands-ops.ts",
+    "src/composition/cli/commands-architecture.ts",
+    "src/composition/cli/commands-integrations.ts",
+    "src/composition/cli/commands-hooks.ts",
     "src/cli.ts",
   ],
 };

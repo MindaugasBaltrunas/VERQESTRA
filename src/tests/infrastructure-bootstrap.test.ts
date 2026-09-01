@@ -146,6 +146,84 @@ test("architecture-graph-store: roundtrip, initProgress išsaugo done + evidenci
   await assert.rejects(updateNodeProgress(path.join(projectRoot, "nera.json"), "A", {}), /Progress ledger not found/);
 });
 
+test("architecture-graph-store: sugadinta būsena lūžta prie priežasties ir NEvirsta tyliu reset'u", async () => {
+  const projectRoot = path.join(root, "store-invalid");
+  const graphPath = architectureGraphPath(projectRoot);
+  const progressPath = architectureProgressPath(projectRoot);
+
+  const graph = {
+    source_path: "vq/architecture/source/flow.mmd",
+    imported_at: "2026-09-01T10:00:00.000Z",
+    nodes: [{ id: "A", label: "Šaltinis", kind: "unknown" as const, status: "planned" as const }],
+    edges: [],
+  };
+
+  // (1) VALIDUS JSON, bet ne ta forma — būtent tai `JSON.parse(raw) as ArchitectureGraph`
+  // praleisdavo tyliai: objektas keliaudavo gilyn kaip „grafas" ir lūždavo toli nuo priežasties.
+  await nodeFsAdapter.writeTextFile(graphPath, JSON.stringify({ nodes: "ne masyvas", edges: [] }));
+  await assert.rejects(readGraph(graphPath), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /graph\.json validation failed:/);
+    assert.match(error.message, /source_path/, "klaida privalo įvardyti, KURIS laukas neatitiko");
+    // Klaidos tekstas neneša vidinio absoliutaus kelio — užtenka pasakyti, kuris failas sugedęs.
+    assert.ok(!error.message.includes(projectRoot), `nelaukta absoliutaus kelio: ${error.message}`);
+    return true;
+  });
+
+  // (2) Sugadintas JSON — atskiras pranešimas, kad matytųsi, KURI pusė lūžo: sintaksė ar forma.
+  await nodeFsAdapter.writeTextFile(graphPath, "{ne json");
+  await assert.rejects(readGraph(graphPath), /graph\.json is not valid JSON:/);
+
+  // (3) Svarbiausia regresija: sugadintas progresas NEGALI tyliai virsti „ledger'io nėra".
+  // `initProgress` po `null` parašo švarius `planned` įrašus — t. y. sugadintas failas būtų
+  // perrašytas, o kartu dingtų `done` statusai ir visa sukaupta evidencija.
+  const corrupted = JSON.stringify({ graph_hash: "abc", nodes: { A: { status: "done" } } });
+  await nodeFsAdapter.writeTextFile(progressPath, corrupted);
+  await assert.rejects(readProgress(progressPath), /progress\.json validation failed:/);
+  await assert.rejects(initProgress(graph, progressPath), /progress\.json validation failed:/);
+  assert.equal(
+    await nodeFsAdapter.readTextFileIfExists(progressPath),
+    corrupted,
+    "sugadintas ledger'is privalo likti diske nepaliestas — perrašymas ištrintų įrodymus",
+  );
+
+  // (4) Teisinga forma su VISAIS opcionaliais laukais: roundtrip nieko nenumeta. Atskiras
+  // projekto šaknis, nes (3) sugadintas ledger'is SĄMONINGAI paliktas gulėti diske.
+  const richRoot = path.join(root, "store-rich");
+  const richGraphPath = architectureGraphPath(richRoot);
+  const richProgressPath = architectureProgressPath(richRoot);
+  const rich = {
+    ...graph,
+    nodes: [
+      {
+        id: "A",
+        label: "Šaltinis",
+        kind: "input" as const,
+        status: "done" as const,
+        description: "šaltinio mazgas",
+        external: true,
+      },
+    ],
+    edges: [{ from: "A", to: "A", label: "kilpa", type: "depends_on" as const }],
+  };
+  await writeGraph(richGraphPath, rich);
+  assert.deepEqual(await readGraph(richGraphPath), rich);
+
+  await initProgress(rich, richProgressPath);
+  await updateNodeProgress(richProgressPath, "A", {
+    status: "done",
+    attempts: { coder: 2 },
+    interface_contract: { inputs: ["a"], outputs: [], upstream: [], downstream: [], public_exports: [], checks: [] },
+    verified_at: "2026-09-01T12:00:00.000Z",
+    human_review_reason: "operatoriaus pastaba",
+  });
+  const reread = await readProgress(richProgressPath);
+  assert.equal(reread?.nodes["A"]?.verified_at, "2026-09-01T12:00:00.000Z");
+  assert.equal(reread?.nodes["A"]?.human_review_reason, "operatoriaus pastaba");
+  assert.deepEqual(reread?.nodes["A"]?.attempts, { coder: 2 });
+  assert.deepEqual(reread?.nodes["A"]?.interface_contract?.inputs, ["a"]);
+});
+
 test("bootstrap-architecture: pirmas FLOWCHART šaltinis (ne-flowchart praleidžiamas), done statusas išgyvena refresh", async () => {
   const projectRoot = path.join(root, "arch");
   assert.deepEqual(await bootstrapArchitectureFromSource(projectRoot), { status: "no-architecture" });

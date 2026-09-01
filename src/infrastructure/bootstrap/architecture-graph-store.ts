@@ -5,6 +5,7 @@
 // paduoda kvietėjas — saugykla jų neužkoduoja, kaip ir etalonas).
 
 import path from "node:path";
+import { z } from "zod";
 import {
   computeArchitectureGraphHash,
   computeArchitectureNodeHash,
@@ -12,6 +13,7 @@ import {
   type ArchitectureNodeProgress,
   type ArchitectureProgress,
 } from "../../domain/architecture/index.js";
+import { parseWithSchema } from "../../shared/schema.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { withStateFileLock } from "../fs/state-file-lock.js";
 
@@ -34,6 +36,129 @@ import { withStateFileLock } from "../fs/state-file-lock.js";
  */
 const withProgressLock = withStateFileLock;
 
+/**
+ * `vq/state/architecture/{graph,progress}.json` FORMOS schemos (zod prie modulio — ta pati
+ * vieta, kur jas laiko `runtime-attempt-schema` ir `task-graph-store`; domenas visame repo
+ * neturi nė vieno išorinio importo, tad zod ten būtų naujas precedentas, o ne esamo tęsinys).
+ *
+ * Kodėl apskritai: iki 2026-09-01 abu skaitymai buvo `JSON.parse(raw) as ArchitectureGraph` —
+ * `as` čia nieko netikrina, tad svetimos formos failas keliaudavo gilyn kaip „teisingas" ir
+ * lūždavo toli nuo priežasties. Blogesnis atvejis buvo tylus: `initProgress` idempotencija
+ * remiasi būtent laukų forma (`prev.status === "done"`, `prev.node_hash`), tad progresas be
+ * `nodes` objekto atrodydavo kaip „mazgų nėra" ir refresh'as perrašydavo ledger'į švariais
+ * `planned` įrašais — kartu su visa sukaupta evidencija.
+ *
+ * `looseObject`, o ne `object`: abi saugyklos funkcijos yra read-modify-write per VISĄ failą,
+ * tad nežinomo lauko nuvalymas parse metu jį NUTRINTŲ diske per artimiausią rašymą. Schema
+ * tikrina tai, ką pažįsta, ir praleidžia tai, ko ne.
+ */
+const architectureNodeStatusSchema = z.enum([
+  "planned",
+  "ready",
+  "queued",
+  "active",
+  "repairing",
+  "done",
+  "human-review",
+]);
+
+const architectureNodeSchema = z.looseObject({
+  id: z.string(),
+  label: z.string(),
+  kind: z.enum(["component", "input", "adapter", "store", "gate", "report", "unknown"]),
+  status: architectureNodeStatusSchema,
+  description: z.string().optional(),
+  external: z.boolean().optional(),
+});
+
+const architectureEdgeSchema = z.looseObject({
+  from: z.string(),
+  to: z.string(),
+  label: z.string().optional(),
+  type: z.enum(["depends_on", "produces", "consumes", "validates", "unknown"]),
+});
+
+const architectureGraphSchema = z.looseObject({
+  source_path: z.string(),
+  imported_at: z.string(),
+  nodes: z.array(architectureNodeSchema),
+  edges: z.array(architectureEdgeSchema),
+});
+
+const nodeInterfaceContractSchema = z.looseObject({
+  inputs: z.array(z.string()),
+  outputs: z.array(z.string()),
+  upstream: z.array(z.string()),
+  downstream: z.array(z.string()),
+  public_exports: z.array(z.string()),
+  checks: z.array(z.string()),
+});
+
+const architectureNodeProgressSchema = z.looseObject({
+  status: architectureNodeStatusSchema,
+  attempts: z.record(z.string(), z.number()),
+  queued_tasks: z.array(z.string()),
+  done_tasks: z.array(z.string()),
+  implemented_files: z.array(z.string()),
+  interface_contract: nodeInterfaceContractSchema.optional(),
+  evidence_refs: z.array(z.string()),
+  verified_at: z.string().optional(),
+  human_review_reason: z.string().optional(),
+  node_hash: z.string().optional(),
+});
+
+const architectureProgressSchema = z.looseObject({
+  graph_hash: z.string(),
+  nodes: z.record(z.string(), architectureNodeProgressSchema),
+});
+
+/**
+ * zod `.optional()` išveda `x?: T | undefined`, o domeno tipas su `exactOptionalPropertyTypes`
+ * rašo `x?: T`. Skirtumas yra tik apie EXPLICIT `undefined` reikšmę, kurios JSON'e fiziškai
+ * negali būti: `JSON.parse` niekada negrąžina lauko, kurio reikšmė yra `undefined` — jo arba
+ * nėra, arba jis turi tikrą reikšmę. Šis tipas tą faktą užrašo, kad JAU validuotas rezultatas
+ * būtų tiesiogiai priskiriamas domeno tipui.
+ *
+ * Tą patį skirtumą `context-pack/assemble/tiers.ts` sprendžia iš kitos pusės — pritaikydamas
+ * VARTOTOJO tipą schemos išvesčiai. Čia vartotojas yra domeno kontraktas, kurio ši užduotis
+ * neliečia, tad taikosi schemos pusė.
+ */
+type JsonParsed<T> = T extends readonly (infer E)[]
+  ? JsonParsed<E>[]
+  : T extends object
+    ? { [K in keyof T]: JsonParsed<Exclude<T[K], undefined>> }
+    : T;
+
+/**
+ * Vienas parse'inimo kelias abiem būsenos failams: JSON sintaksė ir forma tikrinamos ATSKIRAI,
+ * kad klaidos tekstas pasakytų, kuri iš dviejų sulūžo. Label'is — TIK basename: pilnas kelias
+ * yra absoliutus ir priklauso nuo mašinos, o klaidai užtenka pasakyti, KURIS failas sugedęs.
+ *
+ * Metama, o ne grąžinama `null`, sąmoningai. `null` šioje saugykloje reiškia „failo nėra", o
+ * kvietėjai tą traktuoja kaip leidimą kurti iš naujo: `initProgressLocked` po `null` parašo
+ * švarų ledger'į, `bootstrap-project` ir `generate` — tęsia be architektūros. Sugadintas
+ * failas, virtęs „failo nėra", būtų tyliai perrašytas, ir įrodymai dingtų be pėdsako.
+ * Metimas taip pat yra ESAMO elgesio tęsinys: neparse'inamas JSON čia mesdavo ir iki šiol —
+ * pasikeitė tik tai, kad „sugadintas" nebereiškia vien sintaksės.
+ *
+ * Grąžinamas `JsonParsed<T>`, ir būtent tai laiko schemą prirakintą prie domeno tipo: abu
+ * skaitytojai deklaruoja domeno grąžinimo tipą, tad schemai praradus lauką (ar domeno tipui
+ * įgijus naują privalomą) `return` nustoja kompiliuotis. Vartas, ne dokumentacija.
+ */
+function parseArchitectureStateFile<T>(schema: z.ZodType<T>, raw: string, statePath: string): JsonParsed<T> {
+  const label = path.basename(statePath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${label} is not valid JSON: ${message}`, { cause: error });
+  }
+  // Vienintelis `as` kelyje ir jis NĖRA validacijos pakaitalas: reikšmė ką tik praėjo schemą,
+  // o čia nuimamas tik `| undefined`, kurio JSON'as pagal apibrėžimą negali turėti (JsonParsed).
+  return parseWithSchema(schema, parsed, label) as JsonParsed<T>;
+}
+
 /** Kanoninis grafo kelias projektui. */
 export function architectureGraphPath(projectRoot: string): string {
   return path.join(path.resolve(projectRoot), "vq", "state", "architecture", "graph.json");
@@ -47,7 +172,7 @@ export function architectureProgressPath(projectRoot: string): string {
 export async function readGraph(statePath: string): Promise<ArchitectureGraph | null> {
   const raw = await nodeFsAdapter.readTextFileIfExists(statePath);
   if (raw === undefined) return null;
-  return JSON.parse(raw) as ArchitectureGraph;
+  return parseArchitectureStateFile(architectureGraphSchema, raw, statePath);
 }
 
 export async function writeGraph(statePath: string, graph: ArchitectureGraph): Promise<void> {
@@ -57,7 +182,7 @@ export async function writeGraph(statePath: string, graph: ArchitectureGraph): P
 export async function readProgress(statePath: string): Promise<ArchitectureProgress | null> {
   const raw = await nodeFsAdapter.readTextFileIfExists(statePath);
   if (raw === undefined) return null;
-  return JSON.parse(raw) as ArchitectureProgress;
+  return parseArchitectureStateFile(architectureProgressSchema, raw, statePath);
 }
 
 export async function writeProgress(statePath: string, progress: ArchitectureProgress): Promise<void> {

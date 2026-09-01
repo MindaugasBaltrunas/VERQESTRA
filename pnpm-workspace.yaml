@@ -30,3 +30,13 @@ packages:
 allowBuilds:
   esbuild: false
   node-pty: true
+
+# Task 134 (2026-09-01): worktree kopijose (`.ag/worktrees/**`) node_modules yra junction'as
+# į pagrindinį medį (WORKTREE BOOTSTRAP), o pnpm 11 numatytoji verify-deps-before-run=install
+# prieš KIEKVIENĄ `pnpm run` bando automatinį install, kuris atsisako svetimo modules katalogo
+# (ERR_PNPM_UNSAFE_MODULES_DIR) — dėl to visos worktree patikros krisdavo exit 1 ir task'ai
+# parkavosi human-review. `warn` palieka matomą signalą, kai node_modules atsilieka nuo
+# lockfile (operatoriaus `pnpm install` lieka dokumentuotas žingsnis), bet nebeleidžia
+# patikroms mirti aplinkos, o ne kodo, klaida. Deps galiojimą worktree'uose garantuoja
+# bootstrap lockfile hash patikra.
+verifyDepsBeforeRun: warn

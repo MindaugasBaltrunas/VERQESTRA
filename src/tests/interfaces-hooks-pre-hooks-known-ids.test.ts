@@ -1,8 +1,11 @@
 // `collectKnownTaskIds` — `## Priklausomybės` nuorodų domeno šaltinis. 2026-08-30 incidentas:
 // žinomi id buvo imami TIK iš vq/state/task-ledger.json, o niekada nebėgęs queue task'as
 // (075-preserved-ref...) ledger'yje neegzistuoja — pre-write vartas klaidingai blokavo 083
-// pataisą su `priklausomybe-unknown-id`. Etalono taisyklė („TIK queue arba done bucket'ų id")
-// tiesos šaltiniu daro bucket'ų failus; ledger'is lieka sąjungoje dėl istorinių id.
+// pataisą su `priklausomybe-unknown-id`. Tiesos šaltinis — bucket'ų failai; ledger'is lieka
+// sąjungoje dėl istorinių id. Task 136 (2026-09-01): domenas apima VISUS bucket'us — loop'o
+// tranzitas per human-review (deferred parkavimo banga perkėlė 6 taikinius) dažė visą
+// `pnpm test` raudonai šešiems niekuo dėtiems queue failams. Tranzitas ≠ neegzistavimas;
+// plano semantika (satisfiesDependency tenkina tik done) nekeičiama.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { collectKnownTaskIds, type HookFsPort } from "../interfaces/hooks/index.js";
@@ -47,16 +50,21 @@ test("niekada nebėgęs queue task'as yra žinomas id (ledger'yje jo nėra)", as
   assert.ok(ids.includes("066-b-03-run-coordinator"), "ledger indėlis lieka sąjungoje");
 });
 
-test("ne-.md įrašai ir kiti bucket'ai į domeną nepatenka", async () => {
+test("ne-.md įrašai atmetami, o in-flight bucket'ai PRIKLAUSO domenui (task 136)", async () => {
   const fs = fakeFs({
     buckets: {
       queue: ["notes.txt", "090-tikras.md"],
       done: [],
       "human-review": ["099-parkuotas.md"],
+      active: ["101-vykdomas.md"],
     },
   });
   const ids = await collectKnownTaskIds(fs, ROOT, RUNTIME);
-  assert.deepEqual(ids.sort(), ["090-tikras"], "tik queue/done .md vardai be plėtinio");
+  assert.deepEqual(
+    ids.sort(),
+    ["090-tikras", "099-parkuotas", "101-vykdomas"],
+    "tranzitas per human-review/active nedaro id nežinomu — tik ne-.md įrašai iškrenta",
+  );
 });
 
 test("be listingo porto krenta į vien-ledger šaltinį (susiaurina, neišplečia)", async () => {

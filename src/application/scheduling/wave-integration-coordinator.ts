@@ -84,7 +84,17 @@ export function createWaveIntegrationCoordinator(ports: WaveIntegrationCoordinat
 
     if (integration.mode === "incremental") {
       // Kiti slot'ai DAR DIRBA: integruojama tik tai, ką planuotojas įrodė esant nepriklausoma.
-      // Praleidimai ir parkinimai čia nevykdomi — jų sprendimas priimamas nurimusiame medyje.
+      // Task 135: nesėkmių parkavimas vykdomas ir čia — tai tik bucket failo perkėlimas
+      // pagrindiniame medyje (be git operacijų), o atidėtas iki tylos jis užimtame cikle
+      // neįvykdavo niekada ir queue failas sukdavosi re-dispatch ratu. Praleidimai ir
+      // lease atlaisvinimas lieka tylos sprendimai.
+      for (const parked of integration.park) {
+        await ports.safeLog(
+          `WORKER INTEGRATION INCREMENTAL PARK: task=${parked.task_id} live=${checkpoint.live_task_ids.join(",")}`,
+        );
+        await runner.park(parked.task_id, parked.reason, parked.detail);
+        ports.finishedSlots.delete(parked.task_id);
+      }
       for (const step of integration.integrate) {
         await ports.safeLog(
           `WORKER INTEGRATION INCREMENTAL: task=${step.task_id} live=${checkpoint.live_task_ids.join(",")}`,

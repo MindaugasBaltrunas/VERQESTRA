@@ -161,14 +161,15 @@ async function prospectiveTaskFileText(
 }
 
 /**
- * `## Priklausomybės` nuorodų domenas. Etalono taisyklė sako „TIK queue arba done bucket'ų id",
- * tad tiesos šaltinis yra BUCKET'Ų FAILAI, o ne vien ledger'is: ledger įrašą gauna tik būsenos
- * perėjimą turėjęs task'as, ir niekada nebėgęs queue gyventojas jame neegzistuoja (2026-08-30:
- * 075 gulėjo queue be ledger įrašo, ir `priklausomybe-unknown-id` klaidingai blokavo teisėtą
- * 083 pataisą). Ledger'is lieka sąjungoje dėl backward compatibility (istoriniai id, kurių
- * failas pervadintas ar suskeltas). Nerandamas katalogas, trūkstamas listingo portas ar
- * sugadintas ledger'is virsta tuščiu indėliu: taisyklė gali tik SUSIAURINTI leidžiamas
- * nuorodas, niekada jų neišplėsti.
+ * `## Priklausomybės` nuorodų domenas: id egzistuoja BET KURIAME bucket'e (task 136 — iki tol
+ * tik queue/done, ir loop'o tranzitas per human-review dažė vartus raudonai). Tiesos šaltinis
+ * yra BUCKET'Ų FAILAI, o ne vien ledger'is: ledger įrašą gauna tik būsenos perėjimą turėjęs
+ * task'as, ir niekada nebėgęs queue gyventojas jame neegzistuoja (2026-08-30: 075 gulėjo queue
+ * be ledger įrašo, ir `priklausomybe-unknown-id` klaidingai blokavo teisėtą 083 pataisą).
+ * Ledger'is lieka sąjungoje dėl backward compatibility (istoriniai id, kurių failas
+ * pervadintas ar suskeltas). Nerandamas katalogas, trūkstamas listingo portas ar sugadintas
+ * ledger'is virsta tuščiu indėliu: taisyklė gali tik SUSIAURINTI leidžiamas nuorodas,
+ * niekada jų neišplėsti.
  */
 export async function collectKnownTaskIds(
   fs: HookFsPort,
@@ -187,7 +188,15 @@ export async function collectKnownTaskIds(
   } catch {
     // Sugadintas ledger'is — be indėlio; bucket'ų failai lieka šaltiniu.
   }
-  for (const bucket of ["queue", "done"]) {
+  // Task 136 (2026-09-01): visata apima VISUS bucket'us, ne tik queue/done. Priklausomybės
+  // taikinys, loop'o tranzitu perkeltas į active/delegated/human-review (šeši 097-118 taikiniai
+  // po deferred parkavimo bangos), yra normali gyvo ciklo būsena — jis grįš per requeue arba
+  // baigsis done, ir jo laikinas buvimas kitur nedaro nuorodos neteisinga. Iki tol tranzitas
+  // nudažydavo VISĄ `pnpm test` raudonai šešiems niekuo dėtiems queue failams. Tranzitas ≠
+  // neegzistavimas; PLANO semantika nesikeičia — satisfiesDependency tenkina tik done, tad
+  // human-review taikinys planą tebeblokuoja. Sąrašas atkartoja backlog-audit auditedTaskStates
+  // aibę (bendros konstantos nėra — kanonizavimas atskiram task'ui, žr. task 136 Neįtraukta).
+  for (const bucket of ["queue", "done", "active", "delegated", "human-review", "error", "failed"]) {
     const entries = (await fs.listDirectoryIfExists?.(path.join(projectRoot, "AG", "tasks", bucket))) ?? [];
     for (const entry of entries) {
       if (entry.toLowerCase().endsWith(".md")) ids.add(entry.slice(0, -".md".length));

@@ -232,26 +232,44 @@ export function planWorkerIntegration(input: {
   if (!input.checkpoint.tree_quiescent) {
     const live = input.live ?? [];
     const incremental: WorkerIntegrationStep[] = [];
+    const incrementalPark: WorkerIntegrationPark[] = [];
     const waiting: WorkerIntegrationSkip[] = [];
     for (const slot of finished) {
+      // Task 135: nesėkmingas worktree slot'as parkuojamas IŠKART, nelaukiant tylos.
+      // Iki tol parkavimas buvo tylos sprendimas, o užimtame cikle tyla neateina niekada —
+      // verdiktas likdavo išmetamoje kopijoje, queue failas būdavo re-dispatch'inamas ratu
+      // (2026-09-01: 9 task'ai per valandą). Parkavimas yra TIK bucket failo perkėlimas
+      // pagrindiniame medyje be jokių git operacijų (jos lieka tylos keliui), tad jo
+      // vykdymas šalia gyvų slot'ų merge saugumo nekeičia; kopija ir šaka paliekamos
+      // peržiūrai kaip ir tylos kelyje.
+      if (slot.worktree_path && !slot.succeeded) {
+        incrementalPark.push({
+          task_id: slot.task_id,
+          worktree_path: slot.worktree_path,
+          reason: "task-failed",
+          detail: `slot=${slot.worker_id} baigė nesėkme — kopija ${slot.worktree_path} ir jos šaka paliekamos peržiūrai`,
+        });
+        continue;
+      }
       const verdict = planIncrementalStep(slot, live);
       if ("step" in verdict) incremental.push(verdict.step);
       else waiting.push({ task_id: slot.task_id, reason: "not-quiescent", detail: `${input.checkpoint.reason}; ${verdict.blocked}` });
     }
 
-    const ready = incremental.length > 0;
+    const ready = incremental.length > 0 || incrementalPark.length > 0;
     return {
       ready,
       mode: ready ? "incremental" : "waiting",
       integrate: incremental,
-      // Parkavimas ir bangos lease'ai lieka tylos sprendimai: inkrementinis kelias
-      // praplečia TIK integracijos momentą, o nesėkmingo slot'o likimo gretimo lane'o
-      // darbas nepaskubina.
-      park: [],
+      // Bangos lease'ai ir pirminio medžio slot'ų likimas lieka tylos sprendimai:
+      // inkrementinis kelias praplečia integracijos momentą ir nesėkmės parkavimą,
+      // bet lease atlaisvinimo semantikos neliečia.
+      park: incrementalPark,
       skipped: waiting,
       release_lease_ids: [],
       reason: ready
-        ? `ready=true mode=incremental integrate=${incremental.map((step) => step.task_id).join(",")}` +
+        ? `ready=true mode=incremental integrate=${incremental.map((step) => step.task_id).join(",") || "none"}` +
+          `${incrementalPark.length > 0 ? ` park=${renderIntegrationEntries(incrementalPark)}` : ""}` +
           ` live=${input.checkpoint.live_task_ids.join(",")}` +
           `${waiting.length > 0 ? ` waiting=${renderIntegrationEntries(waiting)}` : ""}`
         : `ready=false ${input.checkpoint.reason}`,

@@ -174,6 +174,26 @@ test("suliejimo konfliktas NEVALO kopijos — darbas lieka žmogui", async () =>
   assert.ok(w.parked());
 });
 
+// Task 135: nesėkmingo slot'o parkavimas vykdomas ir NERAMIAME medyje — atidėtas iki tylos
+// jis užimtame cikle neįvykdavo niekada, ir queue failas sukdavosi re-dispatch ratu.
+test("neramus medis: nesėkmingas slot'as parkuojamas iškart, merge nevyksta", async () => {
+  const failedSlot = { ...finished("0042", 2), succeeded: false };
+  const w = world({ slots: [failedSlot] });
+  const busy: IntegrationCheckpoint = {
+    tree_quiescent: false,
+    live_task_ids: ["0099"],
+    release_lease_ids: [],
+    reason: "1 slot'as(-ai) dar dirba: 0099",
+  };
+  await createWaveIntegrationCoordinator(w.ports).integrateFinishedSlots(busy);
+
+  assert.deepEqual(w.calls.merged, [], "nesėkmė niekada nevirsta merge žingsniu");
+  assert.ok(w.parked(), "parkavimas įvykdytas nelaukiant tylos");
+  assert.ok(w.logs.some((line) => line.includes("WORKER INTEGRATION INCREMENTAL PARK: task=0042")));
+  assert.equal(w.ports.finishedSlots.size, 0, "slot'as išimtas — antro parkavimo to paties task'o nebus");
+  assert.deepEqual(w.calls.released, [], "lease atlaisvinimas lieka tylos sprendimas");
+});
+
 test("dingusi šaka PRAEINA tik jei task'as jau terminaliniame bucket'e", async () => {
   const trace = world({ merge: { status: "absent" } });
   await createWaveIntegrationCoordinator(trace.ports).integrateFinishedSlots(QUIESCENT);

@@ -249,6 +249,34 @@ test("worker integration: incremental merge needs a proven-disjoint write set ag
   assert.equal(noProjection.mode, "waiting", "callers that pass no live projection keep the pre-incremental behavior");
 });
 
+// Task 135: nesėkmingo worktree slot'o parkavimas NEBELAUKIA tylos — užimtame cikle ji
+// neateina niekada, verdiktas likdavo išmetamoje kopijoje, o queue failas sukdavosi
+// re-dispatch ratu (2026-09-01: 9 task'ai per valandą). Parkavimas — tik bucket failo
+// perkėlimas pagrindiniame medyje, tad gyvi slot'ai jo neblokuoja.
+test("worker integration: failed worktree slot is parked incrementally, not deferred to quiescence", () => {
+  const live = [liveSlot("0001", "w1", 1, "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" })];
+  const checkpoint = evaluateIntegrationCheckpoint({ live });
+  assert.equal(checkpoint.tree_quiescent, false, "kontrolė: medis neramus");
+
+  const failed = {
+    worker_id: "w2",
+    worker_index: 2,
+    task_id: "0005",
+    file: "e.md",
+    attempt: 1,
+    succeeded: false,
+    worktree_path: "worktrees/w2",
+    lease: lease("0005", "w2", { worktreePath: "worktrees/w2" }),
+    write_set: computeTaskWriteSet({ task_id: "0005", allowed_paths: ["src/e/"] }),
+  };
+  const plan = planWorkerIntegration({ checkpoint, finished: [failed], live });
+  assert.equal(plan.ready, true, "vien parkavimo užtenka, kad žingsnis būtų vykdomas");
+  assert.equal(plan.mode, "incremental");
+  assert.deepEqual(plan.park.map((entry) => [entry.task_id, entry.reason]), [["0005", "task-failed"]]);
+  assert.deepEqual(plan.integrate, [], "nesėkmė niekada nevirsta merge žingsniu");
+  assert.deepEqual(plan.release_lease_ids, [], "lease atlaisvinimas lieka tylos sprendimas");
+});
+
 test("measureParallelOverhead basics", () => {
   const metric = measureParallelOverhead({
     sequential: { wall_clock_ms: 1000, tokens: 100 },

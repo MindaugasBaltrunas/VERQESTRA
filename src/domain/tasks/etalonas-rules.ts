@@ -183,7 +183,7 @@ function checkPriklausomybes(sections: readonly TaskSection[], knownTaskIds: rea
         violation(
           "priklausomybe-unknown-id",
           "## Priklausomybės",
-          `Priklausomybė "${trimmed}" nerasta tarp žinomų task id (queue/done)`,
+          `Priklausomybė "${trimmed}" nerasta tarp žinomų task id (jokiame bucket'e)`,
         ),
       );
     }

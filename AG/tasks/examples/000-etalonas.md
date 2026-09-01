@@ -20,11 +20,13 @@ openspec/changes/<change-katalogas>
 ## Priklausomybės
 - <pilnas-task-id-be-md>
 
-> Neprivaloma sekcija. TIK task'ų id iš queue arba done bucket'ų —
-> priklausomybė į human-review gyventoją tampa `invalid-terminal-dependency`
-> ir užblokuoja VISĄ eilę. Placeholder'iai („none", „-") draudžiami — arba
-> tikras id, arba sekcijos nėra. Skeliant tėvą, UI vaikas priklauso nuo
-> serverio vaiko, ne atvirkščiai.
+> Neprivaloma sekcija. Id privalo egzistuoti bet kuriame bucket'e (task 136:
+> loop'o tranzitas per active/human-review nedaro nuorodos neteisinga), BET
+> planą tenkina tik done — priklausomybė į human-review gyventoją tampa
+> `invalid-terminal-dependency` ir užblokuoja VISĄ eilę, kol jis grįš per
+> requeue. Placeholder'iai („none", „-") draudžiami — arba tikras id, arba
+> sekcijos nėra. Skeliant tėvą, UI vaikas priklauso nuo serverio vaiko, ne
+> atvirkščiai.
 > KIEKVIENA priklausomybė kainuoja w2 slot'ą: deklaruok ją TIK realiam
 > tvarkos reikalavimui (kontraktas, kurio antras task'as negali statyti
 > nesulaukęs) arba realiam failų persidengimui — NE „dėl visa ko".

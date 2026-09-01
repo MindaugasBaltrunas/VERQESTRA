@@ -113,7 +113,9 @@ export const readinessPorts: ReadinessPorts = {
  * atveju jis tik patvirtintų tai, kas jau yra.
  *
  * Skirtumas nuo etalono yra tik keliai: sluoksniai gyvena `src/*`, konfigai — `vq/config`
- * (o ne `AG/config`), o komandų registras yra `src/composition/cli-registry.ts`.
+ * (o ne `AG/config`), o komandų registras yra `src/composition/cli/` katalogas
+ * (`registry.ts` surinkėjas plius teminiai `commands-*.ts` pjūviai, kuriuose gyvena
+ * `{ name: "..." }` registracijos).
  */
 export const readinessRequirements: ReadinessRequirements = {
   folders: [
@@ -145,17 +147,24 @@ export const readinessRequirements: ReadinessRequirements = {
   ],
   docs: ["README.md", "docs/getting-started.md", "docs/spec-workflow.md", "docs/context-pack.md", "docs/release.md"],
   // VISI registro pjūviai, ne vien surinkėjas. 11/N iškėlus komandas į teminius
-  // `cli-commands-*` failus, sąrašas su vienu `cli-registry.ts` matė 4 komandas iš 53 —
+  // `commands-*` failus, sąrašas su vienu registro failu matė 4 komandas iš 53 —
   // auditas tyliai nustojo matuoti tai, ką turi matuoti. Naujas pjūvis privalo atsirasti ir čia.
+  //
+  // 2026-09-01 ta pati klasė lūžo ANTRĄ kartą: registras persikėlė iš `src/composition/cli-*.ts`
+  // į `src/composition/cli/`, o šis sąrašas liko rodyti į nebeegzistuojančius kelius. Skirtumas
+  // nuo pirmo karto tik dydis: `readTextFileIfExists` nė vieno jų nerado, `implemented_commands`
+  // liko TUŠČIAS, ir auditas skelbė `implementation:<komanda>` KIEKVIENAI README komandai.
+  // Todėl `readiness-command-sources.test.ts` nuo šiol tikrina šiuos kelius prieš realų repo:
+  // dingęs ar pervadintas failas dabar krenta testu, o ne tyliai anuliuoja matavimą.
   commandSources: [
-    "src/composition/cli-registry.ts",
-    "src/composition/cli-commands-spec.ts",
-    "src/composition/cli-commands-tasks.ts",
-    "src/composition/cli-commands-audit.ts",
-    "src/composition/cli-commands-ops.ts",
-    "src/composition/cli-commands-architecture.ts",
-    "src/composition/cli-commands-integrations.ts",
-    "src/composition/cli-commands-hooks.ts",
+    "src/composition/cli/registry.ts",
+    "src/composition/cli/commands-spec.ts",
+    "src/composition/cli/commands-tasks.ts",
+    "src/composition/cli/commands-audit.ts",
+    "src/composition/cli/commands-ops.ts",
+    "src/composition/cli/commands-architecture.ts",
+    "src/composition/cli/commands-integrations.ts",
+    "src/composition/cli/commands-hooks.ts",
     "src/cli.ts",
   ],
 };

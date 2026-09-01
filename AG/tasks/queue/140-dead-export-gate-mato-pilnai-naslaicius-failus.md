@@ -40,6 +40,14 @@ readme-guard -> debugger -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `src/tests/dead-export-gate.test.ts`
+- `src/tests/helpers/dead-export-gate-scan.ts` (numatomas naujas; 2026-09-01
+  parkas: worker'is iškėlė skenavimo helper'į į šį failą — tikėtina, kad
+  `dead-export-gate.test.ts` tilptų į 500 eil. ribą — bet kelias nebuvo
+  deklaruotas, todėl dispatch parkavosi „changed files outside allowed
+  paths"; darbas jau commitintas worker šakoje (rollback refused: „already
+  committed since base_head"), pagrindiniame medyje failo dar nėra — Glob
+  2026-09-01; jei atkuriant darbą helper'is gautų kitą vardą — tas failas
+  vietoje šio, įrašyti į ataskaitą)
 - `src/infrastructure/persistence/code-index-store.ts` (TRINAMAS — 099
   dalinio merge liekana; 099 guli human-review, jį requeue'inus jo
   Žingsnis 0 ras failą dingusį ir užsidarys ALREADY_IMPLEMENTED — sankirta

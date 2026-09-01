@@ -10,6 +10,7 @@ import {
   computeTokenDistributionStats,
   computeTokenUsageTotals,
   filterTokenUsageRecords,
+  normalizeTaskId,
   recordTotalTokens,
   sortAggregateRows,
   toInclusiveIsoDateBoundary,
@@ -78,6 +79,17 @@ describe("canonicalModelName", () => {
   });
 });
 
+describe("normalizeTaskId", () => {
+  it("trims surrounding whitespace from a real task_id", () => {
+    expect(normalizeTaskId("  task-9  ")).toBe("task-9");
+  });
+
+  it("returns null for empty and whitespace-only task_id", () => {
+    expect(normalizeTaskId("")).toBeNull();
+    expect(normalizeTaskId("   ")).toBeNull();
+  });
+});
+
 describe("aggregateTokenUsage", () => {
   const records: TokenUsageRecord[] = [
     record({ ts: "2026-06-01T10:00:00.000Z", phase: "dispatch", model: "claude-opus", task_id: "task-1", input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }),
@@ -129,6 +141,19 @@ describe("aggregateTokenUsage", () => {
     expect(rows.find((r) => r.key === "task-1")!.records).toBe(2);
   });
 
+  it("neįtraukia tuščio/whitespace task_id kaip atskiros grupės (KPI 139 vs lentelė 140 regresija)", () => {
+    // Operatoriaus radinys: tas pats tuščias task_id `computeTokenUsageTotals` buvo atmetamas iš
+    // `uniqueTasks`, bet čia žalias raktas tapdavo savo grupe — KPI ir lentelė rodydavo skirtingus
+    // skaičius iš TOS PAČIOS imties.
+    const withUnassigned: TokenUsageRecord[] = [
+      ...records,
+      record({ task_id: "" }),
+      record({ task_id: "   " }),
+    ];
+    const rows = aggregateTokenUsage(withUnassigned, "task_id");
+    expect(rows.map((r) => r.key)).toEqual(["task-1", "task-2"]);
+  });
+
   it("groups by local calendar day, sorted ascending", () => {
     const rows = aggregateTokenUsage(records, "day");
     expect(rows.map((r) => r.key)).toEqual(["2026-06-01", "2026-06-02"]);
@@ -167,6 +192,7 @@ describe("computeTokenUsageTotals", () => {
     expect(computeTokenUsageTotals([])).toEqual({
       records: 0,
       uniqueTasks: 0,
+      unassignedRecords: 0,
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
@@ -217,6 +243,54 @@ describe("computeTokenUsageTotals", () => {
     expect(totals.uniqueTasks).toBe(0);
     expect(totals.tokensPerTask).toBe(0);
     expect(Number.isNaN(totals.tokensPerTask)).toBe(false);
+  });
+
+  it("beužduočiai įrašai skaičiuojami į unassignedRecords, o priskirti — ne", () => {
+    const totals = computeTokenUsageTotals([
+      record({ task_id: "task-1" }),
+      record({ task_id: "" }),
+      record({ task_id: "   " }),
+    ]);
+    expect(totals.records).toBe(3);
+    expect(totals.uniqueTasks).toBe(1);
+    expect(totals.unassignedRecords).toBe(2);
+  });
+
+  it("uniqueTasks sutampa su task_id grupių skaičiumi iš aggregateTokenUsage (139 vs 140 regresija)", () => {
+    const withUnassigned: TokenUsageRecord[] = [
+      record({ task_id: "task-1" }),
+      record({ task_id: "task-2" }),
+      record({ task_id: "" }),
+      record({ task_id: "   " }),
+    ];
+    const rows = aggregateTokenUsage(withUnassigned, "task_id");
+    const totals = computeTokenUsageTotals(withUnassigned);
+    expect(totals.uniqueTasks).toBe(rows.length);
+  });
+
+  it("tokenai vienai užduočiai iš totals sutampa su vidurkiu iš task_id grupių, kai imtis turi tuščią task_id", () => {
+    const mixed: TokenUsageRecord[] = [
+      record({ task_id: "task-1", input_tokens: 100, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }),
+      record({ task_id: "task-2", input_tokens: 200, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }),
+      // Beužduotė fazės telemetrija be tokenų — testas tikrina AIBĖS sutapimą (uniqueTasks ===
+      // task_id grupių skaičius), o ne atskirą tokenų priskyrimo taisyklę.
+      record({
+        task_id: "  ",
+        input_tokens: undefined,
+        output_tokens: undefined,
+        cache_read_input_tokens: undefined,
+        cache_creation_input_tokens: undefined,
+      }),
+    ];
+    const rows = aggregateTokenUsage(mixed, "task_id");
+    const totals = computeTokenUsageTotals(mixed);
+
+    expect(rows).toHaveLength(2);
+    expect(totals.uniqueTasks).toBe(rows.length);
+    expect(totals.unassignedRecords).toBe(1);
+
+    const groupedAverage = rows.reduce((sum, row) => sum + row.totalTokens, 0) / rows.length;
+    expect(totals.tokensPerTask).toBe(groupedAverage);
   });
 
   it("nekainuota imtis duoda NULĮ įrašų su kaina, o ne nulinę kainą", () => {

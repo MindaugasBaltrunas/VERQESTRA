@@ -31,6 +31,17 @@ export function canonicalPhaseGroup(phase: string): PhaseGroup {
 
 export type AggregateGroupBy = "model" | "phase" | "day" | "task_id" | "phaseGroup";
 
+/**
+ * Vienintelė taisyklė, kuri sprendžia, ar `task_id` žymi realią užduotį. Tuščias arba vien
+ * tarpų laukas grąžina `null` — visos task_id agregacijos (grupavimo raktas, `uniqueTasks`)
+ * naudoja BŪTENT šią funkciją, o ne savo `trim() !== ""` patikrą, kad „140 vs 139" klasės
+ * neatitikimas tarp KPI ir lentelės suvestinės nebegalėtų atsirasti dviem skirtingom taisyklėm.
+ */
+export function normalizeTaskId(raw: string): string | null {
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 const MODEL_TIERS = ["haiku", "sonnet", "opus", "fable"] as const;
 
 /** Maps a concrete Claude model ID and its short policy alias to one reporting tier. */
@@ -54,7 +65,7 @@ export type AggregateRow = {
   totalTokens: number;
 };
 
-function aggregateGroupKey(record: TokenUsageRecord, groupBy: AggregateGroupBy): string {
+function aggregateGroupKey(record: TokenUsageRecord, groupBy: AggregateGroupBy): string | null {
   if (groupBy === "day") {
     if (!record.ts) return "unknown";
     const timestamp = new Date(record.ts);
@@ -70,6 +81,9 @@ function aggregateGroupKey(record: TokenUsageRecord, groupBy: AggregateGroupBy):
   if (groupBy === "model") {
     return canonicalModelName(record.model);
   }
+  if (groupBy === "task_id") {
+    return normalizeTaskId(record.task_id);
+  }
   return record[groupBy];
 }
 
@@ -77,6 +91,10 @@ export function aggregateTokenUsage(records: TokenUsageRecord[], groupBy: Aggreg
   const grouped = new Map<string, AggregateRow>();
   for (const record of records) {
     const key = aggregateGroupKey(record, groupBy);
+    // Įrašas be užduoties (task_id) nesudaro atskiros grupės — jis tiesiog nepriskirtas, ne
+    // „" pavadinimo užduotis. Kitiems groupBy raktams (day/phaseGroup/model/phase) `null`
+    // negrįžta, tad šis praleidimas veikia TIK task_id atveju.
+    if (key === null) continue;
     const current = grouped.get(key) ?? {
       key,
       records: 0,
@@ -102,6 +120,9 @@ export function aggregateTokenUsage(records: TokenUsageRecord[], groupBy: Aggreg
 export type TokenUsageTotals = {
   records: number;
   uniqueTasks: number;
+  /** Records whose `task_id` normalizes to `null` (empty/whitespace) — excluded from
+   *  `uniqueTasks` and `tokensPerTask`, but still counted in `records`/token sums. */
+  unassignedRecords: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -134,6 +155,7 @@ export function computeTokenUsageTotals(records: TokenUsageRecord[]): TokenUsage
   const totals: TokenUsageTotals = {
     records: 0,
     uniqueTasks: 0,
+    unassignedRecords: 0,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -158,8 +180,15 @@ export function computeTokenUsageTotals(records: TokenUsageRecord[]): TokenUsage
     // užduoties yra fazė, nepriskirta niekam — įskaitytas kaip atskira užduotis jis didino
     // `uniqueTasks` vienetu ir tuo pačiu MAŽINO `tokensPerTask`, t. y. vidurkis rodė pigesnę
     // užduotį nei bet kuri reali. `Set` čia klaidą ir slėpė: visi tokie įrašai suplaukdavo į
-    // vieną „" narį, tad iškraipymas atrodė kaip viena nekalta eilutė.
-    if (record.task_id.trim() !== "") taskIds.add(record.task_id);
+    // vieną „" narį, tad iškraipymas atrodė kaip viena nekalta eilutė. `normalizeTaskId` yra ta
+    // pati taisyklė, kurią naudoja `aggregateTokenUsage` grupuodamas pagal `task_id` — abu keliai
+    // dabar atmeta lygiai tą pačią aibę, tad KPI ir lentelės suvestinė nebegali išsiskirti.
+    const normalizedTaskId = normalizeTaskId(record.task_id);
+    if (normalizedTaskId !== null) {
+      taskIds.add(normalizedTaskId);
+    } else {
+      totals.unassignedRecords += 1;
+    }
     totals.inputTokens += coerce(record.input_tokens);
     totals.outputTokens += coerce(record.output_tokens);
     totals.cacheReadTokens += coerce(record.cache_read_input_tokens);
@@ -287,9 +316,11 @@ export type ReworkProxyStats = {
  * tikslusis dengia visą imtį.
  */
 export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProxyStats {
-  // Ta pati taisyklė kaip `computeTokenUsageTotals`: įrašas be užduoties nėra užduotis, ir
-  // vardiklyje jis iškreiptų `taskShare` ta pačia kryptimi.
-  const allTasks = new Set(records.map((record) => record.task_id).filter((id) => id.trim() !== ""));
+  // Ta pati `normalizeTaskId` taisyklė kaip `computeTokenUsageTotals` ir `aggregateTokenUsage`:
+  // įrašas be užduoties nėra užduotis, ir vardiklyje jis iškreiptų `taskShare` ta pačia kryptimi.
+  const allTasks = new Set(
+    records.map((record) => normalizeTaskId(record.task_id)).filter((id): id is string => id !== null),
+  );
   const diagnosisTasks = new Set<string>();
   let diagnosisTokens = 0;
   let totalTokens = 0;
@@ -321,7 +352,8 @@ export function computeReworkProxyStats(records: TokenUsageRecord[]): ReworkProx
     }
     if (record.phase === "diagnose") {
       diagnosisTokens += tokens;
-      if (record.task_id.trim() !== "") diagnosisTasks.add(record.task_id);
+      const normalizedTaskId = normalizeTaskId(record.task_id);
+      if (normalizedTaskId !== null) diagnosisTasks.add(normalizedTaskId);
     }
   }
 
@@ -397,7 +429,7 @@ export function computePeriodComparison(records: TokenUsageRecord[], now: Date =
   const comparisonDays = rowsByDay.slice(-(daysPerPeriod * 2));
   const previousDays = new Set(comparisonDays.slice(0, daysPerPeriod).map((row) => row.key));
   const currentDays = new Set(comparisonDays.slice(daysPerPeriod).map((row) => row.key));
-  const dayKey = (record: TokenUsageRecord) => aggregateGroupKey(record, "day");
+  const dayKey = (record: TokenUsageRecord) => aggregateGroupKey(record, "day") ?? "unknown";
   const previous = computeTokenUsageTotals(records.filter((record) => previousDays.has(dayKey(record))));
   const current = computeTokenUsageTotals(records.filter((record) => currentDays.has(dayKey(record))));
 

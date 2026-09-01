@@ -37,8 +37,7 @@ export * from "./git/worktrees/worktree-reaper.js";
 export * from "./git/worktrees/worktree-branch-integration.js";
 // E4 VQ-403 (1/2): persistence — runtime attempt store (etalono 656 eil. skaidymas į
 // schema/io/store; vq/runtime, tapatybė įrodoma manifestu, write-once + CAS), task-graph
-// snapshot store (vq/state/task-graph.json, schema zod prie modulio), code-index store
-// (JSONL byte-compat su AG_loop formatu, vq/state/code-index) + code-intelligence fs
+// snapshot store (vq/state/task-graph.json, schema zod prie modulio) + code-intelligence fs
 // adapteris (atskiras nuo nodeFsAdapter — listDirectory formos konfliktas) ir
 // state-history (resolveHumanReviewStatus — FinalAuditPorts tiekėjas).
 export * from "./fs/code-intelligence-fs-adapter.js";
@@ -47,7 +46,6 @@ export * from "./persistence/runtime-attempt-schema.js";
 export * from "./persistence/runtime-artifact-io.js";
 export * from "./persistence/runtime-artifact-store.js";
 export * from "./persistence/task-graph-store.js";
-export * from "./persistence/code-index-store.js";
 export * from "./state/state-history.js";
 // E4 VQ-403 (2/2): context-cache saugykla (RAG-2 ContextCachePort impl su lazy code-index
 // patikra ir talpos ribojimu), attempt rezoliucijos portas + AttemptIdentityPort tiekėjas

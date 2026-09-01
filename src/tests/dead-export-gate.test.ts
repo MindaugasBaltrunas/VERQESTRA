@@ -18,218 +18,77 @@
 // Priešinga kryptis irgi tikrinama — prijungus simbolį jo eilutė privalo iš sąrašo dingti,
 // kad sąrašas nevirstų senų pateisinimų muziejumi.
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import {
+  collect,
+  findOrphanFiles,
+  importSpecifiers,
+  resolveSpecifier,
+  stripComments,
+  type ScannedFile,
+} from "./helpers/dead-export-gate-scan.js";
 
 const SRC_ROOT = path.resolve(process.cwd(), "src");
 
 /**
- * Ženklai, po kurių `/` pradeda REGEX literalą, o ne dalybą.
- *
- * Klasikinė JS leksavimo dviprasmybė. Heuristika ta pati, kurią naudoja minifikatoriai: po
- * operatoriaus, skliausto ar kablelio gali eiti tik reikšmė, tad `/` yra literalo pradžia; po
- * identifikatoriaus, skaičiaus ar `)` — dalyba.
+ * Failai, kurių joks kitas src failas neimportuoja per kelią — bet jie yra tikri įėjimo taškai
+ * (bin, CLI shebang, ar kitaip kviečiami iš už TypeScript importų grafo ribų). Kiekvienas
+ * įrašas su priežastimi — ta pati dviejų krypčių drausmė kaip KNOWN_UNCALLED žemiau: atsiradęs
+ * importuotojas daro eilutę nebeteisingą, ir savipatikra tai gaudo.
  */
-const REGEX_ALLOWED_AFTER = new Set("(,=:[!&|?{};+-*%~^<>".split(""));
-const REGEX_ALLOWED_KEYWORDS = new Set([
-  "return",
-  "typeof",
-  "instanceof",
-  "in",
-  "of",
-  "new",
-  "delete",
-  "void",
-  "case",
-  "do",
-  "else",
-  "yield",
-  "await",
-]);
-
-/**
- * Komentarų šalinimas BŪSENOS mašina, o ne regexu.
- *
- * `body.replace(/\/\*[\s\S]*?\*\//g, "")` nežino, kad `/*` gali stovėti eilutės komentare arba
- * eilutėje, ir tada praryja kodą iki artimiausio uždarymo. Būsenos mašina to negali padaryti:
- * komentaro pradžia atpažįstama TIK iš kodo būsenos. Eilučių lūžiai išlaikomi, kad `^export`
- * inkarai ir eilučių numeriai liktų teisingi.
- *
- * REGEX literalai sekami atskirai (2026-08-24, antras tos pačios klasės radinys). Be jų
- * `.replace(/^`+|`+$/g, "")` pirmą backtick'ą paverčia template eilutės pradžia ir praryja kodą
- * iki kito backtick'o kitoje funkcijoje — `domain/tasks/size.ts` taip prarado kvietimą į
- * `matchProfileSourceRoot`. Kryptis PAVOJINGA: prarytas gabalas slepia KVIETĖJĄ, tad gyvas
- * eksportas paskelbiamas mirusiu. Simbolių klasė (`[^/*]`) irgi sekama — kitaip jos viduje
- * esantis `/` uždarytų literalą per anksti, o `/*` atidarytų fantominį bloką.
- */
-function stripComments(source: string): string {
-  let out = "";
-  let state: "code" | "line" | "block" | "sq" | "dq" | "tpl" | "regex" = "code";
-  let inCharClass = false;
-  let i = 0;
-
-  /** Paskutinis reikšmingas jau išvestas ženklas — pagal jį sprendžiama regex vs dalyba. */
-  const startsRegex = (): boolean => {
-    const trimmed = out.replace(/\s+$/, "");
-    if (trimmed === "") return true;
-    const last = trimmed[trimmed.length - 1] ?? "";
-    if (REGEX_ALLOWED_AFTER.has(last)) return true;
-    const word = /([A-Za-z_$][\w$]*)$/.exec(trimmed);
-    return word !== null && REGEX_ALLOWED_KEYWORDS.has(word[1] ?? "");
-  };
-
-  while (i < source.length) {
-    const c = source[i];
-    const next = source[i + 1];
-
-    if (state === "code") {
-      if (c === "/" && next === "/") {
-        state = "line";
-        i += 2;
-        continue;
-      }
-      if (c === "/" && next === "*") {
-        state = "block";
-        i += 2;
-        continue;
-      }
-      if (c === "/" && startsRegex()) {
-        state = "regex";
-        inCharClass = false;
-        out += c;
-        i += 1;
-        continue;
-      }
-      if (c === "'") state = "sq";
-      else if (c === '"') state = "dq";
-      else if (c === "`") state = "tpl";
-      out += c;
-      i += 1;
-      continue;
-    }
-
-    if (state === "regex") {
-      if (c === "\\") {
-        out += c + (next ?? "");
-        i += 2;
-        continue;
-      }
-      if (c === "[") inCharClass = true;
-      else if (c === "]") inCharClass = false;
-      else if (c === "/" && !inCharClass) state = "code";
-      else if (c === "\n") state = "code"; // neužsidaręs literalas negali ryti kitų eilučių
-      out += c;
-      i += 1;
-      continue;
-    }
-
-    if (state === "line") {
-      if (c === "\n") {
-        state = "code";
-        out += c;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (state === "block") {
-      if (c === "*" && next === "/") {
-        state = "code";
-        i += 2;
-        continue;
-      }
-      if (c === "\n") out += c;
-      i += 1;
-      continue;
-    }
-
-    // Eilutės viduje: `\` praryja kitą simbolį, kad `"\""` nenutrūktų per anksti.
-    if (c === "\\") {
-      out += c + (next ?? "");
-      i += 2;
-      continue;
-    }
-    if ((state === "sq" && c === "'") || (state === "dq" && c === '"') || (state === "tpl" && c === "`")) state = "code";
-    out += c;
-    i += 1;
-  }
-
-  return out;
-}
-
-/**
- * Re-eksporto eilutės (`export { x } from "./y.js"`) NELAIKOMOS kvietimu: barelis vardija
- * simbolį nieko su juo nedarydamas. Be šios išimties kiekvienas `index.ts` prikeltų visą po
- * savimi gulintį mirusį paviršių.
- */
-function withoutReExports(strippedBody: string): string {
-  return strippedBody
-    .split("\n")
-    .filter((line) => !/^\s*export\s+.*\bfrom\s+["']/.test(line))
-    .join("\n");
-}
-
-const IDENTIFIER = /[A-Za-z_$][\w$]*/g;
-
-/** Identifikatorius → kiek kartų failo tekste. Vienas praėjimas per failą vietoj regex per simbolį. */
-function tokenCounts(body: string): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const match of body.matchAll(IDENTIFIER)) {
-    const token = match[0];
-    counts.set(token, (counts.get(token) ?? 0) + 1);
-  }
-  return counts;
-}
-
-/**
- * Vartas tikrina REIKŠMES (`function`, `const`, `class`), o ne tipus — sąmoningai.
- *
- * 2026-08-24 pjūvis rado 9 nenaudojamus tipus, ir beveik visi buvo `z.infer<typeof xSchema>` arba
- * `(typeof xConst)[number]` šalia NAUDOJAMOS reikšmės. Tai modulio konvencija („zod prie
- * modulio"), o ne šiukšlė: schemos ir jos tipo pora rašoma kartu, ir tipas dažnai prireikia
- * pirmam kvietėjui, kuris ateis. Įtraukus tipus vartas baustų už teisingą idiomą ir stumtų
- * neeksportuoti tipo — t. y. gadintų kodą, kad praeitų patikra. Tipai runtime nekainuoja nieko.
- *
- * Tikras tipų perteklius (grynas pervadinimas, forma, kurią pakeitė kita) randamas auditu ir
- * trinamas rankomis — 2026-08-24 taip ištrinti `CodexProcessRunner`, `ResumeActor` ir
- * `ResolvedActiveAttempt`.
- */
-const EXPORTED_FUNCTION = /^export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm;
-const EXPORTED_BINDING = /^export\s+(?:const|class)\s+([A-Za-z_$][\w$]*)/gm;
-
-type ScannedFile = {
-  relative: string;
-  isTest: boolean;
-  counts: Map<string, number>;
-  exported: string[];
+const KNOWN_ENTRYPOINTS: Readonly<Record<string, string>> = {
+  // bin: dist/cli.js yra package.json `bin` taikinys ir hook'ų (pre/post) kvietimo taškas —
+  // OS/npm jį paleidžia pagal kelią, ne pagal TS importą (README.md: "the only entrypoint").
+  "cli.ts": "ENTRYPOINT: bin",
 };
 
-async function collect(dir: string, prefix: string, out: ScannedFile[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) {
-      await collect(path.join(dir, entry.name), relative, out);
-      continue;
-    }
-    if (!entry.name.endsWith(".ts")) continue;
-    const stripped = stripComments(await readFile(path.join(dir, entry.name), "utf8"));
-    const isTest = relative.startsWith("tests/");
-    const body = isTest ? stripped : withoutReExports(stripped);
-    const exported = isTest
-      ? []
-      : [...body.matchAll(EXPORTED_FUNCTION), ...body.matchAll(EXPORTED_BINDING)]
-          .map((match) => match[1])
-          .filter((name): name is string => name !== undefined);
-    out.push({ relative, isTest, counts: tokenCounts(body), exported: [...new Set(exported)] });
-  }
-}
+/**
+ * BARREL — projekto plataus masto sutartis (kiekvieno `index.ts` antraštėje: "barrel —
+ * re-exports only (MOD-1)"), ne šio incidento klasė. `shared/index.ts` antraštė ją įvardija
+ * tiesiogiai: produkcinis kodas importuoja SESERIŠKUS failus GILIAIS keliais, o barrel'is
+ * dokumentuoja modulio viešą paviršių — jo egzistavimas nepriklauso nuo to, ar kas nors jį
+ * IMPORTUOJA. 2026-09-01 pjūvis rado 31 tokį failą visuose sluoksniuose (application, domain,
+ * infrastructure, interfaces, composition, shared) — sisteminis, ne pavienis radinys.
+ *
+ * Skirtis nuo incidento, kurį šis vartas gaudo: `code-index-store.ts` buvo DVI skirtingos
+ * REALIZACIJOS su tais pačiais eksportų vardais (viena mirusi), o šie barrel'iai yra VIENA
+ * realizacija (re-export sąrašas) be tiesioginio importuotojo pagal kelią — architektūrinis
+ * pasirinkimas, ne dublikato liekana.
+ */
+const KNOWN_ORPHAN_FILES: Readonly<Record<string, string>> = {
+  "application/analytics/index.ts": "BARREL",
+  "application/architecture/index.ts": "BARREL",
+  "application/code-intelligence/index.ts": "BARREL",
+  "application/context-pack/index.ts": "BARREL",
+  "application/learning/index.ts": "BARREL",
+  "application/policy-governance/index.ts": "BARREL",
+  "application/project-bootstrap/index.ts": "BARREL",
+  "application/quality-gates/index.ts": "BARREL",
+  "application/release-readiness/index.ts": "BARREL",
+  "application/task-planning/index.ts": "BARREL",
+  "application/token-governance/index.ts": "BARREL",
+  "composition/index.ts": "BARREL",
+  "domain/agents/index.ts": "BARREL",
+  "domain/diagnosis/index.ts": "BARREL",
+  "domain/git/index.ts": "BARREL",
+  "domain/tokens/index.ts": "BARREL",
+  "infrastructure/index.ts": "BARREL",
+  "interfaces/cli/admin/index.ts": "BARREL",
+  "interfaces/cli/architecture/index.ts": "BARREL",
+  "interfaces/cli/audit/index.ts": "BARREL",
+  "interfaces/cli/benchmark/index.ts": "BARREL",
+  "interfaces/cli/bootstrap/index.ts": "BARREL",
+  "interfaces/cli/code-intel/index.ts": "BARREL",
+  "interfaces/cli/dispatch/index.ts": "BARREL",
+  "interfaces/cli/github/index.ts": "BARREL",
+  "interfaces/cli/reports/index.ts": "BARREL",
+  "interfaces/cli/spec/index.ts": "BARREL",
+  "interfaces/cli/task-queue/index.ts": "BARREL",
+  "interfaces/http/index.ts": "BARREL",
+  "interfaces/ui-model/index.ts": "BARREL",
+  "shared/index.ts": "BARREL",
+};
 
 /**
  * Eksportai be jokio kvietėjo — nei produkcijoje, nei testuose, nei savame faile.
@@ -354,6 +213,90 @@ test("gate: kiekvienas produkcinis eksportas turi kvietėją arba įvardintą pr
     disappeared,
     [],
     "šie KNOWN_UNCALLED įrašai nebeteisingi: simbolis prijungtas arba ištrintas. Išbrauk eilutę — " +
+      "pasenęs pateisinimas dengia kitą tokį patį radinį",
+  );
+});
+
+test("gate savipatikra: specifikatorių ištraukimas ir kelio rezoliucija", () => {
+  const source = [
+    'import { x } from "./sibling.js";',
+    'export * from "./barrel-target.js";',
+    'const loader = () => import("../other/dynamic.js");',
+    'const external = await import("typescript");',
+  ].join("\n");
+  const specifiers = importSpecifiers(stripComments(source));
+  assert.deepEqual(
+    [...specifiers].sort(),
+    ["../other/dynamic.js", "./barrel-target.js", "./sibling.js"],
+    "paketo specifikatorius (`typescript`) neturi patekti — tik santykiniai keliai",
+  );
+  assert.equal(resolveSpecifier("application/store/index.ts", "./sibling.js"), "application/store/sibling.ts");
+  assert.equal(resolveSpecifier("application/store/index.ts", "../other/dynamic.js"), "application/other/dynamic.ts");
+});
+
+/**
+ * Incidento klasė (2026-09-01): `code-index-store.ts` dubliuotas dviejose vietose, kanoninis
+ * turėjo kvietėjus, o našlaitis buvo BENDRAVARDIS — simbolių lygio vartas jo nematė, nes
+ * `usedElsewhere` tikrina VARDĄ, ne kelią. Failų lygio patikra tokį atvejį mato, nes tikrina
+ * KELIĄ, o ne tekstą faile.
+ */
+test("gate savipatikra: failų lygio našlaičių patikra mato pilną našlaitį, barrel taikinį ir entrypoint", () => {
+  const synthetic: Pick<ScannedFile, "relative" | "isTest" | "imports">[] = [
+    // (1) pilnas našlaitis su bendravardžiu kanoniniame faile — TEN pat esantis skirtingas kelias.
+    { relative: "infrastructure/persistence/orphan-store.ts", isTest: false, imports: new Set() },
+    {
+      relative: "application/code-intelligence/store/orphan-store.ts",
+      isTest: false,
+      imports: new Set(),
+    },
+    {
+      relative: "composition/wiring.ts",
+      isTest: false,
+      imports: new Set(["application/code-intelligence/store/orphan-store.ts"]),
+    },
+    // (2) barrel taikinys — importuojamas TIK per `export * from`, ne tiesiogiai.
+    { relative: "domain/leaf.ts", isTest: false, imports: new Set() },
+    { relative: "domain/index.ts", isTest: false, imports: new Set(["domain/leaf.ts"]) },
+    { relative: "composition/uses-barrel.ts", isTest: false, imports: new Set(["domain/index.ts"]) },
+    // (3) entrypoint — niekas jo neimportuoja, bet KNOWN_ENTRYPOINTS jį pateisina.
+    { relative: "cli.ts", isTest: false, imports: new Set() },
+    // (4) testų failai nelaikomi našlaičių kandidatais.
+    { relative: "tests/some.test.ts", isTest: true, imports: new Set() },
+  ];
+
+  const orphans = findOrphanFiles(synthetic, new Set(Object.keys(KNOWN_ENTRYPOINTS)));
+
+  assert.ok(
+    orphans.includes("infrastructure/persistence/orphan-store.ts"),
+    "pilnas našlaitis su bendravardžiu kanoniniame faile turi būti pažeidimas",
+  );
+  assert.ok(
+    !orphans.includes("application/code-intelligence/store/orphan-store.ts"),
+    "kanoninis failas su importuotoju NĖRA našlaitis",
+  );
+  assert.ok(!orphans.includes("domain/leaf.ts"), "barrel'io taikinys NĖRA našlaitis");
+  assert.ok(!orphans.includes("cli.ts"), "entrypoint NĖRA našlaitis");
+  assert.ok(!orphans.includes("tests/some.test.ts"), "testų failai nelaikomi kandidatais");
+});
+
+test("gate: kiekvienas produkcinis failas turi importuotoją arba yra entrypoint", () => {
+  const entrypoints = new Set(Object.keys(KNOWN_ENTRYPOINTS));
+  const orphans = findOrphanFiles(files, entrypoints);
+
+  const known = Object.keys(KNOWN_ORPHAN_FILES);
+  const appeared = orphans.filter((entry) => !known.includes(entry)).sort();
+  const disappeared = known.filter((entry) => !orphans.includes(entry)).sort();
+
+  assert.deepEqual(
+    appeared,
+    [],
+    "naujas našlaitis src failas: joks kitas failas jo kelio neimportuoja per specifikatorių. Ištrink " +
+      "failą arba įrašyk į KNOWN_ORPHAN_FILES/KNOWN_ENTRYPOINTS su priežastimi — tylus praleidimas draudžiamas",
+  );
+  assert.deepEqual(
+    disappeared,
+    [],
+    "šie KNOWN_ORPHAN_FILES įrašai nebeteisingi: failas prijungtas arba ištrintas. Išbrauk eilutę — " +
       "pasenęs pateisinimas dengia kitą tokį patį radinį",
   );
 });

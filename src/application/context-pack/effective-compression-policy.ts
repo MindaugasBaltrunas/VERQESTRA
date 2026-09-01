@@ -59,12 +59,29 @@ export async function loadContextCompressionConfig(
 /**
  * Arrest markeris: niekada nemeta — nesamas/tuščias failas yra default view, o
  * neperskaitomas turinys yra skaitomas atsakymas `unreadable` (arrests everything).
+ *
+ * „Neperskaitomas" apima ir METANTĮ skaitymą (teisės, FS klaida), ne tik nevalidų turinį:
+ * nesamą failą `readTextFileIfExists` jau grąžina kaip `undefined`, tad išimtis reiškia
+ * markerį, kurio turinio NEŽINOME. Kryptis fail-closed — nežinia sustabdo kompresiją, o ne
+ * įjungia ją. 2026-09-01 auditas rado priešingą kryptį: `catch(() => "")` išimtį paversdavo
+ * tuščiu turiniu, tas — švariu default view, ir observer'io unreadable guard'as
+ * (`compression-arrest-observer.ts`) būdavo apeitas: operatoriaus markeris (skaitikliai,
+ * langas, arrest sąrašas) tyliai perrašomas.
  */
 export async function readContextCompressionArrestState(
   fs: ContextPackFileSystemPort,
   runtimeRoot: string,
 ): Promise<ContextCompressionArrestView> {
-  const raw = await fs.readTextFileIfExists(contextCompressionArrestStatePath(runtimeRoot)).catch(() => "");
+  let raw: string | undefined;
+  try {
+    raw = await fs.readTextFileIfExists(contextCompressionArrestStatePath(runtimeRoot));
+  } catch (error) {
+    return {
+      state: defaultContextCompressionArrestState(),
+      unreadable: true,
+      unreadableReason: `read failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
   if (raw === undefined || !raw.trim()) {
     return { state: defaultContextCompressionArrestState(), unreadable: false };
   }

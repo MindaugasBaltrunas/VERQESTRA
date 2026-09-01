@@ -1,6 +1,9 @@
 // 2026-08-21 RAG audito vartų testai: SRC pjūvių šviežumas ir context-cache rakto kontraktas.
 // Atskirai nuo context-pack.test.ts, nes tas jau siekė 500 eilučių ribą, o šie du dalykai
 // sudaro savo temą — jie saugo nuo TYLAUS pasenimo, ne nuo neteisingo skaičiavimo.
+//
+// 2026-09-01: ta pati riba ir ta pati tema pridėjo trečią — arrest markerio skaitymo lūžis
+// (task 128). Jis irgi saugo nuo TYLAUS: fail-open skaitymas leisdavo perrašyti kill-switch'ą.
 
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -20,6 +23,13 @@ import {
   staleSourceSlicePaths,
   staleSourceSlices,
 } from "../application/context-pack/source-slice-freshness.js";
+import {
+  contextCompressionArrestStatePath,
+  contextCompressionConfigPath,
+  loadEffectiveCompressionPolicy,
+} from "../application/context-pack/effective-compression-policy.js";
+import { CONTEXT_COMPRESSION_FEATURES } from "../domain/policies/compression/features.js";
+import type { ContextPackFileSystemPort } from "../application/context-pack/ports.js";
 
 // SRC pjūvis yra SNAPSHOT'as. Tarp surinkimo ir dispatch'o failas gali pasikeisti — įprastu,
 // ne lenktynių keliu: pirmas bandymas jį suredaguoja, orkestratorius perleidžia tą patį task'ą.
@@ -249,5 +259,82 @@ test("context cache: prieš kėlimą sudėtas įrašas (v9) grįžta kaip miss, 
     assert.deepEqual(await lookupContextCache(runtimeRoot, key), { status: "miss", reason: "no_entry" });
   } finally {
     await rm(runtimeRoot, { recursive: true, force: true });
+  }
+});
+
+/** In-memory context-pack portas, kurio skaitymas ties `throwOn` keliu META (teisių klaida). */
+function arrestGuardFs(files: Record<string, string>, throwOn?: string): ContextPackFileSystemPort {
+  const stored = new Map(Object.entries(files).map(([key, value]) => [path.resolve(key), value]));
+  return {
+    async readTextFileIfExists(absolutePath) {
+      if (throwOn !== undefined && path.resolve(absolutePath) === path.resolve(throwOn)) {
+        throw new Error("EACCES: permission denied");
+      }
+      return stored.get(path.resolve(absolutePath));
+    },
+    async readFileBytes(absolutePath) {
+      const value = stored.get(path.resolve(absolutePath));
+      if (value === undefined) throw new Error(`ENOENT: ${absolutePath}`);
+      return new TextEncoder().encode(value);
+    },
+    async exists(absolutePath) {
+      return stored.has(path.resolve(absolutePath));
+    },
+    async appendTextFile() {
+      // nenaudojama: šie kvietimai eina be taskId, tad dependency eilutės neskelbiamos
+    },
+    async writeTextFile(absolutePath, content) {
+      stored.set(path.resolve(absolutePath), content);
+    },
+    async makeDirectory() {
+      // in-memory
+    },
+  };
+}
+
+// Trečias tos pačios temos vartas: arrest kill-switch. Markerio SKAITYMO lūžis (teisės, FS
+// klaida) yra „nežinia", ne „švarus default" — tyliu default'u jis apeidavo
+// compression-arrest-observer unreadable guard'ą, ir observer'is perrašydavo operatoriaus
+// markerį (skaitiklius, langą, arrest sąrašą). Fail-closed: nežinia STABDO kompresiją.
+test("compression arrest marker: skaitymo lūžis yra unreadable, nesamas ir tuščias — default", async () => {
+  const runtimeRoot = path.resolve("vq-test-root-arrest-read");
+  const clock = { timestamp: () => "2026-09-01T00:00:00.000Z" };
+  const authored = JSON.stringify({
+    version: 1,
+    features: {
+      worker_task_ir: true,
+      compact_dsl: true,
+      symbol_slices: true,
+      bash_output_digest: true,
+      dispatch_tool_schema: true,
+    },
+  });
+  const configPath = contextCompressionConfigPath(runtimeRoot);
+  const arrestPath = contextCompressionArrestStatePath(runtimeRoot);
+  const load = (fs: ContextPackFileSystemPort) => loadEffectiveCompressionPolicy({ fs, clock, runtimeRoot });
+
+  // (1) Regresija: metantis skaitymas areštuoja VISKĄ ir įvardija priežastį.
+  const failed = await load(arrestGuardFs({ [configPath]: authored }, arrestPath));
+  assert.equal(failed.arrestView.unreadable, true, "skaitymo išimtis NĖRA švarus default");
+  assert.match(failed.arrestView.unreadableReason ?? "", /EACCES/);
+  for (const feature of CONTEXT_COMPRESSION_FEATURES) {
+    assert.equal(failed.config.features[feature], false, `${feature} privalo būti areštuota`);
+  }
+
+  // (2) Failo nėra (`undefined`) ir (3) tuščias failas — abu default, autorinė kompresija gyva.
+  for (const [label, files] of [
+    ["nesamas", { [configPath]: authored }],
+    ["tuščias", { [configPath]: authored, [arrestPath]: "  \n" }],
+  ] as const) {
+    const view = await load(arrestGuardFs(files));
+    assert.equal(view.arrestView.unreadable, false, `${label} markeris nieko neareštuoja`);
+    assert.equal(view.config.features.worker_task_ir, true, `${label} markeris nenuleidžia feature'ų`);
+  }
+
+  // (4) Sugadintas JSON — jau egzistuojantis unreadable elgesys lieka žalias.
+  const corrupt = await load(arrestGuardFs({ [configPath]: authored, [arrestPath]: "{ne json" }));
+  assert.equal(corrupt.arrestView.unreadable, true);
+  for (const feature of CONTEXT_COMPRESSION_FEATURES) {
+    assert.equal(corrupt.config.features[feature], false, `${feature} privalo būti areštuota`);
   }
 });

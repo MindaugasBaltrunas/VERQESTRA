@@ -47,7 +47,6 @@ export * from "./persistence/runtime-attempt-schema.js";
 export * from "./persistence/runtime-artifact-io.js";
 export * from "./persistence/runtime-artifact-store.js";
 export * from "./persistence/task-graph-store.js";
-export * from "./persistence/code-index-store.js";
 export * from "./state/state-history.js";
 // E4 VQ-403 (2/2): context-cache saugykla (RAG-2 ContextCachePort impl su lazy code-index
 // patikra ir talpos ribojimu), attempt rezoliucijos portas + AttemptIdentityPort tiekėjas

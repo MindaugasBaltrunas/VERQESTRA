@@ -25,6 +25,7 @@ import { UnsupportedPolicyFileError } from "../../application/policy-governance/
 import {
   HumanReviewApprovalRequiredError,
   ProposalCancelConflictError,
+  ProposalNoOpError,
   ProposalNotApprovedError,
 } from "../../application/policy-governance/policy-proposal-service.js";
 
@@ -89,7 +90,8 @@ export type PolicyErrorKind =
   | "unsupported-file"
   | "not-approved"
   | "cancel-conflict"
-  | "human-review-required";
+  | "human-review-required"
+  | "no-op";
 
 /**
  * Politikų governance klaidos. 403, o ne 409, žmogaus patvirtinimo atveju: tai ne būsenos
@@ -100,6 +102,13 @@ export type PolicyErrorKind =
  * pasiūlymo BŪSENA, bet priešingomis kryptimis — `apply` reikalauja `approved`, o `cancel` jo kaip
  * tik neleidžia iš galutinės (`applied`/`rejected`/`cancelled`). Suplakti juos į vieną rūšį reikštų,
  * kad vėlesnis statuso pakeitimas vienam tyliai pakeistų ir kitą.
+ *
+ * `no-op` (siūloma reikšmė lygi dabartinei) yra 409, o ne 400, pagal tą pačią šio failo skiriamąją
+ * liniją: 400 gauna tai, kas netinka SAVAIME (nežinomas policy failas, schemos neatitinkanti
+ * reikšmė — tam pakanka pačios užklausos), o 409 — tai, kas netinka esamai BŪSENAI. Kūnas čia yra
+ * nepriekaištingas: `enforcement.mode = "block"` yra teisėta reikšmė, ir ta pati užklausa taps
+ * priimtina, kai politika bus kitokia. Tai konfliktas su serverio būsena, o ne bloga įvestis —
+ * lygiai kaip `not-approved`, kur pats pasiūlymas irgi yra tvarkingas.
  */
 export function mapPolicyError(kind: PolicyErrorKind | undefined, message: string): HttpErrorResponse {
   switch (kind) {
@@ -111,6 +120,8 @@ export function mapPolicyError(kind: PolicyErrorKind | undefined, message: strin
       return jsonError(409, message);
     case "human-review-required":
       return jsonError(403, message);
+    case "no-op":
+      return jsonError(409, message);
     default:
       return INTERNAL_ERROR_RESPONSE;
   }
@@ -129,6 +140,7 @@ export function mapPolicyDecisionError(error: unknown): HttpErrorResponse {
   if (error instanceof ProposalNotApprovedError) return mapPolicyError("not-approved", error.message);
   if (error instanceof ProposalCancelConflictError) return mapPolicyError("cancel-conflict", error.message);
   if (error instanceof HumanReviewApprovalRequiredError) return mapPolicyError("human-review-required", error.message);
+  if (error instanceof ProposalNoOpError) return mapPolicyError("no-op", error.message);
   // NUKRYPIMAS nuo etalono, griežtinantis: etalone schemos klaida krisdavo į bendrą 500. Bet
   // `requested_value: "error"` ten, kur leidžiami tik `advisory|warn|block`, yra VARTOTOJO
   // klaida — ta pati klasė, kurią įvardija šio modulio pirmoji taisyklė. 500 nukreiptų

@@ -16,6 +16,7 @@ import {
   HumanReviewApprovalRequiredError,
   listPolicyProposals,
   ProposalCancelConflictError,
+  ProposalNoOpError,
   ProposalNotApprovedError,
   type PolicyProposalServicePorts,
 } from "../application/policy-governance/policy-proposal-service.js";
@@ -95,18 +96,87 @@ test("buildPolicyProposal: reason neprivalomas — nepaduotas tampa \"\", senas 
   assert.equal(withoutReason.reason, "");
   await appendPolicyProposal(ports.fs, RUNTIME_ROOT, withoutReason);
 
+  // Antras pasiūlymas liečia KITĄ nustatymą: `require_tests_for_code_changes` su `false` būtų
+  // lygus numatytajai reikšmei, tad no-op vartai jį atmestų dar prieš `reason` klausimą.
   const withReason = await buildPolicyProposal(
     ports,
     RUNTIME_ROOT,
     "enforcement",
-    "require_tests_for_code_changes",
-    false,
+    "max_files_per_task",
+    5,
     "sena priežastis",
   );
   assert.equal(withReason.reason, "sena priežastis");
   await appendPolicyProposal(ports.fs, RUNTIME_ROOT, withReason);
 
   assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 2);
+});
+
+/**
+ * No-op vartai (2026-09-01 UI audito P1). Iki jų `layered → layered` praeidavo visą kelią:
+ * schema tokią reikšmę validuoja, tad į append-only žurnalą nusėsdavo pilnavertis valdymo įrašas,
+ * kurio taikymas policy failo nepakeistų nė baitu — o žurnalas atgal nesitraukia.
+ */
+test("buildPolicyProposal: sutampanti reikšmė atmetama tipizuota klaida ir NIEKO nepalieka žurnale", async () => {
+  const ports = makePorts();
+
+  // Skaliaras: `require_tests_for_code_changes` numatytai yra `false`.
+  await assert.rejects(
+    () => buildPolicyProposal(ports, RUNTIME_ROOT, "enforcement", "require_tests_for_code_changes", false, "nieko"),
+    (error: unknown) => {
+      assert.ok(error instanceof ProposalNoOpError);
+      assert.equal(error.policyFile, ENFORCEMENT_FILE);
+      assert.equal(error.settingId, "require_tests_for_code_changes");
+      // Žinutė įvardija IR nustatymą, IR reikšmę: operatorius turi matyti, kodėl niekas nepasikeis.
+      assert.match(error.message, /require_tests_for_code_changes is already false/);
+      return true;
+    },
+  );
+
+  // Struktūrinė reikšmė: `layers` numatytai yra `[]`, o kiekvienas skaitymas duoda NAUJĄ masyvą —
+  // `Object.is` čia paskelbtų pakeitimą ir vartai praleistų būtent sudėtingiausius no-op'us.
+  await assert.rejects(
+    () => buildPolicyProposal(ports, RUNTIME_ROOT, "architecture-style", "layers", []),
+    ProposalNoOpError,
+  );
+
+  // Objekto raktų TVARKA nėra pakeitimas: diske ir schemai `{a,b}` ir `{b,a}` yra ta pati politika.
+  ports.files.set(
+    norm(path.join(RUNTIME_ROOT, "architecture", "architecture-style.json")),
+    JSON.stringify({ layer_owners: { web: "ui", core: "domain" } }),
+  );
+  await assert.rejects(
+    () =>
+      buildPolicyProposal(ports, RUNTIME_ROOT, "architecture-style", "layer_owners", {
+        core: "domain",
+        web: "ui",
+      }),
+    ProposalNoOpError,
+  );
+
+  // Skirtinga reikšmė toliau praeina — vartai neuždarė teisėto kelio.
+  const changed = await buildPolicyProposal(ports, RUNTIME_ROOT, "architecture-style", "layers", ["domain"]);
+  assert.deepEqual(changed.old_value, []);
+  assert.deepEqual(changed.requested_value, ["domain"]);
+
+  // Atmesti pasiūlymai nieko nepaliko žurnale: `buildPolicyProposal` stovi PRIEŠ rašymą.
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 0);
+});
+
+/**
+ * No-op vartai NEPERIMA schemos klaidų: netinkama reikšmė ir toliau grįžta kaip zod klaida
+ * (HTTP 400 su paaiškinimu), ne kaip „niekas nepasikeis". Operatoriui tai skirtingi veiksmai —
+ * vienu atveju taisoma reikšmė, kitu atsisakoma pasiūlymo.
+ */
+test("buildPolicyProposal: netinkama reikšmė lieka schemos klaida, ne no-op", async () => {
+  const ports = makePorts();
+  await assert.rejects(
+    () => buildPolicyProposal(ports, RUNTIME_ROOT, "enforcement", "version", ""),
+    (error: unknown) => {
+      assert.equal(error instanceof ProposalNoOpError, false);
+      return true;
+    },
+  );
 });
 
 test("apply vartai: be approve — klaida; approved + human-review be markerio — klaida; su markeriu — failas įrašomas", async () => {

@@ -4,7 +4,7 @@
 // human-review vartų pataisa). IO — per PolicyProposalServicePorts.
 
 import path from "node:path";
-import { toPrettyJson } from "../../shared/json.js";
+import { canonicalJsonStringify, toPrettyJson } from "../../shared/json.js";
 import { toPosixPath } from "../../shared/paths.js";
 import {
   applyPolicyProposal,
@@ -41,6 +41,60 @@ export class ProposalNotApprovedError extends Error {
   constructor(readonly policyFile: string, readonly settingId: string) {
     super(`Policy proposal must be approved before apply: ${policyFile}/${settingId}`);
     this.name = "ProposalNotApprovedError";
+  }
+}
+
+/**
+ * Domain klaida: siūloma reikšmė JAU YRA dabartinė — pasiūlymas nieko nekeistų.
+ *
+ * Iki 2026-09-01 UI audito P1 toks „`layered` → `layered`" pasiūlymas praeidavo visą kelią:
+ * schema jį validuoja (reikšmė teisėta), tad jis nusėsdavo `proposals.jsonl` kaip pilnavertis
+ * valdymo įrašas, kurį dar reikėdavo approve'inti, o žmogaus maršrutu — ir patvirtinti
+ * out-of-band žyme. Append-only žurnalas nesitraukia atgal, tad kiekvienas toks paspaudimas
+ * amžiams įrašydavo sprendimą, kurio taikymas policy failo nepakeistų nė baitu.
+ *
+ * `reason` sąmoningai nedalyvauja lyginime: pasiūlymo objektas yra (failas, nustatymas, reikšmė),
+ * o priežastis yra to objekto anotacija. Kitaip ta pati no-op reikšmė su nauju tekstu vėl
+ * praeitų — vartai, kuriuos apeina laisvos formos laukas, nėra vartai.
+ */
+export class ProposalNoOpError extends Error {
+  constructor(readonly policyFile: string, readonly settingId: string, readonly value: unknown) {
+    super(
+      `Policy proposal would change nothing: ${policyFile}/${settingId} is already ${renderPolicyValue(value)}`,
+    );
+    this.name = "ProposalNoOpError";
+  }
+}
+
+/**
+ * Reikšmė klaidos žinutei. Politikų reikšmės yra JSON skaliarai ir maži objektai (schema jas jau
+ * pravalidavo), tad kanoninė forma čia yra tiksliai tai, ką operatorius mato dashboard'e. Vidinių
+ * detalių ji neneša: tai jo paties įvestis.
+ */
+function renderPolicyValue(value: unknown): string {
+  try {
+    return canonicalJsonStringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * JSON reikšmių gili lygybė. `===` čia nepakanka: `allowed_layers: ["domain"]` iš dviejų
+ * skaitymų yra du skirtingi masyvai, tad nuorodų lyginimas kiekvieną struktūrinę reikšmę
+ * paskelbtų „pasikeitusia" ir vartai praleistų būtent tuos no-op'us, kurių forma sudėtingiausia.
+ *
+ * Kanoninė forma rikiuoja objektų raktus, tad `{a,b}` ir `{b,a}` yra ta pati politika — būtent
+ * taip ją mato ir `entry.schema.parse`, ir įrašymas į diską. Nekonvertuojama reikšmė (ne JSON)
+ * lygybe NELAIKOMA: geriau praleisti abejotiną pasiūlymą nei užblokuoti tikrą pakeitimą.
+ */
+function isSameJsonValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left === undefined || right === undefined) return false;
+  try {
+    return canonicalJsonStringify(left) === canonicalJsonStringify(right);
+  } catch {
+    return false;
   }
 }
 
@@ -129,10 +183,17 @@ export async function buildPolicyProposal(
   // Suliejama reikšmė validuojama prieš failo schemą DAR PRIEŠ siūlant.
   entry.schema.parse({ ...current, [setting_id]: requested_value });
 
+  // No-op vartai eina PO schemos: netinkama reikšmė turi likti schemos klaida (400 su zod
+  // paaiškinimu), o čia lyginamos tik tokios reikšmės, kurias failas realiai priimtų.
+  const old_value = current[setting_id];
+  if (isSameJsonValue(old_value, requested_value)) {
+    throw new ProposalNoOpError(entry.policy_file, setting_id, requested_value);
+  }
+
   return {
     policy_file: entry.policy_file,
     setting_id,
-    old_value: current[setting_id],
+    old_value,
     requested_value,
     reason: reason ?? "",
     timestamp: new Date().toISOString(),

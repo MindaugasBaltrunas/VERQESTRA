@@ -20,6 +20,7 @@ import { InvalidLoopControlError } from "../application/scheduling/loop-control-
 import { UnsupportedPolicyFileError } from "../application/policy-governance/policy-file-registry.js";
 import {
   HumanReviewApprovalRequiredError,
+  ProposalNoOpError,
   ProposalNotApprovedError,
 } from "../application/policy-governance/policy-proposal-service.js";
 
@@ -272,6 +273,34 @@ test("governance klaidos gauna SAVO statusą: 400 / 409 / 403", async () => {
     // human-review, o UI nėra tas žmogus.
     assert.equal(state.errors.length, 0);
   }
+});
+
+/**
+ * No-op pasiūlymas (task 103, UI audito P1) yra 409, ne 400 ir ne 200.
+ *
+ * Ne 200: sėkmė čia reikštų beprasmį įrašą append-only valdymo žurnale, kurį dar reikėtų
+ * approve'inti, o žmogaus maršrutu — ir patvirtinti out-of-band žyme.
+ *
+ * Ne 400: kūnas nepriekaištingas — `requested_value` praėjo failo schemą, ir ta pati užklausa
+ * taptų priimtina, kai politika bus kitokia. Atmeta ne užklausos forma, o dabartinė BŪSENA,
+ * lygiai kaip `not-approved` atveju.
+ */
+test("no-op pasiūlymas yra 409 su paaiškinimu, o serverio žurnale — tyla", async () => {
+  const state = world();
+  state.throwOn.set(
+    "propose",
+    new ProposalNoOpError("vq/architecture/coding-principles.json", "dry", "advisory"),
+  );
+
+  const response = await post(state, "/api/policies/coding-principles/set", {
+    setting_id: "dry",
+    requested_value: "advisory",
+    reason: "auditas",
+  });
+
+  assert.equal(response.status, 409);
+  assert.match(JSON.stringify(response.data), /would change nothing/);
+  assert.equal(state.errors.length, 0);
 });
 
 test("neatpažinta sprendimo klaida yra 500 BE detalių, bet SU žurnalo eilute", async () => {

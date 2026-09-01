@@ -16,7 +16,10 @@ import {
 import { UI_IDENTITY_ROUTE, UI_IDENTITY_SERVICE, projectFingerprint } from "../interfaces/http/ui-port-rules.js";
 import { UI_TOKEN_HEADER } from "../interfaces/http/ui-security.js";
 import { InvalidUploadError } from "../interfaces/http/task-upload.js";
-import { ProposalCancelConflictError } from "../application/policy-governance/policy-proposal-service.js";
+import {
+  ProposalCancelConflictError,
+  ProposalNoOpError,
+} from "../application/policy-governance/policy-proposal-service.js";
 import { TaskNotFoundError } from "../interfaces/http/ui-task-actions.js";
 import { UnknownTaskBucketError } from "../interfaces/http/workflow-buckets.js";
 
@@ -383,6 +386,37 @@ test("`cancel` iš galutinės būsenos: 409 su paaiškinimu, o ne 500", async ()
     // serverio žurnalą ji nerašoma — ten lieka tik neatpažinti gedimai.
     assert.deepEqual(world.errors, []);
   }
+});
+
+// Task 103 (UI audito P1): `layered → layered` pasiūlymas nustojo būti sėkme. Klaidą meta
+// application sluoksnis, o maršrutas jos NIEKUR neperima — ji teka esamu catch → mapping keliu,
+// tad testas pin'ina būtent tai: statusą, žinutę kliento kūne ir tylų serverio žurnalą.
+test("no-op pasiūlymas: 409 su paaiškinimu, o ne 200 su beprasmiu įrašu", async () => {
+  const world = routerWorld();
+  world.failures.set(
+    "propose:architecture-style",
+    new ProposalNoOpError("vq/architecture/architecture-style.json", "style", "layered"),
+  );
+
+  const response = await handleUiRequest(
+    world.deps,
+    request({
+      method: "POST",
+      url: "/api/policies/architecture-style/set",
+      readJsonBody: () => Promise.resolve({ setting_id: "style", requested_value: "layered", reason: "auditas" }),
+    }),
+  );
+
+  assert.deepEqual(response, {
+    kind: "json",
+    status: 409,
+    data: {
+      error:
+        'Policy proposal would change nothing: vq/architecture/architecture-style.json/style is already "layered"',
+    },
+  });
+  // Vartotojo klaida žurnale nepaliekama: ten lieka tik neatpažinti gedimai.
+  assert.deepEqual(world.errors, []);
 });
 
 test("sprendimo verbų sąrašas lieka baigtinis: nežinomas verbas ir toliau atmetamas", async () => {

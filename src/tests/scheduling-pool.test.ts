@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkerLease } from "../domain/scheduling/index.js";
 import {
+  buildWorkerSlot,
   computeTaskWriteSet,
   createWorkerLease,
   evaluateIntegrationCheckpoint,
@@ -18,6 +19,7 @@ import {
   resolveWorkerOutcomes,
   type LiveSlot,
   type WorkerCandidate,
+  type WorkerPoolPlan,
 } from "../application/scheduling/index.js";
 
 const NOW = new Date("2026-08-19T10:00:00.000Z");
@@ -120,6 +122,69 @@ test("planSlotProvisioning targets missing-lease rejections, including the prima
     "primary's own missing-lease rejection becomes a provisioning target for its own index",
   );
   assert.deepEqual(provisioning.refused, []);
+});
+
+test("planSlotProvisioning hard-cap detail names the round's index reservation, not a false 'already issued' claim", () => {
+  const plan: WorkerPoolPlan = {
+    pool_version: 1,
+    run_id: "r1",
+    max_workers: 2,
+    requested_workers: 2,
+    mode: "sequential",
+    slots: [buildWorkerSlot("r1", 1, candidate("0001", "src/a/"))],
+    rejected: [
+      { task_id: "0002", reason: "missing-lease", detail: "test fixture" },
+      { task_id: "0003", reason: "missing-lease", detail: "test fixture" },
+    ],
+    verdicts: [],
+    conflicts: [],
+    plan_hash: "fixture",
+  };
+
+  const provisioning = planSlotProvisioning({ plan });
+  assert.deepEqual(
+    provisioning.targets.map((target) => [target.task_id, target.worker_index]),
+    [["0002", 2]],
+    "first missing-lease candidate takes the round's one free index",
+  );
+  assert.equal(provisioning.refused.length, 1);
+  assert.equal(provisioning.refused[0]?.task_id, "0003");
+  assert.equal(provisioning.refused[0]?.reason, "hard-cap");
+  assert.doesNotMatch(
+    provisioning.refused[0]?.detail ?? "",
+    /jau išduotas/,
+    "no index was granted yet this round — the refusal must not claim otherwise",
+  );
+  assert.match(
+    provisioning.refused[0]?.detail ?? "",
+    /ankstesniam šio raundo kandidatui/,
+    "detail names the real cause: the round's free index went to an earlier candidate",
+  );
+});
+
+test("planSlotProvisioning hard-cap detail: both indexes already granted keeps the 'already issued' wording", () => {
+  const plan: WorkerPoolPlan = {
+    pool_version: 1,
+    run_id: "r1",
+    max_workers: 2,
+    requested_workers: 2,
+    mode: "parallel",
+    slots: [buildWorkerSlot("r1", 1, candidate("0001", "src/a/")), buildWorkerSlot("r1", 2, candidate("0002", "src/b/"))],
+    rejected: [{ task_id: "0003", reason: "missing-lease", detail: "test fixture" }],
+    verdicts: [],
+    conflicts: [],
+    plan_hash: "fixture",
+  };
+
+  const provisioning = planSlotProvisioning({ plan });
+  assert.deepEqual(provisioning.targets, []);
+  assert.equal(provisioning.refused.length, 1);
+  assert.equal(provisioning.refused[0]?.reason, "hard-cap");
+  assert.match(
+    provisioning.refused[0]?.detail ?? "",
+    /jau išduotas/,
+    "both indexes were granted before this round started — the original wording is accurate here",
+  );
 });
 
 test("resolveWorkerOutcomes: a missing outcome means still running (fail-closed)", () => {

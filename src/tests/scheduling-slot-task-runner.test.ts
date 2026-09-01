@@ -53,12 +53,12 @@ function primarySlot(): SlotTaskRunnerSlot {
 type World = {
   ports: SlotTaskRunnerPorts;
   logs: string[];
-  calls: { inProcess: number; child: number; prepared: number; released: number; heartbeats: number };
+  calls: { inProcess: number; child: number; prepared: number; released: number; heartbeats: number; ensured: number };
 };
 
 function world(overrides: Partial<SlotTaskRunnerPorts> = {}): World {
   const logs: string[] = [];
-  const calls = { inProcess: 0, child: 0, prepared: 0, released: 0, heartbeats: 0 };
+  const calls = { inProcess: 0, child: 0, prepared: 0, released: 0, heartbeats: 0, ensured: 0 };
   const ports: SlotTaskRunnerPorts = {
     log: (message) => {
       logs.push(message);
@@ -85,6 +85,11 @@ function world(overrides: Partial<SlotTaskRunnerPorts> = {}): World {
     prepareWorktree: () => {
       calls.prepared += 1;
       return Promise.resolve();
+    },
+    // Numatytasis vartas praneša „failas kopijoje yra" — visi seni testai lieka apie tai, apie ką buvo.
+    ensureTaskFileInWorktree: () => {
+      calls.ensured += 1;
+      return Promise.resolve({ status: "ok" });
     },
     ...overrides,
   };
@@ -151,6 +156,84 @@ test("bootstrap'o klaida yra `ok=false`, o ne metimas", async () => {
   assert.equal(w.calls.child, 0);
   assert.ok(w.logs.some((line) => line.includes("worktree runtime bootstrap nepavyko: dist nerastas")));
   assert.equal(w.calls.released, 1, "lease atlaisvinamas ir po bootstrap klaidos");
+});
+
+test("task failo vartai: portas praneša „yra“ — vaikas paleidžiamas kaip iki šiol", async () => {
+  const seen: Array<{ taskId: string; worktreeAbs: string }> = [];
+  const w = world({
+    ensureTaskFileInWorktree: (slot, worktreeAbs) => {
+      seen.push({ taskId: slot.task_id, worktreeAbs });
+      return Promise.resolve({ status: "ok" });
+    },
+  });
+  const ok = await createSlotTaskRunner(w.ports)(slot());
+
+  assert.equal(ok, true);
+  assert.equal(w.calls.child, 1);
+  // Vartai gauna TĄ PATĮ kopijos kelią, kurį gaus vaikas — kitaip jie tikrintų kitą medį.
+  assert.deepEqual(seen, [{ taskId: "0042", worktreeAbs: "D:/repo/.worktrees/w2" }]);
+});
+
+test("task failo NĖRA kopijoje: atkūrimas uždaro lenktynes BE `task-failed` kelio", async () => {
+  // FS↔git lenktynės: planuoklė task'ą pačiumpa nuo disko, kopija gimsta iš HEAD be to commit'o.
+  // Verdiktas (a): vartai failą atkuria iš `slot.absoluteFile` ir praneša `ok`.
+  const restored: string[] = [];
+  const w = world({
+    ensureTaskFileInWorktree: (slot) => {
+      restored.push(slot.absoluteFile);
+      return Promise.resolve({ status: "ok" });
+    },
+  });
+  const ok = await createSlotTaskRunner(w.ports)(slot());
+
+  assert.equal(ok, true, "`false` čia reikštų `task-failed` parką už aprūpinimo klaidą");
+  assert.equal(w.calls.child, 1);
+  assert.deepEqual(restored, ["D:/repo/AG/tasks/active/0042.md"]);
+  assert.equal(
+    w.logs.some((line) => line.includes("WAVE SLOT FAILED")),
+    false,
+    "uždarytos lenktynės nepalieka nė vienos nesėkmės eilutės",
+  );
+});
+
+test("task failo nėra NIEKUR: vaikas NEPALEIDŽIAMAS, o priežastis ĮVARDIJAMA", async () => {
+  const w = world({
+    ensureTaskFileInWorktree: () => Promise.resolve({ status: "missing", reason: "šaltinio nėra pirminiame medyje" }),
+  });
+  const ok = await createSlotTaskRunner(w.ports)(slot());
+
+  assert.equal(ok, false);
+  assert.equal(w.calls.child, 0, "ENOENT vaike duotų exit 74 ir melagingą diagnozę");
+  assert.equal(w.calls.prepared, 0, "vartai pigūs — bootstrap'as už jų");
+  assert.ok(w.logs[0]?.includes("task-file-missing: šaltinio nėra pirminiame medyje"));
+  assert.equal(w.calls.released, 1, "lease atlaisvinamas ir po varto atsisakymo");
+});
+
+test("task failo vartų metimas bangos nenutraukia", async () => {
+  const w = world({ ensureTaskFileInWorktree: () => Promise.reject(new Error("EPERM")) });
+  const ok = await createSlotTaskRunner(w.ports)(slot());
+
+  assert.equal(ok, false);
+  assert.equal(w.calls.child, 0);
+  assert.ok(w.logs[0]?.includes("task-file-missing: vartai krito: EPERM"));
+});
+
+test("pirminis slot'as task failo vartų NEKVIEČIA", async () => {
+  const w = world();
+  assert.equal(await createSlotTaskRunner(w.ports)(primarySlot()), true);
+
+  // In-process kelias dirba pirminiame medyje — ten failas yra pagal apibrėžimą.
+  assert.equal(w.calls.ensured, 0);
+  assert.equal(w.calls.inProcess, 1);
+});
+
+test("nepririštas task failo portas naujos gedimo klasės nesukuria", async () => {
+  const w = world();
+  const { ensureTaskFileInWorktree: _unbound, ...withoutPort } = w.ports;
+  const ok = await createSlotTaskRunner(withoutPort)(slot());
+
+  assert.equal(ok, true);
+  assert.equal(w.calls.child, 1);
 });
 
 test("lease atlaisvinamas po KIEKVIENOS baigties", async () => {

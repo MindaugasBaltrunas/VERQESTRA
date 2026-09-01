@@ -110,6 +110,10 @@ describe("PolicyControlsPanel", () => {
   // Priežasties lauko nebėra (2026-08-28): forma yra reikšmės pasirinkimas ir Send/Cancel, o Send
   // niekada nebūna užrakintas dėl neužpildyto teksto. Tikrinama ir tai, kad laukas dingo, ir tai,
   // kad pasiūlymas nusiunčiamas jo neužpildžius — kitaip lauką būtų galima grąžinti nepastebėtai.
+  //
+  // Reikšmė čia keičiama sąmoningai: nuo 2026-09-01 Send užrakina NEPAKEISTA reikšmė, ir tik ji.
+  // Be pakeitimo testas tikrintų ne tekstinio lauko nebuvimą, o no-op rakinimą — du skirtingi
+  // dalykai viename teiginyje.
   it("submits without a change reason field in the form", async () => {
     const onPropose = vi.fn().mockResolvedValue(undefined);
     render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);
@@ -120,6 +124,7 @@ describe("PolicyControlsPanel", () => {
     expect(screen.queryByText("Enter a reason for the change")).toBeNull();
     expect(document.querySelector(".policy-change-form textarea")).toBeNull();
 
+    fireEvent.change(screen.getByLabelText("Maksimalūs bandymai New value"), { target: { value: "5" } });
     const send = screen.getByRole("button", { name: "Send" });
     expect(send).toBeEnabled();
     fireEvent.click(send);
@@ -127,10 +132,63 @@ describe("PolicyControlsPanel", () => {
     await waitFor(() => expect(onPropose).toHaveBeenCalledWith(
       "/api/policies/runtime/proposals",
       "max_retries",
-      3,
+      5,
     ));
     // Sėkmingas siuntimas uždaro formą — kortelė vėl siūlo ją atidaryti.
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Propose change" }).length).toBe(3));
+  });
+
+  // NE-OP PASIŪLYMAS (2026-08-31 UI auditas, P1). Forma atsidaro ties rekomenduojama reikšme, o ji
+  // dažnai jau yra dabartinė: peržiūra rodė „advisory → advisory", Send liko aktyvus, ir serveris
+  // (task 103) tokį pasiūlymą atmesdavo 4xx — klaidos toast'as ten, kur teisingas atsakymas yra
+  // „nėra ko siųsti". Tikrinamas ir grįžimas atgal: rakinimas turi sekti reikšmę, ne pirmą įspūdį.
+  it("locks Send while the chosen value still equals the current one", () => {
+    render(<PolicyControlsPanel groups={groups} onPropose={vi.fn()} />);
+
+    openForm(0);
+    const send = screen.getByRole("button", { name: "Send" });
+    const field = screen.getByLabelText("Maksimalūs bandymai New value");
+    expect(send).toBeDisabled();
+    const hint = screen.getByText("Choose a different value");
+    expect(hint).toBeInTheDocument();
+    // Priežastis pasiekiama ir ekrano skaitytuvui, ne tik akiai.
+    expect(send).toHaveAttribute("aria-describedby", hint.id);
+
+    fireEvent.change(field, { target: { value: "7" } });
+    expect(send).toBeEnabled();
+    expect(screen.queryByText("Choose a different value")).toBeNull();
+    expect(send).not.toHaveAttribute("aria-describedby");
+
+    fireEvent.change(field, { target: { value: "3" } });
+    expect(send).toBeDisabled();
+    expect(screen.getByText("Choose a different value")).toBeInTheDocument();
+  });
+
+  // Palyginimas eina PO `parseFormValue`: dropdown'as duoda `"true"`, o dabartinė reikšmė yra
+  // `true`. Lyginant neapdorotą eilutę su boolean'u no-op niekada nesutaptų, ir vartas praeitų
+  // tuščias būtent ten, kur jis labiausiai reikalingas — dviejų variantų sąraše.
+  it("treats a string form value as unchanged when it parses to the current boolean", () => {
+    render(<PolicyControlsPanel groups={groups} onPropose={vi.fn()} />);
+
+    openForm(1);
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Griežtas režimas New value" }));
+    fireEvent.click(screen.getByRole("option", { name: "No" }));
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  // Neparsinama reikšmė NĖRA no-op: skaitiniam nustatymui įvestas tekstas yra klaida, ir ją turi
+  // parodyti siuntimo kelias (`policy-form-error`), o ne tyliai užrakintas mygtukas su
+  // paaiškinimu, kuris meluoja apie priežastį.
+  it("keeps Send active for an unparseable value so the error path can report it", () => {
+    render(<PolicyControlsPanel groups={groups} onPropose={vi.fn()} />);
+
+    openForm(0);
+    fireEvent.change(screen.getByLabelText("Maksimalūs bandymai New value"), { target: { value: "abc" } });
+
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+    expect(screen.queryByText("Choose a different value")).toBeNull();
   });
 
   it("sends a real boolean when the value is picked from the dropdown", async () => {

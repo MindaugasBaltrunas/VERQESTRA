@@ -3220,6 +3220,15 @@ header .muted {
 .policy-form-error {
   color: var(--error);
 }
+/* Paaiškinimas prie užrakinto „Siųsti" (nepakeista reikšmė). Ne klaidos spalva: nieko blogo
+   neįvyko — tiesiog dar nėra ko siųsti. Lygiuojama į dešinę, kad stovėtų virš to mygtuko,
+   kurį aiškina (`.policy-form-actions` yra `flex-end`). */
+.policy-form-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
 .proposal-inbox .panel-header {
   align-items: flex-start;
 }

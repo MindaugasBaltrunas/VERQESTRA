@@ -28,19 +28,27 @@
 // įvardytą turinį). `CONTROL_DOC_ROOTS` yra žinoma, operatoriaus kuruojama sritis —
 // analogiška etalono `rag-lite/indexer.ts controlRoots`, pritaikyta šio repo išdėstymui.
 //
-// ## Kodėl NEPRIJUNGTA prie `assemble.ts` šiame task'e
+// ## Verdiktas: PRIJUNGTI (task 101, architekto sprendimas)
 //
-// Wiring'as reikalautų arba (a) šiuos kandidatus įtraukti į kešuojamą `context-pack.json`
-// turinį — bet `ContextCachePort.collectSources` (infrastructure/persistence, šio task'o
-// scope NEĮEINA) nehash'uoja `CONTROL_DOC_ROOTS` turinio, tad cache HIT tyliai grąžintų
-// pasenusį discovered tekstą būtent tokį CLAUDE.md draudžia (CONTEXT_CACHE_VERSION taisyklė:
-// „senas įrašas grįžta kaip hit ir tyliai anuliuoja pataisymą"); arba (b) juos skaičiuoti iš
-// naujo PO cache lookup abiem šakoms (kaip renderis — žr. render-execution-context.ts
-// komentarą „generuojamas iš naujo kiekvieno hit'o metu") — bet tam reikėtų pack'o formos
-// pakeitimo IR papildomo FS skaitymo abiem šakoms, kas peržengia „suprojektuoti retrieval"
-// šio task'o ribas. Modulis todėl paliekamas PAREIGINGAI PARUOŠTAS: gryna, testuota funkcija,
-// kurią kvietėjas gali sujungti su `assemble.ts` atskiru task'u, kartu su cache šaltinio
-// papildymu.
+// Modulis lieka produkcijoje, o ne šalinamas: `assemble.ts:238` `docsSnippets` yra sąmoningai
+// suprojektuotas tuščias lizdas šiems kandidatams, ir `context-selection-policy.ts:133` jau
+// apdoroja jų kibirą — tai ne spekuliatyvus API, o pusiau sujungtas kelias. Prieš prijungimą
+// šiame task'e kalbėjo tik apimtis: wiring'as reikalauja arba (a) šiuos kandidatus įtraukti į
+// kešuojamą `context-pack.json` turinį — bet tada `ContextCachePort.collectSources`
+// (infrastructure/persistence) turi hash'uoti `CONTROL_DOC_ROOTS` turinį, kitaip cache HIT
+// tyliai grąžintų pasenusį discovered tekstą, ką CLAUDE.md draudžia (CONTEXT_CACHE_VERSION
+// taisyklė: „senas įrašas grįžta kaip hit ir tyliai anuliuoja pataisymą"); arba (b) juos
+// skaičiuoti iš naujo PO cache lookup abiem šakoms (kaip renderis — žr.
+// render-execution-context.ts komentarą „generuojamas iš naujo kiekvieno hit'o metu"). Abi
+// šakos peržengia šio task'o ribas, tad wiring liko atskirtas:
+//
+//   - task 101-b: `CONTROL_DOC_ROOTS` cache šaltiniai, naujas `discovered-docs-cache-sources.ts`.
+//   - task 101-c: `candidateSet.docsSnippets` sujungimas `assemble.ts`, `CONTEXT_CACHE_VERSION`
+//     kėlimas, `context-pack-schema.ts`, `render-execution-context.ts`.
+//
+// Šis task'as (101) uždaro tik verdiktą ir determinizmo pataisą žemiau — `MAX_DISCOVERED_DOC_FILES`
+// riba anksčiau priklausė nuo `listDirectory` traversal'o tvarkos, ne vien nuo failų turinio
+// (žr. `listControlDocFiles`/`collectMarkdownFiles` komentarus).
 
 import path from "node:path";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
@@ -72,7 +80,9 @@ export type DiscoveredDocCandidate = {
 /**
  * Nuskaito `CONTROL_DOC_ROOTS` ir grąžina kiekvieno rasto `.md` failo antraščių gabalus kaip
  * neįvertintus kandidatus. Tvarka deterministinė (failai — surūšiuoti keliu, gabalai — failo
- * eilučių tvarka), tad tas pats medis visada duoda tą pačią kandidatų seką.
+ * eilučių tvarka), tad tas pats medis visada duoda tą pačią kandidatų seką NEPRIKLAUSOMAI nuo
+ * `listDirectory` traversal'o tvarkos: `listControlDocFiles` pirma surenka VISUS kandidatų
+ * kelius, o `MAX_DISCOVERED_DOC_FILES` riba pritaikoma tik PO dedup+sort.
  */
 export async function discoverControlDocCandidates(
   fs: CodeIntelligenceFileSystemPort,
@@ -130,14 +140,11 @@ async function collectMarkdownFiles(
   out: string[],
   depth: number,
 ): Promise<void> {
-  if (out.length >= MAX_DISCOVERED_DOC_FILES || depth >= MAX_DISCOVERY_DEPTH) {
+  if (depth >= MAX_DISCOVERY_DEPTH) {
     return;
   }
   const entries = await fs.listDirectory(absoluteDir);
   for (const entry of entries) {
-    if (out.length >= MAX_DISCOVERED_DOC_FILES) {
-      return;
-    }
     const absoluteChild = path.join(absoluteDir, entry.name);
     if (entry.isDirectory) {
       await collectMarkdownFiles(fs, projectRoot, absoluteChild, out, depth + 1);

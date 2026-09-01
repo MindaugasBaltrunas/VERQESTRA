@@ -2,7 +2,8 @@
 //
 // Prikalama tai, kas tyliausiai lūžta: vartų TVARKA prieš lease'o išdavimą (politika ir
 // gitignore tikrinami PRIEŠ lease'ą, kad neliktų kabančio lease'o kopijai, kurios nebus),
-// write-set konflikto pakaitalas ir tai, kad aprūpinimas niekada nemeta.
+// write-set konflikto pakaitalas, pakaitalas po NEPAVYKUSIO išdavimo ir tai, kad aprūpinimas
+// niekada nemeta.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -18,7 +19,7 @@ import type { WorkerCandidate } from "../application/scheduling/worker-pool-admi
 import type { WorkerPoolPlan } from "../application/scheduling/worker-pool-plan.js";
 import { leaseClaimOf, type WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
 import { readScopeLockRegistry } from "../application/scheduling/scope-lock-store.js";
-import { releaseWorkerLease } from "../application/scheduling/worker-lease-store.js";
+import { releaseWorkerLease, writeWorkerLease } from "../application/scheduling/worker-lease-store.js";
 import type { TaskGraph } from "../domain/tasks/graph/model.js";
 import { memorySchedulingFs as memorySchedulingFsHelper } from "./helpers/memory-scheduling-fs.js";
 
@@ -321,6 +322,57 @@ test("nepavykęs išdavimas į rezultatą NEPATENKA", async () => {
 
   // Kitaip perplanavimas laukdamas lease'o „matytų" izoliaciją, kurios nėra.
   assert.deepEqual(provisioned, []);
+});
+
+// P2 (2026-09-01, w1/w2 slot'ų auditas): nepavykęs išdavimas darydavo `continue`, tad vienintelis
+// laisvas indeksas sudegdavo iki kitos bangos. Kandidatui SPECIFINĖ nesėkmė (karantinuota TO
+// kandidato kopija, svetimas reused lease, scope lock konfliktas) kartojasi, o deterministinė
+// tvarka kitoje bangoje vėl renkasi TĄ PATĮ kandidatą — sveiki kandidatai galėjo badauti amžinai.
+test("provision nesėkmė indekso NESUDEGINA — tą patį indeksą gauna pakaitalas", async () => {
+  const w = world({
+    create: (taskId) =>
+      taskId === "0002"
+        ? { status: "quarantined", reason: "dirty-tree" }
+        : { status: "created", relativePath: ".worktrees/w2" },
+  });
+  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+    pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
+    [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"]), candidate("0003", ["src/c.ts"])],
+  );
+
+  // Slot'as lieka TOJE PAČIOJE bangoje ir tame pačiame indekse — tik kito kandidato rankose.
+  assert.deepEqual(provisioned, [{ task_id: "0003", worker_index: 2 }]);
+  assert.ok(
+    w.logs.some((line) => line.includes("SLOT PROVISION RETRY:") && line.includes("task=0002") && line.includes("task=0003")),
+    "operatorius mato grandinę: kuris krito ir kuris bandomas vietoje jo",
+  );
+});
+
+test("kai krenta VISI kandidatai, raundas baigiasi be išdavimo ir be begalinio ciklo", async () => {
+  const w = world();
+  // Svetimam task'ui priklausantis reused lease atmes KIEKVIENĄ kandidatą, pataikiusį į šį indeksą.
+  await writeWorkerLease(
+    w.fs,
+    ROOT,
+    createWorkerLease(
+      { owner_id: "loop-4242", run_id: "r1", worker_id: "w2", task_id: "0009", attempt: 1 },
+      { now: NOW, fencingToken: 1 },
+    ),
+  );
+
+  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+    pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
+    [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"]), candidate("0003", ["src/c.ts"])],
+  );
+
+  assert.deepEqual(provisioned, []);
+  // Kandidatų aibė baigtinė: kiekvienas bandomas daugiausia kartą per raundą (`claimed`).
+  assert.equal(
+    w.logs.filter((line) => line.includes("reused lease priklauso task'ui 0009")).length,
+    2,
+    "0002 ir 0003 — po vieną bandymą, jokio sukimosi ratu",
+  );
+  assert.ok(w.logs.some((line) => line.includes("SLOT PROVISION EXHAUSTED:")));
 });
 
 test("atlaisvinamas TIK to paties task'o held lease", async () => {

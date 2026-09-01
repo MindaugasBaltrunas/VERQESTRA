@@ -17,7 +17,11 @@ import {
   retrieveSpecFragmentCandidates,
 } from "../application/code-intelligence/retrieval/spec-fragments.js";
 import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
-import { requiresFreshCodeIndex } from "../application/code-intelligence/query/guard.js";
+import {
+  assertFreshCodeIndexForGraphAwareTask,
+  requiresFreshCodeIndex,
+} from "../application/code-intelligence/query/guard.js";
+import { checkCodeIndexFreshness } from "../application/code-intelligence/store/code-index-store.js";
 import { nodeFsTestPort } from "./helpers/node-fs-port.js";
 
 test("mermaid parser: node shapes, edge labels, directive gate", () => {
@@ -451,4 +455,24 @@ test("guard rule: graph-aware task requires fresh index unless it builds one its
   assert.ok(requiresFreshCodeIndex("Naudok code graph context analizei."));
   assert.ok(!requiresFreshCodeIndex("Paleisk code-index build ir tada code graph context."));
   assert.ok(!requiresFreshCodeIndex("Paprastas taskas be grafo."));
+});
+
+// Task 123: šviežiame worktree `vq/` gitignore'intas, tad indekso checkout'e NĖRA — iki
+// pataisymo guard'as mesdavo „manifest is missing" ir task'as mirdavo identiškai kiekvieną
+// refill'ą (parkavimas vykdavo išmetamoje worktree kopijoje, pagrindinė eilė jį imdavo vėl).
+test("guard: graph-aware task be indekso persistato jį deterministiškai vietoj klaidos", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-graph-guard-"));
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await writeFile(path.join(root, "src", "sample.ts"), "export const answer = 42;\n", "utf8");
+    await writeFile(path.join(root, "task.md"), "# Task\nNaudok code graph context analizei.\n", "utf8");
+
+    assert.equal((await checkCodeIndexFreshness(nodeFsTestPort, root)).ok, false, "kontrolė: indekso nėra");
+
+    await assertFreshCodeIndexForGraphAwareTask(nodeFsTestPort, "task.md", root);
+
+    assert.equal((await checkCodeIndexFreshness(nodeFsTestPort, root)).ok, true, "guard'as pastatė šviežią indeksą");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

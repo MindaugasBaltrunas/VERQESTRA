@@ -85,3 +85,17 @@ test("trūkstamas šaltinio failas strip'o nekelia į klaidą — move'as prane�
   assert.deepEqual(w.writes, []);
   assert.equal(w.moves.length, 1, "sprendimą apie trūkstamą šaltinį priima store lock'o viduje");
 });
+
+// Task 124: preambulė iki šiol AKTYVIAI atgrasė nuo no-write bėgimų („parkuojamas human-review"
+// be išimties), o AUDIT_COMPLETE neminėjo visai — „patikrinti X" task'ai, kurių sąžininga išvada
+// „keisti nieko nereikia", sistemiškai parkavosi (072, 015-a-02, 015-b-03). Dispositions markerius
+// priima tik eilutės pradžioje, tad instrukcija turi diktuoti būtent tą formą.
+test("preambulė paaiškina abu no-write markerius ir įspėjimo išimtį", () => {
+  assert.ok(PREAMBLE.includes("\nALREADY_IMPLEMENTED: "), "ALREADY_IMPLEMENTED — atskira eilute");
+  assert.ok(PREAMBLE.includes("\nAUDIT_COMPLETE: "), "AUDIT_COMPLETE — atskira eilute");
+  assert.match(
+    PREAMBLE,
+    /parkuojamas human-review — NEBENT [^\n]*ALREADY_IMPLEMENTED arba AUDIT_COMPLETE/,
+    "human-review įspėjimas neša markerių išimtį — be jos vykdytojas atgrasomas nuo sąžiningo no-write",
+  );
+});

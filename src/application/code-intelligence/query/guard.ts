@@ -24,9 +24,29 @@ export async function assertFreshCodeIndexForGraphAwareTask(
   }
 
   const freshness = await checkCodeIndexFreshness(fs, projectRoot);
-  if (!freshness.ok) {
+  if (freshness.ok) {
+    return;
+  }
+
+  // NUKRYPIMAS NUO ETALONO (griežtinantis, 2026-09-01): etalonas čia METĖ klaidą ir liepė
+  // operatoriui pačiam paleisti build komandą. Šviežiame worktree tai virsdavo amžinu ciklu:
+  // `vq/` gitignore'intas, tad checkout'e indekso NĖRA, task'as parkuojasi worktree KOPIJOJE
+  // (kuri išmetama), pagrindinė eilė jį ima iš naujo ir miršta identiškai. Dabar pirmiausia
+  // bandomas TAS PATS deterministinis rebuild kaip `ensureFreshCodeIndexForExistingCodeTask`
+  // žemiau; fail-closed lieka — rebuild'ui nepavykus dispatch'as toliau blokuojamas.
+  try {
+    await buildCodeIndex(fs, projectRoot);
+  } catch (error) {
     throw new Error(
-      `code graph task requires a fresh code index before dispatch: ${freshness.reason}. Run the code-index build command.`,
+      `code graph task requires a fresh code index before dispatch: ${freshness.reason}; ` +
+        `deterministic rebuild failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const rebuilt = await checkCodeIndexFreshness(fs, projectRoot);
+  if (!rebuilt.ok) {
+    throw new Error(
+      `code graph task requires a fresh code index before dispatch: rebuild did not produce a fresh index: ${rebuilt.reason}`,
     );
   }
 }

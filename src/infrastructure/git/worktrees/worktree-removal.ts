@@ -19,7 +19,53 @@ import { cleanupWorktreeRegistrations } from "./worktree-registration-cleanup.js
 import type { WorktreeQuarantineReason } from "./worktree-state-classifier.js";
 
 /** Kviečiama tik po sėkmingo `fallback-<n>` žingsnio — pirmo bandymo sėkmė žymos neneša. */
-export type WorktreeRemovalFallback = "fallback-1" | "fallback-2" | "fallback-3";
+export type WorktreeRemovalFallback = "fallback-1" | "fallback-2" | "fallback-3" | "runtime-junk";
+
+/**
+ * Kelio prefiksai, kuriuos kopijoje palieka pats runtime, o ne task'o darbas: orkestratoriaus
+ * žurnalai/būsena (`vq/`), stop bridge (`AG/state/`, `AG/logs/`), build/deps artefaktai ir
+ * failinė saugykla. Kiekvienas GeoGravity merge (14/14 iki 2026-09-01) palikdavo RESIDUE būtent
+ * dėl jų: `git worktree remove` be `--force` atsisako, nors integruotas darbas jau pirminiame
+ * medyje, o šie keliai jokio neintegruoto turinio neturi. `AG/tasks/**` čia SĄMONINGAI nėra —
+ * neperkeltas task failo judesys yra realus pėdsakas, kurį privalo pamatyti žmogus.
+ */
+const RUNTIME_JUNK_PREFIXES = [
+  "vq/",
+  "AG/state/",
+  "AG/logs/",
+  "logs/",
+  "dist/",
+  "node_modules",
+  ".pnpm-store/",
+  "storage/",
+] as const;
+
+function isRuntimeJunkPath(entry: string): boolean {
+  const normalized = entry.replace(/\\/g, "/").replace(/^"|"$/g, "");
+  return RUNTIME_JUNK_PREFIXES.some(
+    (prefix) => normalized.startsWith(prefix) || normalized === prefix.replace(/\/$/, ""),
+  );
+}
+
+/**
+ * Nešvarūs kopijos keliai iš `git status --porcelain` — FAKTAS, dėl kurio `worktree remove`
+ * atsisako. `undefined`, kai pačios patikros įvykdyti nepavyko (tada force NIEKADA nebandomas).
+ * Rename eilutės (`R  sena -> nauja`) grąžina abu kelius: junk sprendimui svarbūs abu galai.
+ * `-uall` privalomas: be jo nesekamas katalogas kolapsuoja į `?? AG/`, ir prefikso sprendimas
+ * matytų tėvą, o ne realius failus po juo.
+ */
+async function worktreeDirtyPaths(runner: WorktreeGitRunner, worktreePath: string): Promise<string[] | undefined> {
+  const status = await runner("git", ["-C", worktreePath, "status", "--porcelain", "-uall"], { cwd: worktreePath });
+  if (status.code !== 0) return undefined;
+  return status.stdout
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .filter((entry) => entry !== "")
+    .flatMap((entry) => {
+      const arrow = entry.indexOf(" -> ");
+      return arrow === -1 ? [entry] : [entry.slice(0, arrow), entry.slice(arrow + 4)];
+    });
+}
 
 export type RemoveWorktreeResult =
   | { status: "removed"; layout: WorktreeLayout; fallback?: WorktreeRemovalFallback }
@@ -63,11 +109,33 @@ export async function removeWorktreeDirectory(
   projectRoot: string,
   worktreePath: string,
   remover: (target: string) => Promise<void> = defaultLongPathRemover,
+  options: {
+    /**
+     * Leisti `--force`, kai kopija nešvari VIEN runtime šiukšlėmis (RUNTIME_JUNK_PREFIXES).
+     * Įjungiama TIK po-integracinio valymo kelyje (removeTaskWorktree): ten darbas jau
+     * pirminiame medyje. Orphan reaper'is šito NENAUDOJA — jo force eina per savo
+     * amžiaus vartą ir archyvavimą, ir ankstyvas šalinimas be archyvo čia būtų regresija.
+     */
+    runtimeJunkForce?: boolean;
+  } = {},
 ): Promise<{ status: "removed"; fallback?: WorktreeRemovalFallback } | { status: "infrastructure"; message: string }> {
   const firstArgs = ["worktree", "remove", worktreePath];
   const first = await runner("git", ["-C", projectRoot, ...firstArgs], { cwd: projectRoot });
   if (first.code === 0) return { status: "removed" };
   if (!looksLikeLongPathFailure(first)) {
+    // Atsisakymo priežastis tikrinama FAKTU, ne git teksto atpažinimu: jei kopijos nešvarumas
+    // yra VIEN runtime šiukšlės (žr. RUNTIME_JUNK_PREFIXES), `--force` nieko nepraranda —
+    // integruotas darbas jau pirminiame medyje, o šiukšles paliko pats runtime. Bet koks
+    // kitas nešvarus kelias (arba neįvykusi patikra) palieka ankstesnę elgseną: RESIDUE.
+    if (options.runtimeJunkForce === true) {
+      const dirty = await worktreeDirtyPaths(runner, worktreePath);
+      if (dirty !== undefined && dirty.length > 0 && dirty.every(isRuntimeJunkPath)) {
+        const junkForceArgs = ["worktree", "remove", "--force", worktreePath];
+        const junkForced = await runner("git", ["-C", projectRoot, ...junkForceArgs], { cwd: projectRoot });
+        if (junkForced.code === 0) return { status: "removed", fallback: "runtime-junk" };
+        return { status: "infrastructure", message: worktreeGitFailure(junkForced, junkForceArgs) };
+      }
+    }
     return { status: "infrastructure", message: worktreeGitFailure(first, firstArgs) };
   }
 
@@ -132,7 +200,10 @@ export async function removeTaskWorktree(input: {
     return { status: "quarantined", layout, reasons: state.reasons };
   }
 
-  const removal = await removeWorktreeDirectory(input.runner ?? run, projectRoot, layout.path, input.remover);
+  // Po-integracinis kelias: runtime šiukšlių force leidžiamas — darbas jau pirminiame medyje.
+  const removal = await removeWorktreeDirectory(input.runner ?? run, projectRoot, layout.path, input.remover, {
+    runtimeJunkForce: true,
+  });
   if (removal.status !== "removed") return { status: "infrastructure", message: removal.message };
 
   await pruneWorktrees(projectRoot);

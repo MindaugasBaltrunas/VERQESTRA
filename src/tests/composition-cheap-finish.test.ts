@@ -90,19 +90,45 @@ test("retry biudžetas skaičiuoja KITĄ bandymą", async () => {
   }
 });
 
+/**
+ * Prielaida „runtime namespace'o NĖRA" turi būti ĮGYVENDINTA, ne prielaiduota.
+ *
+ * `mkdtemp` workspace izoliuoja tik FAILŲ sistemą, o `resolveActiveAttempt` run id'ą pirmiausia ima
+ * iš `process.env` (`infrastructure/state/active-attempt.ts`) — env nusveria ir bangos snapshot'ą,
+ * ir resume checkpoint'ą, o `cheapFinishPort` env neinjektuoja. Dispatch'inta sesija tuos
+ * kintamuosius turi nustatytus, tad be šio pašalinimo testas žalias TIK švarioje aplinkoje, o cikle
+ * raudonas — ir tada Stop hook'as blokuoja commit'ą kiekvienam worker'iui, kurio darbas su šiuo
+ * failu neturi nieko bendra.
+ */
+async function withoutRuntimeNamespace<T>(body: () => Promise<T>): Promise<T> {
+  const keys = ["AG_RUN_ID", "AG_ATTEMPT_ID", "AG_WORKER_ID"] as const;
+  const saved = keys.map((key) => [key, process.env[key]] as const);
+  for (const key of keys) delete process.env[key];
+  try {
+    return await body();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 test("be runtime namespace'o `prepareDispatch` krenta PRIEŠ retry inkrementą", async () => {
   const world = await workspace();
   try {
     const port = cheapFinishPort(world, overlay());
     const before = await port.retryBudget("0042");
 
-    const prepared = await port.prepareDispatch({
-      taskId: "0042",
-      promptText: "# task\n",
-      desiredTierStep: 1,
-      tokenBudgetTier: "small",
-      resetTaskLedger: false,
-    });
+    const prepared = await withoutRuntimeNamespace(async () =>
+      port.prepareDispatch({
+        taskId: "0042",
+        promptText: "# task\n",
+        desiredTierStep: 1,
+        tokenBudgetTier: "small",
+        resetTaskLedger: false,
+      }),
+    );
 
     assert.equal(prepared.ok, false);
     assert.ok(prepared.errors.some((error) => error.includes("runtime attempt namespace unavailable")));

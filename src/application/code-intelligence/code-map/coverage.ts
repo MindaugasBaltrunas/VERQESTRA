@@ -4,8 +4,8 @@
 import path from "node:path";
 import { toPrettyJson } from "../../../shared/json.js";
 import type { CodeIntelligenceFileSystemPort } from "../ports.js";
-import type { SymbolRecord } from "./index-projection.js";
-import { classIdForFile, memberLineForSymbol } from "./generator.js";
+import type { ImportEdge, SymbolRecord } from "./index-projection.js";
+import { classIdForFile, expectedImportEdges, memberLineForSymbol } from "./generator.js";
 
 export const GENERATED_COVERAGE_RELATIVE_PATH = "vq/architecture/generated/code-map.coverage.json";
 
@@ -14,6 +14,8 @@ export type CodeMapCoverage = {
   source_files_indexed: number;
   symbols_total: number;
   symbols_rendered_in_mmd: number;
+  edges_total: number;
+  edges_rendered_in_mmd: number;
   missing_symbols: string[];
   coverage_percent: number;
 };
@@ -45,6 +47,17 @@ function extractClassMemberLines(mermaid: string): Map<string, Set<string>> {
   return blocks;
 }
 
+/** Parses `A --> B` relation lines out of classDiagram Mermaid text into `A-->B` keys. */
+function extractEdgeKeys(mermaid: string): Set<string> {
+  const keys = new Set<string>();
+  const relation = /^\s*(\S+)\s+-->\s+(\S+)\s*$/;
+  for (const line of mermaid.split(/\r?\n/)) {
+    const match = relation.exec(line);
+    if (match?.[1] !== undefined && match[2] !== undefined) keys.add(`${match[1]}-->${match[2]}`);
+  }
+  return keys;
+}
+
 /**
  * Compares AST-scanned symbols against a rendered classDiagram Mermaid string.
  * A symbol counts as rendered only if its exact member line is present inside
@@ -58,11 +71,20 @@ function extractClassMemberLines(mermaid: string): Map<string, Set<string>> {
  *
  * Todėl `coverage_percent` dabar skaičiuojamas nuo simbolių IR failų kartu: neatvaizduotas failas
  * kainuoja lygiai tiek pat, kiek neatvaizduotas simbolis.
+ *
+ * `imports` — TA PATI 2026-08-23 pamokos klasė, uždaryta 2026-09-01 (operatoriaus reprodukcija):
+ * briaunų aprėptis apskritai neegzistavo, tad pašalinus VISAS `-->` eilutes iš diagramos aprėptis
+ * likdavo 100 % ir `--check` grąžindavo sėkmę. Laukiamos briaunos dabar išvedamos generatoriaus
+ * `expectedImportEdges` funkcija — ta pačia, kuri jas ir renderina, ne jos kopija.
+ *
+ * `scannedFiles` ir `imports` yra PRIVALOMI: numatytoji tuščia reikšmė būtų lygiai tas pats tylus
+ * vardiklio susitraukimas, kurio šis matavimas ieško.
  */
 export function computeCodeMapCoverage(
   symbols: SymbolRecord[],
   mermaidContent: string,
-  scannedFiles: readonly string[] = [],
+  scannedFiles: readonly string[],
+  imports: readonly ImportEdge[],
 ): CodeMapCoverage {
   const classBlocks = extractClassMemberLines(mermaidContent);
   const sourceFiles = new Set([...scannedFiles, ...symbols.map((symbol) => symbol.filePath)]);
@@ -86,9 +108,22 @@ export function computeCodeMapCoverage(
     if (!classBlocks.has(classIdForFile(filePath))) missingSymbols.push(`${filePath}#<file>`);
   }
 
+  // Briaunų aibė — generatoriaus, ne vietinė: `sourceFiles` čia yra lygiai tas pats `knownFiles`,
+  // kurį renderiui sudeda `groupSymbolsByFile` (nuskenuoti failai + simbolių failai).
+  const expectedEdges = expectedImportEdges(imports, sourceFiles);
+  const renderedEdgeKeys = extractEdgeKeys(mermaidContent);
+  let renderedEdgeCount = 0;
+  for (const edge of expectedEdges) {
+    if (renderedEdgeKeys.has(edge.key)) {
+      renderedEdgeCount++;
+      continue;
+    }
+    missingSymbols.push(`${edge.fromFile}-->${edge.toTarget}`);
+  }
+
   const symbolsTotal = symbols.length;
-  const measured = symbolsTotal + sourceFiles.size;
-  const rendered = renderedCount + indexedFiles.length;
+  const measured = symbolsTotal + sourceFiles.size + expectedEdges.length;
+  const rendered = renderedCount + indexedFiles.length + renderedEdgeCount;
   const coveragePercent = measured === 0 ? 100 : Math.round((rendered / measured) * 10000) / 100;
 
   return {
@@ -96,6 +131,8 @@ export function computeCodeMapCoverage(
     source_files_indexed: indexedFiles.length,
     symbols_total: symbolsTotal,
     symbols_rendered_in_mmd: renderedCount,
+    edges_total: expectedEdges.length,
+    edges_rendered_in_mmd: renderedEdgeCount,
     missing_symbols: missingSymbols,
     coverage_percent: coveragePercent,
   };

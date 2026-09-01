@@ -110,29 +110,48 @@ function renderFileBlock(file: FileBlock): string[] {
   return lines;
 }
 
+/** Viena laukiama diagramos briauna: renderio raktas plius skaitomi galai aprėpties ataskaitai. */
+export type ExpectedImportEdge = {
+  /** `fromId-->toId` — tiksliai tai, ką renderis paverčia `A --> B` eilute. */
+  key: string;
+  fromFile: string;
+  toTarget: string;
+};
+
 /**
- * Briaunos tarp diagramos mazgų.
+ * Laukiamų briaunų aibė — VIENAS tiesos šaltinis renderiui ir aprėpčiai (2026-09-01).
  *
  * Rezoliucijos čia NEBĖRA (2026-08-24): `ImportEdge.toTarget` jau yra indekso išspręstas kelias,
  * tad lieka tik atrinkti tuos, kurie rodo į diagramoje esantį failą. Ankstesnis vietinis rezolverius
  * mokėjo tik reliatyvius kelius, tad kiekvienas alias ar path-mapped importas iš diagramos dingdavo
  * — nors indeksas jį jau turėjo išsprendęs per tikrą tsconfig rezoliuciją.
+ *
+ * Funkcija eksportuota todėl, kad aprėptis privalo laukiamas briaunas išvesti TA PAČIA logika, o ne
+ * savo kopija: kopija išsiskirtų tyliai, o tyli spraga aprėptyje yra būtent tai, ką ji turi gaudyti.
  */
-function renderImportEdges(imports: ImportEdge[], knownFiles: ReadonlySet<string>): string[] {
-  const edgeKeys = new Set<string>();
-  const edges: string[] = [];
+export function expectedImportEdges(
+  imports: readonly ImportEdge[],
+  knownFiles: ReadonlySet<string>,
+): ExpectedImportEdge[] {
+  const seen = new Set<string>();
+  const edges: ExpectedImportEdge[] = [];
   for (const edge of imports) {
     const target = edge.toTarget;
     if (!knownFiles.has(target) || target === edge.fromFile) continue;
-    const fromId = classIdForFile(edge.fromFile);
-    const toId = classIdForFile(target);
-    const key = `${fromId}-->${toId}`;
-    if (edgeKeys.has(key)) continue;
-    edgeKeys.add(key);
-    edges.push(key);
+    const key = `${classIdForFile(edge.fromFile)}-->${classIdForFile(target)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ key, fromFile: edge.fromFile, toTarget: target });
   }
-  edges.sort();
-  return edges.map((key) => `  ${key.replace("-->", " --> ")}`);
+  // Kodo taškų palyginimas, ne `localeCompare`: generuojamo `.mmd` eilių tvarka negali priklausyti
+  // nuo mašinos lokalės.
+  edges.sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+  return edges;
+}
+
+/** Briaunos tarp diagramos mazgų — renderis virš {@link expectedImportEdges}. */
+function renderImportEdges(imports: ImportEdge[], knownFiles: ReadonlySet<string>): string[] {
+  return expectedImportEdges(imports, knownFiles).map((edge) => `  ${edge.key.replace("-->", " --> ")}`);
 }
 
 /** Pure Mermaid `classDiagram` generation from AST-scanned symbols/imports; no filesystem access. */

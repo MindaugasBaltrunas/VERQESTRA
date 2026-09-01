@@ -366,6 +366,7 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
         symbols,
         mermaidContent,
         scannedFiles.map((file) => file.filePath),
+        imports,
       );
       const coveragePath = await writeCodeMapCoverage(deps.codeFs, projectRoot, coverage);
 
@@ -377,6 +378,8 @@ export async function architectureCommand(deps: ArchitectureCommandDeps, args: s
         io.out(`source_files_indexed: ${coverage.source_files_indexed}`);
         io.out(`symbols_total: ${coverage.symbols_total}`);
         io.out(`symbols_rendered_in_mmd: ${coverage.symbols_rendered_in_mmd}`);
+        io.out(`edges_total: ${coverage.edges_total}`);
+        io.out(`edges_rendered_in_mmd: ${coverage.edges_rendered_in_mmd}`);
         io.out(`coverage_percent: ${coverage.coverage_percent}`);
         for (const missing of coverage.missing_symbols) io.out(`missing: ${missing}`);
         io.out(`coverage_file: ${path.relative(projectRoot, coveragePath).replace(/\\/g, "/")}`);

@@ -67,9 +67,11 @@ test("code-map: projekcija iš indekso, renderis ir aprėptis uždaro ratą", as
     assert.match(mermaid, new RegExp(`class ${engineId}\\["src/application/engine\\.ts"\\]`));
     assert.match(mermaid, new RegExp(`${engineId} --> ${helperId}`));
 
-    const coverage = computeCodeMapCoverage(symbols, mermaid, files.map((file) => file.filePath));
+    const coverage = computeCodeMapCoverage(symbols, mermaid, files.map((file) => file.filePath), imports);
     assert.equal(coverage.coverage_percent, 100);
     assert.deepEqual(coverage.missing_symbols, []);
+    assert.equal(coverage.edges_total, 1, "briauna engine → helper yra matuojama");
+    assert.equal(coverage.edges_rendered_in_mmd, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -200,6 +202,7 @@ test("darbo sritys už `src/` ribų patenka į diagramą ir į aprėpties vardik
       symbols,
       generateCodeMapMermaid(symbols, imports, files),
       files.map((file) => file.filePath),
+      imports,
     );
     assert.equal(coverage.source_files_total, 4, "vardiklis apima VISAS darbo sritis");
     assert.equal(coverage.coverage_percent, 100, "perkurtas žemėlapis vėl pasiekiamas");
@@ -234,7 +237,7 @@ test("mišraus repo aprėptis apima VISAS simbolius turinčias kalbas", async ()
     // Ir svarbiausia: perkurtas žemėlapis vėl duoda 100 %, t. y. praplėstas vardiklis yra
     // PASIEKIAMAS, o ne amžinai raudonas.
     const mermaid = generateCodeMapMermaid(symbols, imports, files);
-    const coverage = computeCodeMapCoverage(symbols, mermaid, paths);
+    const coverage = computeCodeMapCoverage(symbols, mermaid, paths, imports);
     assert.equal(coverage.source_files_total, 4);
     assert.equal(coverage.coverage_percent, 100);
 
@@ -246,7 +249,7 @@ test("mišraus repo aprėptis apima VISAS simbolius turinčias kalbas", async ()
       ecmascriptOnly,
     );
     assert.ok(
-      computeCodeMapCoverage(symbols, staleMermaid, paths).coverage_percent < 100,
+      computeCodeMapCoverage(symbols, staleMermaid, paths, imports).coverage_percent < 100,
       "iki žingsnio 2 būtent šis atvejis grąžindavo 100 %",
     );
   } finally {
@@ -290,21 +293,112 @@ test("code-map: failas be eksportų patenka į aprėptį ir gauna mazgą", async
   const blindMermaid = generateCodeMapMermaid(symbols, imports);
   assert.doesNotMatch(blindMermaid, new RegExp(`class ${classIdForFile(barrelPath)}\\[`), "kontrolė: barrel'io bloko nėra");
   assert.doesNotMatch(blindMermaid, /-->/, "kontrolė: importas į neaprašytą failą dingsta");
-  assert.equal(computeCodeMapCoverage(symbols, blindMermaid).coverage_percent, 100, "kontrolė: senasis 100 %");
+  // Tuščias nuskenuotų failų sąrašas atkuria senąjį vardiklį: barrel'io jame nėra, tad ir briauna į
+  // jį iš laukiamų iškrenta — 100 %, nors diagrama tuščia.
+  assert.equal(computeCodeMapCoverage(symbols, blindMermaid, [], imports).coverage_percent, 100, "kontrolė: senasis 100 %");
 
   // B. Vardiklis, matantis visus nuskenuotus failus, trūkumą parodo.
   assert.ok(
-    computeCodeMapCoverage(symbols, blindMermaid, scannedPaths).coverage_percent < 100,
+    computeCodeMapCoverage(symbols, blindMermaid, scannedPaths, imports).coverage_percent < 100,
     "neaprašytas failas privalo kainuoti aprėpties",
   );
 
   // C. Ir generatorius jam duoda mazgą — kartu su importo briauna.
   const mermaid = generateCodeMapMermaid(symbols, imports, scanned);
-  const coverage = computeCodeMapCoverage(symbols, mermaid, scannedPaths);
+  const coverage = computeCodeMapCoverage(symbols, mermaid, scannedPaths, imports);
   assert.equal(coverage.source_files_total, 2);
   assert.equal(coverage.source_files_indexed, 2);
   assert.equal(coverage.coverage_percent, 100);
   assert.deepEqual(coverage.missing_symbols, []);
   assert.match(mermaid, new RegExp(`${classIdForFile(consumerPath)} --> ${classIdForFile(barrelPath)}`));
   await rm(root, { recursive: true, force: true });
+});
+
+// 2026-09-01 (operatoriaus reprodukcija): aprėptis briaunų NEMATUODAVO iš viso. Pašalinus VISAS
+// `-->` eilutes iš diagramos, `coverage_percent` likdavo 100 % ir `code-map --check` grąžindavo
+// sėkmę — priklausomybių žemėlapis be nė vienos priklausomybės būdavo paskelbtas pilnu.
+//
+// Tai ta pati klasė kaip failas be eksportų (2026-08-23): briaunos į VARDIKLĮ apskritai nepatekdavo,
+// o aprėptis, nematanti to, ko trūksta, matuoja pati save.
+test("code-map: pašalinta priklausomybės briauna kainuoja aprėpties", async () => {
+  const { root, data } = await indexOf({
+    "src/lib/helper.ts": "export function helper(): number {\n  return 1;\n}\n",
+    "src/app/main.ts": 'import { helper } from "../lib/helper.js";\n\nexport const used = helper();\n',
+    "src/app/second.ts": 'import { helper } from "../lib/helper.js";\n\nexport const also = helper();\n',
+  });
+  try {
+    const { symbols, imports, files } = projectCodeMapFromIndex(data);
+    const paths = files.map((file) => file.filePath);
+    const mermaid = generateCodeMapMermaid(symbols, imports, files);
+
+    // A. Pilna diagrama — 100 %, ir briaunos TIKRAI yra vardiklyje.
+    const full = computeCodeMapCoverage(symbols, mermaid, paths, imports);
+    assert.equal(full.edges_total, 2, "abu importai į helper'į yra laukiamos briaunos");
+    assert.equal(full.edges_rendered_in_mmd, 2);
+    assert.equal(full.coverage_percent, 100);
+    assert.deepEqual(full.missing_symbols, []);
+
+    // B. Regresija: išimamos VISOS briaunų eilutės, mazgai ir nariai lieka nepaliesti.
+    const withoutEdges = mermaid
+      .split("\n")
+      .filter((line) => !line.includes("-->"))
+      .join("\n");
+    assert.doesNotMatch(withoutEdges, /-->/, "prielaida: diagramoje nebeliko nė vienos briaunos");
+    const stripped = computeCodeMapCoverage(symbols, withoutEdges, paths, imports);
+    assert.equal(stripped.edges_rendered_in_mmd, 0);
+    assert.ok(stripped.coverage_percent < 100, `iki 2026-09-01 čia būdavo 100 %: ${stripped.coverage_percent}`);
+    assert.deepEqual(
+      stripped.missing_symbols.filter((entry) => entry.includes("-->")).sort(),
+      ["src/app/main.ts-->src/lib/helper.ts", "src/app/second.ts-->src/lib/helper.ts"],
+      "trūkstama briauna įvardijama failų keliais, ne vidiniais mazgų ID",
+    );
+
+    // C. Ir viena išimta briauna kainuoja lygiai vieną: matavimas gradacinis, ne dvejetainis.
+    const secondId = classIdForFile("src/app/second.ts");
+    const oneRemoved = mermaid
+      .split("\n")
+      .filter((line) => !line.includes(`${secondId} -->`))
+      .join("\n");
+    const partial = computeCodeMapCoverage(symbols, oneRemoved, paths, imports);
+    assert.equal(partial.edges_rendered_in_mmd, 1);
+    assert.deepEqual(partial.missing_symbols, ["src/app/second.ts-->src/lib/helper.ts"]);
+    assert.ok(partial.coverage_percent > stripped.coverage_percent);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Aprėptis ir renderis laukiamas briaunas išveda VIENA funkcija (`expectedImportEdges`), ne dviem
+// kopijomis: kopija tyliai išsiskirtų — pvz. alias, dublikatų ar išorinių modulių filtre — ir aprėptis
+// vėl imtų matuoti ne diagramą, o save.
+test("code-map: generatoriaus diagrama visada duoda pilną briaunų aprėptį", async () => {
+  const { root, data } = await indexOf({
+    "tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@lib/*": ["src/lib/*"] } } }),
+    "src/lib/util.ts": "export const util = 1;\nexport const other = 2;\n",
+    "src/app/a.ts": [
+      'import { util } from "@lib/util.js";',
+      'import { other } from "@lib/util.js";',
+      'import path from "node:path";',
+      "",
+      "export const a = util + other + path.sep.length;",
+      "",
+    ].join("\n"),
+    "src/app/b.ts": 'import { a } from "./a.js";\n\nexport const b = a;\n',
+  });
+  try {
+    const { symbols, imports, files } = projectCodeMapFromIndex(data);
+    const coverage = computeCodeMapCoverage(
+      symbols,
+      generateCodeMapMermaid(symbols, imports, files),
+      files.map((file) => file.filePath),
+      imports,
+    );
+
+    assert.equal(coverage.edges_total, 2, "alias dublikatas suliejamas, `node:path` mazgo neturi — tad ir briaunos");
+    assert.equal(coverage.edges_rendered_in_mmd, coverage.edges_total);
+    assert.deepEqual(coverage.missing_symbols, []);
+    assert.equal(coverage.coverage_percent, 100, "praplėstas vardiklis privalo likti PASIEKIAMAS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

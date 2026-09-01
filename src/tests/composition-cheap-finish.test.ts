@@ -90,8 +90,15 @@ test("retry biudžetas skaičiuoja KITĄ bandymą", async () => {
   }
 });
 
+// „Be runtime namespace'o" turi būti šio testo PRIELAIDA, ne aplinkos atsitiktinumas.
+// `resolveActiveAttempt` run id ieško `process.env.AG_RUN_ID`, tad dispatch'o sesijoje
+// (loop'as jį eksportuoja) namespace ATSIRASDAVO, `prepareDispatch` grįždavo `ok`, ir
+// vartai krisdavo kiekvienam bandymui, paleistam iš ciklo — nors kodas nepakitęs.
+// `AG_RUNTIME_ARTIFACTS=off` yra kill switch'as, veikiantis anksčiau už run id paiešką.
 test("be runtime namespace'o `prepareDispatch` krenta PRIEŠ retry inkrementą", async () => {
   const world = await workspace();
+  const previousArtifacts = process.env["AG_RUNTIME_ARTIFACTS"];
+  process.env["AG_RUNTIME_ARTIFACTS"] = "off";
   try {
     const port = cheapFinishPort(world, overlay());
     const before = await port.retryBudget("0042");
@@ -109,6 +116,8 @@ test("be runtime namespace'o `prepareDispatch` krenta PRIEŠ retry inkrementą",
     // Būsena lieka NEPAJUDINTA: kitaip task'as netektų bandymo, kurio niekada negavo.
     assert.equal((await port.retryBudget("0042")).count, before.count);
   } finally {
+    if (previousArtifacts === undefined) delete process.env["AG_RUNTIME_ARTIFACTS"];
+    else process.env["AG_RUNTIME_ARTIFACTS"] = previousArtifacts;
     await rm(world.projectRoot, { recursive: true, force: true });
   }
 });

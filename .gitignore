@@ -20,4 +20,4 @@ vq/
 # ignoravimo šablono, nes `templates/vq/config` nesivadina `vq`.
 !templates/vq/
 
- .ag/worktrees/
+.ag/worktrees/

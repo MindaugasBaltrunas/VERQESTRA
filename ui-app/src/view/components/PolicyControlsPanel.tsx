@@ -29,6 +29,24 @@ function parseFormValue(currentValue: boolean | string | number, value: string):
   return value;
 }
 
+/**
+ * Ar formos reikšmė sutampa su dabartine (2026-08-31 UI auditas, P1). Forma atsidaro ties
+ * rekomenduojama reikšme, o ji dažnai JAU yra dabartinė — tada peržiūra rodė `layered → layered`,
+ * „Siųsti" liko aktyvus, o serveris (task 103) tokį pasiūlymą atmeta 4xx. Vartotojui tai atrodė
+ * kaip klaida ten, kur teisingas atsakymas yra „nėra ko siųsti".
+ *
+ * Lyginama PO `parseFormValue`, ne prieš: `"true"` ir `true`, `"3"` ir `3` yra ta pati reikšmė, tik
+ * skirtingo užrašymo. Neparsinama reikšmė (skaitiniam nustatymui įvestas ne skaičius) no-op NĖRA —
+ * ji yra klaida, ir ją turi parodyti siuntimo kelias, ne tyliai užrakintas mygtukas.
+ */
+function isUnchangedValue(currentValue: boolean | string | number, value: string): boolean {
+  try {
+    return parseFormValue(currentValue, value) === currentValue;
+  } catch {
+    return false;
+  }
+}
+
 function formatPendingProposal(
   proposal: { requested_value: unknown } | string,
 ): string {
@@ -209,6 +227,8 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
               const options = valueOptions(control, t);
               const valueFieldName = `${t(control.label)} ${t("New value")}`;
               const previewValue = options.find((option) => option.value === formValue)?.label ?? formValue;
+              const unchanged = isUnchangedValue(control.value, formValue);
+              const unchangedHintId = `${control.id}-unchanged`;
               return (
               <article key={control.id} className={`policy-control-card${control.pending_proposal ? " is-pending" : ""}`}>
                 <div className="policy-control-topline">
@@ -296,11 +316,20 @@ export const PolicyControlsPanel = memo(function PolicyControlsPanel({ groups, o
                         {formError}
                       </p>
                     ) : null}
+                    {/* Priežastis stovi ŠALIA užrakinto mygtuko ir yra su juo susieta
+                        (`aria-describedby`): užrakintas mygtukas be paaiškinimo atrodo kaip
+                        sugedęs, o ekrano skaitytuvui jis apskritai nutyla. */}
+                    {unchanged && (
+                      <p className="policy-form-hint" id={unchangedHintId}>
+                        {t("Choose a different value")}
+                      </p>
+                    )}
                     <div className="policy-form-actions">
                       <button
                         className="button small-button"
                         type="submit"
-                        disabled={submitting}
+                        disabled={submitting || unchanged}
+                        aria-describedby={unchanged ? unchangedHintId : undefined}
                       >
                         {submitting ? t("Sending...") : t("Send")}
                       </button>

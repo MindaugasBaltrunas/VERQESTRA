@@ -83,6 +83,9 @@ const lt: Record<string, string> = {
   "Recommended": "Rekomenduojama",
   "Pending proposal": "Laukiantis pasiūlymas",
   "Proposed change": "Siūlomas pakeitimas",
+  // Paaiškinimas prie užrakinto „Siųsti": forma atsidaro ties rekomenduojama reikšme, o ji dažnai
+  // jau yra dabartinė. Serveris tokį pasiūlymą atmeta, tad mygtukas neaktyvus — ir pasako kodėl.
+  "Choose a different value": "Pasirinkite kitą reikšmę",
   "true": "Taip",
   "false": "Ne",
   "advisory": "Rekomendacinė",

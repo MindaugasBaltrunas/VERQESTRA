@@ -41,6 +41,9 @@ Leidžiama:
 - `ui-app/src/view/pages/ReliabilityPage.tsx`
 - `ui-app/src/view/pages/TokenUsagePage.tsx`
 - `ui-app/src/view/styles/dashboard.css` (h1/h2 selektorių atnaujinimas)
+- `ui-app/src/i18n/I18nContext.tsx` (tikėtina, kad keisti NEREIKĖS — keičiasi
+  tik elementų semantika; įtrauktas etalono UI taisyklei, jei prekės ženklo
+  neutralizavimui prireiktų naujo teksto, pvz. aria-label)
 - `ui-app/src/view/accessibility.test.tsx`
 - `ui-app/src/view/pages/BenchmarkPage.test.tsx`
 - `ui-app/src/view/pages/CompressionPage.test.tsx`
@@ -48,9 +51,6 @@ Leidžiama:
 - `ui-app/src/view/pages/TokenUsagePage.test.tsx`
 
 Draudžiama:
-- `ui-app/src/i18n/I18nContext.tsx` (naujų tekstų NĖRA — keičiasi tik
-  elementų semantika; jei vykdytojui atrodytų kitaip, tai scope signalas
-  stabdyti)
 - Panelių `h2` antraštės komponentuose (panel-header lygis lieka h2 —
   keičiami tik puslapio lygio pavadinimai)
 - `dist/**`
@@ -76,10 +76,10 @@ Draudžiama:
 - `pnpm --dir ui-app build`
 
 ## Stop
-Commit'ink, kai patikros žalios. Stop ir klausk, jei pasirodytų, kad prekės
-ženklo pavertimas nuoroda reikalauja naujo i18n teksto (aria-label ir pan.)
-— tada I18nContext liečiamas, o jis šio task'o Draudžiamas (lygiagretumo
-grandinė su 104-106) — spręsti per priklausomybės papildymą, ne tyliai.
+Commit'ink, kai patikros žalios. Jei prekės ženklo pavertimas nuoroda
+pareikalauja naujo i18n teksto (aria-label ir pan.) — `I18nContext.tsx` yra
+Leidžiama sąraše, naujas raktas pridedamas su LT vertimu ir įrašomas į
+ataskaitą; jei I18nContext liko nepaliestas, tai irgi pažymima ataskaitoje.
 
 ## Neįtraukta
 - Panelių antraščių (`panel-header h2`) hierarchijos auditas — report'as

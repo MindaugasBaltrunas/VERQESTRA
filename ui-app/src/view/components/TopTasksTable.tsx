@@ -3,7 +3,7 @@ import type { AggregateRow, SortDirection, SortKey } from "../../model/tokenUsag
 import { useI18n } from "../../i18n/I18nContext";
 import { sortAggregateRows } from "../../model/tokenUsageViewModel";
 
-type Props = { rows: AggregateRow[]; onSelectTask?: (taskId: string) => void };
+type Props = { rows: AggregateRow[]; onSelectTask?: (taskId: string) => void; unassignedRecords?: number };
 
 type Column = { key: SortKey; label: string; numeric?: boolean };
 
@@ -38,7 +38,7 @@ function formatPercent(value: number): string {
   return new Intl.NumberFormat("lt-LT", { style: "percent", maximumFractionDigits: 1 }).format(value);
 }
 
-export function TopTasksTable({ rows, onSelectTask }: Props) {
+export function TopTasksTable({ rows, onSelectTask, unassignedRecords }: Props) {
   const { t, locale, language } = useI18n();
   const [sortKey, setSortKey] = useState<SortKey>("totalTokens");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -183,6 +183,12 @@ export function TopTasksTable({ rows, onSelectTask }: Props) {
             <button type="button" disabled={safePage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} aria-label={t("Next page")}>›</button>
           </div>
         </div>
+      )}
+      {typeof unassignedRecords === "number" && unassignedRecords > 0 && (
+        <p className="unassigned-records-notice">
+          <strong>{formatTokens(unassignedRecords)}</strong>{" "}
+          {t("records have no task ID and are excluded from this table and the unique task count above.")}
+        </p>
       )}
     </section>
   );

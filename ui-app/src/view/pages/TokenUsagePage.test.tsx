@@ -91,6 +91,85 @@ describe("TokenUsagePage", () => {
     expect(within(taskTable).getByText("task-beta")).toBeInTheDocument();
   });
 
+  it("keeps the table task count in sync with the KPI and surfaces unassigned records", async () => {
+    const records: TokenUsageRecord[] = [
+      {
+        ts: "2026-06-01T10:00:00.000Z",
+        phase: "dispatch",
+        task_id: "task-alpha",
+        model: "claude-opus",
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 5,
+        cache_creation_input_tokens: 2,
+      },
+      {
+        ts: "2026-06-02T10:00:00.000Z",
+        phase: "diagnose",
+        task_id: "task-beta",
+        model: "claude-haiku",
+        input_tokens: 40,
+        output_tokens: 10,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+      {
+        ts: "2026-06-03T10:00:00.000Z",
+        phase: "preflight",
+        task_id: "",
+        model: "claude-haiku",
+        input_tokens: 5,
+        output_tokens: 1,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+      {
+        ts: "2026-06-04T10:00:00.000Z",
+        phase: "preflight",
+        task_id: "   ",
+        model: "claude-haiku",
+        input_tokens: 5,
+        output_tokens: 1,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+      {
+        ts: "2026-06-05T10:00:00.000Z",
+        phase: "preflight",
+        task_id: "",
+        model: "claude-haiku",
+        input_tokens: 5,
+        output_tokens: 1,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    ];
+    vi.mocked(api.fetchTokenUsage).mockResolvedValue({ records });
+    vi.mocked(api.fetchTokenAnalytics).mockResolvedValue(emptyAnalyticsResponse);
+
+    render(<TokenUsagePage activeRoute="analytics" onNavigate={noop} />);
+
+    const taskTable = await screen.findByRole("table", {
+      name: "Task token usage for selected filters",
+    });
+    // Header row + exactly the two named tasks: no row for the blank/whitespace task_id group.
+    expect(within(taskTable).getAllByRole("row")).toHaveLength(3);
+    expect(within(taskTable).getByText("task-alpha")).toBeInTheDocument();
+    expect(within(taskTable).getByText("task-beta")).toBeInTheDocument();
+
+    const uniqueTasksLabel = screen.getByText("Unique tasks");
+    const uniqueTasksMetric = uniqueTasksLabel.closest(".metric");
+    expect(uniqueTasksMetric).not.toBeNull();
+    expect(within(uniqueTasksMetric as HTMLElement).getByText("2")).toBeInTheDocument();
+
+    const taskPanel = screen.getByRole("region", { name: "Top token-consuming tasks" });
+    expect(within(taskPanel).getByText("2 tasks")).toBeInTheDocument();
+    expect(within(taskPanel).getByText("3")).toBeInTheDocument();
+    expect(
+      within(taskPanel).getByText(/records have no task ID and are excluded from this table/),
+    ).toBeInTheDocument();
+  });
+
   it("renders the optimization error state as an alert when the analytics fetch is rejected", async () => {
     vi.mocked(api.fetchTokenUsage).mockResolvedValue(emptyResponse);
     vi.mocked(api.fetchTokenAnalytics).mockRejectedValue(new Error("analytics down"));

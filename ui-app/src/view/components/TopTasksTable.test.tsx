@@ -71,4 +71,17 @@ describe("TopTasksTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "task-01" }));
     expect(onSelectTask).toHaveBeenCalledWith("task-01");
   });
+
+  it("shows the unassigned-records explanation when there are records without a task_id", () => {
+    render(<TopTasksTable rows={[row(1), row(2)]} unassignedRecords={161} />);
+    expect(screen.getByText("161")).toBeInTheDocument();
+    expect(
+      screen.getByText(/records have no task ID and are excluded from this table and the unique task count above\./),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the unassigned-records explanation when there is nothing unassigned", () => {
+    render(<TopTasksTable rows={[row(1)]} unassignedRecords={0} />);
+    expect(screen.queryByText(/records have no task ID/)).not.toBeInTheDocument();
+  });
 });

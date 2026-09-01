@@ -2769,6 +2769,16 @@ header .muted {
   color: var(--faint);
   font-size: 11px;
 }
+.unassigned-records-notice {
+  margin: 14px 0 0;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .top-tasks-overview > div {
   min-width: 0;
   padding: 13px 15px;

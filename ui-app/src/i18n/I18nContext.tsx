@@ -412,6 +412,7 @@ const lt: Record<string, string> = {
   "groups": "grupės",
   "Task view": "Užduočių pjūvis",
   "Top token-consuming tasks": "Daugiausiai tokenų naudojančios užduotys",
+  "records have no task ID and are excluded from this table and the unique task count above.": "įrašų neturi task ID ir yra neįtraukti į šią lentelę bei į aukščiau esantį unikalių užduočių skaičių.",
   "Sort by total usage or an individual token type. Only data matching active filters is shown.": "Rikiuokite pagal bendrą kiekį arba atskirą tokenų tipą. Rodomi tik aktyvius filtrus atitinkantys duomenys.",
   "Task token summary": "Užduočių tokenų santrauka",
   "Largest task": "Didžiausia užduotis",

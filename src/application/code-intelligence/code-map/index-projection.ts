@@ -80,7 +80,7 @@ export type CodeMapProjection = {
 function packageDirectories(data: CodeIndexData): string[] {
   const directories = new Set<string>([""]);
   for (const file of data.files) {
-    if (!file.path.endsWith("package.json")) continue;
+    if (file.path !== "package.json" && !file.path.endsWith("/package.json")) continue;
     const slash = file.path.lastIndexOf("/");
     directories.add(slash === -1 ? "" : file.path.slice(0, slash));
   }

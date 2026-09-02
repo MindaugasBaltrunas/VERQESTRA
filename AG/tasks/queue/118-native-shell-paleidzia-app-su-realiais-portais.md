@@ -43,10 +43,12 @@ Leidžiama:
   pagal realybę — props kontraktas nekinta)
 - `mobile-app/native/src/core.ts` (SCOPE SPRAGOS PATAISA 2026-09-01, antro
   bandymo parkavimo pamoka: core.ts yra VIENINTELĖ leistina siūlė į
-  `@verqestra/mobile-app` — jo antraštės 1-4 eil. taisyklė, — tad kompozicija
-  `GatewayHttpClient`/`TerminalStreamClient` gali pasiekti TIK pridėjus jų
+  mobile-app paketą — jo antraštės 1-4 eil. taisyklė, — tad kompozicija
+  GatewayHttpClient ir TerminalStreamClient gali pasiekti TIK pridėjus jų
   eksportus čia; worker'io darytas keitimas worktree kopijoje buvo būtent
-  šis ir buvo teisingas)
+  šis ir buvo teisingas. Pagrindime backtick'ų nėra sąmoningai: parseris
+  kiekvieną backtick tokeną skaičiuoja kaip failą — 2026-09-02 05:44 parkas
+  „context files 10 > 8" buvo būtent šio pagrindimo trys tokenai)
 - `mobile-app/native/src/tests/core-seam.test.ts` (siūlės paviršiaus testas
   — atnaujinamas kartu su naujais eksportais)
 - `mobile-app/native/src/tests/native-shell-scaffold.test.ts`
@@ -63,6 +65,16 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
+- Ankstesnių bandymų darbas išsaugotas dviejose vietose: (1) pirmo bandymo
+  (2026-09-01 10:52) 5 failai —
+  `refs/verqestra/preserved/9269be84cd53ecb1272a5d8e6dd64f13e7c61338`
+  (įrašas `vq/state/rollback-preserved/118-native-shell-paleidzia-app-su-realiais-portais.json`);
+  (2) antro bandymo (2026-09-01 15:06, vaikas baigė exit 0, parkas tik dėl
+  `core.ts` už tuometinės ribos) šaka
+  `ag/worker/3f46de8f-4642-4c88-89d8-767c5ea90f49/118-native-shell-paleidzia-app--1a4b8bb5/a1`
+  ir jos archyvinis patch'as
+  `vq/state/worktree-archive/ag-worker-3f46de8f-4642-4c88-89d8-767c5ea90f49-118-native-shell-paleidzia-app--1a4b8bb5-a1.patch`.
+  Pradėk nuo antro bandymo (jis jau turi core.ts siūlę), ne nuo nulio.
 - `core.ts`: į esamą eksportų sąrašą pridėti `GatewayHttpClient` ir
   `TerminalStreamClient` (bei kitus kompozicijai reikalingus vardus, jei jų
   trūksta) — kompozicija importuoja TIK iš `../core`, ne tiesiai iš

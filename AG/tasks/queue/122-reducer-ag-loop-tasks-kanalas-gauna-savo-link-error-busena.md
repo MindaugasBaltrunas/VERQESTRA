@@ -52,6 +52,9 @@ Leidžiama:
 - `mobile-app/src/tests/ag-loop-presentation.test.ts`
 - `mobile-app/src/tests/screen-degraded-ag-loop.test.ts` (jei degraded
   scenarijų assert'ai liečia bendrus laukus)
+- `mobile-app/src/tests/screen-degraded-doubles.ts` (bendri degraded ekrano
+  testų dubleriai — 2026-09-02 06:25 parko priežastis „outside allowed
+  paths": per-kanalo forma keičia dublerių būsenos formą)
 
 Draudžiama:
 - `mobile-app/src/controller/**` (skaitymo kontroleriai teisingi — problema
@@ -61,6 +64,12 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
+- Ankstesnio bandymo darbas BAIGTAS ir commitintas šakoje
+  `ag/worker/1ab3d8ef-9ce7-498f-8e18-cbd2df65f7ef/122-reducer-ag-loop-tasks-kanal-a1ad09d6/a1`
+  (commit e915d03, 2026-09-02 06:20, 6 failai — visi šios Leidžiamos; vaikas
+  baigė exit 0, parkas įvyko tik dėl `screen-degraded-doubles.ts` už
+  tuometinės ribos). Atkurk darbą iš tos šakos ir perleisk patikras, ne
+  rašyk iš naujo.
 - `reducer.ts`: įgyvendinti pasirinktą formą; esamos invariantų taisyklės
   LIEKA — bucket intent apsauga (99-102 eil.), `read-settled` ne žemiau
   nulio (82-87), availability „tik išlaikyti ar žeminti" (114-118).

@@ -5,13 +5,14 @@ trumpiausias kelias nuo švaraus checkout'o iki veikiančio ciklo.
 
 ## 1. Aplinka
 
-- Node ≥ 22, pnpm 9.15.9 (`packageManager` laukas užrakina versiją).
+- Node ≥ 22, pnpm 11 (`packageManager` laukas `package.json` užrakina tikslią versiją — ir
+  CI, ir corepack ją ima iš ten, niekur kitur ji nerašoma).
 - Git repozitorija: dalis vartų (`spec-drift`, `security-verify`, worktree izoliacija) remiasi
   `git status`, tad ne-git kataloge jie sąmoningai atsisako dirbti, o ne spėlioja.
 
 ```bash
 pnpm install     # šaknies paketas + AG/benchmark + ui-app darbo sritys
-pnpm test        # lint → build → 1375 testai; vartai bėga PIRMI
+pnpm test        # lint → build → ~2200 testų → ui-app; vartai bėga PIRMI
 ```
 
 Jei `pnpm test` žalias, aplinka tinkama. Jei ne — nieko toliau daryti neverta: visi kiti

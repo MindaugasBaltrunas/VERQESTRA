@@ -9,6 +9,7 @@ import {
   computeTaskWriteSet,
   evaluateWriteSetIndependence,
 } from "../application/scheduling/index.js";
+import { allowedPaths } from "../domain/tasks/allowed-paths.js";
 
 test("classifyWriteScopePath: order of rules is the contract", () => {
   assert.deepEqual(classifyWriteScopePath("src/app.ts"), { kind: "file", scope: "src/app.ts" });
@@ -38,6 +39,18 @@ test("computeTaskWriteSet: evidence gaps and deterministic fingerprint", () => {
 
   const traversal = computeTaskWriteSet({ task_id: "0004", allowed_paths: ["../outside.ts"] });
   assert.ok(traversal.gaps.some((gap) => gap.code === "unresolvable-scope"));
+
+  // Regresija (2026-09-01 GeoGravity orchestrator.log): bullet pagrindime turėtas `..`
+  // (traversal minėjimas, ne kelias) nebeturi virsti "unresolvable-scope" spraga — jis
+  // niekada nepasiekia allowed_paths, nes allowedPaths() ima tik pirmą backtick tokeną.
+  const justificationDotDot = computeTaskWriteSet({
+    task_id: "1248",
+    allowed_paths: allowedPaths(
+      "# Task\n\n## Failai\nLeidžiama:\n- `modules/viewer-3d-module/tests/` — `..` traversal + projectId regresijos\n",
+    ),
+  });
+  assert.deepEqual(justificationDotDot.entries.map((entry) => entry.scope), ["modules/viewer-3d-module/tests"]);
+  assert.ok(!justificationDotDot.gaps.some((gap) => gap.code === "unresolvable-scope"));
 
   const symbolsOnly = computeTaskWriteSet({ task_id: "0005", write_symbols: ["src/a.ts#run"] });
   assert.ok(

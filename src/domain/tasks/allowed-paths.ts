@@ -82,11 +82,18 @@ function forbiddenBlock(taskText: string): string | null {
  * Vienos eilutės tokenų surinkimas: backtick tokenai turi pirmenybę; jei jų nėra —
  * kableliais atskirti bare tokenai (privalo turėti path/glob simbolį ir neturėti vidinių
  * tarpų, kad proza nebūtų klaidingai priimta kaip kelias).
+ *
+ * `- ` bullet eilutėje (etalono `## Failai` formatas) kelias yra TIK pirmas backtick
+ * tokenas — likę backtick'ai toje pačioje eilutėje yra pagrindimo tekstas (pvz.
+ * `` - `src/a/` — `..` traversal regresijos ``), ne papildomi keliai. Ne-bullet eilutės
+ * (inline `Leidžiama: src/a.ts, src/b/**` forma) šia taisykle nesuvaržytos — ten kiekvienas
+ * backtick tokenas jau yra atskiras kelias.
  */
 function collectPathTokensFromLine(line: string, values: string[]): void {
   const backticked = Array.from(line.matchAll(/`([^`]+)`/g), (match) => (match[1] ?? "").trim()).filter(Boolean);
   if (backticked.length > 0) {
-    values.push(...backticked);
+    const isBullet = /^\s*[-*+]\s/.test(line);
+    values.push(...(isBullet ? backticked.slice(0, 1) : backticked));
     return;
   }
   for (const rawToken of line.split(",")) {

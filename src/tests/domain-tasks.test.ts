@@ -120,6 +120,28 @@ test("allowed-paths: structured errors, backtick priority, bare tokens, marker l
   assert.deepEqual(inline.ok ? inline.value : [], ["src/a.ts", "src/b/**"]);
 });
 
+test("allowed-paths: bullet eilutėje kelias yra TIK pirmas backtick tokenas", () => {
+  // Etalono `## Failai` bullet'as dažnai turi pagrindimo tekstą su savo backtick'ais
+  // (kodo identifikatoriai, `..` traversal minėjimas). Tie antriniai backtick'ai NĖRA
+  // papildomi keliai — antraip pagrindimo `..` tampa „keliu" ir scope lock'as jį atmeta.
+  const withJustification =
+    "# Task\n\n## Failai\nLeidžiama:\n- `src/a/` — `..` traversal regresijos\n" +
+    "- `src/ui/x.ts` — naujas: `Foo` + `bar`\nDraudžiama:\n- `.env*` — niekada `secret.key`\n";
+  assert.deepEqual(allowedPaths(withJustification), ["src/a/", "src/ui/x.ts"]);
+  assert.deepEqual(forbiddenPaths(withJustification), [".env*"]);
+
+  // Sąmoningas pokytis: du keliai VIENAME bullet'e (du backtick tokenai be pagrindimo teksto
+  // tarp jų) — etalonas reikalauja vieno kelio bullet'ui, tad imamas tik pirmas.
+  const twoPathsOneBullet = "# Task\n\n## Failai\nLeidžiama:\n- `a.ts`, `b.ts`\n";
+  assert.deepEqual(allowedPaths(twoPathsOneBullet), ["a.ts"]);
+
+  // Inline forma (be bullet'o) ir bullet be backtick'ų (bare token fallback) — nepakitę.
+  const inlineMultiBacktick = "# Task\n\n## Failai\nLeidžiama: `src/a.ts` `src/b.ts`\n";
+  assert.deepEqual(allowedPaths(inlineMultiBacktick), ["src/a.ts", "src/b.ts"]);
+  const bareBullet = "# Task\n\n## Failai\nLeidžiama:\n- src/plain.ts\n";
+  assert.deepEqual(allowedPaths(bareBullet), ["src/plain.ts"]);
+});
+
 test("isValidRetryCount: tik NENEIGIAMAS SAUGUS SVEIKASIS yra skaitiklio būsena", () => {
   assert.equal(isValidRetryCount(0), true);
   assert.equal(isValidRetryCount(3), true);

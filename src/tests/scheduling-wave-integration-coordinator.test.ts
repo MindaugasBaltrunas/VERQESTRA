@@ -339,6 +339,7 @@ test("`restoreFinishedSlots` užpildo `finishedSlots` Map'ą fail-closed: `succe
   const restored = state.finishedSlots.get("0042");
   assert.ok(restored);
   assert.equal(restored?.succeeded, false, "sėkmės įrodymo (write_set/lease) po lūžio nebeliko");
+  assert.equal(restored?.restored, true, "baigtis nežinoma, ne nesėkmė (152)");
   assert.equal(restored?.file, "AG/tasks/queue/0042.md");
   assert.equal(restored?.worktree_path, ".worktrees/w2");
 });
@@ -350,6 +351,7 @@ test("`restoreFinishedSlots` neprideda `worktree_path`, kai persistuota reikšm�
   ]);
 
   assert.equal(state.finishedSlots.get("0042")?.worktree_path, undefined);
+  assert.equal(state.finishedSlots.get("0042")?.restored, true, "baigtis nežinoma, ne nesėkmė (152)");
 });
 
 function resumeSchedulerTasks(): SchedulableTask[] {
@@ -480,7 +482,9 @@ test("po koordinatoriaus sprendimo (parkinimo) dispatch'as tam pačiam task_id v
 
   // Bet koks kito task'o rezultatas suveda integracijos tikrinimą: `succeeded: false` restore'o
   // metu reiškia, kad tyloje slot'as parkuojamas, o ne suliejamas — tai IŠSPRENDŽIA jo likimą ir
-  // pašalina iš `finishedSlots`.
+  // pašalina iš `finishedSlots`. Įrašas turi ir `restored: true` (152, baigtis nežinoma, ne
+  // nesėkmė), bet šis koordinatorius dar neduoda `planWorkerIntegration` `queue` bucket'o
+  // sąrašo, tad `restored-requeued` šaka čia neįsijungia — parkas lieka toks pat kaip anksčiau.
   await scheduler.recordOutcome("does-not-exist", { status: "succeeded" });
 
   const unblocked = await scheduler.nextTask();

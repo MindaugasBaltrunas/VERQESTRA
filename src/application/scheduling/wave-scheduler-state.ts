@@ -206,7 +206,10 @@ export function createWaveSchedulerState(now: () => string) {
      * `write_set`, nei `lease` — be jų sėkmės įrodyti nėra iš ko, tad tylus sulietas šakos negali
      * likti be perpjovimo. Atkurtas slot'as lieka fail-closed, kol integracijos koordinatorius jį
      * praleis (be šakos) arba parkuos (su šaka, bet be lease) — abu keliai jį pašalina iš šio
-     * Map'o ir atrakina dispatch'ą.
+     * Map'o ir atrakina dispatch'ą. Ši šaka NIEKADA nesuliejama tyliai — `restored: true` (152)
+     * tik pervadina baigtį iš „nesėkmė" į „nežinoma": integracijos planas gali ją praleisti kaip
+     * `restored-requeued` vietoje `task-failed` parko, kai task'as jau grąžintas į `queue`, bet
+     * pati fail-closed sąlyga (be šakos ar be lease) nė kiek nesušvelnėja.
      */
     restoreFinishedSlots(persisted: readonly PersistedFinishedSlot[]): void {
       for (const entry of persisted) {
@@ -217,6 +220,7 @@ export function createWaveSchedulerState(now: () => string) {
           file: tasks.find((task) => task.task_id === entry.task_id)?.file ?? "",
           attempt: entry.attempt,
           succeeded: false,
+          restored: true,
           ...(entry.worktree_path === "" ? {} : { worktree_path: entry.worktree_path }),
         });
       }

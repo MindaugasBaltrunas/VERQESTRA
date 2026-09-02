@@ -84,6 +84,14 @@ export type FinishedWorkerSlot = {
    * `loop-cycle` → `wave-dispatch` → `recordOutcome`, kuriame kodas anksčiau žūdavo).
    */
   infrastructure_exit_code?: number;
+  /**
+   * `true` = įrašas atkurtas iš snapshot'o po proceso lūžio (`restoreFinishedSlots`), NE gautas
+   * iš tikro child'o exit'o. Snapshot'as neišsaugo nei `write_set`, nei `lease`, tad `succeeded`
+   * lieka `false` fail-closed — bet TAI NĖRA nesėkmė, o baigtis NEŽINOMA. Žyma leidžia
+   * `planWorkerIntegration` atskirti šį atvejį nuo tikro `task-failed`, kai task'as jau grąžintas
+   * į `queue` bucket'ą.
+   */
+  restored?: boolean;
 };
 
 /** Slot'as, kurio sesijos šaka integruojama į pirminę šaką. */
@@ -126,7 +134,14 @@ export type WorkerIntegrationSkip = {
      * parkas. Task failas lieka `AG/tasks/queue`, kopija ir šaka NEVALOMOS (kaip ir parko
      * atveju), bet task'as neatiduodamas žmogui: kaltė yra infrastruktūros, ne task'o.
      */
-    | "infrastructure";
+    | "infrastructure"
+    /**
+     * Snapshot'o atkurtas įrašas (`restored: true`, baigtis nežinoma), kurio task'as JAU yra
+     * `queue` bucket'e — kažkas jį ten grąžino, kol slot'as buvo neišspręstas. Parkavimas kaip
+     * `task-failed` čia meluotų apie kaltę: atkūrimas nėra nesėkmė, o įrodymo (write_set/lease)
+     * tiesiog nebeliko po proceso lūžio. Kopija ir šaka NEVALOMOS, task'as lieka `queue`.
+     */
+    | "restored-requeued";
   detail: string;
 };
 
@@ -227,10 +242,13 @@ function renderIntegrationEntries(entries: readonly { task_id: string; reason: s
  *   2. slot'as be `worktree_path` praleidžiamas — pirminio medžio darbas jau yra ten, kur reikia;
  *   3. infrastruktūros gedimas (148-b-03) NIEKADA netampa parku — task'as lieka eilėje su
  *      priežastimi `infrastructure`, kopija paliekama; kaltė yra infrastruktūros, ne task'o;
- *   4. nesėkmingas (task'o kaltės) slot'as parkuojamas — jo šaka lieka nepaliesta kaip
+ *   4. atkurtas įrašas (152), kurio task'as JAU grąžintas į `queue` — praleidžiamas su
+ *      priežastimi `restored-requeued`, PRIEŠ `task-failed` patikrą, bet TIK po infrastruktūros
+ *      patikros: infrastruktūros pirmenybė nesikeičia;
+ *   5. nesėkmingas (task'o kaltės) slot'as parkuojamas — jo šaka lieka nepaliesta kaip
  *      vienintelis dalinio darbo egzempliorius, o task'as keliauja žmogui, ne atgal į eilę;
- *   5. slot'as be lease parkuojamas — kopiją ir šaką gali tvarkyti tik įrodytas savininkas;
- *   6. likusieji integruojami deterministine (`worker_index`, tada `task_id`) tvarka.
+ *   6. slot'as be lease parkuojamas — kopiją ir šaką gali tvarkyti tik įrodytas savininkas;
+ *   7. likusieji integruojami deterministine (`worker_index`, tada `task_id`) tvarka.
  */
 export function planWorkerIntegration(input: {
   checkpoint: IntegrationCheckpoint;
@@ -240,16 +258,26 @@ export function planWorkerIntegration(input: {
    * kas dirba", tad inkrementinio kelio nėra: tokie iškvietėjai laukia tylos.
    */
   live?: readonly LiveSlot[];
+  /**
+   * Task id'ai, kurių bucket'as DABAR yra `queue`. Naudojama TIK atkurtiems (`restored: true`)
+   * įrašams: jei toks task'as jau grąžintas į eilę, jo baigtis nebėra šio plano rūpestis — antra
+   * `task-failed` etiketė būtų klaidinga. NEPADUOTAS (arba tuščias) reiškia „nežinome" — elgesys
+   * lieka toks pat, kaip prieš šią žymą (fail-closed park).
+   */
+  queueTaskIds?: readonly string[];
 }): WorkerIntegrationPlan {
   const finished = [...input.finished].sort(
     (left, right) => left.worker_index - right.worker_index || left.task_id.localeCompare(right.task_id),
   );
+  const queueTaskIds = new Set(input.queueTaskIds ?? []);
+  const isRestoredRequeued = (slot: FinishedWorkerSlot): boolean => slot.restored === true && queueTaskIds.has(slot.task_id);
 
   if (!input.checkpoint.tree_quiescent) {
     const live = input.live ?? [];
     const incremental: WorkerIntegrationStep[] = [];
     const incrementalPark: WorkerIntegrationPark[] = [];
     const incrementalInfra: WorkerIntegrationSkip[] = [];
+    const incrementalRestored: WorkerIntegrationSkip[] = [];
     const waiting: WorkerIntegrationSkip[] = [];
     for (const slot of finished) {
       // Task 135: nesėkmingas worktree slot'as parkuojamas IŠKART, nelaukiant tylos.
@@ -272,6 +300,17 @@ export function planWorkerIntegration(input: {
           });
           continue;
         }
+        // 152: atkurtas įrašas (baigtis nežinoma), kurio task'as jau grąžintas į `queue` —
+        // parkavimas kaip task-failed čia meluotų apie kaltę. Patikrinama PO infrastruktūros
+        // (jos pirmenybė nesikeičia), bet PRIEŠ task-failed.
+        if (isRestoredRequeued(slot)) {
+          incrementalRestored.push({
+            task_id: slot.task_id,
+            reason: "restored-requeued",
+            detail: `slot=${slot.worker_id} atkurtas iš snapshot'o (baigtis nežinoma), task'as jau yra queue — praleidžiama, NE task-failed parkas`,
+          });
+          continue;
+        }
         incrementalPark.push({
           task_id: slot.task_id,
           worktree_path: slot.worktree_path,
@@ -285,7 +324,7 @@ export function planWorkerIntegration(input: {
       else waiting.push({ task_id: slot.task_id, reason: "not-quiescent", detail: `${input.checkpoint.reason}; ${verdict.blocked}` });
     }
 
-    const ready = incremental.length > 0 || incrementalPark.length > 0 || incrementalInfra.length > 0;
+    const ready = incremental.length > 0 || incrementalPark.length > 0 || incrementalInfra.length > 0 || incrementalRestored.length > 0;
     return {
       ready,
       mode: ready ? "incremental" : "waiting",
@@ -294,12 +333,13 @@ export function planWorkerIntegration(input: {
       // inkrementinis kelias praplečia integracijos momentą, nesėkmės parkavimą ir infra
       // praleidimą, bet lease atlaisvinimo semantikos neliečia.
       park: incrementalPark,
-      skipped: [...incrementalInfra, ...waiting],
+      skipped: [...incrementalInfra, ...incrementalRestored, ...waiting],
       release_lease_ids: [],
       reason: ready
         ? `ready=true mode=incremental integrate=${incremental.map((step) => step.task_id).join(",") || "none"}` +
           `${incrementalPark.length > 0 ? ` park=${renderIntegrationEntries(incrementalPark)}` : ""}` +
           `${incrementalInfra.length > 0 ? ` infra=${renderIntegrationEntries(incrementalInfra)}` : ""}` +
+          `${incrementalRestored.length > 0 ? ` restored=${renderIntegrationEntries(incrementalRestored)}` : ""}` +
           ` live=${input.checkpoint.live_task_ids.join(",")}` +
           `${waiting.length > 0 ? ` waiting=${renderIntegrationEntries(waiting)}` : ""}`
         : `ready=false ${input.checkpoint.reason}`,
@@ -327,6 +367,16 @@ export function planWorkerIntegration(input: {
           task_id: slot.task_id,
           reason: "infrastructure",
           detail: `slot=${slot.worker_id} baigė infrastruktūros klaida exit=${slot.infrastructure_exit_code} — task'as lieka eilėje, kopija ${slot.worktree_path} paliekama, NE task-failed parkas`,
+        });
+        continue;
+      }
+      // 152: ta pati atkurto įrašo taisyklė kaip inkrementiniame kelyje aukščiau — patikrinama
+      // PO infrastruktūros, bet PRIEŠ task-failed.
+      if (isRestoredRequeued(slot)) {
+        skipped.push({
+          task_id: slot.task_id,
+          reason: "restored-requeued",
+          detail: `slot=${slot.worker_id} atkurtas iš snapshot'o (baigtis nežinoma), task'as jau yra queue — praleidžiama, NE task-failed parkas`,
         });
         continue;
       }

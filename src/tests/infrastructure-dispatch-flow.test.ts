@@ -110,6 +110,34 @@ test("buildAdapterExecutionRequest: be taskText — passthrough; su kontekstu �
   assert.equal(dryRun.status, "completed");
 });
 
+test("buildAdapterExecutionRequest: SRC pjūvius nešantis pack'as be kvietėjo šviežumo — refuse; su staleSourceSlices — attach", () => {
+  // Be kvietėjo paduoto `staleSourceSlices`, numatytoji `"unchecked"` + SRC pjūvis — REFUSE, ne tylus degradavimas.
+  const packWithSlices = JSON.stringify({
+    task_id: "0042",
+    phase: "implementation",
+    goal: "Tikslas.",
+    allowed_paths: ["src/a.ts"],
+    checks: ["pnpm test"],
+    code_context: {
+      enabled: true,
+      symbol_fragments: [
+        { id: "a#x", file: "src/a.ts", name: "x", reason: "exported", tier: "SRC",
+          source: { line: 1, endLine: 2, hash: "a".repeat(64), text: "pjūvis" } },
+      ],
+    },
+  });
+  const artifact = `${buildExecutionContextMarker({ taskId: "0042", taskText: TASK_TEXT, contextPackText: packWithSlices })}\n\n# K\n`;
+  const base = { taskId: "0042", taskText: TASK_TEXT, executionContext: artifact, contextPackText: packWithSlices, executionContextMode: "preferred" as const };
+
+  const unverified = buildAdapterExecutionRequest(base);
+  assert.equal(unverified.kind, "refuse", "nepatikrinti SRC pjūviai adapterio kelyje — refuse");
+  assert.match(unverified.kind === "refuse" ? unverified.reason : "", /cannot verify them against the working tree/);
+
+  const verifiedFresh = buildAdapterExecutionRequest({ ...base, staleSourceSlices: [] });
+  assert.equal(verifiedFresh.kind, "request", "kvietėjas paduoda tuščią šviežumo sąrašą — attach");
+  if (verifiedFresh.kind === "request") assert.equal(verifiedFresh.gate.kind, "attach");
+});
+
 test("resolveDispatchOutcome: own-done stop bridge — advisory be perrašymo; zero-usage be done → 75; budget abort → 80", async () => {
   const tokenBudget = resolveTokenBudgetConfig({});
   const lines: string[] = [];

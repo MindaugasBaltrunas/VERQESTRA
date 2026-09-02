@@ -1,10 +1,7 @@
-// Preflight taisyklių GRYNOJI pusė: claude_task sekcijų taksonomija, source-change
-// šablonas, backtick patikrų parseris, verdiktų/normalizavimo taisyklės ir architektūros/
-// enforcement vartai. Behaviour etalon: AG_loop application/quality-gates/preflight-rules.ts.
-// Etalone `evaluateArchitectureAndPolicyGates` pats skaitė policy failus; VERQESTRA jis yra
-// GRYNAS — politikas paduoda kvietėjas (loaderiai — policy-governance), tad vartus galima
-// varyti testais be FS. parseBacktickChecks yra worker-task-ir kompiliatoriaus kanoninis
-// parseris (FQC-12: vienas parseris visame repo).
+// Preflight taisyklių GRYNOJI pusė: sekcijų taksonomija, source-change šablonas, backtick
+// patikrų parseris, verdiktų/normalizavimo taisyklės, architektūros/enforcement vartai ir
+// frontmatter split. Etalone `evaluateArchitectureAndPolicyGates` pats skaitė policy failus;
+// čia GRYNAS — politikas paduoda kvietėjas. parseBacktickChecks — vienas parseris visame repo.
 
 import { extractSection, findSectionBounds, markdownFenceMask, splitLines } from "../../shared/markdown.js";
 import { allowedPaths } from "../../domain/tasks/allowed-paths.js";
@@ -16,17 +13,10 @@ import {
 import { decideEnforcement, type EnforcementLevel } from "../../domain/policies/enforcement-level.js";
 import type { TaskClassification } from "../../domain/policies/task-classification.js";
 
-// Single source of truth for the `claude_task` section taxonomy, shared by the manual
-// preflight validator and the production-loop preflight normalizer. The taxonomy below and
-// the routing outcomes (human-review vs fix vs delegate) follow the preflight rule core doc.
-//
-// CORE: structurally required everywhere; there is no recovery path for a task
-// missing these (not even the loop's LLM reformulation step can meaningfully
-// invent a goal, stop condition or action list).
+// `claude_task` sekcijų taksonomija, bendra manual preflight ir loop normalizeriui.
+// CORE: struktūriškai privalomos visur — nėra atstatymo kelio, jei jų trūksta.
 export const CORE_REQUIRED_SECTIONS = ["# Task", "## Spec source", "## Tikslas", "## Veiksmas", "## Stop"];
-// SCOPED: required for a complete task. Manual preflight never runs an LLM, so
-// it treats these as fatal too; the production loop's LLM preflight step can
-// still add a missing one during reformulation.
+// SCOPED: privalomos pilnam task'ui; loop'o LLM reformulacija dar gali pridėti trūkstamą.
 export const SCOPED_REQUIRED_SECTIONS = ["## Agentai", "## Failai", "## Patikra"];
 // INFORMATIONAL: never fatal anywhere.
 export const INFORMATIONAL_SECTIONS = ["## Neįtraukta"];
@@ -89,21 +79,9 @@ export function extractSpecSources(taskText: string): string[] {
  * context-pack krisdavo (task 872).
  */
 export function parseBacktickChecks(taskText: string | undefined): string[] {
-  // FENCED blokai praleidžiami, ir skenuojama PO EILUTĖS (2026-08-24, RAG auditas 5).
-  //
-  // Anksčiau `/`([^`]+)`/g` bėgo per visą sekcijos kūną, tad ```` ``` ```` fence ribos pačios
-  // atrodydavo kaip backtick span'ai. `## Patikra` su komandų pavyzdžiu duodavo:
-  //
-  //   ```bash          →  patikra „bash\n# pavyzdys"
-  //   # pavyzdys           patikra „-"
-  //   ```                  o TIKRA `pnpm test` komanda būdavo SUVALGYTA, nes uždarančio fence
-  //   - `pnpm test`        backtick'ai susiporuodavo su jos atidarančiuoju.
-  //
-  // Praradimas ir prieaugis vienu metu: task'as netekdavo savo verifikacijos, o į pack'ą
-  // patekdavo eilutės, kurias renderis worker'iui deklaruoja kaip „must pass" komandas.
-  //
-  // Skenuojama po eilutės, nes patikra PAGAL APIBRĖŽIMĄ yra viena komanda: taip daugiaeilis
-  // artefaktas nebeįmanomas net teoriškai.
+  // FENCED blokai praleidžiami, skenuojama PO EILUTĖS (RAG auditas 5): anksčiau fence ribos
+  // pačios atrodydavo kaip backtick span'ai, ir TIKRA komanda po ```` ``` ```` bloko būdavo
+  // suvalgyta uždarančio fence backtick'ų. Po eilutės — nes patikra yra VIENA komanda.
   const lines = splitLines(extractSection(taskText ?? "", "## Patikra"));
   const fenced = markdownFenceMask(lines);
   return lines
@@ -114,29 +92,17 @@ export function parseBacktickChecks(taskText: string | undefined): string[] {
 }
 
 // --- Production-loop preflight normalization rules ---------------------------
-//
-// Pure verdict/section/normalization rules for the automatic loop preflight. CLI adapteris
-// (E5) laiko tik argv/render/exit IO, o sprendžiamos taisyklės gyvena čia — anchored to
-// the CORE/SCOPED/INFORMATIONAL taxonomy above so the loop and manual preflight cannot drift.
+// Pure verdict/section/normalization rules for the loop preflight, anchored to the
+// CORE/SCOPED/INFORMATIONAL taxonomy above so the loop and manual preflight cannot drift.
 
-// HARD sections are the CORE structurally-required headings (no recovery path if
-// missing). SOFT sections are advisory: the loop's LLM reformulation can still add
-// a missing one, so their absence must never hard-block a task to human-review.
+// HARD = CORE (no recovery path). SOFT = advisory; loop's LLM reformulation can add a
+// missing one, so absence must never hard-block a task to human-review.
 export const HARD_SECTIONS = CORE_REQUIRED_SECTIONS;
 export const SOFT_SECTIONS = [...SCOPED_REQUIRED_SECTIONS, ...INFORMATIONAL_SECTIONS];
 
-// Žingsnis 0: eilė kaupia pasenusius taskus (2026-06-11 auditas: 8/10 human-review
-// jau buvo įgyvendinti) — vykdytojas pirmiausia patikrina, ar darbas jau padarytas.
-// ALREADY_IMPLEMENTED markerį diagnosis 'done' kelias priima vietoj naujo commit'o.
-//
-// Sandbox taisyklių blokas (2026-08-04): dvi dispatch sesijos iš eilės sudegino dešimtis
-// turns bandydamos hook'ų atmetamas komandų formas. Tekstas išlieka, bet KOMANDOS nebe
-// įrašytos į jį — etalone jos buvo `npm run build --prefix AG/orchestrator` ir
-// `pnpm --dir AG/orchestrator ...`, o VERQESTRA tokių komandų NETURI.
-//
-// VQ-703: agentui duota komanda, kurios projekte nėra, yra blogesnė už jokią — jis ją paleis,
-// gaus klaidą ir sudegins būtent tuos turns, kuriuos šis blokas turi taupyti. Todėl komandos
-// dabar yra ĮVESTIS, o jų šaltinis — projekto kokybės politika ir kanoninė perstatymo komanda.
+// ALREADY_IMPLEMENTED/AUDIT_COMPLETE markeriai priimami vietoj naujo commit'o (2026-06-11
+// auditas). Sandbox komandos yra ĮVESTIS (VQ-703): agentui duota komanda, kurios projekte
+// nėra, sudegina turns blogiau nei jokia — todėl šaltinis yra kokybės politika, ne tekstas.
 export type VerificationCommands = {
   /** Kanoninė perstatymo komanda (`DIST_REBUILD_COMMAND`). */
   rebuild: string;
@@ -166,10 +132,44 @@ AUDIT_COMPLETE: <ką patikrinai ir kodėl keisti nieko nereikia>
 // DIRECTIVE_HEADING_PREFIXES).
 const VERIFICATION_PREAMBLE_HEADING_PREFIXES: readonly string[] = ["## Žingsnis 0", "## Sandbox taisyklės"];
 
-/** Nuima VEDANČIUS `## Žingsnis 0` / `## Sandbox taisyklės` blokus (žr. {@link verificationPreamble}) iš task teksto pradžios; ta pati antraštė vėliau tekste (po `# Task`, ar fenced pavyzdyje) lieka nepaliesta. */
+const FRONTMATTER_FENCE = "---";
+
+export type FrontmatterSplit = { frontmatter: string; body: string };
+
+/** Atskiria vedantį `---`...`---` frontmatter bloką (task 149), be YAML parserio — tik ribos.
+ * `---` vėliau tekste nelaikoma frontmatter'iu. `frontmatter + body === taskText` visada. */
+export function splitLeadingFrontmatter(taskText: string): FrontmatterSplit {
+  const original = taskText ?? "";
+  const lines = splitLines(original);
+  let index = 0;
+  while (index < lines.length && (lines[index] ?? "").trim() === "") {
+    index += 1;
+  }
+  if ((lines[index] ?? "").trim() !== FRONTMATTER_FENCE) {
+    return { frontmatter: "", body: original };
+  }
+  for (let closeIndex = index + 1; closeIndex < lines.length; closeIndex += 1) {
+    if ((lines[closeIndex] ?? "").trim() !== FRONTMATTER_FENCE) {
+      continue;
+    }
+    const hasBody = closeIndex + 1 < lines.length;
+    const frontmatter = lines.slice(0, closeIndex + 1).join("\n") + (hasBody ? "\n" : "");
+    const body = hasBody ? lines.slice(closeIndex + 1).join("\n") : "";
+    return { frontmatter, body };
+  }
+  return { frontmatter: "", body: original };
+}
+
+/**
+ * Nuima VEDANČIUS `## Žingsnis 0` / `## Sandbox taisyklės` blokus iš task teksto pradžios;
+ * vėlesnis pasikartojimas (po `# Task`, fenced pavyzdyje) lieka nepaliestas. Vedantis
+ * frontmatter'is (task 149) pirma atskiriamas per {@link splitLeadingFrontmatter} ir
+ * grąžinamas priešais nuluptą kūną — kitaip dingdavo kartu su preambule grįžtant į queue.
+ */
 export function stripVerificationPreamble(taskText: string): string {
   const original = taskText ?? "";
-  let lines = splitLines(original);
+  const { frontmatter, body } = splitLeadingFrontmatter(original);
+  let lines = splitLines(body);
   let stripped = false;
   for (;;) {
     let leadIndex = 0;
@@ -189,7 +189,7 @@ export function stripVerificationPreamble(taskText: string): string {
     lines = lines.slice(bounds.end);
     stripped = true;
   }
-  return stripped ? lines.join("\n") : original;
+  return stripped ? `${frontmatter}${lines.join("\n")}` : original;
 }
 
 export function missingTaskSections(task: string | undefined): { hard: string[]; soft: string[] } {

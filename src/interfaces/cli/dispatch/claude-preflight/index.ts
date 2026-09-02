@@ -19,6 +19,7 @@ import {
   needsPatikraChecksRetry,
   normalizeLegacyTaskSections,
   parseBacktickChecks,
+  splitLeadingFrontmatter,
   stripVerificationPreamble,
   syncAgentsSection,
 } from "../../../../application/quality-gates/preflight-rules.js";
@@ -287,10 +288,12 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
         child_tasks: [],
       };
       await writeDecision(decision, optimizedBudget.tier);
-      // Requeue'intas task'as gali nešti SENĄ preambulės versiją — nuimam ją ir prilipdom šviežią (task 046-a-02).
+      // Requeue'intas task'as gali nešti SENĄ preambulę (046-a-02) — nuimam ir prilipdom šviežią
+      // PO vedančio frontmatter'io (task 149), kitaip jis atsidurtų preambulės viduje.
       const preamble = verificationPreamble(await ports.verificationCommands());
       const strippedClaudeTask = stripVerificationPreamble(claudeTask);
-      await writeReformulatedTask(`${preamble}${strippedClaudeTask.trimEnd()}\n`);
+      const { frontmatter, body } = splitLeadingFrontmatter(strippedClaudeTask);
+      await writeReformulatedTask(`${frontmatter}${preamble}${body.trimEnd()}\n`);
       await ports.recordResumeCheckpoint({
         actor: "supervisor",
         phase: "preflight",
@@ -474,9 +477,10 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
 
   claudeTask = wrapClaudeTask(claudeTask, decision.target_agent_chain ?? []);
 
-  await writeReformulatedTask(
-    `${verificationPreamble(await ports.verificationCommands())}${stripVerificationPreamble(claudeTask).trimEnd()}\n`,
-  );
+  // Preambulė lipdoma PO vedančio frontmatter'io (task 149) — žr. paaiškinimą aukščiau.
+  const finalPreamble = verificationPreamble(await ports.verificationCommands());
+  const finalSplit = splitLeadingFrontmatter(stripVerificationPreamble(claudeTask));
+  await writeReformulatedTask(`${finalSplit.frontmatter}${finalPreamble}${finalSplit.body.trimEnd()}\n`);
   await ports.recordResumeCheckpoint({
     actor: "supervisor",
     phase: "preflight",

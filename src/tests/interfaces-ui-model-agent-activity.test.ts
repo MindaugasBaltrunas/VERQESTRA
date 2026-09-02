@@ -50,6 +50,17 @@ test("parseChainFromTaskFile: grandinė imama ta pačia taisykle kaip agentų at
   assert.deepEqual(parseChainFromTaskFile("# Task\nbe agentų bloko"), []);
 });
 
+test("parseChainFromTaskFile: task 138 incidento fraze nebegimdo prozos čipų", () => {
+  // 2026-09-01 gyvas incidentas 097 dispatch'e: ši fraze rodydavo čipus „privaloma",
+  // „grandinė", „šia", „tvarka:" — sakinio žodžius, ne agentus.
+  const incident =
+    "# Task\n\n## Agentai\nPRIVALOMA grandinė šia tvarka: readme-guard -> documenter -> reviewer\n";
+  assert.deepEqual(parseChainFromTaskFile(incident), ["readme-guard", "documenter", "reviewer"]);
+
+  const prose = "# Task\n\n## Agentai\nreadme-guard eina pirmas ir grąžina ribų santrauką.\n";
+  assert.deepEqual(parseChainFromTaskFile(prose), ["readme-guard eina pirmas ir grąžina ribų santrauką"]);
+});
+
 test("computeChainStatuses: klaida lieka error, o ne done", () => {
   const lines = [
     assistant([{ type: "tool_use", id: "a1", name: "Agent", input: { subagent_type: "architect" } }]),

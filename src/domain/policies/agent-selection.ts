@@ -65,6 +65,36 @@ const LEADING_LABEL = /^.*:\s*/s;
 
 export const DEFAULT_AGENT_CHAIN_SEPARATOR = " -> ";
 
+/**
+ * Agento vardo forma: `[a-z-]`, kartais su skaičiais/underscore (registro role raktai).
+ * Naudojama TIK kaip apsauga `splitBareRoleLine` viduje — realūs lietuviški sakiniai beveik
+ * visada turi bent vieną žodį su diakritiku arba kitu ne-ASCII simboliu, tad šis testas
+ * atskiria istorinį „coder reviewer tester" bare-list formatą nuo prozos.
+ */
+const BARE_ROLE_WORD = /^[a-z][a-z0-9_-]*$/i;
+
+/** Kiek žodžių dar laikoma tikėtinu bare-list, o ne pasiklydusiu sakiniu be skyrybos. */
+const MAX_BARE_ROLE_WORDS = 8;
+
+/**
+ * Task 138 (2026-09-01 incidentas): `parseAgentBlock` legacy šaka po `parseAgentChain`
+ * DAR skaidė kiekvieną segmentą per whitespace, kad išsaugotų istorinį „coder reviewer
+ * tester" (role'ai atskirti tik tarpais, be strėlių/kablelių) formatą. Bet tas pats
+ * whitespace-split tiek pat entuziastingai išskaidydavo IR pilną prozos sakinį be
+ * strėlių („readme-guard eina pirmas ir grąžina ribų santrauką.") į vieną „vaidmenį" už
+ * kiekvieną žodį — UI grandinė rodydavo čipus iš sakinio žodžių.
+ *
+ * Sprendimas: whitespace-split taikomas TIK kai VISI segmento žodžiai jau atrodo kaip
+ * role vardai (žr. `BARE_ROLE_WORD`) ir jų nedaug (`MAX_BARE_ROLE_WORDS`). Kitaip segmentas
+ * grąžinamas nepaliestas kaip vienas tokenas — jis vėliau tiesiog nepataikys į registrą
+ * (`knownRoles`), bet nebeišgimdys N prozos čipų.
+ */
+function splitBareRoleLine(segment: string): string[] {
+  const words = segment.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length <= 1 || words.length > MAX_BARE_ROLE_WORDS) return [segment];
+  return words.every((word) => BARE_ROLE_WORD.test(word)) ? words : [segment];
+}
+
 /** Skaido žalią `## Agentai` grandinę į tokenus (verbatim, be case foldingo). */
 export function parseAgentChain(raw: string): string[] {
   if (!raw) return [];
@@ -111,8 +141,9 @@ export function parseAgentBlock(taskText: string): AgentSelection {
     }
 
     // Legacy: bare role token(s), gali būti grandinė su strėlėmis. Pirmas = primary,
-    // likę = supporting; papildomas whitespace split išsaugo istorinį elgesį.
-    for (const token of parseAgentChain(line).flatMap((part) => part.split(/\s+/)).map(roleToken).filter(Boolean)) {
+    // likę = supporting; whitespace-split (žr. splitBareRoleLine) išsaugo istorinį
+    // „role role role" formatą, bet nebeišskaido prozos sakinio į žodžius (task 138).
+    for (const token of parseAgentChain(line).flatMap(splitBareRoleLine).map(roleToken).filter(Boolean)) {
       if (!selection.primary) selection.primary = token;
       else selection.supporting.push(token);
     }

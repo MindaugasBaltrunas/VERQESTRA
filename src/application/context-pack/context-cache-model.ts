@@ -103,8 +103,13 @@ const nonEmptyString = z.string().trim().min(1);
  *      pilnavertis hit'as be lauko, o skaitytojas jo nebuvimą laikytų nuliu — t. y. tyliai
  *      praneštų „SRC pusėje nieko neprarasta". Tai lauko PRASMĖS pakeitimas
  *      `contextPackSchema` bloke, kurio `PACK_SEMANTICS_DESCRIPTOR` nemato.
+ * 11 — 2026-09-02, task 138: `domain/policies/agent-selection.ts` `parseAgentBlock` legacy
+ *      šaka nebeišskaido prozos sakinio be strėlių į N vaidmenų iš N žodžių (2026-09-01
+ *      incidentas 097 dispatch'e — UI grandinė rodė čipus iš sakinio žodžių). Keičiasi
+ *      pack'o `agents` lauko TURINYS tam pačiam task tekstui, o `PACK_SEMANTICS_DESCRIPTOR`
+ *      to nemato — grynai loginis parse pakeitimas.
  */
-export const CONTEXT_CACHE_VERSION = 10;
+export const CONTEXT_CACHE_VERSION = 11;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

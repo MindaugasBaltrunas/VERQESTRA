@@ -143,6 +143,23 @@ test("agent selection: chain parsing, kv form, validation and model hint resolut
   assert.equal(labeled.primary, "readme-guard", "etiketės žodžiai netampa primary");
   assert.deepEqual(labeled.supporting, ["coder", "reviewer"]);
 
+  // Task 138 (2/2): proza be strėlių anksčiau taip pat virsdavo N vaidmenų iš N žodžių —
+  // legacy whitespace-split fallback dabar veikia TIK kai visi žodžiai atrodo kaip role vardai.
+  const prose = parseAgentBlock(
+    "# Task\n\n## Agentai\nreadme-guard eina pirmas ir grąžina ribų santrauką.\n",
+  );
+  assert.equal(
+    prose.primary,
+    "readme-guard eina pirmas ir grąžina ribų santrauką",
+    "sakinys lieka vienu tokenu, ne septyniais vaidmenimis",
+  );
+  assert.deepEqual(prose.supporting, []);
+
+  // Istorinis bare-list formatas (role'ai atskirti TIK tarpais, be strėlių) toliau veikia.
+  const bareList = parseAgentBlock("# Task\n\n## Agentai\nreadme-guard coder reviewer\n");
+  assert.equal(bareList.primary, "readme-guard");
+  assert.deepEqual(bareList.supporting, ["coder", "reviewer"]);
+
   const selection = parseAgentBlock("# Task\n\n## Agentai\nreadme-guard -> coder -> reviewer\nmodel_hint: opus\n");
   assert.equal(selection.primary, "readme-guard");
   assert.deepEqual(selection.supporting, ["coder", "reviewer"]);

@@ -4,10 +4,11 @@
 // jos elgesio kontraktas aprašytas porto tipuose ports.ts.
 
 import { createHash } from "node:crypto";
-import { RETRIEVAL_PRIORITY_ORDER } from "../code-intelligence/retrieval/ranking.js";
+import { RETRIEVAL_PRIORITY_ORDER, SCORE_PRECISION } from "../code-intelligence/retrieval/ranking.js";
 import { BOUNDARY_MIN_RATIO, CHANGE_DIR_FILES, MAX_SPEC_CANDIDATES } from "../code-intelligence/retrieval/spec-fragments.js";
 import { IMPACTED_TEST_IMPORTER_DEPTH } from "../code-intelligence/query/query.js";
-import { MAX_SPEC_RETRIEVAL_WARNINGS } from "./assemble/spec-phase.js";
+import { MIN_ARCHITECTURE_TOKEN_LENGTH } from "./assemble/gather.js";
+import { MAX_SPEC_RETRIEVAL_WARNINGS, SPEC_DROP_REFS_LISTED, WARNING_SEVERITY } from "./assemble/spec-phase.js";
 import { CONTEXT_CACHE_VERSION, type ContextCacheEntry, type ContextCacheSource, type ContextCacheSourceKind } from "./context-cache-model.js";
 
 export const CONTEXT_CACHE_SOURCE_KINDS: readonly ContextCacheSourceKind[] = [
@@ -30,6 +31,21 @@ export type ContextCacheLookup =
 
 export function hashText(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/**
+ * `WARNING_SEVERITY` → deterministinė eilutė.
+ *
+ * Raktai rūšiuojami pagal UTF-16 kodų vienetus (NE `localeCompare`: ta tvarka priklauso nuo ICU
+ * lokalės, tad tas pats kodas skirtinguose procesuose duotų skirtingą raktą). Objekto savybių
+ * įterpimo tvarka čia nenaudojama sąmoningai — raktas privalo būti baitas į baitą stabilus, o ne
+ * stabilus „kol niekas nepertvarkė lentelės".
+ */
+function warningSeverityDescriptor(): string {
+  return Object.entries(WARNING_SEVERITY)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([name, severity]) => `${name}=${severity}`)
+    .join(",");
 }
 
 /**
@@ -60,6 +76,23 @@ export const PACK_SEMANTICS_DESCRIPTOR = [
   // kad derinimo konstantos į raktą patektų BE atskiro prisiminimo. Spraga pačiame mechanizme,
   // kuris tokias spragas ir turi dengti.
   `impacted_test_importer_depth:${IMPACTED_TEST_IMPORTER_DEPTH}`,
+  // Toliau — 2026-09-01 RAG audito 7 radiniai: ta pati klasė kaip pamirštas importuotojų gylis
+  // aukščiau, tik keturi vienetai iš karto. Deskriptorius nėra sąrašas, kurį kas nors prižiūri
+  // rankomis; kiekviena jame nesanti pack'ą formuojanti konstanta yra spraga PAČIAME mechanizme.
+
+  // Trumpiausias architektūros mazgo žymuo lemia, KURIE mazgai atitinka taikinius
+  // (`matchArchitectureNodes`), t. y. pack'o `code_context.architecture_nodes` turinį.
+  `min_architecture_token_length:${MIN_ARCHITECTURE_TOKEN_LENGTH}`,
+  // Kiek numestų ref'ų įvardijama vardais — tiesiogiai pack'o `spec_fragment_warnings` eilutės
+  // tekstas, o kartu ir jai skirtas rezervas biudžete (`specSelectionDropWarning`).
+  `spec_drop_refs_listed:${SPEC_DROP_REFS_LISTED}`,
+  // Svarbos lentelė lemia lubų taikymo TVARKĄ (`capSpecRetrievalWarnings`), t. y. KURIOS
+  // įspėjimų eilutės išgyvena. Serializuojama su kodų-vienetais rūšiuotais raktais: baitas į
+  // baitą tas pats tarp procesų, ir nauja ar pervadinta svarba į raktą patenka savaime.
+  `warning_severity:${warningSeverityDescriptor()}`,
+  // Apvalinimas prieš rūšiavimą lemia, kurie kandidatai laikomi lygiaverčiais, tad ir jų tvarką
+  // pakopos viduje (`rankRetrievalCandidates`) — o tvarka sprendžia, kas gauna biudžetą pirmas.
+  `score_precision:${SCORE_PRECISION}`,
 ].join("|");
 
 /**

@@ -71,7 +71,7 @@ const BM25_B = 0.75;
 
 // Scores are rounded before they are used as a sort key so that platform float noise can
 // never reorder two otherwise equal candidates.
-const SCORE_PRECISION = 6;
+export const SCORE_PRECISION = 6;
 
 /**
  * Rank retrieval candidates by the canonical priority sequence.

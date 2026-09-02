@@ -195,11 +195,18 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 // `CONTEXT_CACHE_VERSION` kėlimas, o vienintelis būdas apie jį priminti — sulaužyti ką nors
 // tam, kas liečia semantiką.
 //
-// Ką MATO: derinimo konstantų pokyčius — jie eina į raktą per PACK_SEMANTICS_DESCRIPTOR.
+// Ką MATO: derinimo konstantų pokyčius — jie eina į raktą per PACK_SEMANTICS_DESCRIPTOR, tad
+// senus įrašus invaliduoja PATYS, be versijos kėlimo (deskriptorius hash'uojamas į fingerprint'ą).
 // Ko NEMATO: grynai loginių pakeitimų (antraščių sekcijų, ribų varto, kirpimo algoritmo) —
 // jie nekeičia nė vienos konstantos. Tokiems versijos kėlimas lieka RANKINIS kontraktas.
 //
-// Kai krenta: jei pakeitimas sąmoningas — kelk versiją IR atnaujink šias eilutes.
+// Deskriptorius turi dengti KIEKVIENĄ pack'o turinį formuojančią konstantą — 2026-08-24 audite 4
+// jame trūko `impacted_test_importer_depth`, 2026-09-01 audite 7 — dar keturių (architektūros
+// žymens ilgio, dviejų spec įspėjimų konstantų ir reitingavimo apvalinimo). Nesanti konstanta yra
+// spraga pačiame mechanizme, kuris tokias spragas ir turi dengti.
+//
+// Kai krenta: jei pakeitimas sąmoningas — atnaujink šias eilutes (ir kelk versiją, jei pakeitimas
+// buvo loginis, o ne konstantų derinimas).
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
@@ -213,7 +220,11 @@ test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas k
       "|max_spec_candidates:64" +
       "|boundary_min_ratio:0.6" +
       "|max_spec_retrieval_warnings:10" +
-      "|impacted_test_importer_depth:3",
+      "|impacted_test_importer_depth:3" +
+      "|min_architecture_token_length:3" +
+      "|spec_drop_refs_listed:5" +
+      "|warning_severity:imprecise=5,lost=3,missing=2,redundant=4,rejected=0,unreadable=1" +
+      "|score_precision:6",
   );
 
   const key = computeContextCacheKey([

@@ -203,7 +203,7 @@ async function gatherFreshCodeContext(
  * „architektūros kontekstas" prie nesusijusios užduoties. Du simboliai yra riba, žemiau kurios
  * žymuo nustoja ką nors atrinkti.
  */
-const MIN_ARCHITECTURE_TOKEN_LENGTH = 3;
+export const MIN_ARCHITECTURE_TOKEN_LENGTH = 3;
 
 /**
  * Architektūros grafo mazgų atitikimas taikiniams.

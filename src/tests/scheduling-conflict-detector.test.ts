@@ -127,6 +127,39 @@ test("computeTaskWriteSet: directory-form glob (`<path>/**`, `<path>/*`) resolve
   assert.ok(migrationGlob.gaps.some((gap) => gap.code === "wildcard-scope"), "migration glob keeps its evidence gap");
 });
 
+test("computeTaskWriteSet: a bullet broken across lines yields scope from paths only", () => {
+  // Task 153-A-02: integracinis įrodymas virš domeno sulankstymo. Task 143 forma — bullet'as
+  // laužtas per dvi eilutes, o pagrindimo identifikatorius stovi TĘSTINĖJE eilutėje
+  // backtick'uose. Jei tęstinė eilutė būtų skaitoma atskirai, jos backtick'ai (ne-bullet
+  // eilutė!) virstų fantominiais write set įrašais `MIN_ARCHITECTURE_TOKEN_LENGTH` ir `const`,
+  // ir bet kuris kitas task'as su tokiu pat pagrindimu tyliai taptų nuoseklus.
+  const brokenBullet = [
+    "# Task 143",
+    "",
+    "## Failai",
+    "Leidžiama:",
+    "- `src/application/context-pack/assemble/gather.ts` (TIK",
+    "  `MIN_ARCHITECTURE_TOKEN_LENGTH` eksportas — dabar failo vidinis `const`)",
+    "",
+  ].join("\n");
+
+  const writeSet = computeTaskWriteSet({ task_id: "0143", allowed_paths: allowedPaths(brokenBullet) });
+  const scopes = writeSet.entries.map((entry) => entry.scope);
+  assert.deepEqual(scopes, ["src/application/context-pack/assemble/gather.ts"]);
+  assert.ok(!scopes.includes("MIN_ARCHITECTURE_TOKEN_LENGTH"), "a justification symbol is not a write scope");
+  assert.ok(!scopes.includes("const"), "a justification keyword is not a write scope");
+  assert.equal(writeSet.entries[0]?.kind, "file");
+  assert.deepEqual(writeSet.gaps, [], "a folded bullet declares a real path, so there is no evidence gap");
+  assert.equal(writeSet.determinate, true);
+
+  // Ir pasekmė, dėl kurios tai svarbu: nesusijęs task'as lieka lygiagretus.
+  const unrelated = evaluateWriteSetIndependence(
+    writeSet,
+    computeTaskWriteSet({ task_id: "0144", allowed_paths: ["src/domain/tasks/allowed-paths.ts"] }),
+  );
+  assert.equal(unrelated.independent, true, "a phantom symbol entry would have serialized this pair");
+});
+
 test("evaluateWriteSetIndependence: directory-form globs conflict/parallelize like real directories", () => {
   const dirVsFile = evaluateWriteSetIndependence(
     computeTaskWriteSet({ task_id: "0105", allowed_paths: ["a/src/**"] }),

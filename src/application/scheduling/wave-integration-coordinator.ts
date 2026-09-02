@@ -16,6 +16,7 @@ import { createIntegrationStepRunner } from "./wave-integration-step.js";
 import {
   describeError,
   type DoneCopyRestoreOutcome,
+  type TaskLocation,
   type TaskRelocation,
   type WaveIntegrationPorts,
 } from "./wave-integration-ports.js";
@@ -74,11 +75,37 @@ export function createWaveIntegrationCoordinator(ports: WaveIntegrationCoordinat
     return { relocation: "absent", state: "escalated" };
   };
 
+  /**
+   * Task id'ai, kurių bucket'as DABAR yra `queue`, tarp atkurtų (`restored: true`) slot'ų.
+   *
+   * Tik atkurti slot'ai tikrinami: jų baigtis nežinoma, tad tik jiems gresia klaidingas
+   * `task-failed` parkas, jei operatorius task'ą jau grąžino į eilę. `locateTask` klaida
+   * reiškia „bucket'as nežinomas" — task id į sąrašą NEPATENKA (fail-closed parkas kaip
+   * anksčiau), bet nesėkmė ĮVARDIJAMA, ne nutylima (152-a-02).
+   */
+  const restoredQueueTaskIds = async (): Promise<string[]> => {
+    const restored = [...ports.finishedSlots.values()].filter((slot) => slot.restored === true);
+    const queueTaskIds: string[] = [];
+    for (const slot of restored) {
+      let location: TaskLocation;
+      try {
+        location = await ports.locateTask(slot.task_id);
+      } catch (error) {
+        await ports.safeLog(`WAVE RESTORED SLOT LOCATE FAILED: task=${slot.task_id}: ${describeError(error)}`);
+        continue;
+      }
+      if (location === "queue") queueTaskIds.push(slot.task_id);
+    }
+    return queueTaskIds;
+  };
+
   const integrateFinishedSlots = async (checkpoint: IntegrationCheckpoint): Promise<void> => {
+    const queueTaskIds = await restoredQueueTaskIds();
     const integration = planWorkerIntegration({
       checkpoint,
       finished: [...ports.finishedSlots.values()],
       live: ports.liveSlots(),
+      queueTaskIds,
     });
     if (!integration.ready) return;
 

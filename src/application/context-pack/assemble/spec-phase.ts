@@ -40,7 +40,7 @@ export const MAX_SPEC_RETRIEVAL_WARNINGS = 10;
  * Skalė: mažesnis skaičius = anksčiau. Ji rūšiuoja STABILIAI, tad tos pačios svarbos eilutės
  * išlaiko surašymo tvarką.
  */
-const WARNING_SEVERITY = {
+export const WARNING_SEVERITY = {
   /** Kelias išeina iš projekto — ribų vartas suveikė. */
   rejected: 0,
   /** Šaltinis yra, bet neperskaitomas: teisės, symlink'as, lenktynės su trynimu. */
@@ -79,7 +79,7 @@ export type SpecPhaseResult = {
 };
 
 /** Kiek ref'ų įvardijama vardais, kol eilutė nustoja būti skaitoma. */
-const SPEC_DROP_REFS_LISTED = 5;
+export const SPEC_DROP_REFS_LISTED = 5;
 
 /**
  * Atrankos stadijoje numesti spec ref'ai — VIENA apribota eilutė, o ne po eilutę kiekvienam.

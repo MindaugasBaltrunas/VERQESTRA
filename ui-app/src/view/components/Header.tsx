@@ -55,7 +55,7 @@ export function Header({
           <div className="brand brand-row">
             <div className="app-mark">AG</div>
             <div>
-              <h1>VERQESTRA</h1>
+              <span className="brand-title">VERQESTRA</span>
               <div className="muted">{root}</div>
             </div>
           </div>

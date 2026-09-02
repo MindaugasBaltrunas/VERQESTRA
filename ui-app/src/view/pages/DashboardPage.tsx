@@ -98,6 +98,13 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
     ? ({ attachedTo: null, attribution: "unknown" } as const)
     : correlated;
   const chainStream = slotProgress.find((view) => view.workerId === chainOwner.attachedTo);
+  // „Šiuo metu vykdoma" imama iš GYVŲ srautų, ne iš `current-task-id` žymės: žymę rašo tik
+  // pirminio medžio dispatch'as, tad worktree bangų metu ji rodė vakarykštį task'ą
+  // (2026-09-02 apžvalgos auditas). Be gyvų srautų — `null`, t. y. „tarp užduočių".
+  const executingLabel = slotProgress
+    .filter((view) => view.taskId !== null)
+    .map((view) => `${view.taskId}`)
+    .join(" · ") || null;
 
   if (error) {
     return (
@@ -189,6 +196,19 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         )}
         {activeRoute === "overview" && (
           <>
+            {/* Valdymo centras pirmiausia atsako „kas vyksta DABAR ir ko reikia iš manęs" — tas pats
+                hero kaip `#/system`, tie patys šaltiniai. Iki 2026-09-02 jis gyveno tik `#/system`,
+                o apžvalga prasidėdavo pasenusiais pirminio medžio signalais. */}
+            <SystemStatusHero
+              loopRunState={loopRunState}
+              currentTaskId={executingLabel}
+              queueCount={dashboard.buckets.find((bucket) => bucket.name === "queue")?.totalTasks ?? 0}
+              humanReviewCount={dashboard.buckets.find((bucket) => bucket.name === "human-review")?.totalTasks ?? 0}
+              canStartLoop={loopControls.canResume}
+              startLoopBusy={pendingActions.has(LOOP_RESUME_ACTION)}
+              onStartLoop={() => void actions.resumeLoop()}
+              onGoToReviews={() => onNavigate("reviews")}
+            />
             {/* VISOS metrikos. Iki 2026-08-24 čia stovėjo `.slice(0, 4)`, tad „Latest activity" ir
                 „Stable commit" buvo skaičiuojamos serveryje, siunčiamos laidu ir NIEKADA nerodomos
                 — o `stableRef` yra vienintelė nuoroda, nuo kurio commit'o atkuriamas medis. */}
@@ -199,6 +219,9 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
                   activity={agentActivity}
                   streamLabel={chainStream ? `${t("Stream")} ${chainStream.index}` : null}
                   attribution={slotProgress.length > 0 ? chainOwner.attribution : undefined}
+                  // Per-srautinės grandinės (`/api/events` `slots[]`): iki 2026-09-02 jos buvo
+                  // skaitomos, bet čia NEPERDUODAMOS, tad panelė rodė tik globalų veidrodį.
+                  slots={agentActivityStatus === "disconnected" ? [] : [...agentSlotActivities]}
                 />
               )}
               {/* Srautų santrauka be mygtukų: valdymas turi vieną šeimininką `#/system`. */}
@@ -261,7 +284,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         {activeRoute === "system" && (
           <SystemStatusHero
             loopRunState={loopRunState}
-            currentTaskId={raw?.currentTaskId ?? null}
+            currentTaskId={executingLabel}
             queueCount={dashboard.buckets.find((bucket) => bucket.name === "queue")?.totalTasks ?? 0}
             humanReviewCount={dashboard.buckets.find((bucket) => bucket.name === "human-review")?.totalTasks ?? 0}
             canStartLoop={loopControls.canResume}
@@ -382,7 +405,8 @@ function QueueSnapshot({ buckets, onNavigate }: { buckets: Array<{ name: string;
         <button className="button ghost small-button" type="button" onClick={onNavigate}>{t("Open tasks")} →</button>
       </div>
       <div className="queue-snapshot">
-        {visible.map((bucket) => <div key={bucket.name}><span>{bucket.name}</span><strong>{bucket.totalTasks}</strong></div>)}
+        {/* Bucket'o vardas verčiamas: LT režime čia likdavo `queue`/`human-review` (2026-09-02 auditas). */}
+        {visible.map((bucket) => <div key={bucket.name}><span>{t(bucket.name)}</span><strong>{bucket.totalTasks}</strong></div>)}
       </div>
     </section>
   );

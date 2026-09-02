@@ -190,7 +190,11 @@ export function createWaveIntegrationAdapters(deps: WaveIntegrationAdapterDeps):
       // Jau užbaigtas darbas į `done` NEPERKELIAMAS antrą kartą: `human-review` yra terminalinis
       // bucket'as, ir jo perrašymas į `done` panaikintų žmogaus sprendimą.
       if (bucket === "done" && isTerminalBucket(found.bucket)) return "kept";
-      await finishTaskInBucket(deps.taskStore, deps.agRoot, found.file, bucket, path.basename(found.file));
+      // Integracija užbaigia SVETIMO slot'o task'ą: `current-task-file` žymė lieka pirminio
+      // medžio vykdymui, kitaip kiekvienas suliejimas ją nukreiptų į paskutinį `done/` failą.
+      await finishTaskInBucket(deps.taskStore, deps.agRoot, found.file, bucket, path.basename(found.file), [], {
+        updateCurrent: false,
+      });
       return "moved";
     },
 

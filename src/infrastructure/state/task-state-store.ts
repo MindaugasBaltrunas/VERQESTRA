@@ -301,7 +301,13 @@ export type MoveTaskOptions = { updateCurrent?: boolean };
 /** `TaskStateStorePort` realizacija: perkėlimai, užvėrimas ir aktyvavimas. */
 export function createTaskStateStore(deps: TaskStateStoreDeps): {
   moveTaskState(from: string, toDir: string, taskName: string, options?: MoveTaskOptions): Promise<string>;
-  finishTaskState(from: string, toDir: string, taskName: string, cleanupFiles: string[]): Promise<string>;
+  finishTaskState(
+    from: string,
+    toDir: string,
+    taskName: string,
+    cleanupFiles: string[],
+    options?: MoveTaskOptions,
+  ): Promise<string>;
   activateTaskFile(taskFile: string, activeFile: string, taskId: string): Promise<string>;
   readTaskText(absolutePath: string): Promise<string | undefined>;
   writeTaskText(absolutePath: string, text: string): Promise<void>;
@@ -322,7 +328,7 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
       return to;
     },
 
-    async finishTaskState(from, toDir, taskName, cleanupFiles = []) {
+    async finishTaskState(from, toDir, taskName, cleanupFiles = [], options = {}) {
       await assertAuthority(taskIdFromName(taskName));
       const targetDir = normalizeTerminalTaskDir(toDir);
       await nodeFsAdapter.makeDirectory(targetDir);
@@ -331,7 +337,8 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
         // Šaltinio ir taikinio NIEKADA nevalome: pirmasis jau perkeltas, antrasis yra rezultatas.
         if (cleanupFile !== from && cleanupFile !== to) await nodeFsAdapter.removeIfExists(cleanupFile);
       }
-      await setCurrentTaskFile(deps, to);
+      // Ta pati parinktis kaip `moveTaskState`: svetimo slot'o užbaigimas žymės neperrašo.
+      if (options.updateCurrent ?? true) await setCurrentTaskFile(deps, to);
       return to;
     },
 

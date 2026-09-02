@@ -28,6 +28,9 @@ const modeLabel: Record<AgentActivity["mode"], string> = {
   idle: "idle",
 };
 
+/** Gyva Claude sesijos būsena — tik ji leidžia panelę vadinti „aktyviu vykdymu". */
+const LIVE_STATUS = /^(started|running|active|dispatch|preflight|delegated)$/i;
+
 type Props = {
   activity: AgentActivity;
   /**
@@ -38,9 +41,10 @@ type Props = {
   /** `ambiguous`/`unknown` reiškia, kad priskirti NEĮMANOMA; spėti srautą būtų melas. */
   attribution?: "attached" | "ambiguous" | "unknown";
   /**
-   * Kitų srautų gyva veikla (`/api/events` `slots[]`). Antra grandinės juosta rodoma TIK kai tarp
-   * jų yra `w2` — sequential režime šio masyvo nebūna arba jame `w2` nėra, ir vaizdas lieka toks
-   * pat kaip anksčiau.
+   * Gyvų srautų veikla (`/api/events` `slots[]`). Kai sąrašas netuščias, JIS yra panelės turinys:
+   * kiekvienas įrašas ateina iš savo bandymo log'o, o globalus `activity` yra tik paskutinio
+   * rašytojo veidrodis — 2026-09-02 auditas: worktree bangos metu jis rodė vakarykštę, jau baigtą
+   * grandinę su „Srautas nežinomas", o dviejų dirbančių srautų grandinės nebuvo matomos niekur.
    */
   slots?: SlotAgentActivity[];
 };
@@ -65,25 +69,79 @@ function ChainSteps({ chain, statuses, t }: { chain: string[]; statuses: Record<
   );
 }
 
+function Legend({ t }: { t: (text: string) => string }) {
+  return (
+    <div className="agent-legend">
+      {(["done", "active", "error", "pending"] as AgentStatus[]).map((s) => (
+        <span key={s} className="agent-legend-item">
+          <span aria-hidden="true">{statusIcon[s]}</span> {t(statusLabel[s])}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Srauto numeris ekrane: `w1`/`w2` yra vidiniai vardai, operatorius mato 1 ir 2. */
+function streamIndex(workerId: string): number {
+  return workerId === "w2" ? 2 : 1;
+}
+
+/** Vieno gyvo srauto juosta. Klasės tos pačios kaip buvusio „Antro srauto" bloko — CSS nekinta. */
+function SlotLane({ slot, t }: { slot: SlotAgentActivity; t: (text: string) => string }) {
+  return (
+    <div className="agent-chain-secondary">
+      <div className="agent-chain-secondary-header">
+        <span className="agent-chain-secondary-label">{`${t("Stream")} ${streamIndex(slot.worker_id)}`}</span>
+        <span className="agent-chain-secondary-task">{`${t("Task")}: ${slot.task_id}`}</span>
+      </div>
+      <div className="agent-current-activity agent-chain-secondary-activity">
+        <span className="agent-step-pulse" />
+        <span className="agent-activity-text">
+          {slot.activity.currentActivity ?? slot.activity.claudeStatus ?? t("Agent is working…")}
+        </span>
+      </div>
+      {slot.activity.chain.length > 0 && <ChainSteps chain={slot.activity.chain} statuses={slot.activity.statuses} t={t} />}
+    </div>
+  );
+}
+
 export const AgentChainProgress = memo(function AgentChainProgress({ activity, streamLabel, attribution, slots }: Props) {
   const { t } = useI18n();
-  const { chain, statuses, currentActivity, taskId, claudeStatus, mode } = activity;
+  const liveSlots = [...(slots ?? [])].sort((a, b) => streamIndex(a.worker_id) - streamIndex(b.worker_id));
 
-  const isLiveStatus = claudeStatus !== null && /^(started|running|active|dispatch|preflight|delegated)$/i.test(claudeStatus);
+  if (liveSlots.length > 0) {
+    return (
+      <section className="panel agent-chain-panel">
+        <div className="panel-header">
+          <div>
+            <h2>{t("Active execution")}</h2>
+            <p className="panel-subtitle">{t("Real-time execution status")}</p>
+          </div>
+        </div>
+        {liveSlots.map((slot) => <SlotLane key={slot.worker_id} slot={slot} t={t} />)}
+        <Legend t={t} />
+      </section>
+    );
+  }
+
+  const { chain, statuses, currentActivity, taskId, claudeStatus, mode } = activity;
+  const isLiveStatus = claudeStatus !== null && LIVE_STATUS.test(claudeStatus);
   const isIdle = chain.length === 0 && !currentActivity && !taskId && !isLiveStatus;
-  const w2Slot = slots?.find((slot) => slot.worker_id === "w2");
+  // Užbaigtas vykdymas NĖRA aktyvus (task 106): antraštė sako „Paskutinis vykdymas", o srauto
+  // atribucija slepiama — baigtam darbui ji nebeturi prasmės ir tik atrodo kaip gedimas.
+  const finished = !isLiveStatus && !isIdle;
 
   return (
     <section className="panel agent-chain-panel">
       <div className="panel-header">
         <div>
-          <h2>{t("Active execution")}</h2>
+          <h2>{finished ? t("Last execution") : t("Active execution")}</h2>
           <p className="panel-subtitle">
             {taskId ? `${t("Task")}: ${taskId}` : t("Real-time execution status")}
             {mode !== "idle" ? ` · ${t(modeLabel[mode])}` : ""}
           </p>
         </div>
-        {attribution && (
+        {attribution && !finished && (
           <span className="slot-liveness">
             {attribution === "attached" && streamLabel ? streamLabel : t("Stream unknown")}
           </span>
@@ -93,7 +151,7 @@ export const AgentChainProgress = memo(function AgentChainProgress({ activity, s
         )}
       </div>
 
-      {currentActivity ? (
+      {currentActivity && !finished ? (
         <div className="agent-current-activity">
           <span className="agent-step-pulse" />
           <span className="agent-activity-text">{currentActivity}</span>
@@ -109,31 +167,7 @@ export const AgentChainProgress = memo(function AgentChainProgress({ activity, s
 
       {chain.length > 0 && <ChainSteps chain={chain} statuses={statuses} t={t} />}
 
-      {w2Slot && (
-        <div className="agent-chain-secondary">
-          <div className="agent-chain-secondary-header">
-            <span className="agent-chain-secondary-label">{t("Second stream")}</span>
-            <span className="agent-chain-secondary-task">{`${t("Task")}: ${w2Slot.task_id}`}</span>
-          </div>
-          <div className="agent-current-activity agent-chain-secondary-activity">
-            <span className="agent-step-pulse" />
-            <span className="agent-activity-text">
-              {w2Slot.activity.currentActivity ?? w2Slot.activity.claudeStatus ?? t("Agent is working…")}
-            </span>
-          </div>
-          {w2Slot.activity.chain.length > 0 && (
-            <ChainSteps chain={w2Slot.activity.chain} statuses={w2Slot.activity.statuses} t={t} />
-          )}
-        </div>
-      )}
-
-      <div className="agent-legend">
-        {(["done", "active", "error", "pending"] as AgentStatus[]).map((s) => (
-          <span key={s} className="agent-legend-item">
-            <span aria-hidden="true">{statusIcon[s]}</span> {t(statusLabel[s])}
-          </span>
-        ))}
-      </div>
+      <Legend t={t} />
     </section>
   );
 });

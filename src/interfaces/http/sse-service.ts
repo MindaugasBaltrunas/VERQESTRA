@@ -32,6 +32,12 @@ export type SseLiveSlotSource = {
   log_path: string;
   logPath: string;
   taskFilePath: string;
+  /**
+   * Šio slot'o bandymo stop įrodymas. Stebimas KIEKVIENAM gyvam slot'ui: `readActiveAttempt`
+   * seka tik pirmą slot'ą, tad be šio kelio antro srauto baigtis srautą pasiekdavo tik su kitu
+   * snapshot'o pokyčiu (2026-09-02 apžvalgos auditas).
+   */
+  stopStatePath?: string;
 };
 
 /** Einamojo bandymo pjūvis: ką stebėti ir iš kur paimtas stop įrodymas. */
@@ -191,7 +197,9 @@ export function createSseHub(ports: SsePorts): SseHub {
         ...new Set([
           ...ports.legacyWatchFiles(),
           ...(attempt?.watchFiles ?? []),
-          ...sources.map((source) => source.logPath),
+          ...sources.flatMap((source) =>
+            source.stopStatePath === undefined ? [source.logPath] : [source.logPath, source.stopStatePath],
+          ),
         ]),
       ];
 

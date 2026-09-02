@@ -81,57 +81,111 @@ export type OverviewMetric = {
   variant: StatusVariant;
 };
 
+/** Gyvų slot'ų task'ai iš valdiklio bloko — vienintelis tiesioginis „kas vykdoma dabar" įrodymas. */
+export function liveTaskIds(data: Pick<DashboardData, "loopControl">): string[] {
+  return (data.loopControl?.slots ?? [])
+    .map((slot) => slot.task_id)
+    .filter((taskId): taskId is string => typeof taskId === "string" && taskId !== "");
+}
+
+function basenameOf(filePath: string): string {
+  const normalized = filePath.trim().replace(/\\/g, "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1);
+}
+
+/**
+ * Pirminio medžio užduoties žymė. `null`, kai vykdymas gyvas slot'uose: tada užduotis rodoma per
+ * slot'ų metrikas (`OverviewPanel`), o žymė aprašo TIK pirminio medžio dispatch'ą — 2026-09-02
+ * auditas: worktree bangų metu ji rodė vakarykštį task'ą su svetimo failo bucket'u.
+ */
+function currentTaskMetric(data: DashboardData, hasLiveSlots: boolean): OverviewMetric | null {
+  if (hasLiveSlots) return null;
+  if (data.currentTaskState === "conflicting") {
+    return {
+      label: "Task markers disagree",
+      value: `${data.currentTaskId ?? "—"} ≠ ${data.currentTaskFile ? basenameOf(data.currentTaskFile) : "—"}`,
+      title: `current-task-id and current-task-file name different tasks. Recorded path: ${data.currentTaskFile ?? "not set"}`,
+      variant: "warning",
+    };
+  }
+  const currentTaskIsStale = data.currentTaskState === "stale";
+  return {
+    label: currentTaskIsStale ? "Stale task state" : "Current task",
+    value: data.currentTaskId
+      ? `${data.currentTaskId}${data.currentTaskBucket ? ` (${data.currentTaskBucket})` : ""}`
+      : "—",
+    title: currentTaskIsStale
+      ? `State file does not match the workflow. Recorded path: ${data.currentTaskFile ?? "not set"}`
+      : data.currentTaskFile ?? undefined,
+    variant: currentTaskIsStale ? "warning" : data.currentTaskState === "active" ? "live" : "neutral",
+  };
+}
+
 export function adaptOverview(data: DashboardData): OverviewMetric[] {
   const stopText = `${data.stopStatus.status ?? "pending"} ${data.stopStatus.reason ?? ""}`.trim();
   const verdict = data.decision.verdict ?? "—";
   const lastUpdate = data.claudeResume.updated_at ?? data.claudeLogUpdatedAt ?? "—";
-  const currentTaskIsStale = data.currentTaskState === "stale";
-  const currentTaskValue = data.currentTaskId
-    ? `${data.currentTaskId}${data.currentTaskBucket ? ` (${data.currentTaskBucket})` : ""}`
-    : "—";
+  const live = liveTaskIds(data);
+  const hasLiveSlots = live.length > 0;
 
+  // Įrašo TASK'AS sprendžia, ar signalas kalba apie dabartinį vykdymą. Pirminio medžio
+  // artefaktus (stop įrašą, verdiktą, exit kodą) rašo tik pirminio medžio dispatch'as, tad
+  // worktree bangų metu jie yra ANKSTESNIO bėgimo įrodymas — 2026-09-02 auditas: „Claude
+  // rezultatas: success" ir „Sprendimas: done" buvo vakarykščio task'o, o etiketė to nesakė.
+  // Exit kodas savo task'o neneša — jį rašo tas pats epilogas kaip stop įrašą, tad dalijasi jo id.
+  const previousRun = (taskId: string | undefined): boolean =>
+    hasLiveSlots && (taskId === undefined || !live.includes(taskId));
+  const taskTitle = (taskId: string | undefined): string[] => (taskId === undefined ? [] : [`task: ${taskId}`]);
+  const titleOf = (parts: string[]): { title?: string } => (parts.length === 0 ? {} : { title: parts.join(" · ") });
+
+  const stopTaskId = data.stopStatus.task_id;
+  const stopIsPrevious = previousRun(stopTaskId);
+  const decisionIsPrevious = previousRun(data.decision.task_id);
+  const resumeIsPrevious = previousRun(data.claudeResume.task_id);
 
   // Etiketės rašomos ANGLIŠKAI, nes anglų kalba yra vertimų raktų kalba (`t()` verčia jas į LT).
   // Anksčiau čia buvo lietuviški literalai, tad EN režimu vartotojas matydavo lietuviškus
   // pavadinimus — `t()` jų neatpažindavo ir grąžindavo raktą tokį, koks yra (2026-08-06 UI auditas).
+  const current = currentTaskMetric(data, hasLiveSlots);
   return [
-    {
-      label: currentTaskIsStale ? "Stale task state" : "Current task",
-      value: currentTaskValue,
-      title: currentTaskIsStale
-        ? `State file does not match the workflow. Recorded path: ${data.currentTaskFile ?? "not set"}`
-        : data.currentTaskFile ?? undefined,
-      variant: currentTaskIsStale ? "warning" : data.currentTaskState === "active" ? "live" : "neutral",
-    },
+    ...(current === null ? [] : [current]),
     {
       // Sugadintas įrodymas NĖRA „nėra įrodymo": serveris jį rado, bet perskaityti negalėjo, ir
       // SĄMONINGAI nenusileido prie globalaus veidrodžio. Rodyti tuščią „pending" reikštų paslėpti
       // būtent tą faktą, dėl kurio attempt namespace'as apskritai egzistuoja.
-      label: data.stopStatusCorrupted ? "Stop status (unreadable)" : "Stop status",
+      label: data.stopStatusCorrupted
+        ? "Stop status (unreadable)"
+        : stopIsPrevious
+          ? "Stop status (previous run)"
+          : "Stop status",
       value: data.stopStatusCorrupted ? "corrupted" : stopText,
       // Kilmė rodoma, o ne nutylima: `legacy` reiškia, kad įrodymas gali priklausyti KITAM task'ui,
       // ir operatorius turi tai matyti prieš darydamas išvadą.
-      ...(data.stopStatusSource === undefined ? {} : { title: `source: ${data.stopStatusSource}` }),
-      variant: data.stopStatusCorrupted ? "error" : statusVariant(data.stopStatus.status),
+      ...titleOf([...(data.stopStatusSource === undefined ? [] : [`source: ${data.stopStatusSource}`]), ...taskTitle(stopTaskId)]),
+      variant: data.stopStatusCorrupted ? "error" : stopIsPrevious ? "neutral" : statusVariant(data.stopStatus.status),
     },
     {
-      label: "Decision",
+      label: decisionIsPrevious ? "Decision (previous run)" : "Decision",
       value: verdict,
-      variant: statusVariant(verdict),
+      ...titleOf(taskTitle(data.decision.task_id)),
+      variant: decisionIsPrevious ? "neutral" : statusVariant(verdict),
     },
     {
-      label: "Claude result",
+      label: stopIsPrevious ? "Claude result (previous run)" : "Claude result",
       value:
         data.claudeExit === null
           ? "pending"
           : data.claudeExit === "0"
             ? "success"
             : `error (${data.claudeExit})`,
-      variant: data.claudeExit === null ? "neutral" : data.claudeExit === "0" ? "good" : "error",
+      ...titleOf(taskTitle(stopTaskId)),
+      variant:
+        stopIsPrevious || data.claudeExit === null ? "neutral" : data.claudeExit === "0" ? "good" : "error",
     },
     {
-      label: "Latest activity",
+      label: resumeIsPrevious ? "Latest activity (previous run)" : "Latest activity",
       value: lastUpdate,
+      ...titleOf(taskTitle(data.claudeResume.task_id)),
       variant: "neutral",
     },
     {

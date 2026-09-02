@@ -167,6 +167,32 @@ test("nesamas šaltinis meta, o lock'as vis tiek atlaisvinamas", async () => {
   }
 });
 
+test("finishTaskState su updateCurrent:false palieka `current-task-file` žymę nepaliestą", async () => {
+  const world = await makeWorld();
+  try {
+    const store = createTaskStateStore({ agRoot: world.agRoot, runtimeRoot: world.runtimeRoot });
+    const mine = path.join(world.agRoot, "tasks", "active", "0042.md");
+    const foreign = path.join(world.agRoot, "tasks", "active", "0077.md");
+    await mkdir(path.dirname(mine), { recursive: true });
+    await writeFile(mine, "# Mano", "utf8");
+    await writeFile(foreign, "# Svetimas", "utf8");
+    // Pirminio medžio slot'as žymę turi; integracija baigia SVETIMĄ (worktree) task'ą.
+    const mineDone = await store.finishTaskState(mine, path.join(world.agRoot, "tasks", "done"), "0042.md", []);
+
+    await store.finishTaskState(foreign, path.join(world.agRoot, "tasks", "done"), "0077.md", [], {
+      updateCurrent: false,
+    });
+
+    assert.equal(
+      (await readFile(path.join(world.runtimeRoot, "state", "current-task-file"), "utf8")).trim(),
+      mineDone,
+      "svetimo task'o užbaigimas neperrašo pirminio medžio žymės",
+    );
+  } finally {
+    await world.cleanup();
+  }
+});
+
 test("clearCurrentTaskFile: išvalo žymę, kai ji rodo į nurodytą kelią (126)", async () => {
   const world = await makeWorld();
   try {

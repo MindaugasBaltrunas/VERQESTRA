@@ -282,10 +282,12 @@ export type DashboardData = {
   currentTaskId: string | null;
   currentTaskFile: string | null;
   currentTaskBucket?: TaskBucket | null;
-  currentTaskState?: "active" | "stale" | "none";
+  /** `conflicting` — abi žymės yra, bet aprašo skirtingus task'us (žr. serverio `markersConflict`). */
+  currentTaskState?: "active" | "stale" | "none" | "conflicting";
   claudeExit: string | null;
   stableRef: string | null;
-  stopStatus: { status?: string; reason?: string };
+  /** Pilnas stop įrašas; `task_id` sako, KURIO task'o tai įrodymas — be jo signalas nepriskiriamas. */
+  stopStatus: { status?: string; reason?: string; task_id?: string };
   /**
    * Kuris stop įrodymas priimtas: `attempt` (šio bandymo `stop-state.json`), `legacy` (globalus
    * veidrodis, galintis priklausyti KITAM task'ui) ar `none`.
@@ -296,7 +298,7 @@ export type DashboardData = {
   stopStatusSource?: string;
   /** Įrodymas RASTAS, bet neperskaitomas. Serveris tokiu atveju SĄMONINGAI nenusileidžia prie legacy. */
   stopStatusCorrupted?: boolean;
-  decision: { verdict?: string; reason?: string };
+  decision: { verdict?: string; reason?: string; task_id?: string };
   supervisorResume: ResumeSummary;
   claudeResume: ResumeSummary;
   runtime: RuntimeProcess[];

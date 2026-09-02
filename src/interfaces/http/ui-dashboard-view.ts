@@ -100,7 +100,12 @@ export type UiDashboardData = {
   currentTaskId: string | null;
   currentTaskFile: string | null;
   currentTaskBucket: string | null;
-  currentTaskState: "active" | "stale" | "none";
+  /**
+   * `conflicting` — `current-task-id` ir `current-task-file` aprašo SKIRTINGUS task'us. Žymes rašo
+   * skirtingi keliai (pirminio medžio dispatch'as ir bucket perkėlimai), tad prieštaravimas yra
+   * atskira būsena, o ne „stale": iš vienos žymės imtas ID su iš kitos imtu bucket'u būtų melas.
+   */
+  currentTaskState: "active" | "stale" | "none" | "conflicting";
   claudeExit: string | null;
   stableRef: string | null;
   /** PILNAS stop įrašas (`task_id`, `head`, `git_status`, …), o ne `{status, reason}` pjūvis. */
@@ -252,7 +257,9 @@ async function locateCurrentTaskBucket(
   currentTaskId: string | null,
   currentTaskFile: string | null,
 ): Promise<string | null> {
-  const fileName = currentTaskFile ? path.basename(currentTaskFile) : currentTaskId ? `${currentTaskId}.md` : null;
+  // ID yra pirminė žymė: bucket'as ieškomas pagal JĮ, o failo žymė naudojama tik kai ID nėra.
+  // Kitaip prieštaraujančios žymės duodavo svetimo failo bucket'ą prie šio ID.
+  const fileName = currentTaskId ? `${currentTaskId}.md` : currentTaskFile ? path.basename(currentTaskFile) : null;
   if (fileName === null) return null;
 
   for (const bucket of taskBuckets) {
@@ -366,9 +373,11 @@ export async function buildDashboardView(input: BuildDashboardViewInput): Promis
   const currentTaskState: UiDashboardData["currentTaskState"] =
     taskId === null && taskFile === null
       ? "none"
-      : currentTaskBucket === "active" || currentTaskBucket === "delegated"
-        ? "active"
-        : "stale";
+      : markersConflict(taskId, taskFile)
+        ? "conflicting"
+        : currentTaskBucket === "active" || currentTaskBucket === "delegated"
+          ? "active"
+          : "stale";
 
   return {
     root,
@@ -423,6 +432,12 @@ export async function buildDashboardView(input: BuildDashboardViewInput): Promis
     },
     degraded,
   };
+}
+
+/** Abi žymės yra, bet failo vardas nėra šio ID task failas. Viena žymė be kitos neprieštarauja. */
+export function markersConflict(taskId: string | null, taskFile: string | null): boolean {
+  if (taskId === null || taskFile === null) return false;
+  return path.basename(taskFile.trim()) !== `${taskId}.md`;
 }
 
 function toRuntimeProcess(name: string, state: UiProcessState): UiRuntimeProcess {

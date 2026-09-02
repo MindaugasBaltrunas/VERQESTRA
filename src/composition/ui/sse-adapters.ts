@@ -108,6 +108,7 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
         };
         const logPath = attemptLogPath(runtimeRoot, ref, CLAUDE_LOG_CHANNEL);
         const taskPath = attemptArtifactPath(runtimeRoot, ref, "task");
+        const stopState = attemptArtifactPath(runtimeRoot, ref, "stop-state");
         // Netinkamas segmentas (pvz. senas snapshot'as su svetimos formos id) PRALEIDŽIAMAS:
         // vienas neteisėtas slot'as negali nutildyti viso srauto.
         if (!logPath.ok || !taskPath.ok) continue;
@@ -122,6 +123,8 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
           log_path: relativePosix(projectRoot, worktree?.logPath ?? logPath.value),
           logPath: worktree?.logPath ?? logPath.value,
           taskFilePath: worktree?.taskFilePath ?? taskPath.value,
+          // Stop įrodymas stebimas per slot'ą, ne tik pirmam (`readActiveAttempt`).
+          ...(stopState.ok ? { stopStatePath: stopState.value } : {}),
         });
       }
       return sources;

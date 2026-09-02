@@ -117,6 +117,94 @@ describe("dashboardViewModel", () => {
     });
   });
 
+  // 2026-09-02 apžvalgos auditas: worktree bangų metu pirminio medžio artefaktai (stop įrašas,
+  // verdiktas, exit kodas) buvo vakarykščio task'o, o etiketės to nesakė; „Dabartinė užduotis"
+  // rodė žymę, kurios niekas nebevykdė.
+  describe("gyvi slot'ai ir pirminio medžio įrašai", () => {
+    const withLive = (over: Partial<DashboardData>): DashboardData =>
+      ({
+        root: "/repo",
+        currentTaskId: "012-a-02",
+        currentTaskFile: "/repo/AG/tasks/done/149.md",
+        currentTaskBucket: "queue",
+        currentTaskState: "conflicting",
+        claudeExit: "0",
+        stableRef: null,
+        stopStatus: { status: "done", reason: "stop hook allowed", task_id: "015-b-03" },
+        stopStatusSource: "legacy",
+        decision: { verdict: "done", task_id: "015-b-03" },
+        supervisorResume: {},
+        claudeResume: { task_id: "148-b-03", updated_at: "2026-09-02T08:25:55.721Z" },
+        runtime: [],
+        claudeLogUpdatedAt: null,
+        claudeLogBytes: null,
+        workflowBuckets: [],
+        loopControl: {
+          loop: { status: "running", stopRequested: false },
+          slots: [
+            { worker_id: "w1", worker_index: 1, desired: "run", state: "running", task_id: "148-a-02", attempt: 1, lastWave: null },
+            { worker_id: "w2", worker_index: 2, desired: "run", state: "running", task_id: "148-b-03", attempt: 1, lastWave: null },
+          ],
+        },
+        ...over,
+      }) as DashboardData;
+
+    it("with live slots the marker metric is omitted — live tasks come from the slots themselves", () => {
+      const labels = adaptOverview(withLive({})).map((metric) => metric.label);
+      expect(labels).not.toContain("Current task");
+      expect(labels).not.toContain("Stale task state");
+      expect(labels).not.toContain("Task markers disagree");
+    });
+
+    it("records of a task that is not live are labelled as the previous run and turned neutral", () => {
+      const metrics = adaptOverview(withLive({}));
+      expect(metrics.find((metric) => metric.label === "Stop status (previous run)")).toMatchObject({
+        value: "done stop hook allowed",
+        variant: "neutral",
+        title: "source: legacy · task: 015-b-03",
+      });
+      expect(metrics.find((metric) => metric.label === "Decision (previous run)")).toMatchObject({
+        value: "done",
+        variant: "neutral",
+        title: "task: 015-b-03",
+      });
+      // Exit kodas savo task'o neneša — dalijasi stop įrašo tapatybe.
+      expect(metrics.find((metric) => metric.label === "Claude result (previous run)")).toMatchObject({
+        value: "success",
+        variant: "neutral",
+      });
+      // Checkpoint'as priklauso gyvam w2 task'ui — jis NĖRA ankstesnis bėgimas.
+      expect(metrics.find((metric) => metric.label === "Latest activity")).toMatchObject({
+        value: "2026-09-02T08:25:55.721Z",
+        title: "task: 148-b-03",
+      });
+      expect(metrics.map((metric) => metric.label)).not.toContain("Latest activity (previous run)");
+    });
+
+    it("records of a live task keep their normal labels and colours", () => {
+      const metrics = adaptOverview(
+        withLive({ stopStatus: { status: "done", task_id: "148-a-02" }, decision: { verdict: "done", task_id: "148-a-02" } }),
+      );
+      expect(metrics.find((metric) => metric.label === "Stop status")).toMatchObject({ variant: "good" });
+      expect(metrics.find((metric) => metric.label === "Decision")).toMatchObject({ variant: "good" });
+      expect(metrics.find((metric) => metric.label === "Claude result")).toMatchObject({ variant: "good" });
+    });
+
+    it("without live slots conflicting markers are named as a contradiction, not glued together", () => {
+      const [metric] = adaptOverview(withLive({ loopControl: undefined }));
+      expect(metric).toMatchObject({
+        label: "Task markers disagree",
+        value: "012-a-02 ≠ 149.md",
+        variant: "warning",
+      });
+    });
+
+    it("without live slots a record without task id keeps the plain label", () => {
+      const metrics = adaptOverview(withLive({ loopControl: undefined, stopStatus: { status: "done" } }));
+      expect(metrics.find((metric) => metric.label === "Stop status")).toMatchObject({ variant: "good" });
+    });
+  });
+
 // Worker slot'ų valdiklis (task 0051). Adapteris yra vienintelė vieta, kur serverio duomenys virsta
 // „ar valdiklį apskritai galima naudoti", tad būtent čia tikrinami kraštai, o ne komponente.
 describe("adaptWorkerControl", () => {

@@ -14,15 +14,15 @@ import type { TaskStateStorePort } from "../application/task-execution/bucket-tr
 
 let root = "";
 let agRoot = "";
-const moves: { from: string; toDir: string }[] = [];
+const moves: { from: string; toDir: string; updateCurrent: boolean | undefined }[] = [];
 
 const taskStore: TaskStateStorePort = {
-  moveTaskState: (from, toDir) => {
-    moves.push({ from, toDir });
+  moveTaskState: (from, toDir, _name, options) => {
+    moves.push({ from, toDir, updateCurrent: options?.updateCurrent });
     return Promise.resolve(path.join(toDir, path.basename(from)));
   },
-  finishTaskState: (from, toDir) => {
-    moves.push({ from, toDir });
+  finishTaskState: (from, toDir, _name, _cleanup, options) => {
+    moves.push({ from, toDir, updateCurrent: options?.updateCurrent });
     return Promise.resolve(path.join(toDir, path.basename(from)));
   },
   activateTaskFile: (taskFile) => Promise.resolve(taskFile),
@@ -87,6 +87,9 @@ test("aktyvus task'as perkeliamas į `done`", async () => {
   assert.equal(await adapters().relocateTask("0002", "done"), "moved");
   assert.equal(moves.length, 1);
   assert.ok(moves[0]?.toDir.endsWith(path.join("tasks", "done")));
+  // Svetimo slot'o užbaigimas `current-task-file` žymės NEPERRAŠO (2026-09-02 apžvalgos auditas:
+  // integracija ją nukreipdavo į paskutinį `done/` failą, o `current-task-id` likdavo nuo kito task'o).
+  assert.equal(moves[0]?.updateCurrent, false);
 });
 
 test("nesantis failas grąžina `absent`, o ne meta", async () => {

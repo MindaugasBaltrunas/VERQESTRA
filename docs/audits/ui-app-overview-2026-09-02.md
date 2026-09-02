@@ -143,14 +143,22 @@ skaitosi „dirba lygiagrečiai", nors realiai suka vienas srautas; priežastis 
   neprisijungė. Ankstesnis vizualinis auditas: `ui-app-2026-08-31/report.md`.
 - `#/tasks`, `#/reviews`, `#/analytics` ir kitų maršrutų — apimtis buvo tik `#/`.
 
-## Siūloma task'ų eilė
+## Uždarymas (2026-09-02, ta pati sesija)
 
-1. Dashboard signalai iš gyvų slot'ų bandymo artefaktų; globalūs failai tik be gyvų slot'ų ir su
-   data (P1-1 + stop įrodymo `task_id` sutapimo patikra).
-2. `finishTaskState` nebeperrašo `current-task-file` integracijos kelyje; dashboard'as
-   prieštaraujančias žymes rodo kaip prieštaravimą (P1-2).
-3. `AgentChainProgress` gauna `slots`, per-slot'inės grandinės pirmiau už globalų log'ą (P1-3,
-   suderinti su task 106).
-4. Hero į `#/` ir „vykdoma" iš `loopControl.slots` (P2).
-5. Simetriškos per-slot'inės metrikos, `readActiveAttempt` per visus gyvus slot'us, bucket'ų
-   vertimai, bangos režimo formuluotė (P2/P3).
+Visi radiniai uždaryti viename pakeitime; kiekvienas su regresijos testu.
+
+| Radinys | Kas padaryta |
+|---|---|
+| P1 signalai iš pirminio medžio | `adaptOverview`: kai `loopControl.slots` turi gyvų task'ų, žymės metrika neberodoma (gyvus task'us rodo per-slot'inės metrikos), o stop įrašas / verdiktas / exit kodas / checkpoint'as, kurių `task_id` nėra tarp gyvų, gauna etiketę „(ankstesnis bėgimas)", neutralią spalvą ir `title` su task'o id. Exit kodas dalijasi stop įrašo tapatybe. |
+| P1 prieštaraujančios žymės | `finishTaskState` gavo `updateCurrent` parinktį; integracijos `relocateTask` ją paduoda `false`. Serveris skaičiuoja `currentTaskState: "conflicting"` (`markersConflict`), bucket'ą ieško pagal ID; klientas rodo „Užduoties žymės prieštarauja: 012-a-02 ≠ 149.md". |
+| P1 „Aktyvus vykdymas" | `DashboardPage` perduoda `slots`; `AgentChainProgress` su gyvais slot'ais renderina po juostą kiekvienam srautui (Stream 1, Stream 2) ir globalaus veidrodžio nerodo. Be gyvų slot'ų užbaigtas bėgimas vadinamas „Paskutinis vykdymas" be srauto atribucijos (task 106 uždarytas kartu). |
+| P2 hero | `SystemStatusHero` rodomas ir `#/` viršuje; „Šiuo metu vykdoma" abiejuose maršrutuose imama iš gyvų srautų (`slotProgress`), ne iš žymės. |
+| P2 asimetrija | `OverviewPanel` per-slot'inės „W1/W2 gyva užduotis" ir „W1/W2 paskutinė nesėkmė" iš visų `slotProgress` įrašų (uždaro ir task 137 apimtį). |
+| P2 `readActiveAttempt` | `SseLiveSlotSource.stopStatePath`: kiekvieno gyvo slot'o stop įrodymas stebimas hub'e, ne tik pirmo. |
+| P3 bucket'ų raktai | `QueueSnapshot` verčia `t(bucket.name)`; žodynas gavo `queue`, `human-review`, `delegated`. |
+| P3 bangos režimas | „parallel 1/2 granted" su įspėjimo spalva, kai išduota mažiau nei prašyta. |
+
+Liko atvira (sąmoningai): pirminio medžio įrašai vis dar rodomi kaip „ankstesnis bėgimas", o ne
+pakeičiami gyvų slot'ų bandymo artefaktais — per-slot'inis exit kodas / stop įrodymas dashboard'e
+reikalautų worktree kopijų `vq/state` skaitymo tokiu pat keliu kaip SSE `worktreeLiveSources`.
+Tai atskiras task'as; šis pakeitimas uždaro melą, ne trūkstamą duomenį.

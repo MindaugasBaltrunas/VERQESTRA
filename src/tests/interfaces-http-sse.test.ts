@@ -224,6 +224,45 @@ test("gyvi slot'ai virsta atskirais įrašais, kiekvienas iš SAVO bandymo", asy
   assert.deepEqual(world.slotReads, ["w1", "w2"]);
 });
 
+test("kiekvieno gyvo slot'o stop įrodymas stebimas, ne tik pirmo (`readActiveAttempt`)", async () => {
+  const world = sseWorld();
+  world.slots = [
+    {
+      worker_id: "w1",
+      task_id: "890",
+      attempt: 1,
+      log_path: "vq/runtime/w1/claude-last.log",
+      logPath: "/repo/vq/runtime/w1/claude-last.log",
+      taskFilePath: "/repo/vq/runtime/w1/task.md",
+      stopStatePath: "/repo/vq/runtime/w1/stop-state.json",
+    },
+    {
+      worker_id: "w2",
+      task_id: "891",
+      attempt: 1,
+      log_path: "vq/runtime/w2/claude-last.log",
+      logPath: "/repo/vq/runtime/w2/claude-last.log",
+      taskFilePath: "/repo/vq/runtime/w2/task.md",
+      stopStatePath: "/repo/vq/runtime/w2/stop-state.json",
+    },
+  ];
+  // Einamasis bandymas seka TIK w1 — w2 stop įrodymas į jo watchFiles nepatenka.
+  world.attempt = { taskId: "890", watchFiles: ["/repo/vq/runtime/w1/stop-state.json"], stopStatusSource: "attempt" };
+
+  const hub = createSseHub(world.ports);
+  const client = fakeClient();
+  await hub.addClient(client.client);
+  const afterSnapshot = client.written.length;
+
+  await hub.checkAndBroadcast();
+  assert.equal(client.written.length, afterSnapshot, "be pokyčio transliacijos nėra");
+
+  // w2 baigė — atsirado JO stop įrodymas. Iki 2026-09-02 tai srauto nepasiekdavo.
+  world.mtimes.set("/repo/vq/runtime/w2/stop-state.json", 5);
+  await hub.checkAndBroadcast();
+  assert.equal(client.written.length, afterSnapshot + 1, "w2 stop įrodymo pokytis transliuojamas");
+});
+
 test("miręs klientas išmetamas, o keepalive teka net be pokyčių", async () => {
   const world = sseWorld();
   const hub = createSseHub(world.ports);

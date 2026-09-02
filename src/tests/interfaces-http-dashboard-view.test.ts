@@ -10,6 +10,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   buildDashboardView,
+  markersConflict,
   type DashboardViewPorts,
   type DashboardWaveSnapshot,
 } from "../interfaces/http/ui-dashboard-view.js";
@@ -161,6 +162,27 @@ test("einamasis task'as: bucket'as randamas, būsena `active`, stop įrodymas at
   assert.equal(view.stopStatusSource, "attempt");
   assert.equal(view.decision["verdict"], "done");
   assert.equal(view.claudeExit, "0");
+});
+
+test("prieštaraujančios žymės: ID ir failas aprašo skirtingus task'us — būsena `conflicting`, bucket'as pagal ID", async () => {
+  // 2026-09-02 apžvalgos auditas: `current-task-id` liko nuo pirminio medžio dispatch'o, o
+  // `current-task-file` integracija nukreipė į svetimą `done/` failą. Iš ID ir svetimo failo
+  // bucket'o ekranas lipdė „012-a-02 (done)", nors 012-a-02 gulėjo `queue`.
+  const { ports } = fakePorts({
+    files: {
+      "state/current-task-id": "0042\n",
+      "state/current-task-file": "/repo/AG/tasks/done/0099.md\n",
+      "tasks/queue/0042.md": "# task",
+      "tasks/done/0099.md": "# kitas",
+    },
+  });
+  const view = await buildDashboardView({ ports, projectRoot: "/repo" });
+
+  assert.equal(view.currentTaskState, "conflicting");
+  assert.equal(view.currentTaskBucket, "queue", "bucket'as ieškomas pagal ID, ne pagal svetimą failą");
+  assert.equal(markersConflict("0042", "/repo/AG/tasks/done/0099.md"), true);
+  assert.equal(markersConflict("0042", "/repo/AG/tasks/active/0042.md"), false);
+  assert.equal(markersConflict("0042", null), false, "viena žymė be kitos neprieštarauja");
 });
 
 test("degradavęs šaltinis pavadinamas, o ne nutylimas ar paverčiamas 500", async () => {

@@ -20,7 +20,13 @@ import { stripVerificationPreamble } from "../quality-gates/preflight-rules.js";
  */
 export type TaskStateStorePort = {
   moveTaskState(from: string, toDir: string, taskName: string, options?: { updateCurrent?: boolean }): Promise<string>;
-  finishTaskState(from: string, toDir: string, taskName: string, cleanupFiles: string[]): Promise<string>;
+  finishTaskState(
+    from: string,
+    toDir: string,
+    taskName: string,
+    cleanupFiles: string[],
+    options?: { updateCurrent?: boolean },
+  ): Promise<string>;
   activateTaskFile(taskFile: string, activeFile: string, taskId: string): Promise<string>;
   /** Failo tekstas arba `undefined`, kai failo nėra (nebuvimas — atsakymas, ne klaida). */
   readTaskText(absolutePath: string): Promise<string | undefined>;
@@ -68,7 +74,14 @@ export async function moveTaskToBucket(
   return await store.moveTaskState(from, taskBucketDir(agRoot, bucket), taskName, options);
 }
 
-/** Moves a task file into a terminal bucket (done/human-review) and cleans up auxiliary files. */
+/**
+ * Moves a task file into a terminal bucket (done/human-review) and cleans up auxiliary files.
+ *
+ * `updateCurrent: false` — SVETIMO slot'o užbaigimas (worktree integracija pagrindiniame medyje)
+ * `current-task-file` žymės NELIEČIA: žymė aprašo pirminio medžio vykdymą, o integracija ją
+ * perrašydavo paskutinio sulieto task'o `done/` keliu, kol `current-task-id` likdavo nuo kito
+ * task'o — dashboard'as iš dviejų žymių lipdė „012-a-02 (done)" (2026-09-02 apžvalgos auditas).
+ */
 export async function finishTaskInBucket(
   store: TaskStateStorePort,
   agRoot: string,
@@ -76,12 +89,13 @@ export async function finishTaskInBucket(
   bucket: TaskBucket,
   taskName: string,
   cleanupFiles: string[] = [],
+  options: MoveTaskToBucketOptions = {},
 ): Promise<string> {
   if (!isTerminalBucket(bucket)) {
     throw new Error(`finishTaskInBucket requires a terminal bucket (human-review|done), got "${bucket}"`);
   }
   await stripDispatchPreambleBeforeExit(store, from, bucket);
-  return await store.finishTaskState(from, taskBucketDir(agRoot, bucket), taskName, cleanupFiles);
+  return await store.finishTaskState(from, taskBucketDir(agRoot, bucket), taskName, cleanupFiles, options);
 }
 
 /** Activates a queued task file into the "active" bucket and records it as the current task. */

@@ -83,10 +83,47 @@ describe("OverviewPanel w2 and wave signals", () => {
     expect(screen.getByText("sequential")).toBeInTheDocument();
   });
 
-  it("reports parallel mode with the granted/requested ratio", () => {
+  it("reports full parallel mode when every requested slot was granted", () => {
+    renderPanel({ workerControl: workerControl({ lastWaveKnown: true, granted: 2, grantedOf: 2 }) });
+
+    expect(screen.getByText("parallel 2/2")).toBeInTheDocument();
+  });
+
+  it("says how many slots were actually granted when the wave rejected some", () => {
+    // `parallel 2/3` skaitėsi kaip lygiagretus vykdymas, nors trečias slot'as buvo atmestas.
     renderPanel({ workerControl: workerControl({ lastWaveKnown: true, granted: 2, grantedOf: 3 }) });
 
-    expect(screen.getByText("parallel 2/3")).toBeInTheDocument();
+    expect(screen.getByText("parallel 2/3 granted")).toBeInTheDocument();
+  });
+
+  it("shows the w1 live task too — signals are symmetric across streams", () => {
+    renderPanel({
+      slotProgress: [
+        slotView({ workerId: "w1", index: 1, taskId: "1111-front", elapsedMs: 60_000 }),
+        slotView({ taskId: "1234-backend", elapsedMs: null }),
+      ],
+    });
+
+    // Numatytoji kalba yra `lt`, tad etiketės tikrinamos išverstos — būtent tai ir matys operatorius.
+    expect(screen.getByText("W1 gyva užduotis")).toBeInTheDocument();
+    expect(screen.getByText("1111-front (1m)")).toBeInTheDocument();
+    expect(screen.getByText("W2 gyva užduotis")).toBeInTheDocument();
+  });
+
+  it("shows the w1 last failure with its own label", () => {
+    renderPanel({
+      slotProgress: [
+        slotView({
+          workerId: "w1",
+          index: 1,
+          taskId: null,
+          lastError: { ts: "2026-09-02T00:00:00.000Z", taskId: "1111-front", reason: "task-failed" },
+        }),
+      ],
+    });
+
+    expect(screen.getByText("W1 paskutinė nesėkmė")).toBeInTheDocument();
+    expect(screen.getByText("task-failed")).toBeInTheDocument();
   });
 
   it("does not show a wave mode row before any wave has run", () => {

@@ -58,10 +58,13 @@ const RECOMMENDED_VALUES: Record<string, boolean | string | number> = {
   strictness: "warn",
   single_responsibility: "warn",
   open_closed: "warn",
+  liskov_substitution: "warn",
   dependency_inversion: "warn",
   interface_segregation: "warn",
   dry: "warn",
+  kiss: "warn",
   yagni: "warn",
+  separation_of_concerns: "warn",
   max_files_per_task: 10,
   max_responsibilities_per_task: 3,
   require_tests_for_code_changes: true,
@@ -74,10 +77,15 @@ function recommendedValue(control: UiPolicyControl): boolean | string | number {
   return RECOMMENDED_VALUES[control.id] ?? control.value;
 }
 
+/**
+ * Variantai ateina TIK iš serverio (`allowed_values`) arba iš reikšmės tipo. Iki 2026-09-02 čia
+ * gyveno atskiras `style` sąrašas: keturi įrašai, vienas jų (`modular_monolith`) domain'ui
+ * nežinomas, o du domain'o išvedami (`modular-feature`, `pipeline`) — praleisti. Antra sąrašo
+ * kopija naršyklėje visada anksčiau ar vėliau prasilenkia su tiesos šaltiniu.
+ */
 function availableValues(control: UiPolicyControl): string[] {
   if (control.allowed_values?.length) return control.allowed_values;
   if (typeof control.value === "boolean") return ["true", "false"];
-  if (control.id === "style") return ["clean_architecture", "layered", "modular_monolith", "hexagonal"];
   return [];
 }
 

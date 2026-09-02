@@ -29,6 +29,8 @@ import {
   type PolicyProposal,
 } from "../../application/policy-governance/policy-proposals-log.js";
 import type { PolicyConfigFileSystemPort } from "../../application/policy-governance/ports.js";
+import { ARCHITECTURE_STYLES } from "../../domain/policies/architecture-style-catalog.js";
+import { CODING_PRINCIPLES } from "../../domain/policies/coding-principles-catalog.js";
 import { ENFORCEMENT_LEVELS } from "../../domain/policies/enforcement-level.js";
 import type { StackDecision, StackDecisionConfidence } from "../../domain/policies/stack-decision.js";
 import { firstHeading } from "../../shared/markdown.js";
@@ -255,6 +257,8 @@ export async function loadUiPolicyControls(
           source: ARCHITECTURE_SOURCE,
           editable: true,
           route: "/api/policies/architecture-style/set",
+          // Pasirinkimų sąrašas ateina iš domain katalogo — naršyklė jo nebeturi savo kopijos.
+          allowed_values: [...ARCHITECTURE_STYLES],
         }),
         withPending({
           id: "strictness",
@@ -270,14 +274,8 @@ export async function loadUiPolicyControls(
     {
       group: "coding-principles",
       label: "Coding Principles",
-      controls: [
-        level("single_responsibility", "Single responsibility", codingPolicy.single_responsibility),
-        level("open_closed", "Open/closed principle", codingPolicy.open_closed),
-        level("dependency_inversion", "Dependency inversion", codingPolicy.dependency_inversion),
-        level("interface_segregation", "Interface segregation", codingPolicy.interface_segregation),
-        level("dry", "DRY", codingPolicy.dry),
-        level("yagni", "YAGNI", codingPolicy.yagni),
-      ],
+      // Valdikliai seka katalogą: naujas principas atsiranda schemoje, ekrane ir audite vienu įrašu.
+      controls: CODING_PRINCIPLES.map((principle) => level(principle.id, principle.label, codingPolicy[principle.id])),
     },
     {
       group: "enforcement",

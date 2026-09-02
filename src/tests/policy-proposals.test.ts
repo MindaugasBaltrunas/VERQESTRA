@@ -136,6 +136,14 @@ test("no-op pasiūlymas: sutampanti reikšmė atmetama, žurnalas nepaliečiamas
   assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 0);
   assert.equal(ports.files.size, 0);
 
+  // Stilius už katalogo ribų atmetamas su įvardintu sąrašu (2026-09-02): nei UI, nei CLI negali
+  // pasiūlyti žodžio, kurio planuoklis ir ekranas nebeatpažins.
+  await assert.rejects(
+    () => buildPolicyProposal(ports, RUNTIME_ROOT, "architecture-style", "style", "spaghetti", "nežinomas"),
+    /style must be one of \[.*modular_monolith.*\]: spaghetti/,
+  );
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 0);
+
   // Skirtinga reikšmė toliau praeina visą kelią.
   const changed = await buildPolicyProposal(
     ports,

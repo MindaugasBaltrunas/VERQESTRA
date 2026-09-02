@@ -9,6 +9,8 @@
 // tipas apibrėžia).
 import path from "node:path";
 import { z } from "zod";
+import { ARCHITECTURE_STYLES, isArchitectureStyle } from "../../domain/policies/architecture-style-catalog.js";
+import { CODING_PRINCIPLE_IDS, type CodingPrincipleId } from "../../domain/policies/coding-principles-catalog.js";
 import { parseWithSchema } from "../../shared/schema.js";
 import type { PolicyConfigFileSystemPort } from "./ports.js";
 
@@ -16,6 +18,11 @@ const nonEmptyString = z.string().min(1);
 const stringList = z.array(nonEmptyString);
 const enforcementLevel = z.enum(["advisory", "warn", "block"]).default("advisory");
 
+/**
+ * `style` lieka atviras tekstas SĄMONINGAI: failas su `custom_mermaid_source` gali aprašyti savo
+ * stilių, ir įkėlimas jo neatmeta (PC-ARCH-01: paritetą su vokabuliaru saugo testas, ne enum'as).
+ * Katalogo vartai stovi ties PASIŪLYMU — žr. `architectureStyleProposalSchema`.
+ */
 export const architectureStylePolicySchema = z
   .object({
     version: nonEmptyString.default("1.0"),
@@ -27,15 +34,31 @@ export const architectureStylePolicySchema = z
   })
   .passthrough();
 
+/**
+ * Pasiūlymo schema: tas pats failas, bet `style` privalo būti iš katalogo. UI ir CLI siūlo TIK
+ * katalogo reikšmes, tad nežinomas stilius čia yra klaida su įvardintu sąrašu, o ne tyliai
+ * įrašytas žodis, kurio nei planuoklis, nei ekranas nebeatpažins.
+ */
+export const architectureStyleProposalSchema = architectureStylePolicySchema.superRefine((policy, ctx) => {
+  if (!isArchitectureStyle(policy.style)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["style"],
+      message: `style must be one of [${ARCHITECTURE_STYLES.join(", ")}]: ${policy.style}`,
+    });
+  }
+});
+
+/** Kiekvienas katalogo principas gauna tą patį lygio lauką — schema seka katalogą, ne atvirkščiai. */
+const codingPrincipleLevels = Object.fromEntries(CODING_PRINCIPLE_IDS.map((id) => [id, enforcementLevel])) as Record<
+  CodingPrincipleId,
+  typeof enforcementLevel
+>;
+
 export const codingPrinciplesPolicySchema = z
   .object({
     version: nonEmptyString.default("1.0"),
-    single_responsibility: enforcementLevel,
-    open_closed: enforcementLevel,
-    dependency_inversion: enforcementLevel,
-    interface_segregation: enforcementLevel,
-    dry: enforcementLevel,
-    yagni: enforcementLevel,
+    ...codingPrincipleLevels,
   })
   .passthrough();
 

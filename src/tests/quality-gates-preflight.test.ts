@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { PolicyConfigError } from "../shared/errors.js";
 import {
+  codingPrinciplesPolicySchema,
   loadArchitectureStylePolicy,
   loadCodingPrinciplesPolicy,
   loadEnforcementPolicy,
@@ -323,15 +324,8 @@ function makePreflightPorts(taskText: string): {
       layers: [],
       forbidden_dependencies: [],
     },
-    codingPrinciplesPolicy: {
-      version: "1.0",
-      single_responsibility: "advisory",
-      open_closed: "advisory",
-      dependency_inversion: "advisory",
-      interface_segregation: "advisory",
-      dry: "advisory",
-      yagni: "advisory",
-    },
+    // Visi katalogo principai numatytu `advisory` lygiu — sąrašas seka katalogą, ne testą.
+    codingPrinciplesPolicy: codingPrinciplesPolicySchema.parse({ version: "1.0" }),
     enforcementPolicy: {
       version: "1.0",
       max_files_per_task: 10,

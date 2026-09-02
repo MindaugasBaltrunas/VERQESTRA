@@ -9,6 +9,7 @@
 // privalo paduoti visas patikras (final audit be kurios nors patikros būtų tylus praleidimas).
 import path from "node:path";
 import { recognizeTask, taskFileStem, taskNumberFromFilename } from "../../domain/tasks/identity.js";
+import { CODING_PRINCIPLE_IDS } from "../../domain/policies/coding-principles-catalog.js";
 import { ENFORCEMENT_LEVELS, isEnforcementLevel } from "../../domain/policies/enforcement-level.js";
 import {
   loadArchitectureStylePolicy,
@@ -306,15 +307,8 @@ async function checkRuleStatus(ports: FinalAuditPorts, runtimeRoot: string): Pro
     );
   }
   if (codingPrinciplesPolicy) {
-    const fields = [
-      "single_responsibility",
-      "open_closed",
-      "dependency_inversion",
-      "interface_segregation",
-      "dry",
-      "yagni",
-    ] as const;
-    for (const field of fields) {
+    // Laukai iš katalogo: naujas principas į auditą patenka be atskiro sąrašo čia.
+    for (const field of CODING_PRINCIPLE_IDS) {
       const value = codingPrinciplesPolicy[field];
       if (!isEnforcementLevel(value)) {
         issues.push(`coding-principles-policy:${field} not in [${ENFORCEMENT_LEVELS.join(", ")}]: ${String(value)}`);

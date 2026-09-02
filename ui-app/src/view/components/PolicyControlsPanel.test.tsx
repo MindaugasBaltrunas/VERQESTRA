@@ -263,6 +263,35 @@ describe("PolicyControlsPanel", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
+  // Stilių sąrašas ateina iš serverio (`allowed_values`), o ne iš naršyklėje įrašytos kopijos:
+  // iki 2026-09-02 čia gyveno keturi įrašai su domain'ui nežinomu `modular_monolith`.
+  it("offers exactly the server-provided architecture styles for the style control", () => {
+    const styleGroup: UiPolicyGroup[] = [{
+      group: "architecture-style",
+      label: "Architektūra",
+      controls: [{
+        id: "style",
+        label: "Architektūros stilius",
+        value: "layered",
+        source: "vq/architecture/architecture-style.json",
+        editable: true,
+        route: "/api/policies/architecture-style/set",
+        allowed_values: ["layered", "hexagonal", "pipeline"],
+      }],
+    }];
+    render(<PolicyControlsPanel groups={styleGroup} onPropose={vi.fn()} />);
+
+    openForm(0);
+    fireEvent.click(screen.getByRole("combobox", { name: "Architektūros stilius New value" }));
+    // Dabartinė reikšmė gauna „Recommended" ženklelį (rekomendacijos `style` neturi, tad ji ir yra
+    // dabartinė) — todėl lyginami prieinami vardai, ne grynas tekstas.
+    expect(screen.getAllByRole("option").length).toBe(3);
+    expect(screen.getByRole("option", { name: "layered Recommended" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "hexagonal" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "pipeline" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "modular_monolith" })).toBeNull();
+  });
+
   it("hands the value chosen in the dropdown to onPropose and tags the recommended option", async () => {
     const onPropose = vi.fn().mockResolvedValue(undefined);
     render(<PolicyControlsPanel groups={groups} onPropose={onPropose} />);

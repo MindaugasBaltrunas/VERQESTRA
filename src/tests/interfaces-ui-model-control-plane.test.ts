@@ -16,6 +16,8 @@ import {
 } from "../interfaces/ui-model/control-plane-model.js";
 import { toUiTokenBudget } from "../interfaces/ui-model/token-budget-view.js";
 import type { LearningMemoryRecord } from "../application/learning/learning-memory.js";
+import { ARCHITECTURE_STYLES } from "../domain/policies/architecture-style-catalog.js";
+import { CODING_PRINCIPLES } from "../domain/policies/coding-principles-catalog.js";
 
 const ROOT = path.resolve("/repo");
 const RUNTIME = path.join(ROOT, "vq");
@@ -112,8 +114,19 @@ test("loadUiPolicyControls: trūkstami konfigai duoda numatytąsias reikšmes, n
   const style = groups[0]?.controls.find((control) => control.id === "style");
   assert.equal(style?.source, "vq/architecture/architecture-style.json");
   assert.equal(style?.route, "/api/policies/architecture-style/set");
+  // Stilių sąrašas ateina iš domain katalogo — naršyklė savo kopijos nebeturi (2026-09-02).
+  assert.deepEqual(style?.allowed_values, [...ARCHITECTURE_STYLES]);
+  assert.ok((style?.allowed_values ?? []).includes("modular-feature"), "išvedamas stilius yra ir pasirenkamas");
   const dry = groups[1]?.controls.find((control) => control.id === "dry");
   assert.deepEqual(dry?.allowed_values, ["advisory", "warn", "block"], "lygių sąrašas ateina iš domain");
+  // Principų valdikliai seka katalogą: tiek pat, ta pačia tvarka, SOLID su „L".
+  assert.deepEqual(
+    groups[1]?.controls.map((control) => control.id),
+    CODING_PRINCIPLES.map((principle) => principle.id),
+  );
+  const liskov = groups[1]?.controls.find((control) => control.id === "liskov_substitution");
+  assert.equal(liskov?.value, "advisory", "trūkstamas konfigas — numatytasis lygis, ne klaida");
+  assert.equal(liskov?.label, "Liskov substitution");
 });
 
 test("loadUiPolicyControls: laukiantis pasiūlymas kabinamas prie SAVO valdiklio, naujausias laimi", async () => {

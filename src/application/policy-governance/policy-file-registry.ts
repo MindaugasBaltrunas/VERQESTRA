@@ -7,7 +7,7 @@
 
 import type { ZodType } from "zod";
 import {
-  architectureStylePolicySchema,
+  architectureStyleProposalSchema,
   codingPrinciplesPolicySchema,
   enforcementPolicySchema,
   loadArchitectureStylePolicy,
@@ -46,7 +46,8 @@ const POLICY_FILE_REGISTRY: readonly PolicyFileEntry[] = [
   {
     policy_file: "vq/architecture/architecture-style.json",
     group: "architecture-style",
-    schema: architectureStylePolicySchema,
+    // Pasiūlymo schema: `style` tik iš katalogo (įkėlimo schema lieka atvira custom stiliui).
+    schema: architectureStyleProposalSchema,
     load: loadArchitectureStylePolicy,
     resolveRouting: () => Promise.resolve("human-review"),
   },

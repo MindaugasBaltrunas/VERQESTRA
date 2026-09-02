@@ -11,9 +11,52 @@ import {
   rankDiscoveredDocCandidates,
   selectDiscoveredDocs,
   CONTROL_DOC_ROOTS,
+  MAX_DISCOVERED_DOC_FILES,
   type DiscoveredDocCandidate,
 } from "../application/code-intelligence/retrieval/discovered-docs.js";
+import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
 import { nodeFsTestPort } from "./helpers/node-fs-port.js";
+
+/**
+ * Fake portas su valdoma `listDirectory` tvarka — vienintelis `docs/` katalogas su
+ * `fileCount` `.md` failų, grąžinamų `order` tvarka (ne pagal kelią). Naudojamas patikrinti,
+ * kad `MAX_DISCOVERED_DOC_FILES` riba priklauso tik nuo failų turinio (sort po dedup), o ne
+ * nuo `listDirectory` traversal'o eiliškumo.
+ */
+function makeOrderedDocsPort(projectRoot: string, fileCount: number, order: "asc" | "desc"): CodeIntelligenceFileSystemPort {
+  const docsDir = path.join(projectRoot, "docs");
+  const width = String(fileCount - 1).length;
+  const names = Array.from({ length: fileCount }, (_, i) => `file-${String(i).padStart(width, "0")}.md`);
+  const orderedNames = order === "asc" ? names : [...names].reverse();
+  return {
+    async listDirectory(absoluteDir) {
+      return absoluteDir === docsDir
+        ? orderedNames.map((name) => ({ name, isDirectory: false, isFile: true }))
+        : [];
+    },
+    async statKind(absolutePath) {
+      return absolutePath === docsDir ? "directory" : "absent";
+    },
+    async readTextFile(absolutePath) {
+      return `turinys ${path.basename(absolutePath)}\n`;
+    },
+    async readFileBytes() {
+      throw new Error("neturėtų būti kviečiama šiame teste");
+    },
+    async fileSize() {
+      throw new Error("neturėtų būti kviečiama šiame teste");
+    },
+    async exists() {
+      return true;
+    },
+    async writeTextFileAtomic() {
+      throw new Error("neturėtų būti kviečiama šiame teste");
+    },
+    async makeDirectory() {
+      throw new Error("neturėtų būti kviečiama šiame teste");
+    },
+  };
+}
 
 async function withTempProject(build: (root: string) => Promise<void>): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "vq-discovered-docs-"));
@@ -181,4 +224,25 @@ test("selectDiscoveredDocs: nulinis biudžetas nekeičia nieko", () => {
 
 test("CONTROL_DOC_ROOTS: sąrašas uždaras ir stabilus (dokumentuotas kontraktas, ne atsitiktinumas)", () => {
   assert.deepEqual(CONTROL_DOC_ROOTS, ["README.md", "docs", "AG/spec", "AG/openspec", ".claude/rules"]);
+});
+
+test("discoverControlDocCandidates: MAX_DISCOVERED_DOC_FILES riba nepriklauso nuo listDirectory tvarkos", async () => {
+  // 201 failas > MAX_DISCOVERED_DOC_FILES (200): jei riba būtų pritaikoma traversal metu (kaip
+  // anksčiau), skirtinga listDirectory tvarka nukirstų skirtingus 200 failų. Riba turi
+  // pritaikoma TIK po dedup+sort — tada ji visada renkasi 200 alfabetiškai pirmų failų,
+  // nepriklausomai nuo to, kokia tvarka juos grąžina fs.
+  const projectRoot = path.join(os.tmpdir(), "vq-discovered-docs-order-fixture");
+  const fileCount = MAX_DISCOVERED_DOC_FILES + 1;
+
+  const ascending = await discoverControlDocCandidates(makeOrderedDocsPort(projectRoot, fileCount, "asc"), projectRoot);
+  const descending = await discoverControlDocCandidates(
+    makeOrderedDocsPort(projectRoot, fileCount, "desc"),
+    projectRoot,
+  );
+
+  assert.deepEqual(ascending, descending, "ta pati kandidatų seka nepriklausomai nuo listDirectory tvarkos");
+  assert.equal(ascending.length, MAX_DISCOVERED_DOC_FILES, "riba pritaikyta po dedup+sort, ne traversal metu");
+  const refs = ascending.map((candidate) => candidate.ref);
+  assert.ok(refs.includes("docs/file-000.md"), "alfabetiškai pirmas failas visada išlieka");
+  assert.ok(!refs.includes(`docs/file-${fileCount - 1}.md`), "201-as failas alfabetiškai iškrenta iš 200 ribos");
 });

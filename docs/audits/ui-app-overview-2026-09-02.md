@@ -158,6 +158,17 @@ Visi radiniai uždaryti viename pakeitime; kiekvienas su regresijos testu.
 | P3 bucket'ų raktai | `QueueSnapshot` verčia `t(bucket.name)`; žodynas gavo `queue`, `human-review`, `delegated`. |
 | P3 bangos režimas | „parallel 1/2 granted" su įspėjimo spalva, kai išduota mažiau nei prašyta. |
 
+### Papildymas: `#/tasks` („Darbo eiga / Užduotys") — ta pati klasė
+
+Operatoriaus radinys po apžvalgos taisymo: „w2 neveikia". Priežastis ta pati kaip P1-1:
+`WorkflowBoard` eilutę „Vykdoma" ir korteles formavo TIK pagrindinio medžio `delegated`/`active`
+bucket'ai (`WorkflowBoard.tsx:32-34`). Worktree slot'o vaikas task failą kilnoja SAVO kopijoje,
+tad pagrindiniame medyje w1 = 122 ir w2 = 118 tebegulėjo `queue` — lenta rodė juos kaip
+laukiančius, o „Vykdoma" — tik pirminio medžio 148-b-03. Uždaryta: lenta gauna `liveSlots` iš
+`slotProgress`; „Vykdoma" jungia pirminio medžio task'us ir srautus („122 (Stream 1), 118
+(Stream 2)"), eilės kortelėje gyvi task'ai turi srauto ženklelį ir pastabą „N iš jų šiuo metu
+vykdomos worktree srautuose", bucket'ų vardai verčiami. Testas `WorkflowBoard.test.tsx`.
+
 Liko atvira (sąmoningai): pirminio medžio įrašai vis dar rodomi kaip „ankstesnis bėgimas", o ne
 pakeičiami gyvų slot'ų bandymo artefaktais — per-slot'inis exit kodas / stop įrodymas dashboard'e
 reikalautų worktree kopijų `vq/state` skaitymo tokiu pat keliu kaip SSE `worktreeLiveSources`.

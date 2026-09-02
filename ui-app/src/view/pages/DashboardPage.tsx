@@ -239,6 +239,11 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         {activeRoute === "tasks" && (
           <WorkflowBoard
             buckets={dashboard.buckets}
+            // Gyvi srautai iš valdiklio: worktree slot'o task'as pagrindiniame medyje tebeguli
+            // `queue`, tad be šio sąrašo lenta jį rodytų kaip laukiantį (2026-09-02 auditas).
+            liveSlots={slotProgress.flatMap((view) =>
+              view.taskId === null ? [] : [{ workerId: view.workerId, index: view.index, taskId: view.taskId }],
+            )}
             onOpenFolder={(bucket) => { void actions.openFolder(bucket); }}
             onUpload={actions.uploadTaskFiles}
             onLoadTasks={actions.loadWorkflowTasks}

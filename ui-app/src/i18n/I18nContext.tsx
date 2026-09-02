@@ -552,6 +552,8 @@ const lt: Record<string, string> = {
   "queue": "eilė",
   "human-review": "žmogaus peržiūra",
   "delegated": "deleguota",
+  "Running in stream {stream}": "Vykdoma sraute {stream}",
+  "{count} of these are running in worktree streams right now": "{count} iš jų šiuo metu vykdomos worktree srautuose",
   // 2026-08-24 („viskas matoma"): biudžeto ir diagnostikos panelės.
   "Cost control": "Kaštų kontrolė",
   "Token budget": "Token biudžetas",

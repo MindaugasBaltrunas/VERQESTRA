@@ -81,8 +81,29 @@ export function worktreeLayout(projectRoot: string, identity: WorktreeIdentity):
   };
 }
 
-/** Worktree šaknis turi būti gitignore'inta, kad pagrindinis medis liktų švarus. */
+/**
+ * Nesamas vaikinis kelias po šaknimi. `git check-ignore` dir-only šablono (`.ag/worktrees/`)
+ * NETAIKO keliui, kurio diske nėra — nesamo kelio git katalogu nelaiko. Vaikiniame kelyje
+ * `.ag/worktrees` yra tarpinis komponentas, tad git jį vertina kaip katalogą ir šablonas
+ * suveikia be jokio failo diske. Segmentas sąmoningai netinkamas tikram worktree vardui.
+ */
+const WORKTREE_ROOT_IGNORE_PROBE = "__ignore_probe__";
+
+/**
+ * Worktree šaknis turi būti gitignore'inta, kad pagrindinis medis liktų švarus.
+ *
+ * Probe'as daromas vaikiniu keliu, o ne pačia šaknimi: šviežiame repo `.ag/worktrees` diske dar
+ * neegzistuoja, tad tiesioginė patikra grąžindavo `false` net su teisinga `.gitignore` eilute.
+ * Iš to gimdavo vištos-kiaušinio ciklas — provisioning'as atsisakydavo kurti kopiją („worktree
+ * šaknis nėra gitignore'inta"), o šaknį sukuria tik pats provisioning'as, tad w2 slot'as
+ * niekada nepasileisdavo be rankinio `.gitkeep`. Funkcija lieka be šalutinių efektų: ją kviečia
+ * ir skaitymo keliai (`preserved-work.ts`, `worktree-provision.ts`), kuriems tylus katalogo
+ * kūrimas būtų netikėtas.
+ */
 export async function worktreeRootIsIgnored(projectRoot: string): Promise<boolean> {
-  const ignored = await filterGitIgnored([WORKTREE_ROOT_DIR], projectRoot);
-  return ignored.has(WORKTREE_ROOT_DIR);
+  const probe = `${WORKTREE_ROOT_DIR}/${WORKTREE_ROOT_IGNORE_PROBE}`;
+  const ignored = await filterGitIgnored([WORKTREE_ROOT_DIR, probe], projectRoot);
+  // Šaknies atsakymas paliekamas kaip antra galimybė: kai katalogas diske YRA, jis atsako ir
+  // tiems šablonams, kurių vaikinis kelias nedengia (pvz. neigimas gilesniame lygyje).
+  return ignored.has(probe) || ignored.has(WORKTREE_ROOT_DIR);
 }

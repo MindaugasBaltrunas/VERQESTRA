@@ -1,6 +1,5 @@
-// Worktree gyvavimo ciklo integraciniai testai (E4 VQ-402 2/2) — REALUS git laikinoje
-// repozitorijoje: provision/reuse/karantinas, šakos integracija, šalinimas, orphan reap
-// ir integration-branch plumbing kelias (pagrindinė šaka niekada nejuda).
+// Worktree gyvavimo ciklo integraciniai testai (E4 VQ-402 2/2) — REALUS git laikinoje repozitorijoje:
+// gitignore verdiktas, provision/reuse/karantinas, šakos integracija, šalinimas, orphan reap, plumbing.
 
 import assert from "node:assert/strict";
 import { mkdtemp, rm, utimes } from "node:fs/promises";
@@ -13,7 +12,12 @@ import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../infrastructure/process/run-process.js";
 import { gitCurrentBranch, gitHead, gitResolveCommit } from "../infrastructure/git/git-client.js";
 import { applyIntegrationPlan } from "../infrastructure/git/integration-branch.js";
-import { worktreeLayout, WORKTREE_TASK_SEGMENT_MAX_LENGTH } from "../infrastructure/git/worktrees/worktree-layout.js";
+import {
+  worktreeLayout,
+  worktreeRootIsIgnored,
+  WORKTREE_ROOT_DIR,
+  WORKTREE_TASK_SEGMENT_MAX_LENGTH,
+} from "../infrastructure/git/worktrees/worktree-layout.js";
 import {
   deleteWorktreeBranch,
   integrateWorktreeBranch,
@@ -29,42 +33,31 @@ after(async () => {
   await rm(root, { recursive: true, force: true }).catch(() => undefined);
 });
 
-async function git(...args: string[]): Promise<{ code: number; stdout: string }> {
-  const result = await run("git", ["-C", root, ...args]);
+async function gitIn(dir: string, ...args: string[]): Promise<{ code: number; stdout: string }> {
+  const result = await run("git", ["-C", dir, ...args]);
   assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   return result;
 }
 
-await git("init");
-await git("config", "user.email", "test@example.com");
-await git("config", "user.name", "Test");
-await git("config", "commit.gpgsign", "false");
-await git("config", "core.autocrlf", "false");
-// `.ag/` (ne `.ag/worktrees/`): dir-only šablonas su gale esančiu slash'u nesamo kelio
-// check-ignore patikroje gali nesutapti — tėvinis prefiksas dengia visada.
-await nodeFsAdapter.writeTextFile(path.join(root, ".gitignore"), ".ag/\n");
-await nodeFsAdapter.writeTextFile(path.join(root, "src", "a.ts"), "pradinis\n");
-await git("add", "--all");
-await git("commit", "-m", "pradinis");
+/** Bendra pradinė būsena: repo su vienu commit'u ir `.ag/` gitignore eilute. */
+async function seedRepo(dir: string): Promise<string> {
+  await gitIn(dir, "init");
+  await gitIn(dir, "config", "user.email", "test@example.com");
+  await gitIn(dir, "config", "user.name", "Test");
+  await gitIn(dir, "config", "commit.gpgsign", "false");
+  await gitIn(dir, "config", "core.autocrlf", "false");
+  await nodeFsAdapter.writeTextFile(path.join(dir, ".gitignore"), ".ag/\n");
+  await nodeFsAdapter.writeTextFile(path.join(dir, "src", "a.ts"), "pradinis\n");
+  await gitIn(dir, "add", "--all");
+  await gitIn(dir, "commit", "-m", "pradinis");
+  return dir;
+}
+
+await seedRepo(root);
 
 /** Izoliuota repo laikinam kataloge, ta pati pradinė būsena kaip `root` — eskalacijos testams. */
 async function initEphemeralRepo(prefix: string): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), prefix));
-  async function initGit(...args: string[]): Promise<{ code: number; stdout: string }> {
-    const result = await run("git", ["-C", dir, ...args]);
-    assert.equal(result.code, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
-    return result;
-  }
-  await initGit("init");
-  await initGit("config", "user.email", "test@example.com");
-  await initGit("config", "user.name", "Test");
-  await initGit("config", "commit.gpgsign", "false");
-  await initGit("config", "core.autocrlf", "false");
-  await nodeFsAdapter.writeTextFile(path.join(dir, ".gitignore"), ".ag/\n");
-  await nodeFsAdapter.writeTextFile(path.join(dir, "src", "a.ts"), "pradinis\n");
-  await initGit("add", "--all");
-  await initGit("commit", "-m", "pradinis");
-  return dir;
+  return seedRepo(await mkdtemp(path.join(tmpdir(), prefix)));
 }
 
 function lease(overrides: Partial<WorkerLease> = {}): WorkerLease {
@@ -93,6 +86,23 @@ test("layout: per ilgas task segmentas gauna hash uodegą", () => {
   const segment = path.basename(long.path).split("-").slice(1, -1).join("-");
   assert.ok(segment.length <= WORKTREE_TASK_SEGMENT_MAX_LENGTH);
   assert.match(path.basename(long.path), /-[0-9a-f]{8}-a1$/);
+});
+
+test("worktreeRootIsIgnored: dir-only eilutė atsako ir kai šaknies katalogo diske dar nėra", async () => {
+  const fresh = await initEphemeralRepo("vq-wt-ignore-");
+  const gitignore = path.join(fresh, ".gitignore");
+  try {
+    // Šviežias repo: `.ag/` sukuria tik pats provisioning'as, o jis laukia šio verdikto.
+    await nodeFsAdapter.writeTextFile(gitignore, `${WORKTREE_ROOT_DIR}/\n`);
+    assert.equal(await nodeFsAdapter.exists(path.join(fresh, ".ag")), false);
+    assert.equal(await worktreeRootIsIgnored(fresh), true, "be katalogo, su eilute -> true");
+    await nodeFsAdapter.makeDirectory(path.join(fresh, WORKTREE_ROOT_DIR));
+    assert.equal(await worktreeRootIsIgnored(fresh), true, "su katalogu ir eilute -> true");
+    await nodeFsAdapter.writeTextFile(gitignore, "node_modules/\n");
+    assert.equal(await worktreeRootIsIgnored(fresh), false, "be eilutės -> false");
+  } finally {
+    await rm(fresh, { recursive: true, force: true }).catch(() => undefined);
+  }
 });
 
 test("provision: created -> reused tam pačiam lease; owner žyma gyvena git admin kataloge", async () => {

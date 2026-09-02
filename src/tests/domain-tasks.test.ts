@@ -142,6 +142,28 @@ test("allowed-paths: bullet eilutėje kelias yra TIK pirmas backtick tokenas", (
   assert.deepEqual(allowedPaths(bareBullet), ["src/plain.ts"]);
 });
 
+test("allowed-paths: laužytas bullet'as (tęstinė įtraukta eilutė) yra VIENAS loginis įrašas", () => {
+  // Etalono bullet'as dažnai laužomas per kelias eilutes, o pagrindimas tęstinėje eilutėje
+  // turi savo backtick'us (pvz. eksporto pavadinimą). Tęstinė eilutė NETURI bullet žymeklio,
+  // tad be sulankstymo patenka į ne-bullet šaką ir jos backtick'ai klaidingai virsta keliais.
+  const brokenAllow =
+    "# Task\n\n## Failai\nLeidžiama:\n- `src/config.ts` — naudoja\n" +
+    "  `MIN_ARCHITECTURE_TOKEN_LENGTH` eksportą\n" +
+    "Draudžiama:\n- `dist/**` — niekada\n  keisti `generated/index.ts`\n";
+  assert.deepEqual(allowedPaths(brokenAllow), ["src/config.ts"]);
+  assert.deepEqual(forbiddenPaths(brokenAllow), ["dist/**"]);
+
+  // Tuščia eilutė nutraukia įrašą — po jos einanti įtraukta eilutė NETĘSIA ankstesnio bullet'o.
+  const blankBreaksEntry =
+    "# Task\n\n## Failai\nLeidžiama:\n- `src/a.ts` — pagrindimas\n\n  `src/b.ts` klaidingai laisva\n";
+  assert.deepEqual(allowedPaths(blankBreaksEntry), ["src/a.ts", "src/b.ts"]);
+
+  // Esama inline ne-bullet forma (107-143 eil.) lieka nepakitusi po sulankstymo pridėjimo.
+  const inline = parseAllowedPaths("# Task\n\n## Failai\nLeidžiama: src/a.ts, src/b/**\n");
+  assert.ok(inline.ok);
+  assert.deepEqual(inline.ok ? inline.value : [], ["src/a.ts", "src/b/**"]);
+});
+
 test("isValidRetryCount: tik NENEIGIAMAS SAUGUS SVEIKASIS yra skaitiklio būsena", () => {
   assert.equal(isValidRetryCount(0), true);
   assert.equal(isValidRetryCount(3), true);

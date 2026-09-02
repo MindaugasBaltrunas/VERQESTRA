@@ -105,6 +105,38 @@ function collectPathTokensFromLine(line: string, values: string[]): void {
 }
 
 /**
+ * Suskaido `Leidžiama:`/`Draudžiama:` bloko eilutes į loginius įrašus: bullet eilutė ir iš
+ * karto po jos einančios ĮTRAUKTOS (bet ne naujo bullet'o) tęstinės eilutės sulankstomos į
+ * VIENĄ įrašą — etalono bullet'ai dažnai laužomi per kelias eilutes, o pagrindimo tekstas
+ * tęstinėje eilutėje (pvz. backtick'ai) turi likti SAVO bullet'o dalimi, ne tapti atskira
+ * eilute, kurios visi backtick'ai klaidingai virstų papildomais keliais.
+ *
+ * Įrašą nutraukia: tuščia eilutė, naujas bullet'as (`-`/`*`/`+`), arba neįtraukta (be
+ * pradinio tarpo) eilutė — kiekviena tokia eilutė pradeda naują įrašą. Ne-bullet inline forma
+ * (pirma bloko eilutė be bullet žymeklio) elgiasi kaip atskiras vieno-eilutės įrašas, nes prieš
+ * ją nėra atviro įrašo, kurį būtų galima tęsti.
+ */
+function foldLogicalEntries(lines: string[]): string[] {
+  const entries: string[] = [];
+  let openEntry = false;
+  for (const line of lines) {
+    if (!line.trim()) {
+      openEntry = false;
+      continue;
+    }
+    const isBullet = /^\s*[-*+]\s/.test(line);
+    const isIndented = /^\s/.test(line);
+    if (openEntry && isIndented && !isBullet) {
+      entries[entries.length - 1] = `${entries[entries.length - 1] ?? ""} ${line.trim()}`;
+      continue;
+    }
+    entries.push(line);
+    openEntry = true;
+  }
+  return entries;
+}
+
+/**
  * Struktūruotas kanoninis parseris: `ok(paths)` kai randami leidžiami keliai, arba `err`:
  *   - `missing_failai_section` — task'e nėra `## Failai` sekcijos;
  *   - `empty_allowed_block` — sekcija yra, bet `Leidžiama:` bloke nėra kelių tokenų.
@@ -116,8 +148,8 @@ export function parseAllowedPaths(taskMarkdown: string): Result<string[], Allowe
     return err({ code: "missing_failai_section", message: "task has no `## Failai` section" });
   }
   const values: string[] = [];
-  for (const line of block.split(/\r?\n/)) {
-    collectPathTokensFromLine(line, values);
+  for (const entry of foldLogicalEntries(block.split(/\r?\n/))) {
+    collectPathTokensFromLine(entry, values);
   }
   if (values.length === 0) {
     return err({ code: "empty_allowed_block", message: "`## Failai` has no `Leidžiama:` path tokens" });
@@ -181,8 +213,8 @@ export function forbiddenPaths(taskMarkdown: string): string[] {
     return [];
   }
   const values: string[] = [];
-  for (const line of block.split(/\r?\n/)) {
-    collectPathTokensFromLine(line, values);
+  for (const entry of foldLogicalEntries(block.split(/\r?\n/))) {
+    collectPathTokensFromLine(entry, values);
   }
   return values;
 }

@@ -243,6 +243,18 @@ export async function reapOrphanWorktree(input: {
   if (ancestor.code !== 0) return kept(`check-failed:${reapDetail(worktreeGitFailure(ancestor, ancestorArgs))}`);
 
   // 7. Darbo kopija. Ta pati grandinė kaip removeTaskWorktree (Windows ilgo kelio fallback'ai).
+  //
+  // Task 125 diagnozė (2026-09-02, flake P2): `git worktree remove` (be --force) atsisako
+  // šalinti TIK jei jo vidinis FS skenas MATO nešvarų failą TĄ akimirką. Ką tik įrašytas
+  // runtime-only failas (pvz. `vq/state/...`, atominis tmp+rename) retai gali dar nebūti
+  // matomas tam skenui Windows'e (FS metaduomenų/AV-indexer vėlavimas) — tada šis kvietimas
+  // praeina BE --force ir žemiau grąžinamas grynas `reaped` (be `archive=`), o ne laukiamas
+  // `kept`. Tai NĖRA turinio praradimas: `reapTreeState` (5 žingsnis) tokį turinį jau laiko
+  // "švariu" per `nonRuntimeDirtyEntriesFromStatus` (tas pats runtime-prefix'ų sąrašas kaip
+  // `worktree-removal.ts` RUNTIME_JUNK_PREFIXES) — jis niekada nebuvo laikomas darbu, kurio
+  // reikia archyvuoti. Jei ši lenktynė kada nors pasireikštų su NE-runtime (produkto) turiniu,
+  // tai būtų realus defektas — bet `reapTreeState` jį būtų pažymėjęs `dirty` jau anksčiau ir
+  // sustabdęs prieš pasiekiant šią eilutę, nepriklausomai nuo šios lenktynės.
   if (directoryPresent) {
     const removal = await removeWorktreeDirectory(input.runner ?? run, projectRoot, worktreePath, input.remover);
     if (removal.status !== "removed") return kept(`check-failed:${reapDetail(removal.message)}`);

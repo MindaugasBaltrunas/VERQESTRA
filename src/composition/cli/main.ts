@@ -10,6 +10,7 @@
 
 import { consoleCliIo, findCliCommand, validateCliRegistry, type CliCommand, type CliIo } from "../../interfaces/cli/registry.js";
 import { USAGE_ERROR_EXIT_CODE, infrastructureExitCodeForError } from "../../shared/exit-codes.js";
+import { WorkflowInfrastructureError } from "../../shared/errors.js";
 import { buildCliCommands, renderCliHelp, type CliRegistryDeps } from "./registry.js";
 import { resolveRuntimeRoots } from "../runtime/context.js";
 
@@ -57,6 +58,7 @@ export async function runCli(deps: CliMainDeps, argv: readonly string[]): Promis
     return await command.run([...argv.slice(1)]);
   } catch (error: unknown) {
     io.error(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof WorkflowInfrastructureError && error.exitCode !== undefined) return error.exitCode;
     return infrastructureExitCodeForError(error) ?? UNEXPECTED_ERROR_EXIT_CODE;
   }
 }

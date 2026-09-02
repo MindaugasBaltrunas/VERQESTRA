@@ -15,7 +15,8 @@ import { taskRunPorts } from "../composition/loop/coordinator-execution-adapters
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import type { CliCommand, CliIo } from "../interfaces/cli/registry.js";
-import { INFRASTRUCTURE_IO_EXIT_CODE, USAGE_ERROR_EXIT_CODE } from "../shared/exit-codes.js";
+import { INFRASTRUCTURE_IO_EXIT_CODE, USAGE_ERROR_EXIT_CODE, USAGE_LIMIT_EXIT_CODE } from "../shared/exit-codes.js";
+import { WorkflowInfrastructureError } from "../shared/errors.js";
 
 function captureIo(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -126,6 +127,34 @@ test("runCli: komandos išimtis NEIŠEINA pro kraštą, o aplinkos errno gauna s
     ["alfa"],
   );
   assert.equal(infrastructure, INFRASTRUCTURE_IO_EXIT_CODE);
+});
+
+test("runCli: WorkflowInfrastructureError su exitCode grąžina TĄ patį kodą tėvo ribai, o be jo lieka UNEXPECTED", async () => {
+  const withExitCode = await runCli(
+    {
+      commands: [
+        command("alfa", () => {
+          throw new WorkflowInfrastructureError("usage limit", { exitCode: USAGE_LIMIT_EXIT_CODE });
+        }),
+      ],
+      io: captureIo().io,
+    },
+    ["alfa"],
+  );
+  assert.equal(withExitCode, USAGE_LIMIT_EXIT_CODE);
+
+  const withoutExitCode = await runCli(
+    {
+      commands: [
+        command("alfa", () => {
+          throw new WorkflowInfrastructureError("nežinoma infra priežastis");
+        }),
+      ],
+      io: captureIo().io,
+    },
+    ["alfa"],
+  );
+  assert.equal(withoutExitCode, 1);
 });
 
 test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {

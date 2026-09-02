@@ -157,7 +157,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
         <div className="page-heading">
           <div>
             <p className="page-eyebrow">{t(pageMeta(activeRoute).eyebrow)}</p>
-            <h2>{t(pageMeta(activeRoute).title)}</h2>
+            <h1>{t(pageMeta(activeRoute).title)}</h1>
             <p>{t(pageMeta(activeRoute).description)}</p>
           </div>
           {/* Ženklelis privalo UŽSITARNAUTI žodį „gyvi": besąlygiškas literalas čia tvirtindavo

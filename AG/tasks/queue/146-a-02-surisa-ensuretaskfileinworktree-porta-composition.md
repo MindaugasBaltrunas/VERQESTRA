@@ -4,7 +4,7 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- 146-a — `ensureTaskFileInWorktree` porto kontraktas `slot-task-runner.ts` (privaloma pirma)
+- 146-worktree-provision-atmeta-necommitinta-task-faila-be-parko (porto kontraktas `slot-task-runner.ts` — privaloma pirma; 2026-09-02 pataisyta iš neegzistuojančio id „146-a", kuris planuoklei būtų amžinai neišsprendžiama nuoroda)
 - 133-run-budget-semantika-run-pjuvis-arba-lifetime-vardas (bendras `command.ts`)
 
 ## Tikslas

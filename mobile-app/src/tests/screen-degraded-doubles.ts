@@ -285,8 +285,12 @@ export function tasksFrame(situation: Situation): ReadOnlyFrame {
     showUnavailablePlaceholder: view.showUnavailablePlaceholder,
     unavailableLabel: view.unavailableLabel,
     hasContent: situation.state.agLoopTaskBucket !== null,
-    badgeSnapshot: situation.state.agLoopDashboard !== null,
-    failed: situation.state.agLoopReadError !== null,
+    // The Tasks badge speaks for the bucket channel, not the dashboard one:
+    // `agLoopTasksLink`/`agLoopTasksReadError` settle independently of
+    // `agLoopLink`/`agLoopReadError`, so the badge this frame checks must be
+    // read from the same fields `presentTasks` actually renders from.
+    badgeSnapshot: situation.state.agLoopTaskBucket !== null,
+    failed: situation.state.agLoopTasksReadError !== null,
     view,
   };
 }
@@ -366,8 +370,14 @@ export const requiredCombinations: readonly string[] = [
   "offline/cached/not-reading",
 ];
 
-export function assertCoverage(combinations: ReadonlySet<string>, channel: string): void {
+export function assertCoverage(
+  combinations: ReadonlySet<string>,
+  channel: string,
+  options: Readonly<{ skip?: readonly string[] }> = {},
+): void {
+  const skip = new Set(options.skip ?? []);
   for (const required of requiredCombinations) {
+    if (skip.has(required)) continue;
     assert.ok(combinations.has(required), `${channel}: the sweep never reached ${required}`);
   }
   // The two the Model must never produce: a link cannot claim to be connected,

@@ -1,24 +1,51 @@
+import * as SecureStore from "expo-secure-store";
 import { GatewayHttpClient, TerminalStreamClient } from "../core";
 import type {
   MobileHttpTransportPort,
   MobileWebSocketFactory,
   MobileWebSocketPort,
+  SecureStorePort,
 } from "../core";
+import { createExpoSecureStoreAdapter } from "../adapters/expo-secure-store-adapter";
+import type { ExpoSecureStoreModule } from "../adapters/expo-secure-store-adapter";
 
 /**
  * Platform transports for the two network adapters the MVC core defines but
  * cannot build itself: `GatewayHttpClient` needs an HTTP transport,
  * `TerminalStreamClient` needs a WebSocket factory. Both wrap globals React
- * Native already provides (`fetch`, `WebSocket`), so this module adds no new
- * dependency.
+ * Native already provides (`fetch`, `WebSocket`), so they add no dependency.
  *
- * `CredentialPort`, `DeviceProofPort` and `MobileIdPort` have no production
- * adapter yet — the former two need `expo-secure-store` and device-identity
- * signing (tasks 119/120), the third needs a random UUID source. The two
- * factories below accept them as parameters instead of constructing them, so
- * this module wires exactly what exists today and leaves the rest to the
- * task that supplies those adapters.
+ * This module is also where the one platform package the shell needs by name is
+ * bound to a port: `expo-secure-store` behind `SecureStorePort`. A composition
+ * root is the correct place for that — the adapter itself stays module-free, and
+ * the import appears exactly once in the package.
+ *
+ * `DeviceProofPort` and `MobileIdPort` still have no production adapter: the
+ * former needs device-identity signing (task 120), the latter a random UUID
+ * source. The factories below accept them as parameters instead of constructing
+ * them, so this module wires exactly what exists today.
  */
+
+/**
+ * `SecureStorePort` backed by the OS keystore.
+ *
+ * The annotated return type is the seam's only compile-time check that the
+ * adapter's locally restated shape still matches the core's port: the adapter
+ * cannot import `SecureStorePort` without becoming unloadable outside Metro, so
+ * the two shapes meet here, in the one file that can see both.
+ *
+ * `WHEN_UNLOCKED_THIS_DEVICE_ONLY` is passed explicitly rather than defaulted
+ * inside the adapter: pairing credentials must not travel in an encrypted backup
+ * to a second device, and that is a decision worth reading in the wiring.
+ */
+export function createReactNativeSecureStore(
+  module: ExpoSecureStoreModule = SecureStore,
+): SecureStorePort {
+  return createExpoSecureStoreAdapter({
+    module,
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+}
 
 export function createReactNativeHttpTransport(): MobileHttpTransportPort {
   return {

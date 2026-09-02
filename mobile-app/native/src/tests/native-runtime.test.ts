@@ -34,13 +34,29 @@ function importSpecifiers(source: string): string[] {
   return [...source.matchAll(pattern)].map((match) => match[1] ?? "");
 }
 
-test("native-runtime imports transports only through the core seam", async () => {
+/**
+ * Every module `native-runtime.ts` may name. The list stays exact and therefore
+ * fail-closed: `../core` is the single seam to the MVC core, the adapter path is
+ * native-shell-internal, and `expo-secure-store` is the one platform package the
+ * composition root binds to a port (task 119). A new bare specifier here has to
+ * be argued for by editing this line.
+ */
+const allowedRuntimeImports: ReadonlySet<string> = new Set([
+  "../core",
+  "../adapters/expo-secure-store-adapter",
+  "expo-secure-store",
+]);
+
+test("native-runtime reaches the core only through the seam and names only audited modules", async () => {
   const source = await runtimeSource();
   const specifiers = importSpecifiers(source);
   assert.ok(specifiers.length > 0, "no import statements found in native-runtime.ts");
   for (const specifier of specifiers) {
-    assert.equal(specifier, "../core", `unexpected import source: ${specifier}`);
+    assert.ok(allowedRuntimeImports.has(specifier), `unexpected import source: ${specifier}`);
   }
+  // The core is still reached one way only; widening the list above must not
+  // quietly introduce a second route to `@verqestra/mobile-app`.
+  assert.doesNotMatch(source, /from\s+["']@verqestra\/mobile-app["']/);
 });
 
 test("the HTTP transport is built from the global fetch, not a new dependency", async () => {
@@ -101,10 +117,28 @@ test("the gateway base URL has no default and comes from an Expo public env var"
   assert.match(body, /if \(!value\)\s*\{\s*throw new Error/);
 });
 
-test("wiring the transports adds no runtime dependency to the native package", async () => {
+/**
+ * The native package's runtime dependencies, as an exact list rather than a
+ * subset check: a dependency is a permanent security and bundle-size surface, so
+ * an unaudited addition must fail here rather than arrive with a feature.
+ *
+ * The transports still contribute nothing — they wrap `fetch` and `WebSocket`.
+ * `expo-secure-store` is the single deliberate addition (task 119, operator
+ * approved 2026-09-02): the OS keystore has no global to wrap, so `SecureStorePort`
+ * cannot be implemented without it.
+ */
+const auditedRuntimeDependencies = [
+  "@verqestra/mobile-app",
+  "expo",
+  "expo-secure-store",
+  "react",
+  "react-native",
+];
+
+test("the native package's runtime dependencies stay an exact, audited list", async () => {
   const manifest = JSON.parse(await readFile(path.join(nativeRoot, "package.json"), "utf8")) as Readonly<{
     dependencies?: Readonly<Record<string, string>>;
   }>;
   const dependencyNames = Object.keys(manifest.dependencies ?? {}).sort();
-  assert.deepEqual(dependencyNames, ["@verqestra/mobile-app", "expo", "react", "react-native"]);
+  assert.deepEqual(dependencyNames, auditedRuntimeDependencies);
 });

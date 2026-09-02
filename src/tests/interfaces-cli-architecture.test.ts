@@ -348,6 +348,10 @@ test("architecture code-map: usage, tuščias projektas 100%, --check be failo",
   assert.match(out[0] ?? "", /code index not fresh .*rebuilding before code-map/);
   assert.ok(out.includes("code-map: write"));
   assert.ok(out.includes("symbols_total: 0"));
+  // Briaunos yra atskira aprėpties dimensija (2026-09-02): tuščiame projekte jų nėra, bet eilutė
+  // privalo būti — iki tol priklausomybių sluoksnio išvestyje nesimatė visai.
+  assert.ok(out.includes("edges_total: 0"));
+  assert.ok(out.includes("edges_rendered_in_mmd: 0"));
   assert.ok(out.includes("coverage_percent: 100"));
   assert.ok(files.has(abs("vq/architecture/generated/code-map.generated.mmd")));
   assert.ok(files.has(abs("vq/architecture/generated/code-map.coverage.json")));

@@ -25,6 +25,7 @@ import type { WorktreePolicyPorts } from "../../interfaces/http/ui-worktree-poli
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
 import { loadWorktreePolicy } from "../../application/scheduling/worktree-policy.js";
 import { readTailLines } from "../../infrastructure/fs/tail-lines.js";
+import { worktreeRootIsIgnored } from "../../infrastructure/git/worktrees/worktree-layout.js";
 import { readWaveSnapshot, waveSnapshotExists } from "../../infrastructure/state/wave-snapshot-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { buildCompressionView } from "../../interfaces/http/ui-compression-view.js";
@@ -81,25 +82,41 @@ const workflowBucketPorts = {
 };
 
 /**
- * TA PATI eilutė, kurią `setWorktreePolicyEnabled` (ui-worktree-policy.ts) prideda įjungdamas
- * politiką — laikoma čia atskirai, nes tas modulis rašo į `.gitignore`, o šis tik skaito, ir
- * abu turi sutarti dėl to paties „padengta" apibrėžimo be tarpusavio importo.
+ * Eilutė, kurią `setWorktreePolicyEnabled` prideda įjungdamas politiką. Čia ji NEBĖRA „padengta"
+ * apibrėžimas — tik DIAGNOSTIKOS raktas: leidžia atskirti „eilutės faile nėra" nuo „eilutė yra,
+ * bet git jos nemato" (pvz. priekinis tarpas, kurį git vertina pažodžiui).
  */
 const WORKTREE_GITIGNORE_LINE = ".ag/worktrees/";
 
-function isWorktreeGitignoreCovered(content: string): boolean {
+function looksLikeWorktreeGitignoreLine(content: string): boolean {
   return content.split(/\r?\n/).some((line) => line.trim() === WORKTREE_GITIGNORE_LINE);
 }
 
 /**
- * Ar projekto `.gitignore` jau dengia worktree katalogą. Nesantis failas — `false` (nepadengta),
- * ne klaida: `nodeFsAdapter.readTextFileIfExists` praleidžia ENOENT/EISDIR/ENOTDIR ir grąžina
- * `undefined`. Kitos skaitymo klaidos (pvz. teisių) MESTOS toliau — jas pagauna `readSource`
+ * Ar worktree šaknis REALIAI ignoruojama. Tiesa viena ir ta pati visiems trims vartotojams —
+ * `git check-ignore` per `worktreeRootIsIgnored`, tas pats predikatas, kuriuo remiasi
+ * provisioning'as. Iki 112 čia buvo eilutės paieška su `trim()`, tad ` .ag/worktrees/` (priekinis
+ * tarpas) UI'ui atrodė „padengta", o git tokio šablono netaiko ir provisioning'as krisdavo.
+ *
+ * Nesantis `.gitignore`, ne-git medis ar neveikiantis šablonas — visi `false` (nepadengta), ne
+ * klaida. Kai git sako „ne", o eilutė faile vis dėlto yra, tai įvardijama žurnale: be to operatorius
+ * matytų „nepadengta" prie akivaizdžiai teisingai atrodančio failo. `readTextFileIfExists` praleidžia
+ * ENOENT/EISDIR/ENOTDIR; kitos skaitymo klaidos (pvz. teisių) MESTOS toliau — jas pagauna `readSource`
  * `ui-waves-view.ts` viduje ir degraduoja `worktree_gitignore` šaltinį, nepaliesdamas politikos.
  */
-async function readWorktreeGitignoreOk(absoluteGitignoreFile: string): Promise<boolean> {
+async function readWorktreeGitignoreOk(
+  projectRoot: string,
+  absoluteGitignoreFile: string,
+  logError: (message: string) => void,
+): Promise<boolean> {
+  if (await worktreeRootIsIgnored(projectRoot)) return true;
   const content = await nodeFsAdapter.readTextFileIfExists(absoluteGitignoreFile);
-  return content === undefined ? false : isWorktreeGitignoreCovered(content);
+  if (content !== undefined && looksLikeWorktreeGitignoreLine(content)) {
+    logError(
+      `worktree gitignore: '${WORKTREE_GITIGNORE_LINE}' eilutė yra ${absoluteGitignoreFile}, bet git jos netaiko (patikrink tarpus ir vėlesnius neigimo šablonus)`,
+    );
+  }
+  return false;
 }
 
 /**
@@ -109,7 +126,7 @@ async function readWorktreeGitignoreOk(absoluteGitignoreFile: string): Promise<b
  * `runtimeRoot`/`projectRoot` ir ateina jau absoliutūs, tad čia NĖRA nė vienos kelio aritmetikos
  * eilutės ir nė vieno lauko iš request'o.
  *
- * Trys sprendimai, kurie yra šio surišimo esmė:
+ * Keturi sprendimai, kurie yra šio surišimo esmė:
  *
  *   1. `readConfigFile` — `readTextFile`, o NE `readTextFileIfExists`. Nesamas konfigas privalo
  *      kristi (maršrutas paverčia jį 500 su žurnalo eilute): tyliai grąžinus `{}`, rašymas
@@ -117,10 +134,14 @@ async function readWorktreeGitignoreOk(absoluteGitignoreFile: string): Promise<b
  *   2. `readGitignore` — priešingai, `readTextFileIfExists`. Repozitorija be `.gitignore` yra
  *      normali būsena, ir įjungimas ten teisingai sukuria failą su viena eilute (`undefined`
  *      use case'e virsta `""`), o ne 500.
- *   3. Idempotentiškumas gyvena use case'e (`hasWorktreeGitignoreLine`), ne čia: pakartotinis
+ *   3. Idempotentiškumas gyvena use case'e (`ensureWorktreeRootIgnored`), ne čia: pakartotinis
  *      `enabled: true` iki `writeGitignore` net nedaeina, tad adapteris rašo tik tada, kai
  *      turinys tikrai keičiasi. Konfigo įrašymas irgi idempotentiškas — `writeTextFile` yra
  *      atominis pilnas perrašymas ta pačia serializacija.
+ *   4. `rootIsIgnored` — TA PATI `worktreeRootIsIgnored` funkcija, kurią naudoja skaitymo pusė
+ *      (`readWorktreeGitignoreOk` aukščiau) ir provisioning'as. Trys skirtingi „padengta"
+ *      apibrėžimai buvo 112 radinys: perjungiklis grąžindavo `gitignore_ok: true` net tada, kai
+ *      git šaknies neignoravo. Vienas predikatas vienoje vietoje yra visas to defekto taisymas.
  *
  * `log` eina į `logError`, nes kito kanalo `UiRouterAdapterInput` neturi. Tai sąmoninga: politikos
  * perjungimas yra retas operatoriaus veiksmas, kurio pėdsakas serverio žurnale vertingesnis už
@@ -132,6 +153,7 @@ function worktreePolicyPorts(input: UiRouterAdapterInput): WorktreePolicyPorts {
     writeConfigFile: (absolutePath, content) => nodeFsAdapter.writeTextFile(absolutePath, content),
     readGitignore: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
     writeGitignore: (absolutePath, content) => nodeFsAdapter.writeTextFile(absolutePath, content),
+    rootIsIgnored: (projectRoot) => worktreeRootIsIgnored(projectRoot),
     log: (message) => input.logError(message),
   };
 }
@@ -226,7 +248,8 @@ export function uiRouterPorts(input: UiRouterAdapterInput): UiRouterPorts {
               { readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath) },
               absoluteConfigFile,
             ).then((policy) => policy.enabled),
-          readWorktreeGitignoreOk: (absoluteGitignoreFile) => readWorktreeGitignoreOk(absoluteGitignoreFile),
+          readWorktreeGitignoreOk: (absoluteGitignoreFile) =>
+            readWorktreeGitignoreOk(input.projectRoot, absoluteGitignoreFile, (message) => input.logError(message)),
           logError: (message) => input.logError(message),
         },
         projectRoot: input.projectRoot,

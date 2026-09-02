@@ -7,6 +7,8 @@
 //      yra 400, o ne tyliai praleistas: 200 su nepritaikytu `root` klientui yra melas.
 //   2. Be surišto porto maršruto NĖRA (`undefined`), o ne tuščias „ok".
 //   3. Netinkamas kūnas nepalieka NĖ VIENO rašymo — 400 turi būti bevaisis.
+//   4. `gitignore_ok` klientui keliauja iš `rootIsIgnored` porto (`git check-ignore` tiesa), o ne
+//      iš literalo — 112.
 
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -36,7 +38,9 @@ function unusedPort(name: string): () => never {
   };
 }
 
-function worktreePolicyWorld(options: { withPorts?: boolean; config?: string } = {}): World {
+function worktreePolicyWorld(
+  options: { withPorts?: boolean; config?: string; ignored?: boolean; gitSeesAppend?: boolean } = {},
+): World {
   const files = new Map<string, string>();
   files.set(CONFIG_FILE, options.config ?? '{\n  "enabled": false,\n  "root": ".ag/worktrees"\n}\n');
   const world: World = {
@@ -47,6 +51,9 @@ function worktreePolicyWorld(options: { withPorts?: boolean; config?: string } =
     logs: [],
     deps: undefined as unknown as UiRouterDeps,
   };
+
+  // Fake `git check-ignore`: numatytai šaknis dar nepadengta, o įrašyta eilutė ją padengia.
+  const git = { ignored: options.ignored ?? false };
 
   const worktreePolicy: WorktreePolicyPorts = {
     readConfigFile: (file) => {
@@ -67,7 +74,12 @@ function worktreePolicyWorld(options: { withPorts?: boolean; config?: string } =
     writeGitignore: (file, content) => {
       world.writes.push(`gitignore:${file}`);
       files.set(file, content);
+      if (options.gitSeesAppend !== false) git.ignored = true;
       return Promise.resolve();
+    },
+    rootIsIgnored: (projectRoot) => {
+      world.reads.push(`check-ignore:${projectRoot}`);
+      return Promise.resolve(git.ignored);
     },
     log: (message) => world.logs.push(message),
   };
@@ -136,6 +148,23 @@ test("įjungimas: 200 su { enabled, gitignore_ok } ir įrašytu konfigu", async 
     enabled: true,
     root: ".ag/worktrees",
   });
+  assert.ok(
+    world.reads.some((entry) => entry === `check-ignore:${ROOT}`),
+    "gitignore_ok gimsta iš check-ignore porto, o ne iš literalo",
+  );
+});
+
+// 112: iki šio task'o `gitignore_ok` buvo hardcode'intas `true`, tad maršrutas grąžindavo
+// „padengta" net tada, kai git šaknies neignoravo ir provisioning'as būtų kritęs. Čia fake git
+// eilutės nepamato NET po įrašymo — atsakymas privalo tai parodyti, o ne nuraminti.
+test("įjungimas: gitignore_ok seka check-ignore atsakymą, ne įrašymo faktą", async () => {
+  const world = worktreePolicyWorld({ gitSeesAppend: false });
+
+  const response = await handlePost(world.deps, ROUTE, postBody({ enabled: true }));
+
+  assert.equal(response?.kind === "json" ? response.status : undefined, 200);
+  assert.deepEqual(jsonBody(response), { enabled: true, gitignore_ok: false });
+  assert.ok(world.writes.includes(`gitignore:${GITIGNORE_FILE}`), "eilutė vis tiek pridedama");
 });
 
 test("įjungimas: `.gitignore` gauna worktree eilutę, jei jos nebuvo", async () => {
@@ -150,7 +179,7 @@ test("įjungimas: `.gitignore` gauna worktree eilutę, jei jos nebuvo", async ()
 });
 
 test("išjungimas: `.gitignore` neskaitomas ir nerašomas", async () => {
-  const world = worktreePolicyWorld({ config: '{ "enabled": true }' });
+  const world = worktreePolicyWorld({ config: '{ "enabled": true }', ignored: true });
 
   const response = await handlePost(world.deps, ROUTE, postBody({ enabled: false }));
 

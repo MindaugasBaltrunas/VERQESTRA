@@ -131,7 +131,7 @@ export function BenchmarkPage({ activeRoute, onNavigate }: Props) {
         <div className="page-heading">
           <div>
             <p className="page-eyebrow">{t("Engineering intelligence")}</p>
-            <h2>{t("Benchmark")}</h2>
+            <h1>{t("Benchmark")}</h1>
             <p>{t("Authoritative benchmark verdict, reliability, and baseline comparison for VERQESTRA.")}</p>
           </div>
         </div>

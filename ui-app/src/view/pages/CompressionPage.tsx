@@ -154,7 +154,7 @@ export function CompressionPage({ activeRoute, onNavigate }: Props) {
         <div className="page-heading">
           <div>
             <p className="page-eyebrow">{t("Engineering intelligence")}</p>
-            <h2>{t("Compression")}</h2>
+            <h1>{t("Compression")}</h1>
             <p>{t("Context compression flags and the shadow measurements behind them.")}</p>
           </div>
         </div>

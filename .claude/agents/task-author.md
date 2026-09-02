@@ -22,7 +22,11 @@ nesutaria, laimi etalonas.
    - Grep'u surask, kur REALIAI gyvena keičiamas elgesys (mygtukai gali
      gyventi vaikiniame komponente, HTTP keitimas liečia route model ir
      error mapping — žr. etalono taisykles);
-   - suderink testų failų vardus su esama `src/tests/` konvencija.
+   - suderink testų failų vardus su esama `src/tests/` konvencija;
+   - kiekvienos konstantos ar literalo, kurį task'as liepia KEISTI
+     (pvz. `CONTEXT_CACHE_VERSION`, `codeIndexVersion`), vardą Grep'ink
+     per `src/tests/` — testai, tvirtinantys reikšmę literalu, eina į
+     `## Failai` (etalono 9 taisyklė; task 138 dėl to parkavosi).
 3. **Numeracija**: naujas numeris = didžiausias esamas queue/done/human-review
    numeris + 1 (patikrink Glob'u per visus bucket'us, ne tik queue).
 4. **Priklausomybės**: tik į queue/done narius (patikrink, KUR failas

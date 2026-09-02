@@ -63,6 +63,15 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
   const running = [...treeRunning, ...streamRunning].map((entry) =>
     entry.slot ? `${entry.taskId} (${t("Stream")} ${entry.slot.index})` : entry.taskId,
   );
+  // Srautų task'ai, kurių NĖRA nė vienos kortelės peržiūroje: serveris į kortelę deda tik
+  // pirmus N eilės failų, o worktree slot'o task'as pagrindiniame medyje tebeguli `queue` — dažnai
+  // už tos N ribos. Tada „Vykdoma" antraštė jį įvardija, bet lentoje jis neturi VIETOS
+  // (2026-09-02 operatoriaus radinys: „suvestinė nerodo jų pozicijos"). Tokie task'ai
+  // prisegami eilės kortelės viršuje su srauto ženkleliu — jie yra eilės failai, tik vykdomi.
+  const previewed = new Set(buckets.flatMap((bucket) => bucket.tasks.map(taskIdOf)));
+  const pinnedLive = [...liveSlots]
+    .sort((a, b) => a.index - b.index)
+    .filter((slot) => !previewed.has(slot.taskId));
 
   return (
     <section className="panel">
@@ -85,6 +94,7 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
             key={bucket.name}
             bucket={bucket}
             liveByTask={liveByTask}
+            pinnedLive={bucket.isQueue ? pinnedLive : []}
             onOpenFolder={onOpenFolder}
             onUpload={onUpload}
             onLoadTasks={onLoadTasks}
@@ -98,12 +108,14 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
 type BucketCardProps = {
   bucket: WorkflowBucketView;
   liveByTask: LiveByTask;
+  /** Srautų task'ai be vietos peržiūroje — rodomi kortelės viršuje (tik eilės kortelei). */
+  pinnedLive: readonly WorkflowLiveSlot[];
   onOpenFolder: (bucket: string) => void;
   onUpload: (files: File[]) => Promise<void>;
   onLoadTasks: (bucket: string) => Promise<string[]>;
 };
 
-function BucketCard({ bucket, liveByTask, onOpenFolder, onUpload, onLoadTasks }: BucketCardProps) {
+function BucketCard({ bucket, liveByTask, pinnedLive, onOpenFolder, onUpload, onLoadTasks }: BucketCardProps) {
   const { t } = useI18n();
   const upload = useQueueUploadController(onUpload);
   const [allTasks, setAllTasks] = useState<string[] | null>(null);
@@ -111,8 +123,10 @@ function BucketCard({ bucket, liveByTask, onOpenFolder, onUpload, onLoadTasks }:
   const [loadError, setLoadError] = useState<string | null>(null);
   const isRunning = bucket.variant === "live" && bucket.tasks.length > 0;
   const displayedTasks = allTasks ?? bucket.tasks;
+  // Pilname („Show all") sąraše srautų task'ai jau yra savo vietoje — prisegti tik peržiūroje.
+  const pinned = allTasks === null ? pinnedLive.filter((slot) => !displayedTasks.some((task) => taskIdOf(task) === slot.taskId)) : [];
   // Eilėje gulintys, bet sraute jau vykdomi: pasakoma kortelėje, o ne slepiama už skaičiaus.
-  const liveInBucket = displayedTasks.filter((task) => liveByTask.has(taskIdOf(task))).length;
+  const liveInBucket = displayedTasks.filter((task) => liveByTask.has(taskIdOf(task))).length + pinned.length;
 
   // Išskleistas („Show all") sąrašas turi sekti realią būseną. Anksčiau `allTasks` niekada
   // nebūdavo nunulinamas, tad kortelė rodydavo tų pačių senų užduočių sąrašą dar ilgai po to,
@@ -151,7 +165,17 @@ function BucketCard({ bucket, liveByTask, onOpenFolder, onUpload, onLoadTasks }:
         <span className={`badge ${badgeClass[bucket.variant]}`}>{bucket.totalTasks}</span>
       </div>
       <ul className="task-list">
-        {displayedTasks.length > 0 ? (
+        {pinned.map((slot) => {
+          const label = taskFileLabel(`${slot.taskId}.md`);
+          return (
+            <li key={`live:${slot.taskId}`} title={fill(t("Running in stream {stream}"), { stream: slot.index })}>
+              {label.id && <b className="task-id">{label.id}</b>}
+              <span className="task-name">{label.name}</span>
+              <span className="badge status-live">{`${t("Stream")} ${slot.index}`}</span>
+            </li>
+          );
+        })}
+        {displayedTasks.length > 0 || pinned.length > 0 ? (
           displayedTasks.map((task) => {
             const label = taskFileLabel(task);
             const live = liveByTask.get(taskIdOf(task));

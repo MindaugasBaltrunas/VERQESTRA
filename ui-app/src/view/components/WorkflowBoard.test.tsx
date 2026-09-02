@@ -86,6 +86,38 @@ describe("WorkflowBoard", () => {
     expect(screen.getByText("2 of these are running in worktree streams right now")).toBeInTheDocument();
   });
 
+  // 2026-09-02 (operatoriaus radinys): du srautai dirbo, o „suvestinė nerodė jų pozicijos" —
+  // serveris į eilės kortelę deda tik pirmus N failų, ir gyvi task'ai liko už tos ribos. Jie
+  // prisegami kortelės viršuje su srauto ženkleliu ir skaičiuojami suvestinėje.
+  it("pins live stream tasks at the top of the queue card when the preview does not include them", () => {
+    render(
+      <WorkflowBoard
+        buckets={[
+          { name: "queue", tasks: ["101-a.md", "107-b.md"], totalTasks: 25, variant: "neutral", description: "Waiting to start", isQueue: true },
+          { name: "done", tasks: ["100-x.md"], totalTasks: 1, variant: "good", description: "Completed", isQueue: false },
+        ]}
+        liveSlots={[
+          { workerId: "w2", index: 2, taskId: "152-a-02-koordinatorius" },
+          { workerId: "w1", index: 1, taskId: "153-a-02-scheduling" },
+        ]}
+        onOpenFolder={vi.fn()}
+        onUpload={vi.fn()}
+        onLoadTasks={vi.fn()}
+      />,
+    );
+
+    const queueItems = screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    // Prisegti srautai eina PIRMI ir srauto numerio tvarka; laukiantys — po jų. Etiketė
+    // (`taskFileLabel`) skaido id ir vardą, tad tikrinamas numeris ir srauto ženklelis.
+    expect(queueItems[0]).toMatch(/^153.*Stream 1$/);
+    expect(queueItems[1]).toMatch(/^152.*Stream 2$/);
+    expect(queueItems[2]).toMatch(/^101/);
+    expect(screen.getByTitle("Running in stream 1")).toBeInTheDocument();
+    expect(screen.getByText("2 of these are running in worktree streams right now")).toBeInTheDocument();
+    // Antraštė toliau įvardija abu.
+    expect(screen.getByText("153-a-02-scheduling (Stream 1), 152-a-02-koordinatorius (Stream 2)")).toBeInTheDocument();
+  });
+
   it("keeps the old running line when no stream information is available", () => {
     render(
       <WorkflowBoard

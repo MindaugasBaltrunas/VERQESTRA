@@ -210,8 +210,8 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
-    10,
-    "pakelta dešimtą kartą: `code_context.symbol_hypothetical_src_chars` (task 089)",
+    11,
+    "pakelta vienuoliktą kartą: parseAgentBlock proza-vs-role fix'as (task 138)",
   );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,

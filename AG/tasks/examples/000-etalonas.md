@@ -97,6 +97,15 @@ Draudžiama:
 >    `ui-app/src/model/types.ts`, `ui-app/src/model/api.ts`. Planuok UI
 >    task'ų partijas taip, kad vienu metu eilėje stovėtų daugiausia VIENAS
 >    hotspot'us liečiantis task'as, o kiti tuo metu — be jų.
+> 9. PIN'INANTYS TESTAI: jei task'as keičia reikšmę, kurią testas tvirtina
+>    literalu, tas testas PRIVALO būti sąraše — kitaip vykdytojas jį
+>    pataiso (kitaip `pnpm test` raudonas), diagnozė mato „outside allowed
+>    paths", o rollback'as jau užcommit'into darbo negrąžina ir task'as
+>    parkuojasi. Žinomi atvejai: `CONTEXT_CACHE_VERSION` kėlimas VISADA
+>    liečia `src/tests/context-pack-code-index-identity.test.ts` ir
+>    `src/tests/context-pack-guards.test.ts` (task 138, 2026-09-02);
+>    `codeIndexVersion` — tą patį identity testą. Prieš deklaruodamas
+>    Grep'ink keičiamos konstantos vardą per `src/tests/`.
 
 ## Veiksmas
 - <žingsnis su vieta kode: failas, funkcija, ką keisti>

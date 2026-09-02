@@ -57,6 +57,16 @@ Leidžiama:
   realia fraze)
 - `src/application/context-pack/context-cache-model.ts` (TIK
   `CONTEXT_CACHE_VERSION` kėlimas su komentaro eilute apie priežastį)
+- `src/tests/context-pack-code-index-identity.test.ts` (pin'ina
+  `CONTEXT_CACHE_VERSION` literalu)
+- `src/tests/context-pack-guards.test.ts` (pin'ina `CONTEXT_CACHE_VERSION`
+  literalu)
+
+> 2026-09-02 scope legalizuotas po diagnozės „changed files outside allowed
+> paths": abu testai tvirtina keliamą versiją literalu, tad be jų sąraše
+> vykdytojas negali gauti žalio `pnpm test`. Darbas iš šakos
+> `ag/worker/6dc12a0b-…/138-…-83923a9a/a1` (commit 21ff3c6) perkeltas į main
+> rankiniu būdu; etalono 9 taisyklė uždaro klasę.
 
 Draudžiama:
 - `ui-app/**` (UI pusė teisinga — renderina gautą grandinę; jokių hotspot

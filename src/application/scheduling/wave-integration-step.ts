@@ -215,6 +215,18 @@ export function createIntegrationStepRunner(
     const taskFileOutcome = await settleTaskFile(step, preMergeHead);
     if (taskFileOutcome === undefined) return;
 
+    try {
+      const harvested = await ports.collectWorktreeTelemetry({ worktreePath: layout.relativePath, task_id: step.task_id });
+      if (harvested.appended > 0 || harvested.detail !== "") {
+        await ports.safeLog(
+          `INTEGRATION TELEMETRY HARVESTED: task=${step.task_id} appended=${harvested.appended}` +
+            `${harvested.detail === "" ? "" : ` detail=${harvested.detail}`}`,
+        );
+      }
+    } catch (error) {
+      await ports.safeLog(`INTEGRATION TELEMETRY HARVEST FAILED: task=${step.task_id}: ${describeError(error)}`);
+    }
+
     let cleanup: WorktreeCleanupOutcome;
     try {
       cleanup = await ports.cleanupWorktree({ identity, lease: step.lease, branch: layout.branch });

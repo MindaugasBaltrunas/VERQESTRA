@@ -73,6 +73,13 @@ export type WaveIntegrationPorts = {
   pushPrimaryBranch: () => Promise<{ ok: boolean; branch?: string; detail?: string }>;
   relocateTask: (taskId: string, bucket: "done" | "human-review") => Promise<TaskRelocation>;
   restoreDoneCopy: (input: { taskId: string; preMergeHead: string | undefined }) => Promise<DoneCopyRestoreOutcome>;
+  /**
+   * Vaiko worktree telemetrijos (`context-size.jsonl`, `token-usage.jsonl`) eilučių perkėlimas
+   * į pagrindinio medžio žurnalus PRIEŠ `cleanupWorktree` — kitaip matavimai dingsta kartu su
+   * kopija. NIEKADA nemeta ir NIEKADA neblokuoja integracijos — ta pati taisyklė kaip
+   * `safeLog`/`safeEvent`.
+   */
+  collectWorktreeTelemetry: (input: { worktreePath: string; task_id: string }) => Promise<{ appended: number; detail: string }>;
   cleanupWorktree: (input: { identity: WorktreeIdentity; lease: WorkerLease; branch: string }) => Promise<WorktreeCleanupOutcome>;
   releaseLease: (leaseId: string) => Promise<LeaseReleaseOutcome>;
 };

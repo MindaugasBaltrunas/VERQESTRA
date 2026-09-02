@@ -266,6 +266,35 @@ test("worker integration: quiescent full path parks failures and unowned copies,
   assert.deepEqual(plan.release_lease_ids, [okLease.lease_id]);
 });
 
+// 148-b-03: 2026-09-01 21:17-21:31 dvidešimt task'ų atsidūrė human-review vien dėl Claude
+// usage limito — infra baigtis su `worktree_path` buvo parkuojama lygiai kaip tikra
+// task'o nesėkmė. Infra baigtis NIEKADA nėra task-failed parkas.
+test("worker integration: quiescent infrastructure outcome is neither parked nor integrated", () => {
+  const checkpoint = evaluateIntegrationCheckpoint({ live: [] });
+  assert.equal(checkpoint.tree_quiescent, true);
+
+  const plan = planWorkerIntegration({
+    checkpoint,
+    finished: [
+      {
+        worker_id: "w2",
+        worker_index: 2,
+        task_id: "0006",
+        file: "f.md",
+        attempt: 1,
+        succeeded: false,
+        worktree_path: "worktrees/w6",
+        infrastructure_exit_code: 75,
+      },
+    ],
+  });
+
+  assert.deepEqual(plan.park, [], "infra baigtis niekada nevirsta task-failed parku");
+  assert.deepEqual(plan.integrate, []);
+  assert.deepEqual(plan.skipped.map((entry) => [entry.task_id, entry.reason]), [["0006", "infrastructure"]]);
+  assert.match(plan.skipped[0]?.detail ?? "", /exit=75/, "žurnalo eilutė įvardija exit kodą");
+});
+
 test("worker integration: incremental merge needs a proven-disjoint write set against every live slot", () => {
   const live = [liveSlot("0001", "w1", 1, "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" })];
   const checkpoint = evaluateIntegrationCheckpoint({ live });
@@ -322,6 +351,35 @@ test("worker integration: failed worktree slot is parked incrementally, not defe
   assert.deepEqual(plan.park.map((entry) => [entry.task_id, entry.reason]), [["0005", "task-failed"]]);
   assert.deepEqual(plan.integrate, [], "nesėkmė niekada nevirsta merge žingsniu");
   assert.deepEqual(plan.release_lease_ids, [], "lease atlaisvinimas lieka tylos sprendimas");
+});
+
+// 148-b-03: ta pati infra-vs-task-failed riba, bet užimtame (ne tylos) cikle — būtent ten
+// 2026-09-01 dvidešimt task'ų sudegė per 15 minučių.
+test("worker integration: incremental infrastructure outcome stays in queue, not parked", () => {
+  const live = [liveSlot("0001", "w1", 1, "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" })];
+  const checkpoint = evaluateIntegrationCheckpoint({ live });
+  assert.equal(checkpoint.tree_quiescent, false, "kontrolė: medis neramus");
+
+  const infra = {
+    worker_id: "w2",
+    worker_index: 2,
+    task_id: "0007",
+    file: "g.md",
+    attempt: 1,
+    succeeded: false,
+    worktree_path: "worktrees/w7",
+    lease: lease("0007", "w2", { worktreePath: "worktrees/w7" }),
+    write_set: computeTaskWriteSet({ task_id: "0007", allowed_paths: ["src/g/"] }),
+    infrastructure_exit_code: 75,
+  };
+  const plan = planWorkerIntegration({ checkpoint, finished: [infra], live });
+  assert.equal(plan.ready, true, "infra praleidimas irgi yra priimtas sprendimas, ne laukimas tylos");
+  assert.equal(plan.mode, "incremental");
+  assert.deepEqual(plan.park, [], "infra baigtis niekada nevirsta task-failed parku");
+  assert.deepEqual(plan.integrate, [], "infra baigtis niekada netampa merge žingsniu");
+  assert.deepEqual(plan.skipped.map((entry) => [entry.task_id, entry.reason]), [["0007", "infrastructure"]]);
+  assert.match(plan.skipped[0]?.detail ?? "", /exit=75/, "žurnalo eilutė įvardija exit kodą");
+  assert.match(plan.reason, /infra=0007:infrastructure/);
 });
 
 test("measureParallelOverhead basics", () => {

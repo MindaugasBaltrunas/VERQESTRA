@@ -183,7 +183,12 @@ export async function runSpecPhase(input: SpecPhaseInput): Promise<SpecPhaseResu
     kept: selection.kept,
     warnings,
     // Apkarpyti fragmentai NESKAIČIUOJAMI: jie pack'e yra (jiems — `spec_fragment_truncated`).
-    droppedCount: candidates.unresolved.length + selection.dropped.length,
+    // `duplicate` numetimai IRGI neskaičiuojami (144-a): task'o autoriaus pakartotas ref'as
+    // nėra praradimas pagal apibrėžimą — turinys liko pack'e per PIRMĄJĮ paminėjimą. Jie ir
+    // toliau lieka `spec_fragment_warnings` (severity `redundant`), tik iškrenta iš metrikos.
+    droppedCount:
+      candidates.unresolved.length +
+      selection.dropped.filter(({ reason }) => reason !== "duplicate").length,
   };
 }
 

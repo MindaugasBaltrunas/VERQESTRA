@@ -108,8 +108,16 @@ const nonEmptyString = z.string().trim().min(1);
  *      incidentas 097 dispatch'e — UI grandinė rodė čipus iš sakinio žodžių). Keičiasi
  *      pack'o `agents` lauko TURINYS tam pačiam task tekstui, o `PACK_SEMANTICS_DESCRIPTOR`
  *      to nemato — grynai loginis parse pakeitimas.
+ * 12 — 2026-09-02, task 144-a (RAG auditas 7, radinys R2): `spec-phase.ts` `droppedCount`
+ *      nebeskaičiuoja `duplicate` numetimų — task'o pakartotas spec ref'as nėra praradimas,
+ *      turinys liko pack'e per pirmąjį paminėjimą. `spec_fragment_warnings` eilutė dublikatui
+ *      lieka nepakitusi (severity `redundant`, tekstas tas pats) — keičiasi TIK
+ *      `spec_dropped_count` skaičius. Be kėlimo v11 įrašas grąžintų DIDESNĮ skaičių tam
+ *      pačiam task'ui, nes senas skaičiavimas dublikatus laikė praradimu. Grynai loginis
+ *      pakeitimas — pack'o TURINYS kitam tam pačiam task'ui, o `PACK_SEMANTICS_DESCRIPTOR`
+ *      to nemato.
  */
-export const CONTEXT_CACHE_VERSION = 11;
+export const CONTEXT_CACHE_VERSION = 12;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

@@ -210,8 +210,8 @@ test("source slice freshness: konfliktuojantys to paties failo hash'ai yra PASEN
 test("context cache: semantikos deskriptorius prisegtas prie rakto (priminimas kelti versiją)", () => {
   assert.equal(
     CONTEXT_CACHE_VERSION,
-    11,
-    "pakelta vienuoliktą kartą: parseAgentBlock proza-vs-role fix'as (task 138)",
+    12,
+    "pakelta dvyliktą kartą: spec_dropped_count nebeskaičiuoja duplicate numetimų (task 144-a)",
   );
   assert.equal(
     PACK_SEMANTICS_DESCRIPTOR,

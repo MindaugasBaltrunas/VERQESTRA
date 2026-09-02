@@ -11,7 +11,7 @@
 
 import path from "node:path";
 import { readAgentActivity } from "../../interfaces/ui-model/agent-activity-reader.js";
-import type { AgentActivity } from "../../interfaces/ui-model/agent-activity.js";
+import { buildAgentActivity, type AgentActivity } from "../../interfaces/ui-model/agent-activity.js";
 import type { SseActiveAttempt, SseLiveSlotSource, SsePorts } from "../../interfaces/http/sse-service.js";
 import { waveSnapshotSchema } from "../../application/scheduling/wave-snapshot.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
@@ -83,7 +83,41 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
   return {
     fileMtimeMs: async (absolutePath) => (await nodeFsAdapter.fileMtimeMs(absolutePath)) ?? 0,
 
-    readGlobalActivity: () => readAgentActivity({ fs }, runtimeRoot),
+    /**
+     * Task 139-a-02: bazinis (ne-slot'inis) aktyvumas, kurį „Aktyvus vykdymas" panelė rodo, kai
+     * tėvas negali rezoliuoti bandymo pats. Numatytasis kritimas į `<runtimeRoot>/logs/claude-last.log`
+     * yra teisingas TIK kai tas failas realiai priklauso einamam vykdymui (ne-worktree dispatch —
+     * tada tėvas jį rašo pats, tad jis šviežias). Kai gyvas slot'as yra, bet tėvo bandymo
+     * rezoliucija nepavyksta (worktree dispatch), tas pats failas yra ANKSTESNIO NE-worktree
+     * paleidimo fosilija — jis rodomas kaip veiklos turinys, nors su šiuo vykdymu neturi nieko
+     * bendro. Todėl čia PAKARTOJAMA ta pati rezoliucija kaip `readActiveAttempt`: radus gyvą
+     * worktree lease, turinys imamas iš JO srauto; nesant lease ar failo — grąžinama TUŠČIA
+     * veikla (žinomas tik `taskId`/`status`, jokio spėjamo turinio), o ne fosilija.
+     */
+    async readGlobalActivity(): Promise<AgentActivity> {
+      const snapshot = await readWaveSnapshotLiveSlots(runtimeRoot);
+      const taskId = snapshot?.live_slots[0]?.task_id;
+      if (taskId === undefined) return readAgentActivity({ fs }, runtimeRoot);
+
+      const resolved = await resolveActiveAttempt({ taskId, projectRoot, runtimeRoot });
+      if (resolved.ok) return readAgentActivity({ fs }, runtimeRoot);
+
+      const worktree = await worktreeLiveSources(taskId);
+      if (worktree === undefined) {
+        return buildAgentActivity({
+          taskContent: "",
+          logContent: "",
+          session: { taskId, status: "running" },
+          now: new Date(),
+        });
+      }
+      return readAgentActivity({ fs }, runtimeRoot, {
+        logPath: worktree.logPath,
+        taskFilePath: worktree.taskFilePath,
+        session: { taskId, status: "running" },
+        liveExecution: true,
+      });
+    },
 
     // Slot'o aktyvumas imamas iš JO bandymo artefaktų, o sesijos tapatybė paduodama tiesiogiai:
     // globalus `claude-resume.json` aprašo KITĄ slot'ą, tad jo būsena čia būtų melas.

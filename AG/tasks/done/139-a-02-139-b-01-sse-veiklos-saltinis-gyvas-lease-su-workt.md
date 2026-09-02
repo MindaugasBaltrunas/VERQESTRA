@@ -35,7 +35,18 @@ Draudžiama:
 ## Stop
 Commit'ink, kai abi patikros žalios. Stop ir klausk, jei: (1) reikėtų keisti `sse-service.ts` watch sąrašo formą; (2) architect nuspręstų, kad teisingas sprendimas yra gyvas TEE į tėvo attempt kelią — tai kitas scope.
 
+> 2026-09-02 uždaryta rankiniu būdu. Vykdytojas pakeitimą (`sse-adapters.ts`
+> `readGlobalActivity`) padarė ir diagnozė buvo `done`, bet worktree Stop
+> hook'as užcommit'ino tik task failą (task 141 klasė) — darbas liko
+> `refs/verqestra/preserved/70b252e2…` ir bėgimas parkuotas „Claude did not
+> create a new commit". Diff'as perkeltas į main. Vykdytojas testų
+> `composition-ui-sse-live-updates.test.ts` NEPRIDĖJO — padengimas
+> `readGlobalActivity` worktree šakai lieka atviras (žr. Neįtraukta).
+
 ## Neįtraukta
+- `readGlobalActivity` testai (gyvas worktree lease → turinys iš kopijos;
+  be šaltinio → tuščia veikla) — nepadaryta 2026-09-02 bėgime; atskiras
+  task'as.
 - Dashboard stamp'o šaltinis — 139-c-01.
 - Gyvas TEE į tėvo attempt (`claude-last-log.ts`, `dispatch-adapters.ts`).
 - Bucket būsenos matomumas (137) ir verdikto propagacija (135).

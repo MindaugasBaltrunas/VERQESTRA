@@ -70,7 +70,7 @@ function world(overrides: Partial<SlotTaskRunnerPorts> = {}): World {
     },
     runChild: () => {
       calls.child += 1;
-      return Promise.resolve(true);
+      return Promise.resolve({ status: "succeeded" });
     },
     resolveWorktree: (relative) => `D:/repo/${relative}`,
     readLease: () => Promise.resolve(lease()),
@@ -98,9 +98,9 @@ function world(overrides: Partial<SlotTaskRunnerPorts> = {}): World {
 
 test("pirminis slot'as eina IN-PROCESS keliu be lease žingsnių", async () => {
   const w = world();
-  const ok = await createSlotTaskRunner(w.ports)(primarySlot());
+  const outcome = await createSlotTaskRunner(w.ports)(primarySlot());
 
-  assert.equal(ok, true);
+  assert.deepEqual(outcome, { status: "succeeded" });
   assert.equal(w.calls.inProcess, 1);
   assert.equal(w.calls.child, 0);
   assert.equal(w.calls.heartbeats, 0, "pirminiam slot'ui nuosavybės klausimo nėra");
@@ -109,50 +109,50 @@ test("pirminis slot'as eina IN-PROCESS keliu be lease žingsnių", async () => {
 
 test("neperskaitomas lease store NĖRA „lease nėra“", async () => {
   const w = world({ readLease: () => Promise.reject(new Error("EIO")) });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.equal(w.calls.child, 0);
   assert.ok(w.logs[0]?.includes("lease store neperskaitomas"));
 });
 
 test("nesutampantis `lease_id` vaiko NEPALEIDŽIA", async () => {
   const w = world();
-  const ok = await createSlotTaskRunner(w.ports)(slot({ lease_id: "kitas" }));
+  const outcome = await createSlotTaskRunner(w.ports)(slot({ lease_id: "kitas" }));
 
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.ok(w.logs[0]?.includes("lease_id mismatch"));
 });
 
 test("svetimo task'o lease atmetamas TIKSLIU palyginimu", async () => {
   const w = world({ readLease: () => Promise.resolve(lease({ taskId: "0043" })) });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.ok(w.logs[0]?.includes("lease-task-mismatch"));
 });
 
 test("atlaisvintas lease vaiko neleidžia", async () => {
   const w = world({ readLease: () => Promise.resolve(lease({ status: "released" })) });
-  assert.equal(await createSlotTaskRunner(w.ports)(slot()), false);
+  assert.deepEqual(await createSlotTaskRunner(w.ports)(slot()), { status: "task-failed" });
   assert.ok(w.logs[0]?.includes("status=released"));
 });
 
 test("heartbeat'o atsisakymas sustabdo PRIEŠ bootstrap'ą", async () => {
   const w = world({ heartbeat: () => Promise.resolve({ status: "denied", reason: "foreign-lease" }) });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.equal(w.calls.prepared, 0, "kopija neruošiama be nuosavybės");
   assert.ok(w.logs[0]?.includes("heartbeat denied: foreign-lease"));
 });
 
 test("bootstrap'o klaida yra `ok=false`, o ne metimas", async () => {
   const w = world({ prepareWorktree: () => Promise.reject(new Error("dist nerastas")) });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
   // Metimas nutrauktų visą bangą, nors kitas lane'as dirba nepriklausomai.
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.equal(w.calls.child, 0);
   assert.ok(w.logs.some((line) => line.includes("worktree runtime bootstrap nepavyko: dist nerastas")));
   assert.equal(w.calls.released, 1, "lease atlaisvinamas ir po bootstrap klaidos");
@@ -166,9 +166,9 @@ test("task failo vartai: portas praneša „yra“ — vaikas paleidžiamas kaip
       return Promise.resolve({ status: "ok" });
     },
   });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, true);
+  assert.deepEqual(outcome, { status: "succeeded" });
   assert.equal(w.calls.child, 1);
   // Vartai gauna TĄ PATĮ kopijos kelią, kurį gaus vaikas — kitaip jie tikrintų kitą medį.
   assert.deepEqual(seen, [{ taskId: "0042", worktreeAbs: "D:/repo/.worktrees/w2" }]);
@@ -184,9 +184,9 @@ test("task failo NĖRA kopijoje: atkūrimas uždaro lenktynes BE `task-failed` k
       return Promise.resolve({ status: "ok" });
     },
   });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, true, "`false` čia reikštų `task-failed` parką už aprūpinimo klaidą");
+  assert.deepEqual(outcome, { status: "succeeded" }, "`task-failed` čia reikštų parką už aprūpinimo klaidą");
   assert.equal(w.calls.child, 1);
   assert.deepEqual(restored, ["D:/repo/AG/tasks/active/0042.md"]);
   assert.equal(
@@ -200,9 +200,9 @@ test("task failo nėra NIEKUR: vaikas NEPALEIDŽIAMAS, o priežastis ĮVARDIJAMA
   const w = world({
     ensureTaskFileInWorktree: () => Promise.resolve({ status: "missing", reason: "šaltinio nėra pirminiame medyje" }),
   });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.equal(w.calls.child, 0, "ENOENT vaike duotų exit 74 ir melagingą diagnozę");
   assert.equal(w.calls.prepared, 0, "vartai pigūs — bootstrap'as už jų");
   assert.ok(w.logs[0]?.includes("task-file-missing: šaltinio nėra pirminiame medyje"));
@@ -211,16 +211,16 @@ test("task failo nėra NIEKUR: vaikas NEPALEIDŽIAMAS, o priežastis ĮVARDIJAMA
 
 test("task failo vartų metimas bangos nenutraukia", async () => {
   const w = world({ ensureTaskFileInWorktree: () => Promise.reject(new Error("EPERM")) });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, false);
+  assert.deepEqual(outcome, { status: "task-failed" });
   assert.equal(w.calls.child, 0);
   assert.ok(w.logs[0]?.includes("task-file-missing: vartai krito: EPERM"));
 });
 
 test("pirminis slot'as task failo vartų NEKVIEČIA", async () => {
   const w = world();
-  assert.equal(await createSlotTaskRunner(w.ports)(primarySlot()), true);
+  assert.deepEqual(await createSlotTaskRunner(w.ports)(primarySlot()), { status: "succeeded" });
 
   // In-process kelias dirba pirminiame medyje — ten failas yra pagal apibrėžimą.
   assert.equal(w.calls.ensured, 0);
@@ -230,9 +230,9 @@ test("pirminis slot'as task failo vartų NEKVIEČIA", async () => {
 test("nepririštas task failo portas naujos gedimo klasės nesukuria", async () => {
   const w = world();
   const { ensureTaskFileInWorktree: _unbound, ...withoutPort } = w.ports;
-  const ok = await createSlotTaskRunner(withoutPort)(slot());
+  const outcome = await createSlotTaskRunner(withoutPort)(slot());
 
-  assert.equal(ok, true);
+  assert.deepEqual(outcome, { status: "succeeded" });
   assert.equal(w.calls.child, 1);
 });
 
@@ -241,16 +241,16 @@ test("lease atlaisvinamas po KIEKVIENOS baigties", async () => {
   await createSlotTaskRunner(success.ports)(slot());
   assert.equal(success.calls.released, 1);
 
-  const failure = world({ runChild: () => Promise.resolve(false) });
-  assert.equal(await createSlotTaskRunner(failure.ports)(slot()), false);
+  const failure = world({ runChild: () => Promise.resolve({ status: "task-failed", code: 1 }) });
+  assert.deepEqual(await createSlotTaskRunner(failure.ports)(slot()), { status: "task-failed", code: 1 });
   assert.equal(failure.calls.released, 1);
 });
 
 test("atlaisvinimo nesėkmė vaiko rezultato NEUŽDENGIA", async () => {
   const w = world({ release: () => Promise.reject(new Error("store užrakintas")) });
-  const ok = await createSlotTaskRunner(w.ports)(slot());
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
 
-  assert.equal(ok, true, "vaikas pavyko — atlaisvinimo klaida to nekeičia");
+  assert.deepEqual(outcome, { status: "succeeded" }, "vaikas pavyko — atlaisvinimo klaida to nekeičia");
   assert.ok(w.logs.some((line) => line.includes("LEASE RELEASE FAILED")));
 });
 
@@ -258,6 +258,24 @@ test("atsisakytas atlaisvinimas ĮVARDIJAMAS", async () => {
   const w = world({ release: () => Promise.resolve({ status: "denied", reason: "stale-token" }) });
   await createSlotTaskRunner(w.ports)(slot());
   assert.ok(w.logs.some((line) => line.includes("LEASE RELEASE DENIED") && line.includes("stale-token")));
+});
+
+test("runChild baigtis keliauja per runner NEPAKEISTA: succeeded", async () => {
+  const w = world({ runChild: () => Promise.resolve({ status: "succeeded" }) });
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
+  assert.deepEqual(outcome, { status: "succeeded" });
+});
+
+test("runChild baigtis keliauja per runner NEPAKEISTA: task-failed (ne-infra nenulinis kodas)", async () => {
+  const w = world({ runChild: () => Promise.resolve({ status: "task-failed", code: 1 }) });
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
+  assert.deepEqual(outcome, { status: "task-failed", code: 1 });
+});
+
+test("runChild baigtis keliauja per runner NEPAKEISTA: infrastructure (exit 75) NEKOLAPSUOJA į task-failed", async () => {
+  const w = world({ runChild: () => Promise.resolve({ status: "infrastructure", code: 75 }) });
+  const outcome = await createSlotTaskRunner(w.ports)(slot());
+  assert.deepEqual(outcome, { status: "infrastructure", code: 75 });
 });
 
 test("vaiko aplinka NETURI nė vieno claim rakto", () => {

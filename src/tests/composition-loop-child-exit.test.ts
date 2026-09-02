@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatChildExitDiagnostics } from "../composition/loop/child-exit-diagnostics.js";
+import { classifyChildExitOutcome } from "../composition/loop/command.js";
+import { USAGE_LIMIT_EXIT_CODE } from "../shared/exit-codes.js";
 
 test("stderr yra: rašoma stderr uodega, exit kontekstas, be SILENT", () => {
   const message = formatChildExitDiagnostics({
@@ -136,4 +138,19 @@ test("signal pridedamas tik jei perduotas", () => {
     signal: "SIGTERM",
   });
   assert.match(withSignal, /child exit context: code=1 duration=10 signal=SIGTERM$/m);
+});
+
+test("classifyChildExitOutcome: code=0 → succeeded", () => {
+  assert.deepEqual(classifyChildExitOutcome(0), { status: "succeeded" });
+});
+
+test("classifyChildExitOutcome: ne-infra nenulinis kodas → task-failed su kodu", () => {
+  assert.deepEqual(classifyChildExitOutcome(1), { status: "task-failed", code: 1 });
+});
+
+test("classifyChildExitOutcome: USAGE_LIMIT_EXIT_CODE (75) → infrastructure, NE task-failed", () => {
+  assert.deepEqual(classifyChildExitOutcome(USAGE_LIMIT_EXIT_CODE), {
+    status: "infrastructure",
+    code: USAGE_LIMIT_EXIT_CODE,
+  });
 });

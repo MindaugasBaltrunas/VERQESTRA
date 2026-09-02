@@ -122,6 +122,53 @@ test("planSlotProvisioning targets missing-lease rejections, including the prima
   assert.deepEqual(provisioning.refused, []);
 });
 
+// Task 113: hard-cap atsisakymo `detail` anksčiau visada teigė „worker limitas jau
+// išduotas", nors niekas dar neišduota — tai buvo raundo aritmetikos (nextFreeIndex)
+// klaidingas pavadinimas. Du missing-lease kandidatai prie vieno granted (primary) slot'o:
+// pirmas gauna vienintelį šio raundo laisvą indeksą, antras turi krist su TIKRA priežastimi.
+test("planSlotProvisioning: hard-cap detail names the real reason, not a fabricated grant", () => {
+  const primary = candidate("0001", "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" });
+  const bareA = candidate("0002", "src/b/");
+  const bareB = candidate("0003", "src/c/");
+  const plan = planWorkerPool({ run_id: "r1", candidates: [primary, bareA, bareB], requested_workers: 2, now: NOW });
+  assert.equal(plan.mode, "sequential");
+  assert.deepEqual(
+    plan.rejected.map((entry) => [entry.task_id, entry.reason]),
+    [
+      ["0002", "missing-lease"],
+      ["0003", "missing-lease"],
+    ],
+    "kontrolė: du kandidatai atmesti dėl trūkstamo lease, primary jau turi savo slot'ą",
+  );
+
+  const provisioning = planSlotProvisioning({ plan });
+  assert.deepEqual(
+    provisioning.targets.map((target) => [target.task_id, target.worker_index]),
+    [["0002", 2]],
+    "pirmas missing-lease kandidatas gauna vienintelį šio raundo laisvą indeksą",
+  );
+  assert.equal(provisioning.refused.length, 1);
+  assert.equal(provisioning.refused[0]?.task_id, "0003");
+  assert.equal(provisioning.refused[0]?.reason, "hard-cap");
+  assert.equal(
+    provisioning.refused[0]?.detail,
+    "šiame raunde laisvas worker indeksas jau atiteko ankstesniam šio raundo kandidatui",
+    "detail nebeteigia 'jau išduotas' — niekas šiame raunde dar neišduota, indeksas tik rezervuotas",
+  );
+
+  const bothGranted: typeof plan = {
+    ...plan,
+    slots: [...plan.slots, { ...plan.slots[0]!, worker_index: 2, task_id: "0009", worker_id: "w2" }],
+  };
+  const noneFree = planSlotProvisioning({ plan: bothGranted });
+  assert.equal(noneFree.refused.length, 2, "abu missing-lease kandidatai atmetami, kai abu indeksai jau granted prieš raundą");
+  assert.equal(
+    noneFree.refused[0]?.detail,
+    "worker limitas 2 jau išduotas — laisvo slot'o indekso nebėra",
+    "kai VISI indeksai granted prieš raundą, tikroji priežastis lieka 'jau išduotas'",
+  );
+});
+
 test("resolveWorkerOutcomes: a missing outcome means still running (fail-closed)", () => {
   const primary = candidate("0001", "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" });
   const second = candidate("0002", "src/b/", { lease: lease("0002", "w2", { worktreePath: "worktrees/w2" }), worktree: "worktrees/w2" });

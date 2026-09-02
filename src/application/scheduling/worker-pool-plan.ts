@@ -242,7 +242,8 @@ export function planSlotProvisioning(input: { plan: WorkerPoolPlan }): SlotProvi
 
   const grantedIndexByTask = new Map(input.plan.slots.map((slot) => [slot.task_id, slot.worker_index]));
   const seen = new Set<string>();
-  let nextFreeIndex = input.plan.slots.length + 1;
+  const initialNextFreeIndex = input.plan.slots.length + 1;
+  let nextFreeIndex = initialNextFreeIndex;
 
   for (const rejection of input.plan.rejected) {
     if (rejection.reason !== "missing-lease") continue;
@@ -251,10 +252,18 @@ export function planSlotProvisioning(input: { plan: WorkerPoolPlan }): SlotProvi
 
     const granted = grantedIndexByTask.get(rejection.task_id);
     if (granted === undefined && nextFreeIndex > MAX_WORKERS) {
+      // Dvi skirtingos priežastys tos pačios `hard-cap` etiketės viduje: arba VISI
+      // indeksai jau buvo granted prieš šį raundą, arba laisvas indeksas šiame raunde
+      // buvo, bet jį jau paėmė ankstesnis missing-lease kandidatas šioje pačioje eilėje
+      // (žr. `nextFreeIndex` prieaugį žemiau) — niekas dar neišduota, tai raundo aritmetika.
+      const detail =
+        initialNextFreeIndex > MAX_WORKERS
+          ? `worker limitas ${MAX_WORKERS} jau išduotas — laisvo slot'o indekso nebėra`
+          : `šiame raunde laisvas worker indeksas jau atiteko ankstesniam šio raundo kandidatui`;
       refused.push({
         task_id: rejection.task_id,
         reason: "hard-cap",
-        detail: `worker limitas ${MAX_WORKERS} jau išduotas — laisvo slot'o indekso nebėra`,
+        detail,
       });
       continue;
     }

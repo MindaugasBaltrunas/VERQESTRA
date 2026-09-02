@@ -5,7 +5,7 @@
 // terminalinis bucket'as į `done` neperrašomas, nes tai panaikintų žmogaus sprendimą.
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -103,4 +103,41 @@ test("maketas grąžina santykinį kelią ir šaką", () => {
   const layout = adapters().resolveWorktreeLayout({ run_id: "r1", worker_id: "w2", task_id: "0002", attempt: 1 });
   assert.ok(layout.relativePath.includes("worktrees"));
   assert.ok(layout.branch.length > 0);
+});
+
+test("trūkstamas vaiko telemetrijos failas: appended=0 be klaidos", async () => {
+  const harvested = await adapters().collectWorktreeTelemetry({ worktreePath: "no-such-worktree", task_id: "0005" });
+  assert.deepEqual(harvested, { appended: 0, detail: "" });
+});
+
+test("vaiko telemetrija APPEND'inama į pagrindinio medžio žurnalą su dedup'u", async () => {
+  const worktreeRel = "worktree-telemetry-a";
+  const logsDir = path.join(root, worktreeRel, "vq", "logs");
+  await mkdir(logsDir, { recursive: true });
+  const line1 = JSON.stringify({ ts: "2026-09-02T10:00:00.000Z", task_id: "0005", attempt_id: "att-1", context_chars: 10 });
+  const line2 = JSON.stringify({ ts: "2026-09-02T10:00:01.000Z", task_id: "0005", attempt_id: "att-1", context_chars: 20 });
+  await writeFile(path.join(logsDir, "context-size.jsonl"), `${line1}\n${line2}\n`, "utf8");
+
+  const first = await adapters().collectWorktreeTelemetry({ worktreePath: worktreeRel, task_id: "0005" });
+  assert.equal(first.appended, 2);
+
+  const mainLog = await readFile(path.join(root, "vq", "logs", "context-size.jsonl"), "utf8");
+  assert.equal(mainLog.split("\n").filter((l) => l.trim() !== "").length, 2);
+
+  // Pakartotinis kvietimas su tomis pačiomis eilutėmis: dedup'as neprideda nieko antrą kartą.
+  const second = await adapters().collectWorktreeTelemetry({ worktreePath: worktreeRel, task_id: "0005" });
+  assert.deepEqual(second, { appended: 0, detail: "" });
+});
+
+test("neparsinama eilutė praleidžiama tyliai, su detale žurnale", async () => {
+  const worktreeRel = "worktree-telemetry-b";
+  const logsDir = path.join(root, worktreeRel, "vq", "logs");
+  await mkdir(logsDir, { recursive: true });
+  const good = JSON.stringify({ ts: "2026-09-02T11:00:00.000Z", task_id: "0006", attempt_id: "att-1" });
+  await writeFile(path.join(logsDir, "token-usage.jsonl"), `${good}\nnot-json\n`, "utf8");
+
+  const harvested = await adapters().collectWorktreeTelemetry({ worktreePath: worktreeRel, task_id: "0006" });
+  assert.equal(harvested.appended, 1);
+  assert.ok(harvested.detail.includes("token-usage.jsonl"));
+  assert.ok(harvested.detail.includes("1 neparsinama"));
 });

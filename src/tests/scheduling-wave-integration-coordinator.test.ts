@@ -56,7 +56,7 @@ type World = {
   ports: WaveIntegrationCoordinatorPorts;
   logs: string[];
   events: { event: string; reason?: string | undefined }[];
-  calls: { merged: string[]; rebuilds: number; pushes: number; cleanups: string[]; released: string[] };
+  calls: { merged: string[]; rebuilds: number; pushes: number; cleanups: string[]; released: string[]; order: string[] };
   parked: () => boolean;
 };
 
@@ -70,10 +70,11 @@ function world(options: {
   restoreOk?: boolean;
   locate?: () => Promise<"terminal-bucket" | "queue">;
   layoutThrows?: boolean;
+  collectWorktreeTelemetry?: (input: { worktreePath: string; task_id: string }) => Promise<{ appended: number; detail: string }>;
 } = {}): World {
   const logs: string[] = [];
   const events: World["events"] = [];
-  const calls: World["calls"] = { merged: [], rebuilds: 0, pushes: 0, cleanups: [], released: [] };
+  const calls: World["calls"] = { merged: [], rebuilds: 0, pushes: 0, cleanups: [], released: [], order: [] };
   const slots = options.slots ?? [finished("0042", 2)];
 
   const ports: WaveIntegrationCoordinatorPorts = {
@@ -116,8 +117,15 @@ function world(options: {
       Promise.resolve(
         options.restoreOk === false ? { ok: false, detail: "istorijoje nėra" } : { ok: true, source: "HEAD^:AG/..." },
       ),
+    collectWorktreeTelemetry: async (input) => {
+      calls.order.push(`telemetry:${input.task_id}`);
+      return options.collectWorktreeTelemetry === undefined
+        ? { appended: 0, detail: "" }
+        : await options.collectWorktreeTelemetry(input);
+    },
     cleanupWorktree: ({ identity }) => {
       calls.cleanups.push(identity.task_id);
+      calls.order.push(`cleanup:${identity.task_id}`);
       return Promise.resolve({ worktree: "removed", branch: "deleted", detail: "" });
     },
     releaseLease: (leaseId) => {
@@ -144,6 +152,23 @@ test("sėkmingas kelias: merge → dist → push → lease → failas → valyma
   assert.ok(w.events.some((entry) => entry.event === "worker_integration_completed"));
   // Slot'as IŠIMAMAS: likęs sąraše jis būtų integruotas antrą kartą kitame checkpoint'e.
   assert.equal(w.ports.finishedSlots.size, 0);
+});
+
+test("telemetrijos surinkimas kviečiamas PRIEŠ kopijos valymą", async () => {
+  const w = world();
+  await createWaveIntegrationCoordinator(w.ports).integrateFinishedSlots(QUIESCENT);
+
+  assert.deepEqual(w.calls.order, ["telemetry:0042", "cleanup:0042"]);
+});
+
+test("telemetrijos surinkimo nesėkmė NEKEIČIA integracijos baigties ir neparkuoja", async () => {
+  const w = world({ collectWorktreeTelemetry: () => Promise.reject(new Error("EPERM")) });
+  await createWaveIntegrationCoordinator(w.ports).integrateFinishedSlots(QUIESCENT);
+
+  assert.equal(w.parked(), false);
+  assert.deepEqual(w.calls.cleanups, ["0042"]);
+  assert.ok(w.logs.some((line) => line.includes("INTEGRATION TELEMETRY HARVEST FAILED")));
+  assert.ok(w.events.some((entry) => entry.event === "worker_integration_completed"));
 });
 
 test("kelio nesutapimas sustabdo PRIEŠ suliejimą", async () => {
@@ -356,6 +381,7 @@ const resumeIntegrationIo: WaveIntegrationIo = {
   pushPrimaryBranch: () => Promise.resolve({ ok: true, branch: "main" }),
   relocateTask: () => Promise.resolve("moved"),
   restoreDoneCopy: () => Promise.resolve({ ok: true, source: "HEAD^" }),
+  collectWorktreeTelemetry: () => Promise.resolve({ appended: 0, detail: "" }),
   cleanupWorktree: () => Promise.resolve({ worktree: "removed", branch: "deleted", detail: "" }),
   releaseLease: () => Promise.resolve("released"),
 };

@@ -45,6 +45,61 @@ export type WaveIntegrationAdapterDeps = {
   readWorkerLeases: () => Promise<WorkerLease[]>;
 };
 
+/** Telemetrijos failai, kuriuos dispatch vaikas rašo į savo worktree kopiją (README `vq/logs/`). */
+const TELEMETRY_LOG_NAMES = ["context-size.jsonl", "token-usage.jsonl"] as const;
+
+/** Dedup raktas: ts+task_id+attempt_id — ta pati koreliacijos triada, kuria abu žurnalai jau rašomi. */
+function telemetryLineKey(line: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const record = parsed as { ts?: unknown; task_id?: unknown; attempt_id?: unknown };
+  if (typeof record.ts !== "string" || typeof record.task_id !== "string") return undefined;
+  const attemptId = typeof record.attempt_id === "string" ? record.attempt_id : "";
+  return [record.ts, record.task_id, attemptId].join("::");
+}
+
+/**
+ * Vieno telemetrijos žurnalo eilučių APPEND'inimas iš worktree kopijos į pagrindinio medžio
+ * failą, su dedup'u pagal `telemetryLineKey`. Failo vaiko pusėje nesant — `appended: 0` be
+ * klaidos; neparsinama eilutė — praleidžiama tyliai (skaičiuojama `skipped`), o ne meta.
+ */
+async function mergeTelemetryLog(childPath: string, mainPath: string): Promise<{ appended: number; skipped: number }> {
+  const childRaw = await nodeFsAdapter.readTextFileIfExists(childPath);
+  if (childRaw === undefined) return { appended: 0, skipped: 0 };
+
+  const mainRaw = await nodeFsAdapter.readTextFileIfExists(mainPath);
+  const seen = new Set<string>();
+  for (const line of (mainRaw ?? "").split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    const key = telemetryLineKey(line);
+    if (key !== undefined) seen.add(key);
+  }
+
+  const newLines: string[] = [];
+  let skipped = 0;
+  for (const line of childRaw.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    const key = telemetryLineKey(line);
+    if (key === undefined) {
+      skipped += 1;
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    newLines.push(line);
+  }
+
+  if (newLines.length > 0) {
+    await nodeFsAdapter.appendTextFile(mainPath, `${newLines.join("\n")}\n`);
+  }
+  return { appended: newLines.length, skipped };
+}
+
 /** Task'o failas bucket'uose; `undefined`, kai jo niekur nėra. */
 async function findTaskFile(agRoot: string, taskId: string): Promise<{ bucket: TaskBucket; file: string } | undefined> {
   for (const bucket of taskBuckets) {
@@ -66,6 +121,7 @@ export function createWaveIntegrationAdapters(deps: WaveIntegrationAdapterDeps):
   pushPrimaryBranch: () => Promise<{ ok: boolean; branch?: string; detail?: string }>;
   relocateTask: (taskId: string, bucket: "done" | "human-review") => Promise<TaskRelocation>;
   restoreDoneCopy: (input: { taskId: string; preMergeHead: string | undefined }) => Promise<DoneCopyRestoreOutcome>;
+  collectWorktreeTelemetry: (input: { worktreePath: string; task_id: string }) => Promise<{ appended: number; detail: string }>;
   cleanupWorktree: (input: { identity: WorktreeIdentity; lease: WorkerLease; branch: string }) => Promise<WorktreeCleanupOutcome>;
   releaseLease: (leaseId: string) => Promise<LeaseReleaseOutcome>;
 } {
@@ -154,6 +210,23 @@ export function createWaveIntegrationAdapters(deps: WaveIntegrationAdapterDeps):
         }
       }
       return { ok: false, detail: `task failo turinio nėra git istorijoje (ref'ai: ${refs.join(", ")})` };
+    },
+
+    async collectWorktreeTelemetry(input) {
+      try {
+        const worktreeLogsDir = path.join(deps.projectRoot, input.worktreePath, "vq", "logs");
+        const mainLogsDir = path.join(deps.projectRoot, "vq", "logs");
+        let appended = 0;
+        const details: string[] = [];
+        for (const name of TELEMETRY_LOG_NAMES) {
+          const result = await mergeTelemetryLog(path.join(worktreeLogsDir, name), path.join(mainLogsDir, name));
+          appended += result.appended;
+          if (result.skipped > 0) details.push(`${name}: ${result.skipped} neparsinama eilutė(s) praleista`);
+        }
+        return { appended, detail: details.join("; ") };
+      } catch (error) {
+        return { appended: 0, detail: `KLAIDA: ${error instanceof Error ? error.message : String(error)}` };
+      }
     },
 
     async cleanupWorktree(input) {

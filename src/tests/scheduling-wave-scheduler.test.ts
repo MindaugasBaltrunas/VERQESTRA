@@ -58,6 +58,7 @@ const integrationIo: WaveIntegrationIo = {
   pushPrimaryBranch: () => Promise.resolve({ ok: true, branch: "main" }),
   relocateTask: () => Promise.resolve("moved"),
   restoreDoneCopy: () => Promise.resolve({ ok: true, source: "HEAD^" }),
+  collectWorktreeTelemetry: () => Promise.resolve({ appended: 0, detail: "" }),
   cleanupWorktree: () => Promise.resolve({ worktree: "removed", branch: "deleted", detail: "" }),
   releaseLease: () => Promise.resolve("released"),
 };

@@ -14,15 +14,24 @@
 //     sulūžusius testus, o geras darbas būtų atsuktas. Task'as NEJUDINAMAS: lieka eilėje;
 //   - FANTOMAS nesustabdo visos eilės. Tai ne operatoriaus sprendimas ir ne task'o baigtis, o
 //     sugedęs vieno slot'o izoliacijos įrodymas: task'as pažymimas nevykdytinu (failas lieka
-//     eilėje žmogui), o loop'as tęsia nepriklausomas šakas.
+//     eilėje žmogui), o loop'as tęsia nepriklausomas šakas;
+//   - INFRASTRUKTŪROS slot baigtis nutraukia visą bėgimą tuo pačiu exit kodu, kuriuo jį nutrauktų
+//     in-process kelias. Pirminio medžio slot'as tą daro pats: `run-coordinator-terminal#stopRun`
+//     meta `WorkflowInfrastructureError`, kuris pro `runSlotTask` ir `dispatchWaveSlots` iškyla
+//     iki `main.ts` ribos. Vaiko procesas mesti negali — jo vienintelė kalba yra exit kodas, tad
+//     antrą metimo galą stato ŠIS ratas. Be jo usage limitas (75) vaiko slot'e virsdavo
+//     „WAVE SLOT ENDED NONZERO … CONTINUING QUEUE" eilute, ir loop'as tuo pačiu gedimu sudegindavo
+//     likusią eilę (2026-09-01: 20 task'ų į human-review per 14 min).
 //
 // `return`, o ne `continue`, ten kur būsena nepasikeitė: nedispatch'inus nė vieno slot'o kitas
 // ratas duotų tą patį rezultatą — karštas ratas vietoj sustojimo.
 
 import { formatWaveBlockedReason } from "./apply-ready-set-gates.js";
+import { WorkflowInfrastructureError } from "../../shared/errors.js";
 import { dispatchWaveSlots, planWaveDispatch, waveSelectionForSlot } from "./wave-dispatch.js";
 import { resolveSlotMode, type LoopControlState } from "./loop-control-store.js";
 import type { SlotRefillHold } from "./slot-refill.js";
+import type { SlotChildOutcome } from "./slot-task-runner.js";
 import type { WaveDispatchSlot } from "./wave-dispatch-model.js";
 import type { WaveScheduler, WaveSelection } from "./wave-scheduler-contract.js";
 import type { EmptyQueueAction } from "./loop-empty-queue.js";
@@ -58,7 +67,14 @@ export type LoopCyclePorts = {
   processAuditRepairTask: () => Promise<void>;
 
   handleEmptyQueue: (bootstrapAttempted: boolean) => Promise<EmptyQueueAction>;
-  runSlotTask: (slot: WaveDispatchSlot) => Promise<boolean>;
+  /**
+   * Slot'o vykdymas. Baigtis STRUKTŪRINĖ: pirminio medžio kelias infrastruktūrą praneša METIMU,
+   * tad jam `infrastructure` variantas niekada neprireiks; vaiko kelias (`slot-task-runner` →
+   * `runChild`) gedimą gauna tik kaip exit kodą, ir būtent ši forma neleidžia jam susilieti su
+   * `task-failed`. Kompozicija baigtį perduoda NEPAKEISTĄ — suplojimas į `boolean` čia ir buvo
+   * vieta, kurioje 148-aa-02 klasifikacija žūdavo.
+   */
+  runSlotTask: (slot: WaveDispatchSlot) => Promise<SlotChildOutcome>;
 };
 
 /**
@@ -71,6 +87,10 @@ export type LoopCyclePorts = {
  * `reason` čia yra ne tik diagnostika: jis daro kiekvieną naują sustojimo kelią sąmoningu
  * pasirinkimu. Naujas `return` be `reason` neužsikompiliuos, tad kelias negali tyliai atsirasti
  * su numatytu „viskas gerai" — būtent taip `wave-exhausted` ir gyveno kaip exit 0.
+ *
+ * Infrastruktūros nutraukimo čia NĖRA sąmoningai: jis nėra loop'o verdiktas apie eilę, o aplinkos
+ * gedimas, kurio exit kodas (75, 124, 74 …) privalo pasiekti tėvą nepakeistas. Todėl jis lieka
+ * `WorkflowInfrastructureError` metimu — vienas kelias abiem medžiams, be antros konvencijos.
  */
 export type LoopCycleOutcome =
   | { kind: "finished"; reason: "queue-empty" | "stop-requested" }
@@ -208,16 +228,48 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<LoopCycleOutc
     // `selection` — jį pagamino papildymo sprendimas, ir tik jis neša teisingą leidimo autoritetą.
     const refilled = new Map<string, Extract<WaveSelection, { kind: "task" }>>();
 
+    /**
+     * Šios bangos infrastruktūros baigtys. Du įrašai, nes atsakomi du skirtingi klausimai:
+     * `infrastructureTasks` — „ar ŠIS slot'as krito dėl aplinkos" (nulemia, kurios eilutės
+     * nerašomos), o `infrastructureAbort` — „kuo baigiasi bėgimas".
+     *
+     * Laimi PIRMA pastebėta baigtis: būtent ji sustabdė papildymą, tad ji ir yra bėgimo
+     * nutraukimo priežastis. Vėlesnė jau krinta į bangą, kuri nutraukiama, ir kodo keisti
+     * nebegali — kitaip tas pats gedimas duotų skirtingą exit kodą priklausomai nuo to, kuris
+     * lane'as baigė greičiau.
+     */
+    const infrastructureTasks = new Set<string>();
+    let infrastructureAbort: { slot: WaveDispatchSlot; exitCode: number } | undefined;
+
     const results = await dispatchWaveSlots(dispatchPlan.dispatch, {
       beginTask: (slot) => ports.scheduler.beginTask(refilled.get(slot.task_id) ?? waveSelectionForSlot(selection, slot)),
-      runTask: (slot) => ports.runSlotTask(slot),
-      recordOutcome: (taskId, ok) => ports.scheduler.recordOutcome(taskId, ok),
+      runTask: async (slot) => {
+        const outcome = await ports.runSlotTask(slot);
+        if (outcome.status === "infrastructure") {
+          infrastructureTasks.add(slot.task_id);
+          infrastructureAbort ??= { slot, exitCode: outcome.code };
+          await ports.log(`WAVE SLOT INFRASTRUCTURE EXIT: slot=${slot.worker_id} task=${slot.task_id} exit=${outcome.code}`);
+        }
+        // Baigtis grąžinama NEPAKEISTA: apskaita (`recordOutcome` → `wave-outcome`) ir toliau
+        // mato terminalinę baigtį, tad banga užsidaro, lease'ai atlaisvinami ir integracija
+        // sprendžiama kaip visada — o kad ta baigtis NĖRA task'o kaltė (neparkuoti, šakos
+        // neblokuoti), sprendžia būtent jie iš `infrastructure` varianto, ne šis ratas.
+        return outcome;
+      },
+      recordOutcome: (taskId, outcome) => ports.scheduler.recordOutcome(taskId, outcome),
       refill: async (freed) => {
         if (!stopRequested && (await ports.consumeStopRequest())) stopRequested = true;
         const mode = resolveSlotMode(await ports.readLoopControl(), freed.worker_id);
         // Laikymo prasmė skiriasi: `stop` liečia VISĄ loop'ą, o `drain`/`abort` — būtent šį
         // slot'ą. Nė vienas jų nenutraukia jau vykdomo bandymo; jie tik neduoda naujo darbo.
-        const hold: SlotRefillHold = stopRequested
+        //
+        // Infrastruktūra laikoma `stop-requested` rūšimi, ne nauja: apimtis ta pati — visas
+        // loop'as, o ne šis slot'as — ir naujas `kind` reikštų tą patį faktą dviem vardais tiems
+        // patiems vartams. Kodėl laikoma, matyti iš `detail`; naujo darbo aplinkoje, kuri ką tik
+        // nužudė vaiką, duoti nėra ko: kitas slot'as žūtų ta pačia sekunde ir ta pačia priežastimi.
+        const hold: SlotRefillHold = infrastructureAbort !== undefined
+          ? { kind: "stop-requested", detail: "loop-infrastructure.abort" }
+          : stopRequested
           ? { kind: "stop-requested", detail: "loop-stop.requested" }
           : mode === "run"
             ? { kind: "none" }
@@ -239,10 +291,37 @@ export async function runLoopCycle(ports: LoopCyclePorts): Promise<LoopCycleOutc
       // Atšauktas slot'as jau turi savo eilutę ir nėra žlugęs: task'ą iš eilės išėmė kitas
       // mechanizmas be jokio bandymo, tad „ENDED NONZERO" apie jį būtų klaidingas signalas.
       if (ports.scheduler.isSlotWithdrawn(result.slot.task_id)) continue;
+      // Infrastruktūros slot'as savo eilutę jau turi, o „CONTINUING QUEUE" apie jį būtų MELAS:
+      // eilė kaip tik nebetęsiama. Būtent ši eilutė ir buvo vienintelis vaiko infra baigties
+      // pėdsakas, kol jos semantika skyrėsi nuo in-process kelio.
+      if (infrastructureTasks.has(result.slot.task_id)) continue;
       await ports.log(
         results.length > 1
           ? `WAVE SLOT ENDED NONZERO: slot=${result.slot.worker_id} task=${result.slot.task_id}; CONTINUING QUEUE`
           : "TASK ENDED NONZERO; CONTINUING QUEUE",
+      );
+    }
+
+    if (infrastructureAbort !== undefined) {
+      const { slot, exitCode } = infrastructureAbort;
+      // Metama TIK po `dispatchWaveSlots`: kiti lane'ai iki čia jau baigti ir užfiksuoti, tad
+      // nutraukimas nepalieka nė vieno neprižiūrimo vaiko — ta pati taisyklė, kuria pats
+      // dispatch'as atideda metančio lane'o klaidą.
+      //
+      // Eilutės ir žinutės forma sutampa su `run-coordinator-terminal#stopRun`: viena baigtis
+      // negali turėti dviejų vardų žurnale vien dėl to, kuriame medyje ji įvyko. Vėliavos
+      // (`taskReturnedToQueue`, `taskPreservedForResume`) lieka numatytos SĄMONINGAI — šis ratas
+      // task failų nejudina: vaiko slot'o failas liko eilėje, nes `wave-outcome` infra baigties
+      // neparkuoja.
+      await stop(
+        `LOOP ABORT (infrastruktura): stage=wave-slot exit=${exitCode} task=${slot.task_id} slot=${slot.worker_id} refill=held`,
+        `AG loop nutrauktas: slot'as ${slot.worker_id} (task ${slot.task_id}) baigesi infrastrukturos gedimu (exit ${exitCode}).\n` +
+          "Banga daugiau neuzpildoma, task'as liko eileje. Sutvarkyk aplinka (pvz. palauk usage limito atsistatymo)" +
+          " ir paleisk loop'a is naujo.\n",
+      );
+      throw new WorkflowInfrastructureError(
+        `wave-slot infrastructure failure exit=${exitCode} task=${slot.task_id} slot=${slot.worker_id}`,
+        { exitCode },
       );
     }
   }

@@ -9,11 +9,19 @@
 // slot'as „atšaukiamas" (`withdrawn`), o ne skaičiuojamas kaip žlugęs. Priešingu atveju bangos
 // statistika rodytų nesėkmę ten, kur nebuvo nė vieno bandymo, o pool'o verdiktas gautų balsą
 // už darbą, kurio nebuvo.
+//
+// Antras skirtumas tos pačios rūšies: NEPAVYKĘS ir INFRASTRUKTŪROS slot'as nėra tas pats.
+// Usage limitas (75), timeout'as (124) ar IO gedimas (74) vaiko slot'e yra aplinkos, ne task'o
+// baigtis: task'as verdikto NEGAVO. Todėl jis nei blokuoja savo šakos, nei tampa `failed` —
+// snapshot'e jis grįžta į `ready` su įvardinta priežastimi, o integracijai perduodamas exit
+// kodas, kad `worker-integration` jo neparkuotų kaip `task-failed` (148-b-03). Iki 148-c-04
+// baigtis čia ateidavo kaip `boolean`, ir skirtumas žūdavo dar prieš šį modulį.
 
 import { collectBlockedBranch, type SchedulableTask } from "./schedule-next-wave.js";
 import { evaluateIntegrationCheckpoint, type FinishedWorkerSlot } from "./worker-integration.js";
 import type { TaskGraph } from "../../domain/tasks/graph/model.js";
 import type { LiveSlot } from "./slot-refill.js";
+import type { SlotChildOutcome } from "./slot-task-runner.js";
 import type { WorkerOutcome, WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { WaveTaskState } from "./wave-snapshot.js";
 import type { WavePoolEvent } from "./wave-pool-planning.js";
@@ -67,8 +75,10 @@ export type WaveOutcomeDeps = {
 
 export function createWaveOutcomeRecorder(
   deps: WaveOutcomeDeps,
-): (taskId: string, succeeded: boolean) => Promise<void> {
-  return async (taskId, succeeded): Promise<void> => {
+): (taskId: string, outcome: SlotChildOutcome) => Promise<void> {
+  return async (taskId, outcome): Promise<void> => {
+    const succeeded = outcome.status === "succeeded";
+    const infrastructureExitCode = outcome.status === "infrastructure" ? outcome.code : undefined;
     const live = [...deps.liveSlots.values()].find((entry) => entry.task_id === taskId);
 
     /**
@@ -94,12 +104,9 @@ export function createWaveOutcomeRecorder(
           write_set: slot.write_set,
           ...(slot.worktree_path === undefined ? {} : { worktree_path: slot.worktree_path }),
           ...(slot.lease === undefined ? {} : { lease: slot.lease }),
-          // `FinishedWorkerSlot.infrastructure_exit_code` (148-b-03, worker-integration.ts)
-          // TYČIA neužpildomas: `succeeded` čia yra `boolean` iš `recordOutcome`, o
-          // `runTask`/`recordOutcome` per `wave-dispatch.ts` → `loop-cycle.ts` neša tik jį —
-          // `SlotChildOutcome`'o infra atšaka (command.ts `runChild`) žūva iki šio taško.
-          // Praplėsti reikėtų `loop-cycle.ts` (uždrausta šiam task'ui), tad laukas lieka
-          // `undefined` iki sekančio, tą vamzdį taisančio task'o.
+          // Integracijos sprendimui infra kodas yra VIENINTELIS įrodymas, kad `!succeeded` nėra
+          // task'o kaltė — be jo `planWorkerIntegration` slot'ą parkuotų kaip `task-failed`.
+          ...(infrastructureExitCode === undefined ? {} : { infrastructure_exit_code: infrastructureExitCode }),
         });
       }
       deps.liveSlots.delete(workerId);
@@ -128,16 +135,24 @@ export function createWaveOutcomeRecorder(
         reason: "duplicate",
       });
     } else if (pool !== undefined && slot !== undefined) {
+      // Pool'o verdikte infra slot'as yra `crashed`, ne `failed`: abu terminaliniai (lease
+      // atlaisvinamas, banga užsidaro), bet statistika neturi rodyti task'o nesėkmės ten, kur
+      // task'as verdikto negavo.
       deps.outcomesFor(pool.plan_hash).set(slot.worker_id, {
         worker_id: slot.worker_id,
         task_id: taskId,
-        status: succeeded ? "succeeded" : "failed",
+        status: succeeded ? "succeeded" : infrastructureExitCode === undefined ? "failed" : "crashed",
+        ...(infrastructureExitCode === undefined ? {} : { detail: `infrastructure exit=${infrastructureExitCode}` }),
       });
     }
 
     if (succeeded) {
       deps.completed.add(taskId);
       deps.settle(taskId, "done", "task_completed");
+    } else if (infrastructureExitCode !== undefined) {
+      // Šaka NEBLOKUOJAMA: priklausiniai laukia darbo, kuris dar bus atliktas, o ne darbo, kuris
+      // žlugo. Task'as grįžta į `ready` — failas tebėra eilėje, ir tai vienintelė teisinga būsena.
+      deps.settle(taskId, "ready", `infrastructure exit=${infrastructureExitCode}`);
     } else {
       // Nepavykęs task'as blokuoja VISĄ savo šaką: jo priklausiniai negali būti vykdomi ant
       // darbo, kurio nėra. Šaka renkama prieš `settle`, kad į ją patektų ir pats task'as.
@@ -155,11 +170,13 @@ export function createWaveOutcomeRecorder(
       run_id: deps.runId,
       wave_id: context.waveId ?? "none",
       graph_hash: context.graphHash,
-      event: succeeded ? "task_completed" : "task_failed",
+      event: succeeded ? "task_completed" : infrastructureExitCode === undefined ? "task_failed" : "task_infrastructure",
       task_id: taskId,
       ...(succeeded
         ? {}
-        : { reason: `${withdrawn ? "duplicate; " : ""}branch-blocked=${deps.blockedBranch.size}` }),
+        : infrastructureExitCode !== undefined
+          ? { reason: `exit=${infrastructureExitCode}` }
+          : { reason: `${withdrawn ? "duplicate; " : ""}branch-blocked=${deps.blockedBranch.size}` }),
     });
     await deps.recordCheckpoint({
       actor: "claude",
@@ -169,7 +186,11 @@ export function createWaveOutcomeRecorder(
       run_id: deps.runId,
       wave_id: context.waveId,
       graph_hash: context.graphHash,
-      next_action: succeeded ? "next-wave-task" : "blocked-branch",
+      next_action: succeeded
+        ? "next-wave-task"
+        : infrastructureExitCode === undefined
+          ? "blocked-branch"
+          : `infrastructure-abort exit=${infrastructureExitCode}`,
     });
 
     /**
@@ -186,7 +207,7 @@ export function createWaveOutcomeRecorder(
         graph_hash: context.graphHash,
         event: "task_integration_ready",
         task_id: taskId,
-        reason: `task=${taskId} quality-gates=${succeeded ? "ok" : "failed"}`,
+        reason: `task=${taskId} quality-gates=${succeeded ? "ok" : infrastructureExitCode === undefined ? "failed" : "infrastructure"}`,
       });
       const checkpoint = evaluateIntegrationCheckpoint({
         live: deps.liveSlotList(),

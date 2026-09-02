@@ -117,7 +117,7 @@ function pool(): WorkerPoolPlan {
 
 test("sėkmė: task'as užsidaro `done` ir gauna balsą pool'o verdikte", async () => {
   const w = world({ pool: pool() });
-  await createWaveOutcomeRecorder(w.deps)("0042", true);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "succeeded" });
 
   assert.deepEqual(w.settled, [{ taskId: "0042", state: "done", reason: "task_completed" }]);
   assert.equal(w.outcomes.get("w1")?.status, "succeeded");
@@ -131,7 +131,7 @@ test("nesėkmė: blokuojama VISA šaka, o slot'as skaičiuojamas kaip žlugęs",
     { task_id: "0043", file: "b.md", blocked_by: ["0042"] },
   ];
   const w = world({ pool: pool(), tasks });
-  await createWaveOutcomeRecorder(w.deps)("0042", false);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "task-failed", code: 1 });
 
   assert.equal(w.outcomes.get("w1")?.status, "failed");
   const states = new Map(w.settled.map((entry) => [entry.taskId, entry.state]));
@@ -140,9 +140,31 @@ test("nesėkmė: blokuojama VISA šaka, o slot'as skaičiuojamas kaip žlugęs",
   assert.equal(states.get("0043"), "blocked");
 });
 
+// 148-c-04: INFRASTRUKTŪROS baigtis nėra task'o nesėkmė. Iki tol ji čia ateidavo kaip `false`,
+// šaka būdavo blokuojama, o integracija slot'ą parkuodavo į human-review (2026-09-01: 20 task'ų
+// per 14 min vien dėl usage limito).
+test("INFRA baigtis: šaka NEBLOKUOJAMA, task'as grįžta į `ready`, o integracija gauna exit kodą", async () => {
+  const tasks: SchedulableTask[] = [
+    { task_id: "0042", file: "a.md", blocked_by: [] },
+    { task_id: "0043", file: "b.md", blocked_by: ["0042"] },
+  ];
+  const w = world({ pool: pool(), tasks, liveSlot: { worktree_path: "/wt/w2" } });
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "infrastructure", code: 75 });
+
+  assert.deepEqual(w.settled, [{ taskId: "0042", state: "ready", reason: "infrastructure exit=75" }], "verdikto nebuvo — task'as lieka eilėje");
+  assert.equal(w.deps.blockedBranch.size, 0, "priklausiniai laukia darbo, kuris dar bus atliktas, o ne žlugusio");
+  assert.equal(w.outcomes.get("w1")?.status, "crashed", "pool'o verdikte tai aplinkos lūžis, ne task'o nesėkmė");
+  assert.equal(w.deps.finishedSlots.get("0042")?.infrastructure_exit_code, 75, "integracijos vienintelis įrodymas neparkuoti");
+  assert.equal(w.deps.finishedSlots.get("0042")?.succeeded, false);
+  assert.ok(w.events.includes("task_infrastructure"));
+  assert.equal(w.events.includes("task_failed"), false);
+  assert.equal(w.deps.liveSlots.size, 0, "slot'as vis tiek terminalinis: lease'ai atlaisvinami kaip visada");
+  assert.equal(w.integrations, 1, "integracija svarstoma — būtent ji nusprendžia neparkuoti");
+});
+
 test("ATŠAUKTAS dublikatas nėra žlugęs slot'as ir NEGAUNA balso", async () => {
   const w = world({ pool: pool(), duplicate: true });
-  await createWaveOutcomeRecorder(w.deps)("0042", false);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "task-failed", code: 1 });
 
   assert.ok(w.deps.withdrawnTasks.has("0042"));
   // Kertinė savybė: verdikte balso nėra — statistika nerodo nesėkmės ten, kur nebuvo bandymo.
@@ -160,7 +182,7 @@ test("dublikatas SU darbo kopija yra tikra nesėkmė, ne atšaukimas", async () 
   // Kopija reiškia, kad worker'is jau turėjo izoliuotą vietą — jo baigtis tikra, nesvarbu
   // kaip task'as atsirado.
   const w = world({ pool: pool(), duplicate: true, liveSlot: { worktree_path: "/wt/w2" } });
-  await createWaveOutcomeRecorder(w.deps)("0042", false);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "task-failed", code: 1 });
 
   assert.equal(w.deps.withdrawnTasks.size, 0);
   assert.equal(w.outcomes.get("w1")?.status, "failed");
@@ -168,20 +190,20 @@ test("dublikatas SU darbo kopija yra tikra nesėkmė, ne atšaukimas", async () 
 
 test("atšauktas slot'as į `finishedSlots` NEPATENKA", async () => {
   const w = world({ pool: pool(), duplicate: true });
-  await createWaveOutcomeRecorder(w.deps)("0042", false);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "task-failed", code: 1 });
   assert.equal(w.deps.finishedSlots.size, 0);
 });
 
 test("vieno slot'o banga be kopijos integracijos NESUKA", async () => {
   const w = world({ pool: pool() });
-  await createWaveOutcomeRecorder(w.deps)("0042", true);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "succeeded" });
   // Integruoti nėra ko, o mechanikos sukimas kiekvienam task'ui būtų tuščias darbas.
   assert.equal(w.integrations, 0);
 });
 
 test("darbo kopija bangoje integraciją ĮJUNGIA", async () => {
   const w = world({ pool: pool(), liveSlot: { worktree_path: "/wt/w2" } });
-  await createWaveOutcomeRecorder(w.deps)("0042", true);
+  await createWaveOutcomeRecorder(w.deps)("0042", { status: "succeeded" });
   assert.equal(w.integrations, 1);
   assert.ok(w.events.includes("task_integration_ready"));
 });

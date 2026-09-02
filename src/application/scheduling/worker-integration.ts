@@ -79,11 +79,9 @@ export type FinishedWorkerSlot = {
   /**
    * Infrastruktūros baigties exit kodas (pvz. USAGE_LIMIT_EXIT_CODE=75), KAI `!succeeded`
    * NĖRA task'o kaltė (žr. `SlotChildOutcome` slot-task-runner.ts, 148-a-02/148-aa-02).
-   * `undefined` = įprasta task-failed/succeeded baigtis. 148-b-03: laukas paruoštas priimti
-   * reikšmę čia, grynoje sprendimo funkcijoje, bet REALUS signalas iki `wave-outcome.ts`
-   * dar nepasiekia — `recordOutcome` gauna tik `boolean` per `wave-dispatch.ts` →
-   * `loop-cycle.ts` → `command.ts` vamzdį, o jį praplėsti be tų failų (`loop-cycle.ts`
-   * uždraustas šiam task'ui) yra atskiro sekančio task'o darbas.
+   * `undefined` = įprasta task-failed/succeeded baigtis. Reikšmę užpildo `wave-outcome.ts`
+   * iš struktūrinės `recordOutcome` baigties (148-c-04 uždarė vamzdį `runChild` →
+   * `loop-cycle` → `wave-dispatch` → `recordOutcome`, kuriame kodas anksčiau žūdavo).
    */
   infrastructure_exit_code?: number;
 };

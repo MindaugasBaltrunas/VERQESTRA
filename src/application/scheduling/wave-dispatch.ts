@@ -15,6 +15,7 @@
 //   4. tuščias pool'o planas reiškia VIENĄ slot'ą pasirinktam task'ui.
 
 import { resolveSlotMode, type LoopControlState } from "./loop-control-store.js";
+import type { SlotChildOutcome } from "./slot-task-runner.js";
 import type { WaveSelection } from "./wave-scheduler-contract.js";
 import type { WaveDispatchPlan, WaveDispatchSlot, WaveSlotResult, WaveWithheldSlot } from "./wave-dispatch-model.js";
 
@@ -97,10 +98,18 @@ export function waveSelectionForSlot(
 export type WaveDispatchDeps = {
   /** Ledger'io/checkpoint'o įrašas prieš paleidžiant slot'ą. */
   beginTask: (slot: WaveDispatchSlot) => Promise<void>;
-  /** Pats vykdymas. `true` = task'as baigėsi sėkmingai. */
-  runTask: (slot: WaveDispatchSlot) => Promise<boolean>;
-  /** Terminalinės baigties fiksavimas. Kviečiama po vieną, net kai slot'ai baigia vienu metu. */
-  recordOutcome: (taskId: string, succeeded: boolean) => Promise<void>;
+  /**
+   * Pats vykdymas. Baigtis STRUKTŪRINĖ, ne `boolean`: `task-failed` ir `infrastructure` yra
+   * skirtingi faktai (task'o kaltė vs aplinkos gedimas su exit kodu), o suplotas į `false` jų
+   * skirtumas žūdavo būtent čia — baigties apskaita toliau nebeturėjo iš ko atskirti usage
+   * limito nuo raudonų testų (2026-09-01: 20 task'ų į human-review per 14 min).
+   */
+  runTask: (slot: WaveDispatchSlot) => Promise<SlotChildOutcome>;
+  /**
+   * Terminalinės baigties fiksavimas. Kviečiama po vieną, net kai slot'ai baigia vienu metu.
+   * Gauna TĄ PAČIĄ baigtį, kurią grąžino `runTask` — dispatch'as jos neinterpretuoja.
+   */
+  recordOutcome: (taskId: string, outcome: SlotChildOutcome) => Promise<void>;
   /**
    * Papildymas atsilaisvinusiam slot'ui. Kviečiama TIK: (a) po to, kai `recordOutcome` užfiksavo
    * baigtį, (b) TOJE PAČIOJE serializavimo sekcijoje, (c) tik kai bent vienas KITAS lane'as dar
@@ -161,9 +170,9 @@ export async function dispatchWaveSlots(
 
       while (current !== undefined) {
         const running: WaveDispatchSlot = current;
-        let ok: boolean;
+        let outcome: SlotChildOutcome;
         try {
-          ok = await deps.runTask(running);
+          outcome = await deps.runTask(running);
         } catch (error) {
           // Žurnalas PRIEŠ baigties įrašą — klaida matoma jos momentu, ne po visų lane'ų.
           if (deps.onLaneError !== undefined) await deps.onLaneError(running, error).catch(() => undefined);
@@ -176,7 +185,7 @@ export async function dispatchWaveSlots(
         try {
           next = await serialize(async (): Promise<WaveDispatchSlot | undefined> => {
             try {
-              await deps.recordOutcome(running.task_id, ok);
+              await deps.recordOutcome(running.task_id, outcome);
             } finally {
               // Skaitiklis mažinamas `finally`, kad nepavykęs įrašas nepaliktų amžinai „aktyvaus"
               // lane'o — kiti slot'ai tada niekada nesulauktų tylos.
@@ -205,7 +214,7 @@ export async function dispatchWaveSlots(
           return;
         }
 
-        settlements.push({ slot: running, ok });
+        settlements.push({ slot: running, ok: outcome.status === "succeeded" });
         current = next;
       }
     }),

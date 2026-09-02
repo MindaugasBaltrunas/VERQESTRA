@@ -481,7 +481,7 @@ test("po koordinatoriaus sprendimo (parkinimo) dispatch'as tam pačiam task_id v
   // Bet koks kito task'o rezultatas suveda integracijos tikrinimą: `succeeded: false` restore'o
   // metu reiškia, kad tyloje slot'as parkuojamas, o ne suliejamas — tai IŠSPRENDŽIA jo likimą ir
   // pašalina iš `finishedSlots`.
-  await scheduler.recordOutcome("does-not-exist", true);
+  await scheduler.recordOutcome("does-not-exist", { status: "succeeded" });
 
   const unblocked = await scheduler.nextTask();
   assert.equal(unblocked.kind, "task");

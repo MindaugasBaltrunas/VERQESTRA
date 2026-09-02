@@ -198,7 +198,9 @@ test("ensureTaskFileInWorktree: trūkstamas task failas kopijoje atkuriamas iš 
 
     // Kopijos dist nėra — `prepareWorktree` toliau nulūš, bet task failo vartai kviečiami PRIEŠ jį,
     // tad atkūrimas jau įvyksta net kai visa slot'o baigtis lieka `task-failed`.
-    await ports.runSlotTask(slot);
+    const outcome = await ports.runSlotTask(slot);
+    // 148-c-04: kompozicija baigtį perduoda STRUKTŪRINĘ, ne suplotą į `boolean`.
+    assert.equal(outcome.status, "task-failed");
 
     const worktreeFile = path.join(world.root, ".ag-worktree-restore", relativeFile);
     assert.equal(await readFile(worktreeFile, "utf8"), "PIRMINIS TURINYS\n");

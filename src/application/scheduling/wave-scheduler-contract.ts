@@ -11,6 +11,7 @@ import type { ReadySetBudget } from "./build-ready-set.js";
 import type { ReadySetGatePolicy } from "./apply-ready-set-gates.js";
 import type { ResumeDecision, ResumeTaskLocation } from "./resume-run.js";
 import type { SlotRefillDecision, SlotRefillHold } from "./slot-refill.js";
+import type { SlotChildOutcome } from "./slot-task-runner.js";
 import type { SchedulableTask, WavePlan, WaveReadyTask } from "./schedule-next-wave.js";
 import type { WorkerPoolPlan } from "./worker-pool-plan.js";
 import type { PhantomWaveSlot } from "./wave-phantom-slots.js";
@@ -112,7 +113,8 @@ export type WaveScheduler = {
   recoverFromCrash: () => Promise<ResumeDecision>;
   nextTask: () => Promise<WaveSelection>;
   beginTask: (selection: Extract<WaveSelection, { kind: "task" }>) => Promise<void>;
-  recordOutcome: (taskId: string, succeeded: boolean) => Promise<void>;
+  /** Baigtis STRUKTŪRINĖ (žr. `SlotChildOutcome`): infra gedimas su exit kodu nėra task'o nesėkmė. */
+  recordOutcome: (taskId: string, outcome: SlotChildOutcome) => Promise<void>;
   refillSlot: (freedWorkerId: string, hold: SlotRefillHold) => Promise<WaveRefill | undefined>;
   isSlotWithdrawn: (taskId: string) => boolean;
   blockUnrunnableTask: (taskId: string, reason: string) => Promise<void>;

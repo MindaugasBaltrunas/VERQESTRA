@@ -403,7 +403,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
     isAuditRepairTask: (task) => task.bucket === "error" && path.basename(task.file) === AUDIT_REPAIR_TASK_FILE,
     processAuditRepairTask: () => deps.processAuditRepairTask(AUDIT_REPAIR_TASK_CONTENT),
     handleEmptyQueue: (bootstrapAttempted) => handleEmptyQueue(deps.emptyQueue, projectRoot, bootstrapAttempted),
-    runSlotTask: (slot: WaveDispatchSlot) => runSlotTask(slot).then((outcome) => outcome.status === "succeeded"),
+    runSlotTask: (slot: WaveDispatchSlot) => runSlotTask(slot), // baigtis NEPAKEISTA (148-c-04)
   };
 }
 

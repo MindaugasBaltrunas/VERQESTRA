@@ -217,7 +217,7 @@ test("duplikatas fiksuojamas PRIEŠ vykdymą", async () => {
   const selection = await scheduler.nextTask();
   if (selection.kind !== "task") throw new Error("laukiamas task");
   await scheduler.beginTask(selection);
-  await scheduler.recordOutcome("0001", false);
+  await scheduler.recordOutcome("0001", { status: "task-failed" });
 
   // Po vykdymo eilės failo nebelieka, tad be šio įrašo slot'as būtų užverstas kaip žlugęs.
   assert.equal(scheduler.isSlotWithdrawn("0001"), true);

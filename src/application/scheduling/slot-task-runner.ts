@@ -63,12 +63,24 @@ export type SlotLeaseMutation = { status: "ok" } | { status: "denied"; reason: s
  */
 export type SlotTaskFileAvailability = { status: "ok" } | { status: "missing"; reason: string };
 
+/**
+ * Vaiko/task'o baigties klasifikacija. Anksčiau `runChild` grąžindavo tik `boolean`
+ * (`result.code === 0`), tad tikra task'o nesėkmė ir infrastruktūros gedimas (pvz. exit 75 =
+ * USAGE_LIMIT_EXIT_CODE) susilieudavo į tą patį `false`. `code` pridedamas ne-`succeeded`
+ * baigtims, kai jis žinomas; ankstyviems (pre-child) atsisakymams — nuosavybė, task failo
+ * vartai, worktree bootstrap'as — jo NĖRA, nes jie niekada nepaleidžia vaiko proceso.
+ */
+export type SlotChildOutcome =
+  | { status: "succeeded" }
+  | { status: "task-failed"; code?: number }
+  | { status: "infrastructure"; code: number };
+
 export type SlotTaskRunnerPorts = {
   log: (message: string) => Promise<void>;
   /** Esamas in-process kelias — slot'ai be kopijos eina TIK juo. */
   runInProcess: (absoluteFile: string) => Promise<boolean>;
-  /** Vaiko paleidimas jo kopijoje; `true` = exit code 0. */
-  runChild: (slot: SlotTaskRunnerSlot, worktreeAbs: string) => Promise<boolean>;
+  /** Vaiko paleidimas jo kopijoje; baigtis skiria sėkmę, task'o nesėkmę ir infrastruktūros gedimą. */
+  runChild: (slot: SlotTaskRunnerSlot, worktreeAbs: string) => Promise<SlotChildOutcome>;
   /** Absoliutus kopijos kelias iš repo-reliatyvaus; kelio aritmetika lieka kompozicijoje. */
   resolveWorktree: (worktreePath: string) => string;
   readLease: (workerId: string) => Promise<WorkerLease | undefined>;
@@ -136,10 +148,10 @@ export function buildChildEnvironment(
   return env;
 }
 
-export function createSlotTaskRunner(ports: SlotTaskRunnerPorts): (slot: SlotTaskRunnerSlot) => Promise<boolean> {
-  const fail = async (slot: SlotTaskRunnerSlot, reason: string): Promise<false> => {
+export function createSlotTaskRunner(ports: SlotTaskRunnerPorts): (slot: SlotTaskRunnerSlot) => Promise<SlotChildOutcome> {
+  const fail = async (slot: SlotTaskRunnerSlot, reason: string): Promise<SlotChildOutcome> => {
     await ports.log(`WAVE SLOT FAILED: slot=${slot.worker_id} task=${slot.task_id} error=${reason}`);
-    return false;
+    return { status: "task-failed" };
   };
 
   /** Nuosavybės vartai. Grąžina claim'ą arba ĮVARDINTĄ atsisakymo priežastį. */
@@ -181,9 +193,12 @@ export function createSlotTaskRunner(ports: SlotTaskRunnerPorts): (slot: SlotTas
     }
   };
 
-  return async (slot: SlotTaskRunnerSlot): Promise<boolean> => {
+  return async (slot: SlotTaskRunnerSlot): Promise<SlotChildOutcome> => {
     // Pirminis slot'as: jokių lease ar kopijos žingsnių — tas pats kelias kaip be paralelizmo.
-    if (slot.worktree_path === undefined) return await ports.runInProcess(slot.absoluteFile);
+    if (slot.worktree_path === undefined) {
+      const ok = await ports.runInProcess(slot.absoluteFile);
+      return ok ? { status: "succeeded" } : { status: "task-failed" };
+    }
 
     const verified = await verifyOwnership(slot);
     if (typeof verified === "string") return await fail(slot, verified);

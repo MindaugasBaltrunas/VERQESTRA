@@ -21,7 +21,7 @@ import { createWaveProvisioningCoordinator, type WaveProvisioningCoordinator } f
 import { createSafeLog } from "../../application/scheduling/safe-telemetry.js";
 import { createSlotTaskRunner, buildChildEnvironment, PROCESS_QUEUED_TASK_COMMAND } from "../../application/scheduling/slot-task-runner.js";
 import { runLoopCycle, type LoopCyclePorts, type ResumableTask } from "../../application/scheduling/loop-cycle.js";
-import { LOOP_BLOCKED_EXIT_CODE } from "../../shared/exit-codes.js";
+import { LOOP_BLOCKED_EXIT_CODE, isInfrastructureExitCode } from "../../shared/exit-codes.js";
 import { handleEmptyQueue, AUDIT_REPAIR_TASK_CONTENT, type EmptyQueuePorts } from "../../application/scheduling/loop-empty-queue.js";
 import { productTreeDirtyEntries, type LoopPreconditionPorts } from "../../application/scheduling/loop-preconditions.js";
 import { readLoopControl } from "../../application/scheduling/loop-control-store.js";
@@ -41,7 +41,7 @@ import { loopRuntimePorts } from "../ui/lifecycle-adapters.js";
 import { importTaskGraphFromMarkdown } from "../../application/task-execution/task-graph-import.js";
 import { reclaimEvidencelessSynthesizedTasks, reclaimExternalInputNodes } from "../../application/architecture/wave-reclaim.js";
 import type { WaveDispatchSlot } from "../../application/scheduling/wave-dispatch-model.js";
-import type { SlotLeaseMutation } from "../../application/scheduling/slot-task-runner.js";
+import type { SlotChildOutcome, SlotLeaseMutation } from "../../application/scheduling/slot-task-runner.js";
 import { readTaskGraphSnapshot, writeTaskGraphSnapshot } from "../../infrastructure/persistence/task-graph-store.js";
 import { readWaveSnapshot, writeWaveSnapshot } from "../../infrastructure/state/wave-snapshot-store.js";
 import { recordWaveEvent } from "../../infrastructure/state/wave-events.js";
@@ -93,6 +93,17 @@ export async function appendChildExitSlotLog(
       `WAVE SLOT CHILD EXIT LOG APPEND FAILED: slot=${input.workerId} task=${input.taskId} error=${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+/**
+ * Vaiko exit kodo → baigties klasifikacija: skiria sėkmę, tikrą task'o nesėkmę ir
+ * infrastruktūros gedimą (`isInfrastructureExitCode`, pvz. USAGE_LIMIT_EXIT_CODE = 75). Grynas
+ * ir eksportuotas atskirai nuo `runChild` uždarinio, kad būtų testuojamas be realaus vaiko
+ * proceso paleidimo (148-a-02).
+ */
+export function classifyChildExitOutcome(code: number): SlotChildOutcome {
+  if (code === 0) return { status: "succeeded" };
+  return isInfrastructureExitCode(code) ? { status: "infrastructure", code } : { status: "task-failed", code };
 }
 
 export type LoopCommandDeps = {
@@ -256,7 +267,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
         }),
         { preservedWorkReview: preservedWorkReviewPort({ projectRoot }) },
       ).start(absoluteFile),
-    runChild: async (slot, worktreeAbs) => {
+    runChild: async (slot, worktreeAbs): Promise<SlotChildOutcome> => {
       // Task failas perduodamas RELIATYVUS: vaikas jį išsprendžia prieš savo darbo katalogą, tad
       // jokio kelių vertimo tarp medžių čia nereikia.
       const startedAt = Date.now();
@@ -297,7 +308,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
           diagnostics,
         );
       }
-      return result.code === 0;
+      return classifyChildExitOutcome(result.code);
     },
     resolveWorktree: (worktreePath) => path.resolve(projectRoot, worktreePath),
     readLease: (workerId) => readWorkerLease(schedulingFs, projectRoot, workerId),
@@ -377,7 +388,7 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
     isAuditRepairTask: (task) => task.bucket === "error" && path.basename(task.file) === AUDIT_REPAIR_TASK_FILE,
     processAuditRepairTask: () => deps.processAuditRepairTask(AUDIT_REPAIR_TASK_CONTENT),
     handleEmptyQueue: (bootstrapAttempted) => handleEmptyQueue(deps.emptyQueue, projectRoot, bootstrapAttempted),
-    runSlotTask: (slot: WaveDispatchSlot) => runSlotTask(slot),
+    runSlotTask: (slot: WaveDispatchSlot) => runSlotTask(slot).then((outcome) => outcome.status === "succeeded"),
   };
 }
 

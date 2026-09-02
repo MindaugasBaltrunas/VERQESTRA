@@ -6,11 +6,14 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runLoopCycle, type LoopCyclePorts } from "../application/scheduling/loop-cycle.js";
+import { runLoopCycle, type LoopCyclePorts, type SlotRunOutcome } from "../application/scheduling/loop-cycle.js";
 import type { WaveScheduler, WaveSelection } from "../application/scheduling/wave-scheduler-contract.js";
 import type { WorkerPoolPlan } from "../application/scheduling/worker-pool-plan.js";
 import type { LoopControlState } from "../application/scheduling/loop-control-store.js";
 import type { PhantomWaveSlot } from "../application/scheduling/wave-phantom-slots.js";
+import type { SlotRefillHold } from "../application/scheduling/slot-refill.js";
+import { WorkflowInfrastructureError } from "../shared/errors.js";
+import { USAGE_LIMIT_EXIT_CODE } from "../shared/exit-codes.js";
 
 function taskSelection(options: { phantom?: PhantomWaveSlot[]; taskId?: string } = {}): Extract<WaveSelection, { kind: "task" }> {
   const taskId = options.taskId ?? "0001";
@@ -57,6 +60,8 @@ function world(options: {
   control?: LoopControlState;
   emptyAction?: "continue" | "exit";
   runOk?: boolean;
+  /** Baigtis PAGAL task'ą, kai reikia struktūrinės formos (`runOk` lieka numatytoji kitiems). */
+  slotOutcomes?: Record<string, boolean | SlotRunOutcome>;
   withdrawn?: string[];
   resumable?: { bucket: string; file: string }[];
   auditRepair?: boolean;
@@ -116,7 +121,8 @@ function world(options: {
     },
     runSlotTask: (slot) => {
       ran.push(slot.task_id);
-      return Promise.resolve(options.runOk ?? true);
+      const outcome = options.slotOutcomes?.[slot.task_id];
+      return Promise.resolve(outcome ?? options.runOk ?? true);
     },
   };
 
@@ -283,6 +289,115 @@ test("užterštas medis yra BLOKAS", async () => {
 test("nedispatch'intas slot'as yra BLOKAS", async () => {
   const outcome = await runLoopCycle(world({ selections: [taskSelection()], control: control("drain") }).ports);
   assert.deepEqual(outcome, { kind: "blocked", reason: "no-slot-dispatched" });
+});
+
+// INFRASTRUKTŪROS SLOT BAIGTIS (148-c-04). Iki šio žingsnio ta pati usage limito baigtis turėjo
+// dvi semantikas: pirminiame medyje ji nutraukdavo bėgimą (`LOOP ABORT (infrastruktura)`), o vaiko
+// slot'e virsdavo „ENDED NONZERO … CONTINUING QUEUE" eilute ir degindavo likusią eilę.
+
+test("infra slot baigtis: naujų slot'ų nebeprovisioninama, o loop'as baigiasi TUO PAČIU infra kodu", async () => {
+  const w = world({
+    selections: [taskSelection(), taskSelection({ taskId: "0002" })],
+    slotOutcomes: { "0001": { kind: "infrastructure", exitCode: USAGE_LIMIT_EXIT_CODE } },
+  });
+
+  await assert.rejects(
+    () => runLoopCycle(w.ports),
+    (error: unknown) =>
+      error instanceof WorkflowInfrastructureError &&
+      error.exitCode === USAGE_LIMIT_EXIT_CODE &&
+      error.message.includes("task=0001"),
+    "exit kodas privalo pasiekti tėvą nepakeistas — lygiai kaip in-process kelyje",
+  );
+
+  assert.deepEqual(w.ran, ["0001"], "antra banga nebeimama: aplinka, nužudžiusi vaiką, nužudytų ir kitą");
+  assert.ok(w.logs.some((line) => line.includes("WAVE SLOT INFRASTRUCTURE EXIT") && line.includes(`exit=${USAGE_LIMIT_EXIT_CODE}`)));
+  assert.ok(w.logs.some((line) => line.includes("LOOP ABORT (infrastruktura)") && line.includes("stage=wave-slot")));
+  assert.equal(
+    w.logs.some((line) => line.includes("CONTINUING QUEUE")),
+    false,
+    "„eilė tęsiama“ apie nutraukiantį gedimą būtų melas",
+  );
+  // Priežastis privalo pasiekti operatorių: exit kodas neša tik skaičių.
+  assert.ok(w.out.some((line) => line.includes("infrastrukturos gedimu") && line.includes(String(USAGE_LIMIT_EXIT_CODE))));
+});
+
+test("infra baigtis LAIKO papildymą: atsilaisvinęs slot'as naujo darbo negauna", async () => {
+  // Dviejų slot'ų banga: w1 krinta dėl aplinkos, w2 dar dirba — būtent tas langas, kuriame
+  // papildymas duotų naują task'ą tai pačiai sugedusiai aplinkai.
+  const selection = taskSelection();
+  const twoSlots: Extract<WaveSelection, { kind: "task" }> = {
+    ...selection,
+    plan: {
+      ...selection.plan,
+      max_workers: 2,
+      ready: [
+        { task_id: "0001", file: "AG/tasks/queue/0001.md", blocked_by: [], depth: 0 },
+        { task_id: "0002", file: "AG/tasks/queue/0002.md", blocked_by: [], depth: 0 },
+      ],
+    },
+    pool: {
+      slots: [
+        { worker_id: "w1", worker_index: 1, task_id: "0001", file: "AG/tasks/queue/0001.md", attempt: 1 },
+        {
+          worker_id: "w2",
+          worker_index: 2,
+          task_id: "0002",
+          file: "AG/tasks/queue/0002.md",
+          attempt: 1,
+          worktree_path: ".ag/worktrees/r1/w2",
+        },
+      ],
+    } as unknown as WorkerPoolPlan,
+  };
+
+  const holds: SlotRefillHold[] = [];
+  let releaseSecond: () => void = () => undefined;
+  const secondFinished = new Promise<void>((resolve) => {
+    releaseSecond = resolve;
+  });
+
+  const w = world({ selections: [twoSlots] });
+  w.ports.scheduler.refillSlot = (_workerId, hold) => {
+    holds.push(hold);
+    // Papildymo klausimas užduotas — antrasis slot'as gali baigti.
+    releaseSecond();
+    return Promise.resolve(undefined);
+  };
+  w.ports.runSlotTask = async (slot) => {
+    w.ran.push(slot.task_id);
+    if (slot.worker_id === "w1") return { kind: "infrastructure", exitCode: USAGE_LIMIT_EXIT_CODE };
+    await secondFinished;
+    return true;
+  };
+
+  await assert.rejects(() => runLoopCycle(w.ports), WorkflowInfrastructureError);
+
+  assert.equal(holds.length, 1, "papildymo klausimas užduotas lygiai kartą — atsilaisvinusiam w1");
+  assert.deepEqual(
+    holds[0],
+    { kind: "stop-requested", detail: "loop-infrastructure.abort" },
+    "apimtis ta pati kaip `stop` — visas loop'as; priežastis matoma iš `detail`",
+  );
+  assert.deepEqual(w.ran.sort(), ["0001", "0002"], "jau vykdomas slot'as nenutraukiamas, bet naujo darbo neatsiranda");
+});
+
+test("ne-infra ne-nulis baigtis eilės degimo NEKEIČIA", async () => {
+  // Kontrolinis atvejis: struktūrinė baigtis pati savaime nieko nestabdo — sustabdo TIK
+  // `infrastructure` rūšis. Task'o nesėkmė buvo ir lieka „eilė tęsiama".
+  const w = world({
+    selections: [taskSelection(), taskSelection({ taskId: "0002" })],
+    slotOutcomes: { "0001": { kind: "task-failed" }, "0002": { kind: "succeeded" } },
+  });
+  const outcome = await runLoopCycle(w.ports);
+
+  assert.deepEqual(w.ran, ["0001", "0002"]);
+  assert.ok(w.logs.some((line) => line.includes("TASK ENDED NONZERO; CONTINUING QUEUE")));
+  assert.equal(
+    w.logs.some((line) => line.includes("LOOP ABORT (infrastruktura)")),
+    false,
+  );
+  assert.deepEqual(outcome, { kind: "finished", reason: "queue-empty" });
 });
 
 test("fantomas eilės NEBLOKUOJA — jis nėra loop'o baigtis", async () => {

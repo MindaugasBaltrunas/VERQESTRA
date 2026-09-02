@@ -54,12 +54,14 @@ readme-guard -> debugger -> coder -> reviewer -> tester
 Leidžiama:
 - `src/application/context-pack/context-cache-key.ts`
 - `src/application/context-pack/assemble/gather.ts` (TIK
-  `MIN_ARCHITECTURE_TOKEN_LENGTH` eksportas — dabar failo vidinis `const`)
+  MIN_ARCHITECTURE_TOKEN_LENGTH eksportas — dabar failo vidinis const;
+  pagrindime backtick'ų nėra sąmoningai — parseris tęstinių eilučių tokenus
+  skaičiuoja kaip failus, 2026-09-02 11:13 parkas „context files 12 > 8")
 - `src/application/context-pack/assemble/spec-phase.ts` (TIK
-  `WARNING_SEVERITY` ir `SPEC_DROP_REFS_LISTED` eksportai — dabar failo
-  vidiniai `const`)
+  WARNING_SEVERITY ir SPEC_DROP_REFS_LISTED eksportai — dabar failo
+  vidiniai const)
 - `src/application/code-intelligence/retrieval/ranking.ts` (TIK
-  `SCORE_PRECISION` eksportas — dabar failo vidinis `const`)
+  SCORE_PRECISION eksportas — dabar failo vidinis const)
 - `src/tests/context-pack-guards.test.ts` (deskriptoriaus pin'as
   201-209 eil. ir jo komentaras 183-194 eil.)
 

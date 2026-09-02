@@ -43,12 +43,13 @@ Leidžiama:
 - `src/tests/scheduling-wave-inputs.test.ts`
 - `src/tests/scheduling-wave-provisioning.test.ts`
 - `src/tests/scheduling-wave-integration-coordinator.test.ts` (2026-09-01
-  parkas „outside allowed paths": čia gyvena `WaveProvisioningCoordinator`
-  stub'as su `provisionMissingSlotLeases` — kontrakto formos keitimas jį
-  liečia)
+  parkas „outside allowed paths": čia gyvena WaveProvisioningCoordinator
+  stub'as su provisionMissingSlotLeases — kontrakto formos keitimas jį
+  liečia; pagrindime backtick'ų nėra sąmoningai — parseris tęstinių eilučių
+  tokenus skaičiuoja kaip failus, 2026-09-02 11:08 parkas „context files 10 > 8")
 - `src/tests/scheduling-wave-scheduler.test.ts` (2026-09-01 parkas: tas pats
-  `WaveProvisioningCoordinator` stub'as lūžta keičiant
-  `provisionMissingSlotLeases` grąžinimo formą)
+  WaveProvisioningCoordinator stub'as lūžta keičiant
+  provisionMissingSlotLeases grąžinimo formą)
 
 Draudžiama:
 - `src/application/scheduling/worker-pool-admission.ts` (statinis

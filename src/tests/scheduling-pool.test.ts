@@ -382,6 +382,82 @@ test("worker integration: incremental infrastructure outcome stays in queue, not
   assert.match(plan.reason, /infra=0007:infrastructure/);
 });
 
+// 152: atkurtas (`restored: true`) slot'as, kurio baigtis nežinoma (ne nesėkmė), NEBEPARKUOJAMAS
+// kaip task-failed, kai jo task'as jau grąžintas į `queue` — kažkas (koordinatorius) jį ten
+// grąžino, kol slot'as buvo neišspręstas. Įėjimas dar tuščias jokioje wiring'o vietoje (tik
+// worker-integration.ts/wave-scheduler-state.ts riba), tad šie testai tikrina PATĮ planą.
+test("worker integration: quiescent restored slot returns to skip when its task is back in queue", () => {
+  const checkpoint = evaluateIntegrationCheckpoint({ live: [] });
+  assert.equal(checkpoint.tree_quiescent, true);
+
+  const plan = planWorkerIntegration({
+    checkpoint,
+    finished: [
+      { worker_id: "w2", worker_index: 2, task_id: "0008", file: "h.md", attempt: 1, succeeded: false, worktree_path: "worktrees/w8", restored: true },
+      { worker_id: "w3", worker_index: 3, task_id: "0009", file: "i.md", attempt: 1, succeeded: false, worktree_path: "worktrees/w9", restored: true },
+    ],
+    queueTaskIds: ["0008"],
+  });
+
+  assert.deepEqual(
+    plan.park.map((entry) => [entry.task_id, entry.reason]),
+    [["0009", "task-failed"]],
+    "atkurtas slot'as BE queue lieka parkuojamas kaip anksčiau",
+  );
+  assert.deepEqual(plan.skipped.map((entry) => [entry.task_id, entry.reason]), [["0008", "restored-requeued"]]);
+});
+
+test("worker integration: incremental restored slot returns to skip when its task is back in queue", () => {
+  const live = [liveSlot("0001", "w1", 1, "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" })];
+  const checkpoint = evaluateIntegrationCheckpoint({ live });
+  assert.equal(checkpoint.tree_quiescent, false, "kontrolė: medis neramus");
+
+  const restoredQueued = {
+    worker_id: "w2",
+    worker_index: 2,
+    task_id: "0008",
+    file: "h.md",
+    attempt: 1,
+    succeeded: false,
+    worktree_path: "worktrees/w8",
+    restored: true,
+  };
+  const plan = planWorkerIntegration({ checkpoint, finished: [restoredQueued], live, queueTaskIds: ["0008"] });
+
+  assert.equal(plan.ready, true, "vien praleidimo užtenka, kad žingsnis būtų vykdomas");
+  assert.equal(plan.mode, "incremental");
+  assert.deepEqual(plan.park, [], "atkurtas + queue niekada nevirsta task-failed parku");
+  assert.deepEqual(plan.skipped.map((entry) => [entry.task_id, entry.reason]), [["0008", "restored-requeued"]]);
+  assert.match(plan.reason, /restored=0008:restored-requeued/);
+});
+
+test("worker integration: infrastructure outcome still wins over restored-requeued", () => {
+  const checkpoint = evaluateIntegrationCheckpoint({ live: [] });
+  const plan = planWorkerIntegration({
+    checkpoint,
+    finished: [
+      {
+        worker_id: "w2",
+        worker_index: 2,
+        task_id: "0008",
+        file: "h.md",
+        attempt: 1,
+        succeeded: false,
+        worktree_path: "worktrees/w8",
+        restored: true,
+        infrastructure_exit_code: 75,
+      },
+    ],
+    queueTaskIds: ["0008"],
+  });
+
+  assert.deepEqual(
+    plan.skipped.map((entry) => [entry.task_id, entry.reason]),
+    [["0008", "infrastructure"]],
+    "infrastruktūros pirmenybė prieš restored-requeued nesikeičia",
+  );
+});
+
 test("measureParallelOverhead basics", () => {
   const metric = measureParallelOverhead({
     sequential: { wall_clock_ms: 1000, tokens: 100 },

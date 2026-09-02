@@ -99,6 +99,26 @@ async function readDashboardWaveSnapshot(stateDir: string): Promise<DashboardWav
 }
 
 /**
+ * Task 139: worktree dispatch'o gyvas `claude-last.log` gyvena KOPIJOS `vq/logs`, ne tėvo
+ * attempt kanale (kopija rašo su savo runtimeRoot). Ta pati rezoliucija kaip SSE
+ * (`sse-adapters.ts` `worktreeLiveSources`): kelias išvedamas iš GYVO lease (`worktree_path`),
+ * o ne spėjamas; nesant lease ar failo — `undefined`, ir kvietėjas grąžina tuščią veiklą, o ne
+ * globalų veidrodį.
+ */
+async function worktreeLiveLogPath(projectRoot: string, taskId: string): Promise<string | undefined> {
+  try {
+    const leases = await listWorkerLeases(schedulingFs, projectRoot);
+    const lease = leases.find((entry) => entry.status === "held" && entry.task_id === taskId && entry.worktree_path);
+    if (!lease?.worktree_path) return undefined;
+    const logPath = path.join(path.resolve(projectRoot, lease.worktree_path), "vq", "logs", "claude-last.log");
+    return (await nodeFsAdapter.exists(logPath)) ? logPath : undefined;
+  } catch {
+    // Srautas yra diagnostika, ne vartai: lease skaitymo klaida negali nuversti antspaudo.
+    return undefined;
+  }
+}
+
+/**
  * Proceso būsena iš PID/runtime įrašo.
  *
  * `selfRegistering` skirtumas yra ne detalė, o mygtuko elgesys: savo įrašą valdančiam loop'ui
@@ -153,9 +173,11 @@ export function dashboardViewPorts(input: DashboardAdapterInput): DashboardViewP
     },
 
     /**
-     * Claude sesijos log'o antspaudas ATTEMPT-FIRST. Kilmė grąžinama kartu su antspaudu, nes
-     * operatoriui tai skirtingi faktai: `attempt` yra šio bandymo žurnalas, `legacy` — paskutinis
-     * bet kurios sesijos, ir antruoju atveju jis gali priklausyti visai kitam task'ui.
+     * Claude sesijos log'o antspaudas ATTEMPT-FIRST, ta pati gyvo šaltinio rezoliucija kaip SSE
+     * (task 139): tėvo attempt kanalas, o jo nesant — worktree dispatch'o kopijos veidrodis per
+     * gyvą lease. Globalus `vq/logs/claude-last.log` veidrodis ČIA NEBESKAITOMAS — jo turinys
+     * gali priklausyti bet kuriam ankstesniam task'ui, tad gyvo šaltinio nesant grąžinama tuščia
+     * veikla (`source: "none"`), o ne fosilija.
      */
     async readClaudeLogStamp(taskId: string): Promise<DashboardClaudeLogStamp> {
       if (taskId.trim() !== "") {
@@ -167,9 +189,13 @@ export function dashboardViewPorts(input: DashboardAdapterInput): DashboardViewP
             if (stamp.bytes !== undefined) return { ...stamp, source: "attempt" };
           }
         }
+        const worktreeLogPath = await worktreeLiveLogPath(projectRoot, taskId);
+        if (worktreeLogPath !== undefined) {
+          const stamp = await fileStamp(worktreeLogPath);
+          if (stamp.bytes !== undefined) return { ...stamp, source: "attempt" };
+        }
       }
-      const legacy = await fileStamp(path.join(runtimeRoot, "logs", "claude-last.log"));
-      return { ...legacy, source: legacy.bytes === undefined ? "none" : "legacy" };
+      return { source: "none" };
     },
 
     inspectProcess,

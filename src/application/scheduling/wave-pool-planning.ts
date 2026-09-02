@@ -10,6 +10,7 @@
 // perplanavimas paliktų lease'ą, kuris tris valandas (TTL) blokuotų to task'o dispatch'ą.
 
 import { planWorkerPool, type SlotProvisionTarget, type WorkerPoolPlan } from "./worker-pool-plan.js";
+import type { ProvisionMissingSlotLeasesResult } from "./wave-provisioning.js";
 import type { WorkerCandidate } from "./worker-pool-admission.js";
 import { detectPhantomWaveSlots, type PhantomWaveSlot } from "./wave-phantom-slots.js";
 import type { WorkerLease } from "../../domain/scheduling/worker-lease-rules.js";
@@ -50,7 +51,7 @@ export type PlanWavePoolInput = {
   provisionMissingSlotLeases: (
     pool: WorkerPoolPlan,
     candidates: readonly WorkerCandidate[],
-  ) => Promise<SlotProvisionTarget[]>;
+  ) => Promise<ProvisionMissingSlotLeasesResult>;
   releaseWaveProvisionLease: (target: SlotProvisionTarget) => Promise<void>;
 };
 
@@ -76,7 +77,11 @@ export async function planWavePool(input: PlanWavePoolInput): Promise<WavePoolPl
 
   // Lease'ai išduodami TIK kai realiai prašoma paralelizmo: vienam slot'ui jų nereikia, o
   // nereikalingas išdavimas kainuotų fencing skaitiklį ir TTL langą.
-  const provisioned = requested >= 2 ? await input.provisionMissingSlotLeases(pool, candidates) : [];
+  const provisionResult: ProvisionMissingSlotLeasesResult =
+    requested >= 2
+      ? await input.provisionMissingSlotLeases(pool, candidates)
+      : { provisioned: [], lastOutcomeByTask: new Map<string, string>() };
+  const provisioned = provisionResult.provisioned;
   if (provisioned.length > 0) {
     const retry = await input.readIsolationInputs(requested);
     planLeases = retry.leases;
@@ -101,7 +106,16 @@ export async function planWavePool(input: PlanWavePoolInput): Promise<WavePoolPl
   // Pool'o eilutė rašoma tik prašant paralelizmo: vieno slot'o atveju ji kartotųsi kiekvienoje
   // bangoje nieko nepasakydama.
   if (requested >= 2) {
-    const rejections = pool.rejected.map((entry) => `${entry.task_id}: ${entry.reason} — ${entry.detail}`).join(" | ");
+    const rejections = pool.rejected
+      .map((entry) => {
+        const base = `${entry.task_id}: ${entry.reason} — ${entry.detail}`;
+        // Tik `missing-lease` praturtinamas: kitų priežasčių atmetimai (pvz. `hard-cap`) provision
+        // bandymo net nesulaukia, tad `lastOutcomeByTask` jiems niekada neturės įrašo.
+        const lastAttempt =
+          entry.reason === "missing-lease" ? provisionResult.lastOutcomeByTask.get(entry.task_id) : undefined;
+        return lastAttempt === undefined ? base : `${base} — paskutinis provision bandymas: ${lastAttempt}`;
+      })
+      .join(" | ");
     await input.log(
       `WORKER POOL: mode=${pool.mode} requested=${pool.requested_workers} granted=${pool.slots.length}/${pool.max_workers}` +
         (rejections === "" ? "" : ` rejected=${rejections}`),

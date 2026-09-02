@@ -284,18 +284,18 @@ test("PASIBAIGĘS lease kandidatui nepriskiriamas", async () => {
 
 test("jau dispatch'intas task'as lease'o NEGAUNA", async () => {
   const w = world({ running: ["0002"] });
-  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+  const result = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
     pool({ granted: ["0001"], missingLease: ["0002"] }),
     [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"])],
   );
 
-  assert.deepEqual(provisioned, []);
+  assert.deepEqual(result.provisioned, []);
   assert.ok(w.logs.some((line) => line.includes("task jau dispatch'intas")));
 });
 
 test("write-set konfliktas slot'o NEPRARANDA — jį gauna švarus pakaitalas", async () => {
   const w = world();
-  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+  const result = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
     pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
     [
       candidate("0001", ["src/a.ts"]),
@@ -306,7 +306,7 @@ test("write-set konfliktas slot'o NEPRARANDA — jį gauna švarus pakaitalas", 
   );
 
   assert.deepEqual(
-    provisioned.map((target) => target.task_id),
+    result.provisioned.map((target) => target.task_id),
     ["0003"],
   );
   assert.ok(w.logs.some((line) => line.includes("write-set-conflict")));
@@ -322,41 +322,49 @@ test("aprūpinimo NESĖKMĖ slot'o nepraranda — jį gauna kitas kandidatas tam
     create: (taskId) =>
       taskId === "0002" ? { status: "quarantined", reason: "dirty-tree" } : { status: "created", relativePath: ".worktrees/w2" },
   });
-  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+  const result = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
     pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
     [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"]), candidate("0003", ["src/c.ts"])],
   );
 
-  assert.deepEqual(provisioned, [{ task_id: "0003", worker_index: 2 }], "laisvas indeksas lieka bangoje, o ne sudega");
+  assert.deepEqual(
+    result.provisioned,
+    [{ task_id: "0003", worker_index: 2 }],
+    "laisvas indeksas lieka bangoje, o ne sudega",
+  );
   // Operatorius turi matyti GRANDINĘ, ne tik galutinį rezultatą.
   assert.ok(
     w.logs.some((line) => line.includes("SLOT PROVISION RETRY:") && line.includes("task=0002") && line.includes("task=0003")),
     "žurnale matyti, kuris kandidatas krito ir kas bandomas vietoje jo",
   );
+  // 116: kritusio kandidato priežastis lieka prieinama kvietėjui — pool eilutė ją įpina prie
+  // `missing-lease` įrašo, o ne vien lease store'o statinį tekstą.
+  assert.equal(result.lastOutcomeByTask.get("0002"), "dirty-tree");
 });
 
 test("visiems kandidatams kritus raundas BAIGIASI — kiekvienas bandomas daugiausia kartą", async () => {
   const w = world({ create: () => ({ status: "quarantined", reason: "dirty-tree" }) });
-  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+  const result = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
     pool({ granted: ["0001"], missingLease: ["0002", "0003"] }),
     [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"]), candidate("0003", ["src/c.ts"])],
   );
 
-  assert.deepEqual(provisioned, []);
+  assert.deepEqual(result.provisioned, []);
   // `claimed` daro aibę baigtinę: be jo pakaitalo ciklas suktųsi amžinai.
   assert.deepEqual(w.created, ["0002", "0003"], "kiekvienas kandidatas bandytas lygiai kartą");
   assert.ok(w.logs.some((line) => line.includes("SLOT PROVISION EXHAUSTED:")), "pabaiga įvardijama, o ne tyli");
 });
 
-test("nepavykęs išdavimas į rezultatą NEPATENKA", async () => {
+test("nepavykęs išdavimas į rezultatą NEPATENKA, bet priežastis lieka lastOutcomeByTask", async () => {
   const w = world({ create: () => ({ status: "infrastructure", message: "no git" }) });
-  const provisioned = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
+  const result = await createWaveProvisioningCoordinator(w.deps).provisionMissingSlotLeases(
     pool({ granted: ["0001"], missingLease: ["0002"] }),
     [candidate("0001", ["src/a.ts"]), candidate("0002", ["src/b.ts"])],
   );
 
   // Kitaip perplanavimas laukdamas lease'o „matytų" izoliaciją, kurios nėra.
-  assert.deepEqual(provisioned, []);
+  assert.deepEqual(result.provisioned, []);
+  assert.equal(result.lastOutcomeByTask.get("0002"), "no git");
 });
 
 test("atlaisvinamas TIK to paties task'o held lease", async () => {

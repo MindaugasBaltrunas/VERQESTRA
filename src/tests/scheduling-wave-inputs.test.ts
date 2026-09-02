@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolveWorkerRequest, runnableSlotPrefix } from "../application/scheduling/wave-inputs.js";
 import { planWavePool, type SlotProvisionTarget } from "../application/scheduling/wave-pool-planning.js";
+import { computeTaskWriteSet } from "../application/scheduling/conflict-detector.js";
+import type { WorkerCandidate } from "../application/scheduling/worker-pool-admission.js";
 import type { LoopControlState } from "../application/scheduling/loop-control-store.js";
 import type { WavePlan } from "../application/scheduling/schedule-next-wave.js";
 
@@ -84,7 +86,7 @@ test("vieno slot'o banga lease'ų NEIŠDUODA", async () => {
     rememberCandidate: () => {},
     provisionMissingSlotLeases: () => {
       provisionCalls += 1;
-      return Promise.resolve([]);
+      return Promise.resolve({ provisioned: [], lastOutcomeByTask: new Map() });
     },
     releaseWaveProvisionLease: () => Promise.resolve(),
   });
@@ -106,7 +108,8 @@ test("išduotas, bet į antrą planą NEPATEKĘS lease ATLAISVINAMAS", async () 
     // Kandidatų nėra, tad antras planas slot'ų neturi — išduotas lease lieka nepanaudotas.
     toWorkerCandidates: () => [],
     rememberCandidate: () => {},
-    provisionMissingSlotLeases: () => Promise.resolve([{ task_id: "0002", worker_index: 2 }]),
+    provisionMissingSlotLeases: () =>
+      Promise.resolve({ provisioned: [{ task_id: "0002", worker_index: 2 }], lastOutcomeByTask: new Map() }),
     releaseWaveProvisionLease: (target) => {
       released.push(target);
       return Promise.resolve();
@@ -131,10 +134,81 @@ test("perplanavimas VIENKARTINIS: antras išdavimas nebekviečiamas", async () =
     rememberCandidate: () => {},
     provisionMissingSlotLeases: () => {
       provisionCalls += 1;
-      return Promise.resolve([{ task_id: "0002", worker_index: 2 }]);
+      return Promise.resolve({ provisioned: [{ task_id: "0002", worker_index: 2 }], lastOutcomeByTask: new Map() });
     },
     releaseWaveProvisionLease: () => Promise.resolve(),
   });
   // Ciklas „planuok, išduok, perplanuok" be ribos sukiotųsi tol, kol lease'ai baigtųsi.
   assert.equal(provisionCalls, 1);
+});
+
+function determinateCandidates(): WorkerCandidate[] {
+  return [
+    { task_id: "0001", file: "AG/tasks/queue/0001.md", write_set: computeTaskWriteSet({ task_id: "0001", allowed_paths: ["src/a.ts"] }) },
+    { task_id: "0002", file: "AG/tasks/queue/0002.md", write_set: computeTaskWriteSet({ task_id: "0002", allowed_paths: ["src/b.ts"] }) },
+  ];
+}
+
+// 116 (2026-09-01, W1/w2 slot'ų auditas P3): `missing-lease` atmetimas be konteksto siunčia
+// operatorių ieškoti lease'ų, nors provisionMissingSlotLeases jau žino TIKRĄJĄ priežastį (šiuo
+// atveju — gitignore'inta šaknis). Pool eilutė tą priežastį privalo įpinti.
+test("WORKER POOL eilutė missing-lease įrašui prideda paskutinę provision baigtį", async () => {
+  const logs: string[] = [];
+  await planWavePool({
+    runId: "r1",
+    current: wavePlan(),
+    requestedWorkers: 2,
+    primaryClaimSupported: false,
+    now: () => "2026-08-21T12:00:00.000Z",
+    log: (message) => {
+      logs.push(message);
+      return Promise.resolve();
+    },
+    recordEvent: () => Promise.resolve(),
+    readIsolationInputs: () => Promise.resolve({ leases: [] }),
+    toWorkerCandidates: () => determinateCandidates(),
+    rememberCandidate: () => {},
+    provisionMissingSlotLeases: () =>
+      Promise.resolve({
+        provisioned: [],
+        lastOutcomeByTask: new Map([["0002", "worktree šaknis nėra gitignore'inta"]]),
+      }),
+    releaseWaveProvisionLease: () => Promise.resolve(),
+  });
+
+  const line = logs.find((entry) => entry.startsWith("WORKER POOL:"));
+  assert.ok(line !== undefined, "pool eilutė turi būti parašyta");
+  assert.ok(line?.includes("0002: missing-lease"), "bazinė priežastis lieka");
+  assert.ok(
+    line?.includes("paskutinis provision bandymas: worktree šaknis nėra gitignore'inta"),
+    "TIKROJI priežastis matoma toje pačioje eilutėje",
+  );
+});
+
+// Be provision bandymo (lastOutcomeByTask tuščias) eilutė nekinta — praturtinimas nepridedamas,
+// jei nėra ką pridėti.
+test("missing-lease BE provision bandymo — eilutė kaip iki šiol", async () => {
+  const logs: string[] = [];
+  await planWavePool({
+    runId: "r1",
+    current: wavePlan(),
+    requestedWorkers: 2,
+    primaryClaimSupported: false,
+    now: () => "2026-08-21T12:00:00.000Z",
+    log: (message) => {
+      logs.push(message);
+      return Promise.resolve();
+    },
+    recordEvent: () => Promise.resolve(),
+    readIsolationInputs: () => Promise.resolve({ leases: [] }),
+    toWorkerCandidates: () => determinateCandidates(),
+    rememberCandidate: () => {},
+    provisionMissingSlotLeases: () => Promise.resolve({ provisioned: [], lastOutcomeByTask: new Map() }),
+    releaseWaveProvisionLease: () => Promise.resolve(),
+  });
+
+  const line = logs.find((entry) => entry.startsWith("WORKER POOL:"));
+  assert.ok(line !== undefined);
+  assert.ok(line?.includes("0002: missing-lease — antram workeriui reikalingas worker lease"));
+  assert.ok(!line?.includes("paskutinis provision bandymas"));
 });

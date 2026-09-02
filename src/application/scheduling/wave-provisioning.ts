@@ -92,8 +92,19 @@ export type WaveProvisioningCoordinator = {
   provisionMissingSlotLeases: (
     pool: WorkerPoolPlan,
     candidates: readonly WorkerCandidate[],
-  ) => Promise<SlotProvisionTarget[]>;
+  ) => Promise<ProvisionMissingSlotLeasesResult>;
   releaseWaveProvisionLease: (target: SlotProvisionTarget) => Promise<void>;
+};
+
+/**
+ * `lastOutcomeByTask` — priežastis, kodėl KONKREČIAM task'ui paskutinis provision bandymas per šį
+ * kvietimą nepavyko (SKIP/CONFLICT tekstas be `where` priesagos). Naudojama pool eilutei
+ * praturtinti: `missing-lease` atmetimas be konteksto operatorių siunčia ieškoti lease'ų, nors
+ * tikroji priežastis (pvz. gitignore) buvo žinoma šio kvietimo metu.
+ */
+export type ProvisionMissingSlotLeasesResult = {
+  provisioned: SlotProvisionTarget[];
+  lastOutcomeByTask: Map<string, string>;
 };
 
 export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): WaveProvisioningCoordinator {
@@ -133,7 +144,14 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
 
   const leases = async (): Promise<WorkerLease[]> => await listWorkerLeases(deps.leaseStore.fs, deps.workspaceRoot);
 
-  const provisionSlotLease = async (target: SlotProvisionTarget): Promise<boolean> => {
+  /**
+   * Vidinė forma su nesėkmės priežastimi — viešas `provisionSlotLease` (žemiau) iš jos daro
+   * `boolean`, nes tai jo esamas kontraktas kitiems kvietėjams (pvz. `wave-refill.ts`). Priežastis
+   * reikalinga tik `provisionMissingSlotLeases`, kuri ją perduoda pool eilutei.
+   */
+  type ProvisionAttemptOutcome = { ok: true } | { ok: false; detail: string };
+
+  const attemptProvision = async (target: SlotProvisionTarget): Promise<ProvisionAttemptOutcome> => {
     const workerId = formatWorkerId(target.worker_index);
     const where = `worker=${workerId} task=${target.task_id}`;
 
@@ -180,11 +198,11 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
     try {
       if (!(await deps.worktree.policyEnabled())) {
         await deps.log(`SLOT PROVISION SKIP: worktree politika išjungta (${where})`);
-        return false;
+        return { ok: false, detail: "worktree politika išjungta" };
       }
       if (!(await deps.worktree.rootIsIgnored())) {
         await deps.log(`SLOT PROVISION SKIP: worktree šaknis nėra gitignore'inta (${where})`);
-        return false;
+        return { ok: false, detail: "worktree šaknis nėra gitignore'inta" };
       }
 
       const identity: WorktreeProvisionIdentity = {
@@ -203,7 +221,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
         await deps.log(
           `SLOT LEASE CONFLICT: aktyvų lease laiko ${acquired.holder.owner_id} (task=${acquired.holder.task_id}) — ${where} negauna savo lease`,
         );
-        return false;
+        return { ok: false, detail: `aktyvų lease laiko ${acquired.holder.owner_id} (task=${acquired.holder.task_id})` };
       }
       // Pakartotinai panaudotas lease gali priklausyti JAU BAIGTAM task'ui: tas pats worker'io
       // indeksas, kitas darbas. Perimti jį reikštų dirbti svetimoje kopijoje.
@@ -211,7 +229,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
         // NEatlaisvinama: šis lease priklauso kitam darbui, ir jo nuėmimas nutrauktų svetimą
         // izoliaciją. `held` lieka nenustatytas, tad ir vėlesni keliai jo nelies.
         await deps.log(`SLOT PROVISION SKIP: reused lease priklauso task'ui ${acquired.lease.task_id} (${where})`);
-        return false;
+        return { ok: false, detail: `reused lease priklauso task'ui ${acquired.lease.task_id}` };
       }
       // Nuo čia lease yra MŪSŲ (`acquired` arba to paties owner'io `reused`), tad kiekvienas
       // nesėkmės kelias privalo jį grąžinti.
@@ -234,13 +252,12 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
           ttlMs: WAVE_SLOT_LEASE_TTL_MS,
         });
         if (locks.status === "conflict") {
-          await deps.log(
-            `SLOT SCOPE LOCK CONFLICT: ${where} — ${locks.conflicts
-              .map((conflict) => `${conflict.request.scope} laiko task=${conflict.holder.owner.task_id}`)
-              .join(", ")}`,
-          );
+          const conflictDetail = locks.conflicts
+            .map((conflict) => `${conflict.request.scope} laiko task=${conflict.holder.owner.task_id}`)
+            .join(", ");
+          await deps.log(`SLOT SCOPE LOCK CONFLICT: ${where} — ${conflictDetail}`);
           await releaseHeldLease("scope lock konfliktas");
-          return false;
+          return { ok: false, detail: `scope lock konfliktas: ${conflictDetail}` };
         }
       }
 
@@ -248,12 +265,12 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       if (created.status === "quarantined") {
         await deps.log(`SLOT WORKTREE QUARANTINED: ${created.reason} (${where})`);
         await releaseHeldLease("worktree karantinas");
-        return false;
+        return { ok: false, detail: created.reason };
       }
       if (created.status === "infrastructure") {
         await deps.log(`SLOT WORKTREE FAILED: ${created.message} (${where})`);
         await releaseHeldLease("worktree infrastruktūros klaida");
-        return false;
+        return { ok: false, detail: created.message };
       }
 
       // Kopija JAU egzistuoja diske (kartu su savo owner žyma), tad nuo ŠIOS eilutės lease'o
@@ -276,15 +293,19 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       await deps.log(
         `SLOT PROVISIONED: task=${target.task_id} worker=${workerId} lease=${acquired.lease.lease_id} worktree=${created.relativePath} (${created.status})`,
       );
-      return true;
+      return { ok: true };
     } catch (error) {
       // Aprūpinimas NIEKADA nemeta: viena nesusikūrusi kopija reiškia vienu slot'u mažiau,
       // o ne kritusią bangą.
-      await deps.log(`SLOT PROVISION FAILED: ${describe(error)} (${where})`);
+      const detail = describe(error);
+      await deps.log(`SLOT PROVISION FAILED: ${detail} (${where})`);
       await releaseHeldLease("aprūpinimo išimtis");
-      return false;
+      return { ok: false, detail };
     }
   };
+
+  const provisionSlotLease = async (target: SlotProvisionTarget): Promise<boolean> =>
+    (await attemptProvision(target)).ok;
 
   return {
     toWorkerCandidates(tasks, held): WorkerCandidate[] {
@@ -354,7 +375,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
       }
     },
 
-    async provisionMissingSlotLeases(pool, candidates): Promise<SlotProvisionTarget[]> {
+    async provisionMissingSlotLeases(pool, candidates): Promise<ProvisionMissingSlotLeasesResult> {
       const provisioning = planSlotProvisioning({ plan: pool });
       // Atsisakymai rašomi VISI, net jei nė vienas lease neišduodamas: be jų operatorius matytų
       // tuščią aprūpinimą ir negalėtų pasakyti, ar nebuvo adresatų, ar jie buvo atmesti.
@@ -376,6 +397,10 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
         .filter((candidate): candidate is WorkerCandidate => candidate !== undefined);
       const claimed = new Set<string>();
       const provisioned: SlotProvisionTarget[] = [];
+      // Paskutinė nesėkmės priežastis kiekvienam bandytam task'ui — planavimo sluoksnis (
+      // `wave-pool-planning.ts`) ją prideda prie `missing-lease` pool eilutės, kad operatorius
+      // matytų TIKRĄJĄ priežastį (pvz. gitignore), o ne vien statinį admission'o tekstą.
+      const lastOutcomeByTask = new Map<string, string>();
 
       /**
        * Kitas laisvas kandidatas ta pačia deterministine tvarka.
@@ -432,12 +457,14 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
         let attempt: SlotProvisionTarget | undefined =
           chosen === undefined ? target : { task_id: chosen.task_id, worker_index: target.worker_index };
         while (attempt !== undefined) {
-          if (await provisionSlotLease(attempt)) {
+          const outcome = await attemptProvision(attempt);
+          if (outcome.ok) {
             provisioned.push(attempt);
             const admitted = byTask.get(attempt.task_id);
             if (admitted !== undefined) occupants.push(admitted);
             break;
           }
+          lastOutcomeByTask.set(attempt.task_id, outcome.detail);
           // Grandinė turi būti matoma: kuris kandidatas krito ir kas bandomas vietoje jo. Vien
           // galutinis rezultatas neleistų operatoriui atskirti „nebuvo adresatų" nuo „visi krito".
           const replacement = nextFreeCandidate();
@@ -455,7 +482,7 @@ export function createWaveProvisioningCoordinator(deps: WaveProvisioningDeps): W
           attempt = { task_id: replacement.task_id, worker_index: target.worker_index };
         }
       }
-      return provisioned;
+      return { provisioned, lastOutcomeByTask };
     },
   };
 }

@@ -74,7 +74,7 @@ const provisioningCoordinator: WaveProvisioningCoordinator = {
     ),
   readIsolationInputs: () => Promise.resolve({ leases: [] }),
   provisionSlotLease: () => Promise.resolve(false),
-  provisionMissingSlotLeases: () => Promise.resolve([]),
+  provisionMissingSlotLeases: () => Promise.resolve({ provisioned: [], lastOutcomeByTask: new Map() }),
   releaseWaveProvisionLease: () => Promise.resolve(),
 };
 

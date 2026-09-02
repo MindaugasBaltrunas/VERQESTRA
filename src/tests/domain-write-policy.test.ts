@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  ALLOWED_ENV_TEMPLATE_BASENAMES,
   classifyForeignLeaseGuardScope,
   collapseTraversal,
   escapesRoot,
@@ -58,6 +59,28 @@ test("evaluateWritePolicy: env/raktų failai blokuojami bet kokiu registru", () 
   assert.equal(evaluateWritePolicy("certs/server.PEM")?.reason, "saugomas pletinys");
   assert.equal(evaluateWritePolicy("node_modules/x/index.js")?.reason, "saugomas kelias");
   assert.equal(evaluateWritePolicy("dist/cli.js")?.reason, "generuotas hook runtime");
+});
+
+test("evaluateWritePolicy: .env.example šablonas praleidžiamas, kiti .env* — ne", () => {
+  // Šablonas be slaptukų yra industrijos standartas (`cp .env.example .env`); be išimties
+  // env kintamųjų nebūdavo kur dokumentuoti.
+  assert.equal(evaluateWritePolicy(".env.example"), undefined);
+  assert.equal(evaluateWritePolicy("config/.env.example"), undefined);
+  assert.equal(evaluateWritePolicy(".ENV.EXAMPLE"), undefined);
+  assert.deepEqual(ALLOWED_ENV_TEMPLATE_BASENAMES, [".env.example"]);
+
+  // Išimtis yra TIKSLUS basename atitikmuo: joks kitas `.env*` variantas per ją nepralenda.
+  assert.equal(evaluateWritePolicy(".env")?.reason, "saugomas failas");
+  assert.equal(evaluateWritePolicy(".env.local")?.reason, "saugomas failas");
+  assert.equal(evaluateWritePolicy(".env.example.local")?.reason, "saugomas failas");
+  assert.equal(evaluateWritePolicy("config/.env.development")?.reason, "saugomas failas");
+  // `.env.example.pem` nėra išimties vardas: jį sustabdo env taisyklė dar prieš plėtinių sąrašą,
+  // tad raktų failas jokiu registru pro šabloną neįlenda.
+  assert.equal(evaluateWritePolicy(".env.example.pem")?.reason, "saugomas failas");
+  // Kelių patikros eina PO env patikros ir išimtis jų neišjungia.
+  assert.equal(evaluateWritePolicy("node_modules/pkg/.env.example")?.reason, "saugomas kelias");
+  assert.equal(evaluateWritePolicy(".git/.env.example")?.reason, "saugomas kelias");
+  assert.equal(evaluateWritePolicy("../outside/.env.example")?.reason, "kelias uz projekto ribu");
 });
 
 test("evaluateWritePolicy: traversal sutraukiamas PRIEŠ prefiksų atitikimą", () => {

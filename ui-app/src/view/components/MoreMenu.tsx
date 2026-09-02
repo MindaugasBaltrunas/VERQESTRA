@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ROUTE_LABELS, type Route } from "../../controller/useRoute";
 import { useThemeController } from "../../controller/useThemeController";
 import { useI18n } from "../../i18n/I18nContext";
@@ -16,7 +16,17 @@ import { useI18n } from "../../i18n/I18nContext";
  *
  * `<details>`, o ne savas dropdown'as: klaviatūra ir screen reader'iai jį moka be nė vienos
  * `aria-*` eilutės, o uždarymas paspaudus šalia yra vienintelis dalykas, kurio jam trūksta.
+ *
+ * Sekcijos (2026-09-02, UI auditas P3): 390×844 ekrane 10 ekranų vienoje sekcijoje ir atskiri
+ * pilno pločio tema/kalba mygtukai stumdavo turinį 757px į 589px matomo — antra slinkimo zona
+ * per pačią mažiausią naudojamą sąsają. Grupavimas tik perstato tuos pačius `ROUTE_LABELS`
+ * įrašus po antraštėmis; nė vienas ekranas nedingsta ir tvarka sąraše nesikeičia.
  */
+const SCREEN_SECTIONS: readonly { heading: string; routes: readonly Route[] }[] = [
+  { heading: "Core screens", routes: ["overview", "tasks", "reviews"] },
+  { heading: "Insights", routes: ["learning", "analytics", "optimization", "reliability"] },
+  { heading: "Platform", routes: ["benchmark", "compression", "system"] },
+];
 export function MoreMenu(props: {
   activeRoute: Route;
   onNavigate: (route: Route) => void;
@@ -58,18 +68,22 @@ export function MoreMenu(props: {
         ☰ {t("More")}
       </summary>
       <div className="more-menu-panel">
-        <p className="more-menu-heading">{t("Screens")}</p>
         <nav aria-label={t("All screens")}>
-          {(Object.keys(ROUTE_LABELS) as Route[]).map((route) => (
-            <button
-              key={route}
-              type="button"
-              className={route === props.activeRoute ? "more-menu-item active" : "more-menu-item"}
-              aria-current={route === props.activeRoute ? "page" : undefined}
-              onClick={() => go(route)}
-            >
-              {t(ROUTE_LABELS[route])}
-            </button>
+          {SCREEN_SECTIONS.map((section) => (
+            <Fragment key={section.heading}>
+              <p className="more-menu-heading">{t(section.heading)}</p>
+              {section.routes.map((route) => (
+                <button
+                  key={route}
+                  type="button"
+                  className={route === props.activeRoute ? "more-menu-item active" : "more-menu-item"}
+                  aria-current={route === props.activeRoute ? "page" : undefined}
+                  onClick={() => go(route)}
+                >
+                  {t(ROUTE_LABELS[route])}
+                </button>
+              ))}
+            </Fragment>
           ))}
         </nav>
 
@@ -114,27 +128,31 @@ export function MoreMenu(props: {
         </button>
         {/* Tema ir kalba čia atsirado 2026-08-24 kartu su kompaktiška mobilia juosta: juostai
             susitraukus iki vienos eilutės, jos abi būtų dingusios BE pakaitalo — tiksliai ta klaida,
-            kurią dešimtas ratas uždarė ciklo mygtukams. Meniu dengia viską, ką juosta rodė. */}
-        <button type="button" className="more-menu-item" onClick={() => toggleTheme()}>
-          {theme === "dark" ? `☀ ${t("Light")}` : `🌙 ${t("Dark")}`}
-        </button>
-        <div className="more-menu-languages" role="group" aria-label={t("Language")}>
-          <button
-            type="button"
-            className={language === "lt" ? "more-menu-item active" : "more-menu-item"}
-            aria-pressed={language === "lt"}
-            onClick={() => setLanguage("lt")}
-          >
-            LT
+            kurią dešimtas ratas uždarė ciklo mygtukams. Meniu dengia viską, ką juosta rodė.
+            Viena eilutė (2026-09-02): atskiri pilno pločio mygtukai temai ir kalbai buvo didžiausias
+            slinkimo zonos „valgytojas" po ekranų sąrašo — sutraukta į vieną kompaktišką eilutę. */}
+        <div className="more-menu-settings-row">
+          <button type="button" className="more-menu-item more-menu-settings-theme" onClick={() => toggleTheme()}>
+            {theme === "dark" ? `☀ ${t("Light")}` : `🌙 ${t("Dark")}`}
           </button>
-          <button
-            type="button"
-            className={language === "en" ? "more-menu-item active" : "more-menu-item"}
-            aria-pressed={language === "en"}
-            onClick={() => setLanguage("en")}
-          >
-            EN
-          </button>
+          <div className="more-menu-languages" role="group" aria-label={t("Language")}>
+            <button
+              type="button"
+              className={language === "lt" ? "more-menu-item active" : "more-menu-item"}
+              aria-pressed={language === "lt"}
+              onClick={() => setLanguage("lt")}
+            >
+              LT
+            </button>
+            <button
+              type="button"
+              className={language === "en" ? "more-menu-item active" : "more-menu-item"}
+              aria-pressed={language === "en"}
+              onClick={() => setLanguage("en")}
+            >
+              EN
+            </button>
+          </div>
         </div>
       </div>
     </details>

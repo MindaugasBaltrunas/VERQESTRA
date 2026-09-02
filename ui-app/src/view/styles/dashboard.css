@@ -4142,6 +4142,8 @@ main {
   color: var(--muted);
 }
 .more-menu-panel nav { display: grid; gap: 2px; }
+.more-menu-settings-row { display: flex; gap: 4px; align-items: stretch; }
+.more-menu-settings-theme { flex: 1 1 0; text-align: center; }
 .more-menu-languages { display: flex; gap: 4px; }
 .more-menu-languages .more-menu-item { flex: 1 1 0; min-width: 44px; text-align: center; }
 /* Maršruto vardas juostoje reikalingas TIK tada, kai skirtukų nematyti (siauras ekranas). */

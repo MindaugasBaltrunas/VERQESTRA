@@ -5,6 +5,8 @@
 export {
   AgLoopReadController,
   ConnectionsController,
+  GatewayClientError,
+  GatewayHttpClient,
   initialAppState,
   presentConnections,
   presentDashboard,
@@ -20,6 +22,7 @@ export {
   SpeechCaptureError,
   TerminalApplicationError,
   TerminalController,
+  TerminalStreamClient,
   VoiceCaptureController,
   VoiceCaptureError,
 } from "@verqestra/mobile-app";
@@ -46,6 +49,9 @@ export type {
   DeviceProofPort,
   GatewayPort,
   HostConnectionsReadPort,
+  MobileHttpTransportPort,
+  MobileWebSocketFactory,
+  MobileWebSocketPort,
   ProjectsChannelViewState,
   ProjectsReadPort,
   ProjectsViewProps,

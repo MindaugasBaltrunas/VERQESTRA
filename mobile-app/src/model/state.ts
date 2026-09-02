@@ -53,6 +53,14 @@ export type AppState = Readonly<{
   agLoopSelectedBucket: AgLoopTaskBucket;
   /** Failure code only: the user-facing wording belongs to presentation. */
   agLoopReadError: AgLoopReadFailureCode | null;
+  /**
+   * Link and failure of the Tasks screen's own bucket channel, tracked apart
+   * from `agLoopLink`/`agLoopReadError` above: a dashboard read and a bucket
+   * read can succeed or fail independently, and neither screen's badge may
+   * speak for a channel its own snapshot did not come from.
+   */
+  agLoopTasksLink: AgLoopLinkState;
+  agLoopTasksReadError: AgLoopReadFailureCode | null;
   /** Session under review; user intent, never overwritten by a response. */
   sessionReviewSessionId: string | null;
   /** Read-only session review channel, independent of the AG Loop channel. */
@@ -132,6 +140,8 @@ export const initialAppState: AppState = Object.freeze({
   agLoopTaskBucket: null,
   agLoopSelectedBucket: "queue",
   agLoopReadError: null,
+  agLoopTasksLink: "offline",
+  agLoopTasksReadError: null,
   sessionReviewSessionId: null,
   sessionReviewLink: "offline",
   sessionReviewReadsInFlight: 0,

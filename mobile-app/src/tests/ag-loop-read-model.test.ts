@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { presentDashboard, presentTasks } from "../controller/presentation/ag-loop-presenter.js";
 import type {
   AgLoopDashboardSnapshot,
   AgLoopTaskBucketSnapshot,
@@ -205,6 +206,80 @@ test("a late snapshot of an abandoned bucket never replaces the selected bucket"
   assert.equal(late, switched, "a stale response must not change any state");
   assert.equal(late.agLoopSelectedBucket, "done");
   assert.equal(late.agLoopTaskBucket, null);
+});
+
+/**
+ * task 122 regressions: the Dashboard and Tasks channels used to share
+ * `agLoopLink`/`agLoopReadError`, so one channel's success could leave the
+ * other's spinner running forever or silently launder its error. Both are
+ * settled independently now via `agLoopTasksLink`/`agLoopTasksReadError`.
+ */
+test("task 122 (1/3): a dashboard failure does not stop a later bucket success from settling Tasks", () => {
+  const dashboardFailed = reduce(
+    initialAppState,
+    { type: "ag-loop.read-started" },
+    { type: "ag-loop.read-failed", failure: "transport_failed" },
+    { type: "ag-loop.read-settled" },
+  );
+  assert.equal(dashboardFailed.agLoopLink, "offline");
+  assert.equal(dashboardFailed.agLoopReadError, "transport_failed");
+
+  const bucketRecovered = reduce(
+    dashboardFailed,
+    { type: "ag-loop.read-started" },
+    { type: "ag-loop.tasks", snapshot: bucket() },
+    { type: "ag-loop.read-settled" },
+  );
+
+  // The bucket channel confirms itself: no spinner, no leftover error.
+  assert.equal(bucketRecovered.agLoopTasksLink, "connected");
+  assert.equal(bucketRecovered.agLoopTasksReadError, null);
+  assert.equal(presentTasks(bucketRecovered).connection.stale, false);
+  // The dashboard channel's own failure is untouched by the bucket's success
+  // — a bucket read proves nothing about a dashboard read that never happened.
+  assert.equal(bucketRecovered.agLoopLink, "offline");
+  assert.equal(bucketRecovered.agLoopReadError, "transport_failed");
+});
+
+test("task 122 (2/3): a dashboard success does not launder a live bucket failure", () => {
+  const bucketCached = reduce(initialAppState, { type: "ag-loop.tasks", snapshot: bucket() });
+
+  const bucketFailed = reduce(
+    bucketCached,
+    { type: "ag-loop.read-started" },
+    { type: "ag-loop.read-failed", failure: "transport_failed" },
+    { type: "ag-loop.read-settled" },
+  );
+  assert.equal(bucketFailed.agLoopTasksReadError, "transport_failed");
+
+  const dashboardRecovered = reduce(
+    bucketFailed,
+    { type: "ag-loop.dashboard", snapshot: dashboard() },
+  );
+
+  // The dashboard's own success clears its own error, as always.
+  assert.equal(dashboardRecovered.agLoopReadError, null);
+  // But the bucket's own failure is still live: the cached rows are stale,
+  // not silently confirmed by a read that never touched them.
+  assert.equal(
+    dashboardRecovered.agLoopTasksReadError,
+    "transport_failed",
+    "a dashboard success must not clear the bucket channel's own error",
+  );
+  assert.equal(presentTasks(dashboardRecovered).connection.stale, true);
+});
+
+test("task 122 (3/3): both channels answering leaves neither stale nor errored", () => {
+  const both = reduce(
+    initialAppState,
+    { type: "ag-loop.dashboard", snapshot: dashboard() },
+    { type: "ag-loop.tasks", snapshot: bucket() },
+  );
+
+  assert.equal(both.agLoopReadError, null);
+  assert.equal(both.agLoopTasksReadError, null);
+  assert.equal(presentDashboard(both).connection.stale, false);
+  assert.equal(presentTasks(both).connection.stale, false);
 });
 
 test("the AG Loop link is independent of the mobile terminal connection", () => {

@@ -71,20 +71,39 @@ export function reduceAppState(state: AppState, event: AppEvent): AppState {
       // A refresh over a healthy link must not flash `connecting` back at the
       // user; only a link without a usable snapshot reports that it is dialling.
       // The previous failure stays visible until the retry actually settles.
+      // The event carries no channel of its own — `refresh()` may read only the
+      // dashboard, or the dashboard and then a bucket, and `selectBucket()`
+      // reads only a bucket — so both channels apply the rule independently,
+      // each keyed to its own cache.
       return Object.freeze({
         ...state,
         agLoopReadsInFlight: state.agLoopReadsInFlight + 1,
         agLoopLink: state.agLoopDashboard === null || state.agLoopLink === "offline"
           ? "connecting"
           : state.agLoopLink,
+        agLoopTasksLink: state.agLoopTaskBucket === null || state.agLoopTasksLink === "offline"
+          ? "connecting"
+          : state.agLoopTasksLink,
       });
-    case "ag-loop.read-settled":
+    case "ag-loop.read-settled": {
       // Never below zero: an unmatched settle must not make a later read look
       // permanently in flight.
+      const agLoopReadsInFlight = Math.max(0, state.agLoopReadsInFlight - 1);
+      // A cycle that never touched a channel — a bucket-only read while the
+      // dashboard was never attempted, or the reverse — would otherwise leave
+      // that channel dialling forever: nothing else in that cycle spoke for it,
+      // so once the last outstanding read of this settle drains to zero, a
+      // channel still stuck at `connecting` falls back to `offline` here.
+      const stillIdle = agLoopReadsInFlight === 0;
       return Object.freeze({
         ...state,
-        agLoopReadsInFlight: Math.max(0, state.agLoopReadsInFlight - 1),
+        agLoopReadsInFlight,
+        agLoopLink: stillIdle && state.agLoopLink === "connecting" ? "offline" : state.agLoopLink,
+        agLoopTasksLink: stillIdle && state.agLoopTasksLink === "connecting"
+          ? "offline"
+          : state.agLoopTasksLink,
       });
+    }
     case "ag-loop.dashboard":
       // The gateway snapshot is the single source of AG Loop availability: an
       // AG Loop UI that answers `offline` is offline, not merely degraded.
@@ -100,7 +119,17 @@ export function reduceAppState(state: AppState, event: AppEvent): AppState {
       // response: a late snapshot for a bucket the user already left is dropped
       // here, so no rows can ever be shown under another bucket's label.
       if (event.snapshot.bucket !== state.agLoopSelectedBucket) return state;
-      return Object.freeze({ ...state, agLoopTaskBucket: event.snapshot });
+      // Symmetric with the `ag-loop.dashboard` branch above: a successful
+      // bucket read settles its own channel too, so it can neither leave the
+      // Tasks badge dialling forever when only the bucket ever answers, nor
+      // keep showing an error the dashboard's later success has no way of
+      // knowing was never its own to clear.
+      return Object.freeze({
+        ...state,
+        agLoopTaskBucket: event.snapshot,
+        agLoopTasksLink: state.agLoopAvailability === "offline" ? "offline" : "connected",
+        agLoopTasksReadError: null,
+      });
     case "ag-loop.bucket-selected":
       if (event.bucket === state.agLoopSelectedBucket) return state;
       // Dropping the previous rows keeps a bucket's contents from being shown
@@ -116,10 +145,20 @@ export function reduceAppState(state: AppState, event: AppEvent): AppState {
       // as `unavailable` — stays offline; `degraded` is reserved for a link that
       // merely lost its last read while AG Loop itself still looked healthy.
       const availability = event.failure === "unavailable" ? "offline" : state.agLoopAvailability;
+      // Charged to both channels: like `read-started`, this event does not say
+      // whether the dashboard read, the bucket read, or both failed. Each
+      // channel still recovers independently on its own next success above, so
+      // this conservative double charge cannot become a permanent false error —
+      // only a success that was never earned can, which is exactly the defect
+      // the split above closes.
       return Object.freeze({
         ...state,
         agLoopReadError: event.failure,
         agLoopLink: state.agLoopDashboard === null || availability === "offline" ? "offline" : "degraded",
+        agLoopTasksReadError: event.failure,
+        agLoopTasksLink: state.agLoopTaskBucket === null || availability === "offline"
+          ? "offline"
+          : "degraded",
         agLoopAvailability: availability,
       });
     }

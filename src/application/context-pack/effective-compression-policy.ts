@@ -58,13 +58,29 @@ export async function loadContextCompressionConfig(
 
 /**
  * Arrest markeris: niekada nemeta — nesamas/tuščias failas yra default view, o
- * neperskaitomas turinys yra skaitomas atsakymas `unreadable` (arrests everything).
+ * neperskaitomas turinys (metantis skaitymas arba nevalidus JSON) yra skaitomas atsakymas
+ * `unreadable` (arrests everything).
  */
 export async function readContextCompressionArrestState(
   fs: ContextPackFileSystemPort,
   runtimeRoot: string,
 ): Promise<ContextCompressionArrestView> {
-  const raw = await fs.readTextFileIfExists(contextCompressionArrestStatePath(runtimeRoot)).catch(() => "");
+  const statePath = contextCompressionArrestStatePath(runtimeRoot);
+  let raw: string | undefined;
+  try {
+    raw = await fs.readTextFileIfExists(statePath);
+  } catch (error) {
+    // Metantis skaitymas NĖRA „markerio nėra": to atvejo `readTextFileIfExists` niekada
+    // nemeta — jis grąžina `undefined`. Čia lieka teisės, sugadinta FS, lenktynės su
+    // rašytoju: marker'yje gali gulėti areštai, kurių nematome, tad vienintelis saugus
+    // skaitymas yra „viskas areštuota". Tuščias stringas čia reikštų švarų default'ą ir
+    // leistų observer'iui tyliai perrašyti operatoriaus markerį.
+    return {
+      state: defaultContextCompressionArrestState(),
+      unreadable: true,
+      unreadableReason: `${statePath}: read failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
   if (raw === undefined || !raw.trim()) {
     return { state: defaultContextCompressionArrestState(), unreadable: false };
   }

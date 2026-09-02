@@ -15,24 +15,19 @@ AUDIT_COMPLETE: <ką patikrinai ir kodėl keisti nieko nereikia>
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 
-## Priklausomybės
-148 vaikas 1 (`src/composition/cli/main.ts` — WorkflowInfrastructureError exitCode pasiekia proceso exit'ą). Be jo vaiko procesas niekada negrąžina 75 ir šis darbas neturi ką klasifikuoti.
-
 ## Tikslas
-`src/composition/loop/command.ts:300` `runChild` grąžina `result.code === 0` — vieną bitą, kuriame infra baigtis (75) neatskiriama nuo task-failed. Įvesk aiškų slot baigties tipą, kurį `slot-task-runner.ts:156` perduoda aukščiau nekeisdamas prasmės.
+Application pusė: `SlotChildOutcome` (`"succeeded" | "task-failed" | "infrastructure"` su exit kodu) deklaruotas `application` sluoksnyje, `runChild` porto tipas ji grazina, o `createSlotTaskRunner` perduoda baigti aukstyn NEPRARADES exit kodo. Jokio importo is `composition`.
 
 ## Agentai
-PRIVALOMA grandinė (nekeisti, neapeiti): readme-guard -> architect -> coder -> reviewer -> tester.
-architect apibrėžia baigties tipą ir jo kelią (runChild -> slot-task-runner -> vartotojai), coder įgyvendina.
+PRIVALOMA grandine (nekeisti, neapeiti): readme-guard -> architect -> coder -> reviewer -> tester.
 
 ## Failai
-Leidžiama:
-- `src/composition/loop/command.ts`
+Leidziama:
 - `src/application/scheduling/slot-task-runner.ts`
-- `src/tests/composition-loop-child-exit.test.ts`
 - `src/tests/scheduling-slot-task-runner.test.ts`
 
-Draudžiama:
+Draudziama:
+- `src/composition/loop/command.ts`
 - `src/application/scheduling/worker-integration.ts`
 - `src/application/scheduling/wave-outcome.ts`
 - `src/application/scheduling/loop-cycle.ts`
@@ -41,16 +36,17 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
-- architect: apibrėžk baigties tipą (pvz. `"succeeded" | "task-failed" | "infrastructure"` su exit kodu), kur jis deklaruojamas, kad `application` neimportuotų `composition`, ir kaip esami `boolean` vartotojai išlieka veikiantys.
-- `command.ts` `runChild`: `isInfrastructureExitCode(result.code)` -> infra baigtis su kodu; `formatChildExitDiagnostics` blokas lieka spausdinamas ir infra atveju.
-- `slot-task-runner.ts`: porto tipas perduoda naują baigtį nepraradus exit kodo; testuose padenk visus tris atvejus (0, ne-infra ne-nulis, 75).
+- Zingsnis 0: patikrink, ar tikslas jau tenkinamas (`slot-task-runner.ts` tipas + porto parasas + baigties perdavimas be pakeitimo). Jei taip — NEDARYK jokiu pakeitimu ir ataskaita pradek atskira eilute `ALREADY_IMPLEMENTED: <failai/eilutes>`.
+- Jei ne: architect apibrezia tipa ir jo deklaravimo vieta (`application`, kad nebutu importo i `composition`), coder ji ivedaa ir perduoda per `createSlotTaskRunner` nekeisdamas prasmes.
+- Testuose padenk visus tris atvejus (`succeeded`, `task-failed` su ne-infra nenuliniu kodu, `infrastructure` su 75) — baigtis per runner keliauja nepakeista.
 
 ## Patikra
+- `pnpm build`
 - `pnpm test`
 
 ## Stop
-Sustok ir klausk, jei: naujam tipui reikėtų importo per sluoksnių ribą (`application` -> `composition`); reikėtų keisti exit kodų reikšmes; esamas testas prieštarauja naujam tipui (testas nesilpninamas).
-Kai `pnpm test` žalias, commit'ink tik šio task'o failus ir baik.
+Sustok ir klausk, jei: naujam tipui reiketu importo per sluoksniu riba (`application` -> `composition`); reiketu keisti exit kodu reiksmes; esamas testas priestarauja tipui (testas NESILPNINAMAS).
+Kai `pnpm test` zalias, commit'ink tik siuos du failus ir baik.
 
-## Neįtraukta
-`worker-integration` park sprendimas ir `wave-outcome` atšaka, `loop-cycle` refill hold/abort — atskiri nuoseklūs task'ai.
+## Neitraukta
+`src/composition/loop/command.ts` `runChild`/`classifyChildExitOutcome` ir `src/tests/composition-loop-child-exit.test.ts` — atskiras kitas task'as. `worker-integration` park sprendimas, `wave-outcome` atsaka, `loop-cycle` refill hold/abort — atskiri nuoseklus task'ai.

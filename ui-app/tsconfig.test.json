@@ -1,0 +1,19 @@
+{
+  // Testų projektas. Trys testai (`i18n/coverage`, `model/apiEnvelopes`,
+  // `view/components/dashboard-css-coverage`) skaito repo failus per `node:fs`/`node:path`/
+  // `node:url`, tad jiems Node tipai yra BŪTINI — bet tik jiems.
+  //
+  // Kodėl atskiras projektas, o ne `types: ["node"]` visam `tsconfig.app.json`: aplikacijos
+  // kodas nesuka Node, ir vienas globalus tipų rinkinys leistų `process`/`Buffer` tyliai
+  // nutekėti į naršyklės bundle'ą, kur jų nėra runtime'e.
+  //
+  // `include: ["src"]` dengia ir produkcinius failus, kuriuos testai importuoja — be jų
+  // projektas nebūtų užbaigtas; `exclude: []` panaikina aplikacijos projekto testų filtrą.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": []
+}

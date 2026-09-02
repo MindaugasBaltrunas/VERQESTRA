@@ -1,11 +1,7 @@
 // VQ-305 (2/3-b): preflight kelio unit testai — policy loaderiai per fake portą (default'ai
 // trūkstant failo, fail-fast blogam JSON/nežinomam raktui), architektūros/enforcement vartų
-// matrica (trijų pakopų įrodymai) ir evaluatePreflight seka su fake portais.
-//
-// FS: unit dalis eina per fake portą (jokio realaus FS). VIENINTELĖ išimtis — config-drift
-// vartas (016-a-02), kuris skaito REALIUS `config/preflight-limits.json` (lubos) ir
-// `config/token-budget.json` (kanoninė turn lentelė) po `vq/` bei `templates/vq/`: šio varto
-// dalykas yra pats diske gulintis konfigas, tad fake port'as jį paverstų tautologija.
+// matrica ir evaluatePreflight seka su fake portais. FS: viskas per fake portą, IŠSKYRUS
+// config-drift vartą (016-a-02), kuris tikrina realų `vq/`/`templates/vq/` konfigą.
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +25,7 @@ import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import {
   detectHallucinatedAllowedPaths,
   evaluateArchitectureAndPolicyGates,
+  splitLeadingFrontmatter,
   stripVerificationPreamble,
   verificationPreamble,
 } from "../application/quality-gates/preflight-rules.js";
@@ -106,9 +103,7 @@ test("preflight-limits: present/absent, nežinomas raktas = PolicyConfigError, t
   );
 });
 
-// 016 (2026-08-25, optimizavimo audito P1-2): lubos NEGALI kirsti 0033 kalibracijos.
-// `min(180, 120)=120` tyliai anuliavo HUMAN-REVIEW-APPROVED `large=180` — šis testas
-// pin'ina, kad default lubos praleidžia pilną kalibruotą large langą.
+// 016: lubos NEGALI kirsti 0033 kalibracijos — `min(180,120)=120` tyliai anuliavo `large=180`.
 test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos large=180", () => {
   assert.equal(DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns, 180);
   assert.equal(
@@ -121,10 +116,8 @@ test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos lar
     "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos",
   );
 });
-// 016-a-02 (2026-08-25): CONFIG DRIFT VARTAS. Testas aukščiau pin'ina KODO default'us, bet
-// realų dispatch langą lemia DISKE gulintis konfigas: `min(turnLimits.large, dispatchMaxTurns)`.
-// Būtent tylus `dispatchMaxTurns: 120` prieš `large: 180` anuliavo 0033 kalibraciją, ir varto
-// tam nebuvo — nes lubos ir lentelė gyvena skirtinguose failuose, o jų santykio niekas netikrino.
+// 016-a-02: CONFIG DRIFT VARTAS — realų dispatch langą lemia DISKE gulintis konfigas
+// (`min(turnLimits.large, dispatchMaxTurns)`); tylus `120` prieš `large: 180` anuliuoja kalibraciją.
 const DRIFT_REASON =
   "dispatchMaxTurns žemiau turnLimits.large tyliai nukerta 0033 kalibruotą large langą " +
   "(HUMAN-REVIEW-APPROVED 2026-08-08): resolveMaxTurns skaičiuoja min(lentelė, lubos), tad " +
@@ -149,9 +142,7 @@ test("preflight-limits: kodo default'ų lubos nekerta kalibruotos turnLimits.lar
     DEFAULT_TURN_LIMITS.large,
   );
 });
-// `vq/` yra runtime katalogas ir git'e jo gali nebūti: tada `loadPreflightLimits` teisėtai
-// grąžina default'us ir vartas tikrina tą pačią invariantą ant jų (ne flaky, ne praleidimas).
-// `templates/vq/` git'e YRA — tai konfigas, kurį gauna kiekvienas naujas projektas.
+// `vq/` runtime katalogo git'e gali nebūti (default'ai — ne flaky); `templates/vq/` git'e YRA.
 const RUNTIME_ROOTS_WITH_PREFLIGHT_LIMITS = [
   path.join(process.cwd(), "vq"),
   path.join(process.cwd(), "templates", "vq"),
@@ -164,12 +155,8 @@ test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.la
     assert.equal(typeof large, "number", `${runtimeRoot}: loadPreflightLimits privalo užpildyti turnLimits`);
     assertCeilingCoversLarge(`${runtimeRoot} (preflight-limits legacy sluoksnis)`, limits.dispatchMaxTurns, large ?? DEFAULT_TURN_LIMITS.large);
 
-    // KANONINĖ lentelė gyvena `config/token-budget.json`; `preflight-limits.json#turnLimits`
-    // yra tik LEGACY sluoksnis, ir abiejuose realiuose konfiguose jo NĖRA — tad assert'as
-    // aukščiau lygina diske gulinčias lubas su KODO default'u, o ne su diske gulinčia lentele.
-    // Dispatch kelias (`resolveDispatchBudgetPlan`) lubas taiko būtent token-budget lentelei:
-    // pakelta `token-budget.json#turnLimits.large` prieš nepakeltas lubas yra tas pats tylus
-    // 0033 nukirtimas iš kitos pusės, tad vartas privalo tikrinti KANONINĘ lentelę.
+    // KANONINĖ lentelė gyvena `config/token-budget.json` (legacy `turnLimits` realiuose
+    // konfiguose nėra) — dispatch kelias taiko lubas BŪTENT jai, tad vartas tikrina ją.
     const limitsFile = await readPreflightLimitsFile(nodeFsAdapter, runtimeRoot);
     const tokenBudget = await loadTokenBudgetConfig(nodeFsAdapter, runtimeRoot, {
       ...(limitsFile.values.turnLimits === undefined ? {} : { legacyTurnLimits: limitsFile.values.turnLimits }),
@@ -177,8 +164,7 @@ test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.la
     const canonicalLarge = tokenBudget.turnLimits.large;
     assertCeilingCoversLarge(`${runtimeRoot} (token-budget kanoninė lentelė)`, limits.dispatchMaxTurns, canonicalLarge);
 
-    // Tas pats invariantas elgesio kalba: efektyvus large langas = pilna kalibruota reikšmė
-    // (arba 0 = „be --max-turns flag'o", kai operatorius aiškiai išjungė lubas).
+    // Elgesio kalba: efektyvus large langas = pilna kalibruota reikšmė (arba 0 = be lubų).
     const effective = resolveMaxTurns({
       phase: "implementation",
       tier: "large",
@@ -192,8 +178,7 @@ test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.la
   }
 });
 
-// Vartas be įrodymo, kad jis KANDA, yra dekoracija: konfigas su `dispatchMaxTurns: 120` privalo
-// varto kriterijų sulaužyti (o `0` — ne, nes tai aiškus „be ribos" opt-out).
+// Vartas be įrodymo, kad KANDA, yra dekoracija: `dispatchMaxTurns: 120` privalo jį sulaužyti.
 test("preflight-limits: config-drift vartas kanda — 120 lubos prieš large=180 yra pažeidimas", async () => {
   const driftedRoot = "/repo/vq";
   const withCeiling = async (ceiling: number): Promise<{ ceiling: number; large: number }> => {
@@ -479,9 +464,24 @@ test("stripVerificationPreamble: tekstas be preambulės grįžta nepakitęs", ()
   assert.equal(stripVerificationPreamble(""), "");
 });
 
-// 070-a-02: evaluateEtalonasRuleViolations grąžina etalono pažeidimų sąrašą su citata (single-line
-// fixtures + viena sujungta test'o funkcija taupo failo eilučių biudžetą, nes architecture-gates
-// file-length vartas veikia be baseline).
+// Task 149: queue failas prasideda YAML frontmatter'iu — preambulė negali jo nuryti grįžtant iš
+// active/delegated lango atgal į queue. `---` vėliau tekste (po `# Task`) NĖRA frontmatter'is.
+const FRONTMATTER = "---\nschema_version: 2\nid: demo\nscope:\n  allow:\n    - src/x.ts\n---\n";
+
+test("splitLeadingFrontmatter/stripVerificationPreamble: frontmatter+preambulė simetrija", () => {
+  const split = splitLeadingFrontmatter(`${FRONTMATTER}${CANONICAL_TASK}`);
+  assert.equal(split.frontmatter, FRONTMATTER);
+  assert.equal(`${split.frontmatter}${split.body}`, `${FRONTMATTER}${CANONICAL_TASK}`);
+  assert.deepEqual(splitLeadingFrontmatter(CANONICAL_TASK), { frontmatter: "", body: CANONICAL_TASK });
+  const laterDash = "# Task\n\n---\n\n## Tikslas\nX.\n";
+  assert.deepEqual(splitLeadingFrontmatter(laterDash), { frontmatter: "", body: laterDash });
+
+  const preamble = verificationPreamble(VERIFICATION_COMMANDS);
+  assert.equal(stripVerificationPreamble(`${FRONTMATTER}${preamble}${CANONICAL_TASK}`), `${FRONTMATTER}${CANONICAL_TASK}`);
+});
+
+// 070-a-02: evaluateEtalonasRuleViolations grąžina pažeidimų sąrašą su citata (single-line
+// fixtures + viena sujungta funkcija taupo eilučių biudžetą — file-length vartas be baseline).
 test("070-a-02: wildcard be pagrindimo, UI be I18nContext, etaloną atitinkantis task'as ir VISI queue/*.md", async () => {
   const wildcard = evaluateEtalonasRuleViolations("# Task\n\n## Failai\nLeidžiama:\n- `src/tests/**`\n\n## Patikra\n- `pnpm test`\n").find((v) => v.ruleId === "wildcard-scope-without-justification");
   assert.ok(wildcard, "wildcard pažeidimas privalo būti radinių sąraše");

@@ -10,7 +10,7 @@ import {
   moveTaskToBucket,
   type TaskStateStorePort,
 } from "../application/task-execution/bucket-transition.js";
-import { verificationPreamble } from "../application/quality-gates/preflight-rules.js";
+import { splitLeadingFrontmatter, verificationPreamble } from "../application/quality-gates/preflight-rules.js";
 
 const PREAMBLE = verificationPreamble({ rebuild: "pnpm build", checks: ["pnpm build", "pnpm test"] });
 const CANONICAL = "# Task\n\n## Tikslas\nX.\n";
@@ -84,6 +84,22 @@ test("trūkstamas šaltinio failas strip'o nekelia į klaidą — move'as prane�
   await moveTaskToBucket(w.store, "/repo/AG", "/repo/AG/tasks/human-review/x.md", "queue", "x.md");
   assert.deepEqual(w.writes, []);
   assert.equal(w.moves.length, 1, "sprendimą apie trūkstamą šaltinį priima store lock'o viduje");
+});
+
+// Task 149: queue failas prasideda YAML frontmatter'iu (GeoGravity governance —
+// `schema_version`/`scope.allow`). Install'as (coordinator-adapters.ts, ne šio testo scope)
+// preambulę lipdo PO frontmatter'io; round-trip įrodo, kad grįžimas į queue (šio failo
+// chokepoint'as) atkuria BAITĄ Į BAITĄ pradinį queue turinį.
+test("round-trip: queue su frontmatter'iu -> install (preambulė po frontmatter) -> move į queue === originalas", async () => {
+  const originalQueueText = "---\nschema_version: 2\nid: demo\nscope:\n  allow:\n    - src/x.ts\n---\n" + CANONICAL;
+  const { frontmatter, body } = splitLeadingFrontmatter(originalQueueText);
+  const installedActiveText = `${frontmatter}${PREAMBLE}${body}`;
+
+  const w = world(installedActiveText);
+  await moveTaskToBucket(w.store, "/repo/AG", "/repo/AG/tasks/active/x.md", "queue", "x.md");
+
+  assert.equal(w.writes.length, 1, "frontmatter po preambulės nuėmimo turi likti — rašymas įvyksta");
+  assert.equal(w.writes[0]?.text, originalQueueText, "queue turinys atkurtas baitas į baitą");
 });
 
 // Task 124: preambulė iki šiol AKTYVIAI atgrasė nuo no-write bėgimų („parkuojamas human-review"

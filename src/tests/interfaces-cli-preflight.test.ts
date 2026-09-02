@@ -4,24 +4,14 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
-import {
-  evaluateDeterministicPreflight,
-  extractChainFromAgentaiSection,
-} from "../application/quality-gates/preflight-fastpath.js";
+import { evaluateDeterministicPreflight, extractChainFromAgentaiSection } from "../application/quality-gates/preflight-fastpath.js";
 import type { LlmCallAuthorization } from "../application/token-governance/tool-budget-gates.js";
 import type { AgentPolicy } from "../domain/policies/agent-selection.js";
 import { USAGE_ERROR_EXIT_CODE, USAGE_LIMIT_EXIT_CODE } from "../shared/exit-codes.js";
 import { claudePreflight } from "../interfaces/cli/dispatch/claude-preflight/index.js";
 import { validatePreflightDecision } from "../interfaces/cli/dispatch/claude-preflight/preflight-validate.js";
-import {
-  appendSpecSourceRef,
-  hasValidArchitectureNodeReference,
-} from "../interfaces/cli/dispatch/claude-preflight/spec-source.js";
-import type {
-  ClaudePreflightPorts,
-  PreflightDecision,
-  PreflightLlmResult,
-} from "../interfaces/cli/dispatch/claude-preflight/preflight-ports.js";
+import { appendSpecSourceRef, hasValidArchitectureNodeReference } from "../interfaces/cli/dispatch/claude-preflight/spec-source.js";
+import type { ClaudePreflightPorts, PreflightDecision, PreflightLlmResult } from "../interfaces/cli/dispatch/claude-preflight/preflight-ports.js";
 
 const ROOT = path.resolve("/repo");
 const TASK_FILE = path.join(ROOT, "AG", "tasks", "queue", "0042-demo.md");
@@ -312,13 +302,22 @@ test("claudePreflight: fast-path — sprendimas į attempt PIRMA + globalus veid
   assert.equal(h.preflightInputs.length, 0, "fast-path be LLM — jokio prompt'o");
 });
 
-test("claudePreflight: fast-path perrenderina SENĄ preambulę šviežia, nesikaupia (task 046-a-02)", async () => {
+// Task 149: vedantis YAML frontmatter (schema_version/scope.allow) turi likti priešais
+// preambulę, ne būti jos praryjamas nei senos preambulės, nei šviežio prilipdymo metu.
+test("claudePreflight: fast-path perrenderina SENĄ preambulę šviežia (046-a-02) ir gerbia frontmatter'į (149)", async () => {
   const h = makeHarness({ taskText: `${STALE_PREAMBLE}${CANONICAL_TASK}` });
   assert.equal(await claudePreflight(["AG/tasks/queue/0042-demo.md"], h.ports), 0);
   const body = h.reformulated[0]!;
   assert.equal((body.match(/## Žingsnis 0/g) ?? []).length, 1, "tik viena preambulė, sena nuimta");
   assert.doesNotMatch(body, /QWERTY/, "sena preambulė nebelieka");
   assert.match(body, /pnpm build/, "šviežia preambulė neša dabartines verificationCommands");
+
+  const frontmatter = "---\nschema_version: 2\nid: 0042-demo\nscope:\n  allow:\n    - src/a.ts\n---\n";
+  const withFm = makeHarness({ taskText: `${frontmatter}${CANONICAL_TASK}` });
+  assert.equal(await claudePreflight(["AG/tasks/queue/0042-demo.md"], withFm.ports), 0);
+  const fmBody = withFm.reformulated[0]!;
+  assert.match(fmBody, /^---\nschema_version: 2[\s\S]*?\n---\n## Žingsnis 0/, "frontmatter pirmas, preambulė iš karto po jo");
+  assert.equal((fmBody.match(/^---$/gm) ?? []).length, 2, "frontmatter fence'ai neišdauginti");
 });
 
 test("claudePreflight: rizikos vartai ir invalid OpenSpec ref → human_review sprendimas + exit 1", async () => {

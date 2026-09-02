@@ -295,20 +295,37 @@ test("verifyNode: policy blockers krauna passed=false, warnings — ne", async (
   ]);
   const { ports } = verifierPorts(files);
   const progress: ArchitectureProgress = { graph_hash: "h", nodes: { n1: nodeProgress({ implemented_files: ["src/a.ts"] }) } };
+  // Task 130 (nukrypimas nuo etalono, griežtinantis): forbidden_dependencies įrašas veikia mazgą
+  // tik turėdamas realią sąsają su jo implemented_files. Čia mazgas įgyvendina `src/a.ts`, tad
+  // sąsaja yra; nesusijusio įrašo atvejis pin'inamas žemiau.
   const policies = {
-    architectureStyle: { strictness: "block", forbidden_dependencies: ["ui->db"] },
+    architectureStyle: { strictness: "block", forbidden_dependencies: ["src/a.ts -> src/db"] },
     codingPrinciples: {},
     enforcement: { require_interface_contract_for_public_changes: true },
   };
   const blocked = await verifyNode(ports, "n1", GRAPH, progress, ROOT, policies);
   assert.equal(blocked.passed, false);
-  assert.deepEqual(blocked.policy_blockers, ['Forbidden dependency: "ui->db"']);
+  assert.deepEqual(blocked.policy_blockers, [
+    'Forbidden dependency: "src/a.ts -> src/db" — scope path "src/a.ts" is inside forbidden endpoint "src/a.ts"',
+  ]);
   assert.match(blocked.policy_warnings[0] ?? "", /missing an interface_contract/);
 
   const warned = await verifyNode(ports, "n1", GRAPH, progress, ROOT, {
     ...policies,
-    architectureStyle: { strictness: "warn", forbidden_dependencies: ["ui->db"] },
+    architectureStyle: { strictness: "warn", forbidden_dependencies: ["src/a.ts -> src/db"] },
   });
   assert.equal(warned.passed, true);
   assert.deepEqual(warned.policy_blockers, []);
+  assert.equal(warned.policy_warnings.length, 2, "warn režimas: sąsajos warning + trūkstamas kontraktas");
+
+  // Blanket'o regresijos vartas: block režimas su mazgui nesusijusiu įrašu mazgo NEstabdo —
+  // priešingu atveju bet koks block-mode konfigas padarytų done nepasiekiamą visiems mazgams.
+  const unrelated = await verifyNode(ports, "n1", GRAPH, progress, ROOT, {
+    ...policies,
+    architectureStyle: { strictness: "block", forbidden_dependencies: ["apps/web -> src/db"] },
+    enforcement: { require_interface_contract_for_public_changes: false },
+  });
+  assert.equal(unrelated.passed, true);
+  assert.deepEqual(unrelated.policy_blockers, []);
+  assert.deepEqual(unrelated.policy_warnings, []);
 });

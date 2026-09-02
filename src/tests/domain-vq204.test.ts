@@ -242,20 +242,40 @@ test("node verification rules: test candidates, forbidden paths, export detectio
     implemented_files: [],
     evidence_refs: [],
   };
-  const blocked = evaluatePolicies("N", nodeProgress, {
-    architectureStyle: { strictness: "block", forbidden_dependencies: ["a -> b"] },
+  // NUKRYPIMAS NUO ETALONO (task 130, griežtinantis): etalonas dėjo KIEKVIENĄ
+  // forbidden_dependencies įrašą KIEKVIENAM mazgui, netikrindamas sąsajos. Su strictness
+  // "block" tai reiškė, kad nė vienas mazgas negalėjo pasiekti done, t. y. block režimas buvo
+  // nenaudojamas pagal konstrukciją. Pin'as perrašytas ne todėl, kad testas per griežtas, o
+  // todėl, kad pakeistas ELGESYS: blokas lieka tik ten, kur yra reali sąsaja su mazgo
+  // implemented_files (gradacija — ta pati detectForbiddenDependencyViolations kaip preflight).
+  const touching = { ...nodeProgress, implemented_files: ["src/ui/panel.ts"] };
+  const forbidden = ["src/ui -> src/db"];
+  const touched = 'Forbidden dependency: "src/ui -> src/db" — scope path "src/ui/panel.ts" is inside forbidden endpoint "src/ui"';
+
+  const blocked = evaluatePolicies("N", touching, {
+    architectureStyle: { strictness: "block", forbidden_dependencies: forbidden },
     codingPrinciples: {},
     enforcement: { require_interface_contract_for_public_changes: true },
   });
-  assert.deepEqual(blocked.policy_blockers, ['Forbidden dependency: "a -> b"']);
+  assert.deepEqual(blocked.policy_blockers, [touched], "sąsaja + block → blocker su įrodymu");
   assert.equal(blocked.policy_warnings.length, 1, "trūkstamas interface_contract — warning");
-  const warned = evaluatePolicies("N", nodeProgress, {
-    architectureStyle: { strictness: "warn", forbidden_dependencies: ["a -> b"] },
+
+  // Sąsajos nėra: blanket'as būtų davęs blocker'į ir sustabdęs mazgą be jokio signalo.
+  const unrelated = evaluatePolicies("N", { ...nodeProgress, implemented_files: ["src/docs/page.ts"] }, {
+    architectureStyle: { strictness: "block", forbidden_dependencies: forbidden },
+    codingPrinciples: {},
+    enforcement: { require_interface_contract_for_public_changes: false },
+  });
+  assert.deepEqual(unrelated.policy_blockers, [], "be sąsajos — jokio blocker'io");
+  assert.deepEqual(unrelated.policy_warnings, [], "be sąsajos — ir jokio warning'o");
+
+  const warned = evaluatePolicies("N", touching, {
+    architectureStyle: { strictness: "warn", forbidden_dependencies: forbidden },
     codingPrinciples: { single_responsibility: "block" },
     enforcement: { require_interface_contract_for_public_changes: false },
   });
   assert.deepEqual(warned.policy_blockers, []);
-  assert.deepEqual(warned.policy_warnings, ['Forbidden dependency: "a -> b"'], "codingPrinciples sąmoningai neskaitoma");
+  assert.deepEqual(warned.policy_warnings, [touched], "codingPrinciples sąmoningai neskaitoma");
 });
 
 test("diagnosis log digest: result envelope + error lines, quality-gates context, retry scoping", () => {

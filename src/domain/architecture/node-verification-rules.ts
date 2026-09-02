@@ -7,6 +7,7 @@
 // policy-view tipai (vėlesnio sluoksnio schema juos TENKINA), path helper'iai — path-lite.
 
 import { dirOf, baseOf, splitExt, normalizeSlashes } from "./path-lite.js";
+import { detectForbiddenDependencyViolations } from "../policies/architecture-style.js";
 import type { ArchitectureGraph, ArchitectureNodeProgress, ArchitectureProgress } from "./graph.js";
 
 /** Domain view: laukai, kuriuos verifikacija realiai skaito + passthrough likusiems. */
@@ -122,6 +123,16 @@ export type NodeVerificationPolicies = {
  * policies. `strictness === "block"` routes forbidden dependencies to blockers (which fail the
  * node); anything else routes them to warnings.
  *
+ * NUKRYPIMAS NUO ETALONO (task 130, griežtinantis; migration-coverage.json 2026-09-02):
+ * etalonas kiekvieną `forbidden_dependencies` įrašą pažymėdavo KIEKVIENAM mazgui, nė karto
+ * nepatikrinęs, ar mazgas su ta priklausomybe apskritai susijęs. Su `strictness: "block"` ir
+ * bent vienu įrašu NĖ VIENAS mazgas nebūtų pasiekęs `done` — block režimas buvo nenaudojamas
+ * pagal konstrukciją. Dabar įrašas gradudojamas per `detectForbiddenDependencyViolations`
+ * (ta pati funkcija, kurią naudoja preflight — kopija NEKURIAMA) prieš mazgo
+ * `implemented_files`: sąsajos nėra → tam mazgui negeneruojama NIEKO. Kontekstas paduodamas
+ * tuščias sąmoningai — per-node verifikacija neturi nei task teksto, nei code-graph briaunų,
+ * tad vienintelis čia pasiekiamas įrodymas yra scope kelias, ir jis yra `confirmed`.
+ *
  * PC-CODING-01 / decision (task 924-05): `policies.codingPrinciples` is accepted for
  * schema-completeness but intentionally NOT read here. Its six per-principle levels grade
  * qualitative design judgments about a file's structure — there is no static analyzer anywhere
@@ -146,11 +157,12 @@ export function evaluatePolicies(
     );
   }
 
-  for (const dep of architectureStyle.forbidden_dependencies) {
+  for (const violation of detectForbiddenDependencyViolations(architectureStyle, nodeProgress.implemented_files)) {
+    const message = `Forbidden dependency: "${violation.dependency}" — ${violation.sources.join("; ")}`;
     if (architectureStyle.strictness === "block") {
-      policy_blockers.push(`Forbidden dependency: "${dep}"`);
+      policy_blockers.push(message);
     } else {
-      policy_warnings.push(`Forbidden dependency: "${dep}"`);
+      policy_warnings.push(message);
     }
   }
 

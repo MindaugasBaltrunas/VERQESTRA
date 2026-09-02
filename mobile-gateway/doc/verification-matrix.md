@@ -227,10 +227,13 @@ if an automated ID row ever appears inside this section.
 
 Blocked on, in addition to the hardware: the native React Native/Android shell
 exists as a scaffold with no secure-storage, speech, biometric or lifecycle
-adapter implementation, and the gateway has no remote listener until certificate
-binding and private-network policy land. Steps 1–3 are not runnable until then;
-the runbook is recorded now so the evidence format is fixed before the first run
-rather than improvised during it.
+adapter implementation. The gateway side no longer blocks — certificate binding
+(`infrastructure/file-host-certificate-source.ts`), the private-network bind
+policy (`application/bind-address-policy.ts`) and the composition root that
+raises a listener from both (`composition/gateway-main.ts`, run by `pnpm start`)
+all exist, and `gateway-main.test.ts` starts one. Steps 1–3 are not runnable
+until the app side lands; the runbook is recorded now so the evidence format is
+fixed before the first run rather than improvised during it.
 
 Required MVP evidence on at least one supported Android API level. Record
 `pass` / `fail` / `blocked` and a note for every step — a step with no verdict

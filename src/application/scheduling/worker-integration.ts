@@ -76,6 +76,16 @@ export type FinishedWorkerSlot = {
    * sankirtos įrodyti nėra iš ko, tad slot'as fail-closed laukia tylos.
    */
   write_set?: TaskWriteSet;
+  /**
+   * Infrastruktūros baigties exit kodas (pvz. USAGE_LIMIT_EXIT_CODE=75), KAI `!succeeded`
+   * NĖRA task'o kaltė (žr. `SlotChildOutcome` slot-task-runner.ts, 148-a-02/148-aa-02).
+   * `undefined` = įprasta task-failed/succeeded baigtis. 148-b-03: laukas paruoštas priimti
+   * reikšmę čia, grynoje sprendimo funkcijoje, bet REALUS signalas iki `wave-outcome.ts`
+   * dar nepasiekia — `recordOutcome` gauna tik `boolean` per `wave-dispatch.ts` →
+   * `loop-cycle.ts` → `command.ts` vamzdį, o jį praplėsti be tų failų (`loop-cycle.ts`
+   * uždraustas šiam task'ui) yra atskiro sekančio task'o darbas.
+   */
+  infrastructure_exit_code?: number;
 };
 
 /** Slot'as, kurio sesijos šaka integruojama į pirminę šaką. */
@@ -112,7 +122,13 @@ export type WorkerIntegrationSkip = {
     /** Dar dirba kitas slot'as — integracija laukia tylos. */
     | "not-quiescent"
     /** Slot'as dirbo pačiame pirminiame medyje: nėra atskiros šakos, kurią reiktų sulieti. */
-    | "primary-tree-slot";
+    | "primary-tree-slot"
+    /**
+     * Infrastruktūros gedimas (usage limit, timeout ir pan.) — NIEKADA nėra `task-failed`
+     * parkas. Task failas lieka `AG/tasks/queue`, kopija ir šaka NEVALOMOS (kaip ir parko
+     * atveju), bet task'as neatiduodamas žmogui: kaltė yra infrastruktūros, ne task'o.
+     */
+    | "infrastructure";
   detail: string;
 };
 
@@ -211,10 +227,12 @@ function renderIntegrationEntries(entries: readonly { task_id: string; reason: s
  *      iškart, o visa kita (parkavimas, bangos lease'ai, pirminio medžio slot'ai) toliau
  *      laukia tylos. Neįrodytas atvejis lieka `not-quiescent`;
  *   2. slot'as be `worktree_path` praleidžiamas — pirminio medžio darbas jau yra ten, kur reikia;
- *   3. nesėkmingas slot'as parkuojamas — jo šaka lieka nepaliesta kaip vienintelis dalinio
- *      darbo egzempliorius, o task'as keliauja žmogui, ne atgal į eilę;
- *   4. slot'as be lease parkuojamas — kopiją ir šaką gali tvarkyti tik įrodytas savininkas;
- *   5. likusieji integruojami deterministine (`worker_index`, tada `task_id`) tvarka.
+ *   3. infrastruktūros gedimas (148-b-03) NIEKADA netampa parku — task'as lieka eilėje su
+ *      priežastimi `infrastructure`, kopija paliekama; kaltė yra infrastruktūros, ne task'o;
+ *   4. nesėkmingas (task'o kaltės) slot'as parkuojamas — jo šaka lieka nepaliesta kaip
+ *      vienintelis dalinio darbo egzempliorius, o task'as keliauja žmogui, ne atgal į eilę;
+ *   5. slot'as be lease parkuojamas — kopiją ir šaką gali tvarkyti tik įrodytas savininkas;
+ *   6. likusieji integruojami deterministine (`worker_index`, tada `task_id`) tvarka.
  */
 export function planWorkerIntegration(input: {
   checkpoint: IntegrationCheckpoint;
@@ -233,6 +251,7 @@ export function planWorkerIntegration(input: {
     const live = input.live ?? [];
     const incremental: WorkerIntegrationStep[] = [];
     const incrementalPark: WorkerIntegrationPark[] = [];
+    const incrementalInfra: WorkerIntegrationSkip[] = [];
     const waiting: WorkerIntegrationSkip[] = [];
     for (const slot of finished) {
       // Task 135: nesėkmingas worktree slot'as parkuojamas IŠKART, nelaukiant tylos.
@@ -243,6 +262,18 @@ export function planWorkerIntegration(input: {
       // vykdymas šalia gyvų slot'ų merge saugumo nekeičia; kopija ir šaka paliekamos
       // peržiūrai kaip ir tylos kelyje.
       if (slot.worktree_path && !slot.succeeded) {
+        // 148-b-03: infrastruktūros gedimas NIEKADA netampa task-failed parku — 2026-09-01
+        // 21:17–21:31 dvidešimt task'ų atsidūrė human-review vien dėl Claude usage limito.
+        // Sprendimas kabinamas prie TO PATIES varto kaip task-failed, nes abu dalinasi
+        // `!succeeded` sąlygą — tvarka svarbi: infra patikrinama PIRMA.
+        if (slot.infrastructure_exit_code !== undefined) {
+          incrementalInfra.push({
+            task_id: slot.task_id,
+            reason: "infrastructure",
+            detail: `slot=${slot.worker_id} baigė infrastruktūros klaida exit=${slot.infrastructure_exit_code} — task'as lieka eilėje, kopija ${slot.worktree_path} paliekama, NE task-failed parkas`,
+          });
+          continue;
+        }
         incrementalPark.push({
           task_id: slot.task_id,
           worktree_path: slot.worktree_path,
@@ -256,20 +287,21 @@ export function planWorkerIntegration(input: {
       else waiting.push({ task_id: slot.task_id, reason: "not-quiescent", detail: `${input.checkpoint.reason}; ${verdict.blocked}` });
     }
 
-    const ready = incremental.length > 0 || incrementalPark.length > 0;
+    const ready = incremental.length > 0 || incrementalPark.length > 0 || incrementalInfra.length > 0;
     return {
       ready,
       mode: ready ? "incremental" : "waiting",
       integrate: incremental,
       // Bangos lease'ai ir pirminio medžio slot'ų likimas lieka tylos sprendimai:
-      // inkrementinis kelias praplečia integracijos momentą ir nesėkmės parkavimą,
-      // bet lease atlaisvinimo semantikos neliečia.
+      // inkrementinis kelias praplečia integracijos momentą, nesėkmės parkavimą ir infra
+      // praleidimą, bet lease atlaisvinimo semantikos neliečia.
       park: incrementalPark,
-      skipped: waiting,
+      skipped: [...incrementalInfra, ...waiting],
       release_lease_ids: [],
       reason: ready
         ? `ready=true mode=incremental integrate=${incremental.map((step) => step.task_id).join(",") || "none"}` +
           `${incrementalPark.length > 0 ? ` park=${renderIntegrationEntries(incrementalPark)}` : ""}` +
+          `${incrementalInfra.length > 0 ? ` infra=${renderIntegrationEntries(incrementalInfra)}` : ""}` +
           ` live=${input.checkpoint.live_task_ids.join(",")}` +
           `${waiting.length > 0 ? ` waiting=${renderIntegrationEntries(waiting)}` : ""}`
         : `ready=false ${input.checkpoint.reason}`,
@@ -290,6 +322,16 @@ export function planWorkerIntegration(input: {
       continue;
     }
     if (!slot.succeeded) {
+      // 148-b-03: infrastruktūros gedimas NIEKADA netampa task-failed parku — žr. tą pačią
+      // sąlygą inkrementiniame kelyje aukščiau, dėl kurios ir vardo šis vartas atsirado.
+      if (slot.infrastructure_exit_code !== undefined) {
+        skipped.push({
+          task_id: slot.task_id,
+          reason: "infrastructure",
+          detail: `slot=${slot.worker_id} baigė infrastruktūros klaida exit=${slot.infrastructure_exit_code} — task'as lieka eilėje, kopija ${slot.worktree_path} paliekama, NE task-failed parkas`,
+        });
+        continue;
+      }
       park.push({
         task_id: slot.task_id,
         worktree_path: slot.worktree_path,

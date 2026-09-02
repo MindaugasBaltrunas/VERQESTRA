@@ -94,6 +94,12 @@ export function createWaveOutcomeRecorder(
           write_set: slot.write_set,
           ...(slot.worktree_path === undefined ? {} : { worktree_path: slot.worktree_path }),
           ...(slot.lease === undefined ? {} : { lease: slot.lease }),
+          // `FinishedWorkerSlot.infrastructure_exit_code` (148-b-03, worker-integration.ts)
+          // TYČIA neužpildomas: `succeeded` čia yra `boolean` iš `recordOutcome`, o
+          // `runTask`/`recordOutcome` per `wave-dispatch.ts` → `loop-cycle.ts` neša tik jį —
+          // `SlotChildOutcome`'o infra atšaka (command.ts `runChild`) žūva iki šio taško.
+          // Praplėsti reikėtų `loop-cycle.ts` (uždrausta šiam task'ui), tad laukas lieka
+          // `undefined` iki sekančio, tą vamzdį taisančio task'o.
         });
       }
       deps.liveSlots.delete(workerId);

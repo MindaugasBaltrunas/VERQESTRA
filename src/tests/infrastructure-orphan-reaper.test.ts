@@ -8,6 +8,7 @@ import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import type { WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../infrastructure/process/run-process.js";
@@ -54,6 +55,34 @@ function lease(overrides: Partial<WorkerLease> = {}): WorkerLease {
   };
 }
 
+const GIT_STATUS_VISIBILITY_POLL_MS = 25;
+const GIT_STATUS_VISIBILITY_TIMEOUT_MS = 5_000;
+
+/**
+ * `git worktree remove` (be --force) atsisako šalinti TIK jei jo vidinis FS skenas MATO
+ * untracked failą tuo momentu. Testas rašo failą per `nodeFsAdapter.writeTextFile`
+ * (atominis tmp+rename) ir iškart kviečia reap'ą — Windows'e rename matomumas git status
+ * skenui gali atsilikti kelias dešimtis ms (FS metaduomenų/AV-indexer vėlavimas), todėl KEPT
+ * lūkestis pirmam kvietimui yra prielaida, kurią reikia patikrinti FAKTU prieš tikrinant
+ * pasekmę, o ne vien tikėtis. Ribotas laukimas: jei git per timeout'ą failo neišvys, testas
+ * krenta su aiškia priežastimi vietoj to, kad tyliai gautų klaidingą REAPED.
+ */
+async function waitForGitStatusVisibility(worktreePath: string, relativeFilePath: string): Promise<void> {
+  const needle = relativeFilePath.split(path.sep).join("/");
+  const deadline = Date.now() + GIT_STATUS_VISIBILITY_TIMEOUT_MS;
+  for (;;) {
+    const result = await run("git", ["-C", worktreePath, "status", "--porcelain", "-uall"]);
+    assert.equal(result.code, 0, `git status failed: ${result.stderr || result.stdout}`);
+    if (result.stdout.includes(needle)) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `git per ${GIT_STATUS_VISIBILITY_TIMEOUT_MS}ms nepamatė ką tik įrašyto failo ${needle} kopijoje ${worktreePath}`,
+      );
+    }
+    await delay(GIT_STATUS_VISIBILITY_POLL_MS);
+  }
+}
+
 // Runtime keliai (vq/state/...) yra ignoruojami nonRuntimeDirtyEntriesFromStatus, tad
 // reapTreeState mato "clean" — bet `git worktree remove` (be --force) vis tiek atsisako
 // šalinti, nes untracked failas realiai yra medyje. Anksčiau tai virsdavo amžinu
@@ -77,7 +106,11 @@ test("orphan reap: runtime-only untracked failas nebelieka amžinu KEPT - preser
 
     // Task'as VIS DAR eilėje (ne `done`) — būtent tai anksčiau blokuodavo eskalaciją amžinai.
     await nodeFsAdapter.writeTextFile(path.join(agRoot, "tasks", "queue", "t-spiral.md"), "# t-spiral\n");
-    await nodeFsAdapter.writeTextFile(path.join(created.layout.path, "vq", "state", "leftover.txt"), "liekana\n");
+    const leftoverRelativePath = path.join("vq", "state", "leftover.txt");
+    await nodeFsAdapter.writeTextFile(path.join(created.layout.path, leftoverRelativePath), "liekana\n");
+    // Prielaida „git jau mato ką tik įrašytą failą" patikrinama FAKTU (žr. funkcijos
+    // komentarą) — kitaip pirmas reap gali praeiti be --force ir grąžinti klaidingą REAPED.
+    await waitForGitStatusVisibility(created.layout.path, leftoverRelativePath);
 
     // Per anksti (amžius=0, task dar eilėje): nei amžius, nei bucket'as eligible - lieka KEPT.
     const tooSoon = await reapOrphanWorktrees({ projectRoot: spiralRoot, runtimeRoot, agRoot, leases: [] });

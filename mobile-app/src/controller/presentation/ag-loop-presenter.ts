@@ -74,24 +74,36 @@ function isReading(state: AppState): boolean {
   return state.agLoopReadsInFlight > 0;
 }
 
-function presentConnection(state: AppState): AgLoopConnectionViewState {
+/**
+ * Dashboard and Tasks read distinct channels (`agLoopLink`/`agLoopReadError`
+ * vs. `agLoopTasksLink`/`agLoopTasksReadError`), each with its own cached
+ * snapshot: a badge speaks only for the channel its own screen renders, never
+ * for the other one's.
+ */
+function presentConnection(input: Readonly<{
+  availability: AppState["agLoopAvailability"];
+  link: AgLoopLinkState;
+  error: AgLoopReadFailureCode | null;
+  hasSnapshot: boolean;
+  refreshing: boolean;
+}>): AgLoopConnectionViewState {
   // Nothing has ever been attempted or answered, so an offline badge would
   // blame the network for a channel that was simply never wired up. A read in
   // flight or a recorded failure both mean the channel is configured.
-  const unconfigured = state.agLoopAvailability === "not-configured" &&
-    state.agLoopDashboard === null &&
-    state.agLoopReadError === null &&
-    state.agLoopLink !== "connecting";
+  const unconfigured = input.availability === "not-configured" &&
+    !input.hasSnapshot &&
+    input.error === null &&
+    input.link !== "connecting";
   return Object.freeze({
-    link: state.agLoopLink,
-    label: unconfigured ? "Not configured" : linkLabels[state.agLoopLink],
-    refreshing: isReading(state),
+    link: input.link,
+    label: unconfigured ? "Not configured" : linkLabels[input.link],
+    refreshing: input.refreshing,
     // Staleness is "a snapshot is on screen that the last read did not confirm",
     // which holds for a degraded link and for an offline link that still has a
     // cached snapshot; a fresh snapshot reporting `offline` is not stale.
-    stale: state.agLoopDashboard !== null && state.agLoopReadError !== null,
-    errorMessage: state.agLoopReadError === null ? null : failureMessages[state.agLoopReadError],
-    canRetry: !unconfigured && !isReading(state),
+    stale: input.hasSnapshot && input.error !== null,
+    errorMessage: input.error === null ? null : failureMessages[input.error],
+    canRetry: !unconfigured && !input.refreshing,
   });
 }
 
@@ -111,7 +123,13 @@ export function presentDashboard(state: AppState): DashboardViewState {
   return Object.freeze({
     title: "AG Loop UI — read-only",
     readOnly: true,
-    connection: presentConnection(state),
+    connection: presentConnection({
+      availability: state.agLoopAvailability,
+      link: state.agLoopLink,
+      error: state.agLoopReadError,
+      hasSnapshot: dashboard !== null,
+      refreshing: isReading(state),
+    }),
     showLoadingPlaceholder,
     showUnavailablePlaceholder: dashboard === null && !showLoadingPlaceholder,
     unavailableLabel: "No AG Loop state has been received yet.",
@@ -137,11 +155,17 @@ export function presentTasks(state: AppState): TasksViewState {
   const rows = snapshot?.tasks ?? Object.freeze([]);
   const totalCount = snapshot?.totalCount ?? 0;
   const showLoadingPlaceholder = snapshot === null &&
-    (isReading(state) || state.agLoopLink === "connecting");
+    (isReading(state) || state.agLoopTasksLink === "connecting");
   return Object.freeze({
     title: "AG Loop tasks — read-only",
     readOnly: true,
-    connection: presentConnection(state),
+    connection: presentConnection({
+      availability: state.agLoopAvailability,
+      link: state.agLoopTasksLink,
+      error: state.agLoopTasksReadError,
+      hasSnapshot: snapshot !== null,
+      refreshing: isReading(state),
+    }),
     tabs: Object.freeze(agLoopTaskBuckets.map((candidate) => Object.freeze({
       bucket: candidate,
       label: bucketLabels[candidate],

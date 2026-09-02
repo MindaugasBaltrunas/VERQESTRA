@@ -27,11 +27,15 @@ import {
  * the situations are enumerated, and every frame each space renders in them has
  * to satisfy the same invariants.
  *
- * SKAIDYMAS (VERQESTRA ≤500 eil. vartas). Čia — AG LOOP ir SESIJOS PERŽIŪRA plius du
- * įvardyti defektai, kurie abu kyla iš to paties: `ag-loop.tasks` nesutvarko nei `agLoopLink`,
- * nei `agLoopReadError`. Host'o sritys (Connections, Projects) —
- * `screen-degraded-host.test.ts`; terminalas — `screen-degraded-terminal.test.ts`; bendri
- * teiginiai — `screen-degraded-doubles.ts`.
+ * SKAIDYMAS (VERQESTRA ≤500 eil. vartas). Čia — AG LOOP ir SESIJOS PERŽIŪRA. Host'o sritys
+ * (Connections, Projects) — `screen-degraded-host.test.ts`; terminalas —
+ * `screen-degraded-terminal.test.ts`; bendri teiginiai — `screen-degraded-doubles.ts`.
+ *
+ * Du buvę defektai (task 122): `ag-loop.tasks` sėkmė nesutvarkydavo nei `agLoopLink`, nei
+ * `agLoopReadError` — abu buvo bendri su Dashboard kanalu. Ištaisyta padalijant kanalus:
+ * Tasks ekranas dabar turi savo `agLoopTasksLink`/`agLoopTasksReadError`
+ * (`src/model/reducer.ts`, `src/model/state.ts`), o `presentTasks` (`ag-loop-presenter.ts`)
+ * skaito iš jų, ne iš Dashboard laukų. Regresijos testai — žemiau, pažymėti "task 122".
  */
 
 const agLoopFailures: readonly AgLoopReadFailureCode[] = [
@@ -139,7 +143,16 @@ test("every AG Loop degraded frame explains itself, dates itself and keeps a way
   }
 
   assert.equal(frames, agLoopBases.length * agLoopFailureSteps.length * agLoopTails.length * 2);
-  assertCoverage(combinations, "AG Loop");
+  // task 122: `agLoopLink` can no longer be `connecting` while no read is in
+  // flight — `ag-loop.read-settled` now resolves a channel still `connecting`
+  // to `offline` once the last outstanding read of a cycle drains to zero (see
+  // `src/model/reducer.ts`), which is exactly the fix for the spinner that used
+  // to outlive its read. `connecting` therefore now implies a read in flight,
+  // for this channel, with or without a cached snapshot — both combinations
+  // below are provably unreachable now, not merely unobserved.
+  assertCoverage(combinations, "AG Loop", {
+    skip: ["connecting/no-snapshot/not-reading", "connecting/cached/not-reading"],
+  });
 });
 
 const sessionReviewFailures: readonly SessionReviewFailureCode[] = [
@@ -292,20 +305,15 @@ test("a degraded read-only space grows no affordance it lacks when healthy", () 
 });
 
 /**
- * Documented behaviour, not endorsed behaviour.
- *
- * `presentConnection` in `ag-loop-presenter.ts` derives the badge from the
- * dashboard snapshot alone, so on Tasks — whose rows come from the bucket
- * snapshot — the badge can describe a channel the rows did not come from. The
- * assertions below are what the code does today; the production fix belongs in
- * the presenter (or in the Model's link handling), never in this test.
- *
- * Whoever fixes it — `ag-loop.tasks` resolving neither `agLoopLink` nor
- * `agLoopReadError` — should expect this test to go red, and must invert
- * `tasksFrame.badgeSnapshot` in `screen-degraded-doubles.ts` along with the
- * presenter.
+ * task 122, defect 1/2: a bucket read used to leave the Tasks badge dialling
+ * forever (`ag-loop.tasks` never resolved `agLoopLink`) and, once a later
+ * read failed, never marked the cached rows stale (staleness was keyed to the
+ * dashboard snapshot, which a bucket-only session never has). Fixed by giving
+ * Tasks its own `agLoopTasksLink`/`agLoopTasksReadError`, settled by its own
+ * success and failure — see `ag-loop.tasks` and `ag-loop.read-failed` in
+ * `src/model/reducer.ts`.
  */
-test("known defect: Tasks renders cached bucket rows the connection badge knows nothing about", () => {
+test("a bucket read confirms its own channel, independent of the dashboard", () => {
   // `AgLoopReadController.selectBucket` reads a bucket without a dashboard, so
   // this is the state of a session that opened Tasks first.
   const bucketOnly = reduce([
@@ -316,12 +324,12 @@ test("known defect: Tasks renders cached bucket rows the connection badge knows 
   const fresh = presentTasks(bucketOnly);
   assert.deepEqual(fresh.rows, ["0042-do-a-thing.md", "0043-do-another-thing.md"]);
   assert.equal(fresh.showUnavailablePlaceholder, false);
-  // SUSPECTED BUG (1/2): rows are on screen and no read is running, yet the
-  // badge reports a channel that is still dialling — `ag-loop.tasks` never
-  // resolves `agLoopLink`, so `connecting` is where the link stays.
-  assert.equal(fresh.connection.link, "connecting");
-  assert.equal(fresh.connection.label, "Connecting");
+  // The bucket read itself proves the channel is reachable: no read is
+  // running and the badge must not be left dialling.
+  assert.equal(fresh.connection.link, "connected");
+  assert.equal(fresh.connection.label, "Connected");
   assert.equal(fresh.connection.refreshing, false);
+  assert.equal(fresh.connection.stale, false);
 
   const failedRefresh = reduce([
     { type: "ag-loop.read-started" },
@@ -335,21 +343,19 @@ test("known defect: Tasks renders cached bucket rows the connection badge knows 
   assert.deepEqual(stale.rows, ["0042-do-a-thing.md", "0043-do-another-thing.md"]);
   assert.equal(stale.connection.errorMessage, "AG Loop read channel failed.");
   assert.equal(stale.connection.canRetry, true, "the operator can at least retry");
-  // SUSPECTED BUG (2/2): the rows on screen are cached and unconfirmed, but
-  // `stale` is false because no dashboard snapshot was ever read — the invariant
-  // the sweep checks ("cached snapshot + recorded failure implies stale") does
-  // not hold for the rows Tasks actually renders.
-  assert.equal(stale.connection.stale, false);
+  // The rows on screen are cached and this read's failure is charged to the
+  // bucket channel, so they must now read as unconfirmed.
+  assert.equal(stale.connection.stale, true, "cached bucket rows are unconfirmed after the failure");
 });
 
 /**
- * Documented behaviour, not endorsed behaviour.
- *
- * `ag-loop.tasks` never resolves `agLoopLink`, so a successful bucket read
- * leaves the link at `connecting` with no read in flight: a Dashboard spinner
- * that nothing will ever stop.
+ * task 122, defect 1/2 (Dashboard side): a bucket-only session used to leave
+ * `agLoopLink` stuck at `connecting` forever, because nothing in that cycle
+ * ever resolved the dashboard channel. Fixed in `ag-loop.read-settled`: once
+ * the last outstanding read of a cycle drains to zero, a channel still stuck
+ * at `connecting` falls back to `offline` — see `src/model/reducer.ts`.
  */
-test("known defect: a Dashboard spinner can outlive the read that started it", () => {
+test("a bucket-only session leaves the Dashboard honestly unread, not spinning forever", () => {
   const bucketOnly = reduce([
     { type: "ag-loop.read-started" },
     { type: "ag-loop.tasks", snapshot: bucketSnapshot() },
@@ -358,10 +364,13 @@ test("known defect: a Dashboard spinner can outlive the read that started it", (
   const view = presentDashboard(bucketOnly);
 
   assert.equal(bucketOnly.agLoopReadsInFlight, 0, "no read is running");
-  // SUSPECTED BUG: a loading placeholder with nothing loading behind it.
-  assert.equal(view.showLoadingPlaceholder, true);
+  assert.equal(view.showLoadingPlaceholder, false, "nothing is loading once the read settles");
   assert.equal(view.connection.refreshing, false);
-  // The one thing that saves the frame: the retry is still offered, so the
-  // operator is not locked inside the spinner.
-  assert.equal(view.connection.canRetry, true);
+  assert.equal(view.showUnavailablePlaceholder, true, "the dashboard channel itself was never read");
+  // The dashboard channel was never attempted in this session, so it reads as
+  // unconfigured rather than as a network failure — the same rule the very
+  // first frame of the app already gets, in "an unwired read channel is
+  // presented as not configured, not as a network failure" above.
+  assert.equal(view.connection.label, "Not configured");
+  assert.equal(view.connection.canRetry, false);
 });

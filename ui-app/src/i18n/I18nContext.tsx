@@ -582,6 +582,8 @@ const lt: Record<string, string> = {
   "human-review": "žmogaus peržiūra",
   "delegated": "deleguota",
   "Running in stream {stream}": "Vykdoma sraute {stream}",
+  "Running in stream {stream}; the file stays in the queue folder until the branch is merged":
+    "Vykdoma sraute {stream}; failas lieka eilės aplanke, kol šaka sulieta",
   "{count} of these are running in worktree streams right now": "{count} iš jų šiuo metu vykdomos worktree srautuose",
   // 2026-08-24 („viskas matoma"): biudžeto ir diagnostikos panelės.
   "Cost control": "Kaštų kontrolė",

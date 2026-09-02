@@ -78,10 +78,22 @@ describe("WorkflowBoard", () => {
     expect(screen.getByRole("status", { name: "" })).toBeTruthy();
     expect(screen.getByText("148-b-03-infra, 122-reducer (Stream 1), 118-native-shell (Stream 2)")).toBeInTheDocument();
 
-    // Eilės kortelėje gyvi task'ai turi srauto ženklelį, o laukiantis — ne.
-    expect(screen.getByText("Stream 1")).toBeInTheDocument();
-    expect(screen.getByText("Stream 2")).toBeInTheDocument();
-    expect(screen.getByTitle("Running in stream 2")).toBeInTheDocument();
+    // Srautų task'ai rodomi VYKDYMO (`delegated`) kortelėje su ženkleliu, kaip ir pirminio medžio
+    // task'as — ne eilėje (2026-09-02: „kodėl w2 neperkeliama kaip w1?"). Eilės peržiūroje jų
+    // nebėra, liko tik laukiantis ir suvestinė, kiek eilės failų sukasi srautuose.
+    const delegatedCard = document.querySelector(".workflow-card--delegated")!;
+    const delegatedItems = [...delegatedCard.querySelectorAll("li")].map((item) => item.textContent ?? "");
+    expect(delegatedItems[0]).toMatch(/^122.*Stream 1$/);
+    expect(delegatedItems[1]).toMatch(/^118.*Stream 2$/);
+    expect(delegatedItems[2]).toMatch(/^148/);
+    expect(
+      screen.getByTitle("Running in stream 2; the file stays in the queue folder until the branch is merged"),
+    ).toBeInTheDocument();
+
+    const queueCard = document.querySelector(".workflow-card--queue")!;
+    const queueItems = [...queueCard.querySelectorAll("li")].map((item) => item.textContent ?? "");
+    expect(queueItems).toHaveLength(1);
+    expect(queueItems[0]).toMatch(/^150/);
     expect(screen.getByTitle("150-allowed-paths.md")).toBeInTheDocument();
     expect(screen.getByText("2 of these are running in worktree streams right now")).toBeInTheDocument();
   });
@@ -112,7 +124,9 @@ describe("WorkflowBoard", () => {
     expect(queueItems[0]).toMatch(/^153.*Stream 1$/);
     expect(queueItems[1]).toMatch(/^152.*Stream 2$/);
     expect(queueItems[2]).toMatch(/^101/);
-    expect(screen.getByTitle("Running in stream 1")).toBeInTheDocument();
+    expect(
+      screen.getByTitle("Running in stream 1; the file stays in the queue folder until the branch is merged"),
+    ).toBeInTheDocument();
     expect(screen.getByText("2 of these are running in worktree streams right now")).toBeInTheDocument();
     // Antraštė toliau įvardija abu.
     expect(screen.getByText("153-a-02-scheduling (Stream 1), 152-a-02-koordinatorius (Stream 2)")).toBeInTheDocument();

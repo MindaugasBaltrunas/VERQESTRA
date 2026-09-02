@@ -63,15 +63,17 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
   const running = [...treeRunning, ...streamRunning].map((entry) =>
     entry.slot ? `${entry.taskId} (${t("Stream")} ${entry.slot.index})` : entry.taskId,
   );
-  // Srautų task'ai, kurių NĖRA nė vienos kortelės peržiūroje: serveris į kortelę deda tik
-  // pirmus N eilės failų, o worktree slot'o task'as pagrindiniame medyje tebeguli `queue` — dažnai
-  // už tos N ribos. Tada „Vykdoma" antraštė jį įvardija, bet lentoje jis neturi VIETOS
-  // (2026-09-02 operatoriaus radinys: „suvestinė nerodo jų pozicijos"). Tokie task'ai
-  // prisegami eilės kortelės viršuje su srauto ženkleliu — jie yra eilės failai, tik vykdomi.
-  const previewed = new Set(buckets.flatMap((bucket) => bucket.tasks.map(taskIdOf)));
-  const pinnedLive = [...liveSlots]
-    .sort((a, b) => a.index - b.index)
-    .filter((slot) => !previewed.has(slot.taskId));
+  // Worktree srautų task'ai LENTOJE rodomi toje pačioje vykdymo kortelėje kaip pirminio medžio
+  // task'as (2026-09-02 operatoriaus radinys: „kodėl w2 neperkeliama kaip w1?"). Fiziškai jų
+  // failas pagrindiniame medyje tebeguli `queue` — worktree vaikas kilnoja tik SAVO kopiją, o
+  // perkėlimas pagrindiniame medyje užterštų jį necommit'intu judesiu ir sugriautų švaraus medžio
+  // vartus. Todėl vieta suteikiama pateikimo sluoksnyje: srauto task'as prisegamas prie
+  // `delegated` (kopijoje jis būtent ten) kortelės viršaus su srauto ženkleliu, o eilės
+  // peržiūroje NEBERODOMAS — ten lieka tik eilutė, kiek eilės failų šiuo metu sukasi srautuose.
+  // Be `delegated`/`active` kortelės (senesnis serveris) prisegama prie eilės, kaip anksčiau.
+  const streamLive = streamRunning.map((entry) => entry.slot);
+  const liveBucketName =
+    buckets.find((bucket) => bucket.name === "delegated")?.name ?? buckets.find((bucket) => bucket.name === "active")?.name ?? "queue";
 
   return (
     <section className="panel">
@@ -94,7 +96,9 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
             key={bucket.name}
             bucket={bucket}
             liveByTask={liveByTask}
-            pinnedLive={bucket.isQueue ? pinnedLive : []}
+            pinnedLive={bucket.name === liveBucketName ? streamLive : []}
+            hideLiveInPreview={bucket.isQueue && liveBucketName !== "queue"}
+            streamLiveCount={bucket.isQueue ? streamLive.length : 0}
             onOpenFolder={onOpenFolder}
             onUpload={onUpload}
             onLoadTasks={onLoadTasks}
@@ -108,25 +112,40 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
 type BucketCardProps = {
   bucket: WorkflowBucketView;
   liveByTask: LiveByTask;
-  /** Srautų task'ai be vietos peržiūroje — rodomi kortelės viršuje (tik eilės kortelei). */
+  /** Worktree srautų task'ai, prisegami šios kortelės viršuje su srauto ženkleliu. */
   pinnedLive: readonly WorkflowLiveSlot[];
+  /** Eilės peržiūroje srautų task'ai neberodomi — jų vieta yra vykdymo kortelė. */
+  hideLiveInPreview: boolean;
+  /** Kiek šios kortelės (eilės) failų šiuo metu sukasi worktree srautuose — suvestinės eilutei. */
+  streamLiveCount: number;
   onOpenFolder: (bucket: string) => void;
   onUpload: (files: File[]) => Promise<void>;
   onLoadTasks: (bucket: string) => Promise<string[]>;
 };
 
-function BucketCard({ bucket, liveByTask, pinnedLive, onOpenFolder, onUpload, onLoadTasks }: BucketCardProps) {
+function BucketCard({
+  bucket,
+  liveByTask,
+  pinnedLive,
+  hideLiveInPreview,
+  streamLiveCount,
+  onOpenFolder,
+  onUpload,
+  onLoadTasks,
+}: BucketCardProps) {
   const { t } = useI18n();
   const upload = useQueueUploadController(onUpload);
   const [allTasks, setAllTasks] = useState<string[] | null>(null);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const isRunning = bucket.variant === "live" && bucket.tasks.length > 0;
-  const displayedTasks = allTasks ?? bucket.tasks;
-  // Pilname („Show all") sąraše srautų task'ai jau yra savo vietoje — prisegti tik peržiūroje.
+  // Peržiūra (ne „Show all"): srautų task'ai paslepiami ten, kur jie tik fiziškai guli, ir
+  // prisegami ten, kur jie realiai dirba. Pilnas sąrašas rodo fizinę tiesą su ženkleliais.
+  const previewTasks = hideLiveInPreview ? bucket.tasks.filter((task) => !liveByTask.has(taskIdOf(task))) : bucket.tasks;
+  const displayedTasks = allTasks ?? previewTasks;
   const pinned = allTasks === null ? pinnedLive.filter((slot) => !displayedTasks.some((task) => taskIdOf(task) === slot.taskId)) : [];
+  const isRunning = bucket.variant === "live" && (bucket.tasks.length > 0 || pinned.length > 0);
   // Eilėje gulintys, bet sraute jau vykdomi: pasakoma kortelėje, o ne slepiama už skaičiaus.
-  const liveInBucket = displayedTasks.filter((task) => liveByTask.has(taskIdOf(task))).length + pinned.length;
+  const liveInBucket = allTasks === null ? streamLiveCount : displayedTasks.filter((task) => liveByTask.has(taskIdOf(task))).length;
 
   // Išskleistas („Show all") sąrašas turi sekti realią būseną. Anksčiau `allTasks` niekada
   // nebūdavo nunulinamas, tad kortelė rodydavo tų pačių senų užduočių sąrašą dar ilgai po to,
@@ -168,7 +187,10 @@ function BucketCard({ bucket, liveByTask, pinnedLive, onOpenFolder, onUpload, on
         {pinned.map((slot) => {
           const label = taskFileLabel(`${slot.taskId}.md`);
           return (
-            <li key={`live:${slot.taskId}`} title={fill(t("Running in stream {stream}"), { stream: slot.index })}>
+            <li
+              key={`live:${slot.taskId}`}
+              title={fill(t("Running in stream {stream}; the file stays in the queue folder until the branch is merged"), { stream: slot.index })}
+            >
               {label.id && <b className="task-id">{label.id}</b>}
               <span className="task-name">{label.name}</span>
               <span className="badge status-live">{`${t("Stream")} ${slot.index}`}</span>

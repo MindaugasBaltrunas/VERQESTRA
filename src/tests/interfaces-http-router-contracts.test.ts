@@ -256,6 +256,41 @@ test("sprendimo maršrutas: `{ proposals }` vokas, `actor` iš kliento NEPRIIMAM
   });
 });
 
+// 2026-09-02 operatoriaus radinys „Patvirtinti neveikia": pasiūlymai nuo 2026-08-28 eina be
+// priežasties, o klientas sprendimui siunčia PASIŪLYMO priežastį — tuščią. Sprendimo maršrutas
+// jos reikalavo, tad kiekvienas toks pasiūlymas iš UI buvo nepatvirtinamas (400).
+test("sprendimo maršrutas: tuščia ar trūkstama `reason` NĖRA 400 — sprendimas eina su `\"\"`", async () => {
+  const empty = world();
+  const response = await post(empty, "/api/policies/proposals/approve", {
+    policy_file: "vq/architecture/coding-principles.json",
+    setting_id: "dry",
+    reason: "",
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(called(empty, "decide")?.payload, {
+    verb: "approve",
+    input: { policy_file: "vq/architecture/coding-principles.json", setting_id: "dry", reason: "" },
+  });
+
+  const missing = world();
+  await post(missing, "/api/policies/proposals/reject", {
+    policy_file: "vq/architecture/coding-principles.json",
+    setting_id: "dry",
+  });
+  assert.deepEqual(called(missing, "decide")?.payload, {
+    verb: "reject",
+    input: { policy_file: "vq/architecture/coding-principles.json", setting_id: "dry", reason: "" },
+  });
+
+  // Objektas be `setting_id` toliau atmetamas: sprendimas be nustatymo neturi ko spręsti.
+  const noSetting = world();
+  const rejected = await post(noSetting, "/api/policies/proposals/approve", {
+    policy_file: "vq/architecture/coding-principles.json",
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(called(noSetting, "decide"), undefined);
+});
+
 test("governance klaidos gauna SAVO statusą: 400 / 409 / 403", async () => {
   const body = { policy_file: "vq/architecture/coding-principles.json", setting_id: "dry", reason: "auditas" };
   const cases: [Error, number][] = [

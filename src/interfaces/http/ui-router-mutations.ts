@@ -350,6 +350,12 @@ async function proposePolicyChange(
  * application taisyklė, o ne maršruto — router'is tik perduoda verbą portui ir atvaizduoja
  * `ProposalCancelConflictError` į 409 per tą patį `mapPolicyDecisionError`. Būsenos tikrinimas
  * čia reikštų dvi tiesos vietas, iš kurių HTTP pusė pasentų tyliai.
+ *
+ * `reason` čia NEPRIVALOMAS — ta pati taisyklė kaip pasiūlymui (2026-08-28). Klientas sprendimui
+ * siunčia PASIŪLYMO priežastį, o ji nuo tada gali būti tuščia; reikalavimas jos čia reiškė, kad
+ * kiekvienas be priežasties pateiktas pasiūlymas tampa nepatvirtinamas iš UI: 400 „reason are
+ * required", kurį operatorius matė kaip neveikiantį mygtuką (2026-09-02, du pasiūlymai eilėje).
+ * Sprendimą priima ir pagrindžia tas pats žmogus, tad tuščia priežastis audito neskurdina.
  */
 async function decidePolicyProposal(
   deps: UiRouterDeps,
@@ -359,10 +365,10 @@ async function decidePolicyProposal(
   return await withJsonBody(async (body) => {
     const policyFile = requiredText(body, "policy_file");
     const settingId = requiredText(body, "setting_id");
-    const reason = requiredText(body, "reason");
-    if (!policyFile || !settingId || !reason) {
-      return badRequest("policy_file, setting_id and reason are required non-empty strings");
+    if (!policyFile || !settingId) {
+      return badRequest("policy_file and setting_id are required non-empty strings");
     }
+    const reason = requiredText(body, "reason") ?? "";
     const input: PolicyDecisionRequest = { policy_file: policyFile, setting_id: settingId, reason };
     try {
       return json(await deps.ports.decidePolicyProposal(verb, input));

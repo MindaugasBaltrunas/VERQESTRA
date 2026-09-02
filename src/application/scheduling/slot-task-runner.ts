@@ -15,6 +15,12 @@
 //   4. heartbeat'as praeina — jis vienu ėjimu ir patvirtina nuosavybę, ir atnaujina TTL, tad
 //      vaiko gyvenimo langas prasideda būtent dabar ir lygiagretus reaper'is neturi ko nupjauti.
 //
+// PENKTAS vartas yra vaiko task failas kopijoje (`ensureTaskFileInWorktree`). Jis egzistuoja dėl
+// FS↔git lenktynių: planuoklė task'ą pačiumpa nuo DISKO (`AG/tasks/queue`), o kopija gimsta iš git
+// HEAD, kuriame to dar neužcommitinto failo nėra. Be varto vaikas miršta ENOENT/exit 74, ir
+// `worker-integration` tokią baigtį parkuoja kaip `task-failed` — kaltė tenka task'ui, nors
+// priežastis yra aprūpinimas.
+//
 // Kiekviena nesėkmė yra ĮVARDINTA `WAVE SLOT FAILED` eilutė ir sąžininga `ok=false` baigtis, o ne
 // metimas: metimas nutrauktų visą bangą, nors kitas lane'as dirba nepriklausomai.
 //
@@ -51,6 +57,12 @@ export type SlotTaskRunnerSlot = {
 /** Nuosavybės mutacijos baigtis; `denied` visada turi priežastį. */
 export type SlotLeaseMutation = { status: "ok" } | { status: "denied"; reason: string };
 
+/**
+ * Task failo vartų baigtis kopijoje. `missing` VISADA turi priežastį: vartas, kurio atsisakymas
+ * neįvardintas, operatoriui atrodo kaip task'o kaltė, o būtent tai šis vartas ir uždaro.
+ */
+export type SlotTaskFileAvailability = { status: "ok" } | { status: "missing"; reason: string };
+
 export type SlotTaskRunnerPorts = {
   log: (message: string) => Promise<void>;
   /** Esamas in-process kelias — slot'ai be kopijos eina TIK juo. */
@@ -65,6 +77,21 @@ export type SlotTaskRunnerPorts = {
   release: (claim: WorkerLeaseClaim, workerId: string) => Promise<SlotLeaseMutation>;
   /** Kopijos runtime paruošimas (dist, junction'ai, konfigas, produkto deps). */
   prepareWorktree: (worktreeAbs: string) => Promise<void>;
+  /**
+   * Vaiko task failo vartai kopijoje. Portas yra ENSURE, ne CHECK: trūkstamas failas atkuriamas
+   * DETERMINISTIŠKAI iš `slot.absoluteFile`, nes tas pats baitų turinys jau guli pirminiame medyje —
+   * čia nėra ko spėti. Atidėjimas be atkūrimo būtų brangesnis sprendimas tam pačiam faktui.
+   *
+   * Atkurta kopija vaiko švaraus medžio vartų NEKERTA: `AG/tasks/**` yra RUNTIME kelias
+   * (`isRuntimePath`), tad `nonRuntimeDirtyPaths` jos nemato nei kopijos inspekcijoje, nei
+   * integracijos vartuose — untracked task failas ten nėra „neužcommitintas produkto darbas".
+   *
+   * Realizacija klaidas RYJA į `missing` su priežastimi; metimas čia būtų bangos nutraukimas.
+   *
+   * OPCIONALUS SĄMONINGAI: surišimas ateina atskiru task'u, o in-process kelias porto nekviečia
+   * niekada — jis dirba pirminiame medyje, kuriame failas jau yra.
+   */
+  ensureTaskFileInWorktree?: (slot: SlotTaskRunnerSlot, worktreeAbs: string) => Promise<SlotTaskFileAvailability>;
 };
 
 /**
@@ -139,6 +166,21 @@ export function createSlotTaskRunner(ports: SlotTaskRunnerPorts): (slot: SlotTas
     return renewed.status === "ok" ? claim : `lease heartbeat denied: ${renewed.reason}`;
   };
 
+  /**
+   * Task failo vartai. Nepririštas portas reiškia `ok`: opcionalus portas negali paversti
+   * nepakeisto surišimo nauja gedimo klase.
+   */
+  const ensureTaskFile = async (slot: SlotTaskRunnerSlot, worktreeAbs: string): Promise<SlotTaskFileAvailability> => {
+    const ensure = ports.ensureTaskFileInWorktree;
+    if (ensure === undefined) return { status: "ok" };
+    try {
+      return await ensure(slot, worktreeAbs);
+    } catch (error) {
+      // Kontraktas metimo nenumato, bet vartas lieka fail-closed: nežinia čia reiškia „ne".
+      return { status: "missing", reason: `vartai krito: ${describe(error)}` };
+    }
+  };
+
   return async (slot: SlotTaskRunnerSlot): Promise<boolean> => {
     // Pirminis slot'as: jokių lease ar kopijos žingsnių — tas pats kelias kaip be paralelizmo.
     if (slot.worktree_path === undefined) return await ports.runInProcess(slot.absoluteFile);
@@ -148,6 +190,13 @@ export function createSlotTaskRunner(ports: SlotTaskRunnerPorts): (slot: SlotTas
 
     const worktreeAbs = ports.resolveWorktree(slot.worktree_path);
     try {
+      // Task failo vartai eina PRIEŠ bootstrap'ą: jie kainuoja vieną FS operaciją, o bootstrap'as —
+      // dist junction'us ir produkto diegimą. Pripažintos lenktynės (failas buvo tik pirminiame
+      // medyje) čia baigiasi atkūrimu ir `ok`, tad vaikas paleidžiamas kaip iki šiol; `missing`
+      // pasiekiamas tik tada, kai failo NĖRA IR pirminiame medyje — tai jau ne lenktynės.
+      const taskFile = await ensureTaskFile(slot, worktreeAbs);
+      if (taskFile.status === "missing") return await fail(slot, `task-file-missing: ${taskFile.reason}`);
+
       try {
         await ports.prepareWorktree(worktreeAbs);
       } catch (error) {

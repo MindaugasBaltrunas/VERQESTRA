@@ -131,7 +131,7 @@ export function TokenUsagePage({ activeRoute, onNavigate }: Props) {
               <UsageBreakdownChart rows={byPhaseGroup} title={t("Tokens by workflow stage")} variant="accent-2" />
               <TaskConcentrationChart rows={byTask} onSelectTask={actions.setTaskIdQuery} />
             </div>
-            <TopTasksTable rows={byTask} onSelectTask={actions.setTaskIdQuery} />
+            <TopTasksTable rows={byTask} onSelectTask={actions.setTaskIdQuery} unassignedRecords={totals.unassignedRecords} />
           </>
         ))}
 

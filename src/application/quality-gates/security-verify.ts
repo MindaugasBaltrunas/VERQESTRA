@@ -5,6 +5,7 @@
 // skaitymas, changed-files surinkimas ir politikos load'as — per `SecurityVerifyPorts`.
 // Vartoja milestone-check use case'as (release-readiness, VQ-305 3/3).
 import path from "node:path";
+import { isErrnoCode } from "../../shared/errors.js";
 import { resolveProjectPath, toComparablePosixPath as normalizePath } from "../../shared/paths.js";
 import type { SecurityPolicy } from "../policy-governance/security-spec-policies.js";
 
@@ -35,13 +36,20 @@ export type SecurityVerifyPorts = {
   loadPolicy(): Promise<SecurityPolicy>;
   /** Pakeistų failų sąrašas (git status + changes.log sąjunga — E4 adapteris). */
   changedFiles(): Promise<string[]>;
-  /** Failo tekstas; meta klaidą, kai failo perskaityti negalima. */
+  /**
+   * Failo tekstas; meta klaidą, kai failo perskaityti negalima. Klaida turi NEŠTI `errno`
+   * kodą (`ENOENT`, `EACCES`, …) — būtent iš jo `securityVerify` sprendžia, ar failo nebėra,
+   * ar jis tebeegzistuoja ir liko nenuskenuotas (žr. `isProvablyAbsent`).
+   */
   readTextFile(absolutePath: string): Promise<string>;
   /**
-   * Kelio rūšis — kad „failo NĖRA" būtų atskirta nuo „failas YRA, bet neįskaitomas".
+   * Kelio rūšis — ANTRAS parašas prie `readTextFile` errno kodo, ne pirmas sprendėjas:
+   * `ENOENT` skaitymą patvirtina tik tada, kai kelio ir dabar nėra.
    *
    * Ta pati forma kaip `PreflightPorts.statPathKind`, `CodeIntelligenceFileSystemPort.statKind`
    * ir `nodeFsAdapter.statKind` — ketvirtos taisyklės tam pačiam klausimui neatsiranda.
+   * Realizacija gali klaidas ryti į `"absent"` (taip daro `nodeFsAdapter.statKind`) arba mesti;
+   * abi baigtys čia saugios, nes „nebėra" jau įrodyta skaitymo errno kodu.
    */
   statPathKind(absolutePath: string): Promise<"file" | "directory" | "absent">;
   writeResult(result: SecurityVerifyResult): Promise<void>;
@@ -95,8 +103,7 @@ export async function securityVerify(
       // laikina FS klaida), lieka NENUSKENUOTAS dėl pavojingų šablonų, o `warning` grąžina exit 0
       // (`interfaces/cli/audit/security-verify`: `blocked ? 1 : 0`) — t. y. nežinia virsdavo
       // leidimu. Iki tol blokuota tik `explicit` atveju, nors rizika nuo to nepriklauso.
-      const kind = await ports.statPathKind(resolved).catch(() => "absent" as const);
-      if (explicit || kind !== "absent") {
+      if (explicit || !(await isProvablyAbsent(ports, resolved, error))) {
         blockedPaths.push({ file, pattern: "unreadable" });
       }
       continue;
@@ -132,6 +139,30 @@ export async function securityVerify(
 
   await ports.writeResult(result);
   return result;
+}
+
+/**
+ * Ar neperskaityto failo TIKRAI nebėra — vienintelė priežastis jo neblokuoti.
+ *
+ * 2026-09-01 auditas (P2): sprendimą lėmė `ports.statPathKind(...).catch(() => "absent")`, o
+ * `nodeFsAdapter.statKind` VISAS stat klaidas irgi ryja į `"absent"`. Taigi EPERM/EACCES ant
+ * stat kelio virsdavo atsakymu „failo nėra" → tik warning → exit 0, nors failas tebeegzistavo:
+ * apsauga, kurią aprašo komentaras aukščiau, buvo apeinama adapterio catch'u.
+ *
+ * Todėl sprendžia ne stat, o TO PATIES skaitymo `errno` kodas: tik `ENOENT`/`ENOTDIR` reiškia
+ * „vardo nebėra". `EACCES`, `EPERM`, `EISDIR`, `EIO` ar klaida be kodo — failas gali egzistuoti,
+ * jo turinys nepatikrintas, tad vartas blokuoja. Tai ir pigiau, ir teisingiau nei antras stat:
+ * skaitymo klaida yra to paties syscall'o rezultatas, tad tarp jos ir sprendimo nėra TOCTOU lango
+ * (ta pati pamoka, kaip `nodeFsAdapter.readTextFileIfExists` — vienas syscall'as lenktynių neturi).
+ *
+ * `statPathKind` lieka antru parašu tai vienintelei likusiai lenktynei: skaitymas gavo `ENOENT`,
+ * bet kelias tuo tarpu vėl atsirado. Bet kokia kita jo baigtis — įskaitant metimą — grąžina
+ * `false`, t. y. blokavimą; stat klaida daugiau niekada nėra leidimas.
+ */
+async function isProvablyAbsent(ports: SecurityVerifyPorts, resolved: string, readError: unknown): Promise<boolean> {
+  if (!isErrnoCode(readError, "ENOENT") && !isErrnoCode(readError, "ENOTDIR")) return false;
+  const kind = await ports.statPathKind(resolved).catch(() => "stat-failed" as const);
+  return kind === "absent";
 }
 
 type SecurityFileEntry = {

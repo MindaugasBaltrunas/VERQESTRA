@@ -124,16 +124,32 @@ test("security-verify grynos taisyklės: pattern formos, case taisyklė, test/fi
   assert.equal(isTestOrFixtureFile("src/app.ts"), false);
 });
 
+/** Node FS klaidos forma: sprendimą lemia `code`, ne žinutės tekstas. */
+function errnoError(code: string, message: string): Error {
+  return Object.assign(new Error(`${code}: ${message}`), { code });
+}
+
 function makeSecurityPorts(input: {
   policy?: { blocked_file_patterns: string[]; dangerous_code_patterns: string[]; no_secrets_in_repo: boolean };
   changed?: string[];
   files?: Record<string, string>;
   /** Keliai, kurie EGZISTUOJA, bet neįskaitomi (teisės, katalogas) — atskirai nuo ištrintų. */
   unreadableButPresent?: string[];
+  /**
+   * Keliai, kurie EGZISTUOJA ir neįskaitomi, BET `statPathKind` apie juos sako „absent" —
+   * tikslus `nodeFsAdapter.statKind` elgesys, kai pats stat krenta EPERM/EACCES (klaida ryjama).
+   */
+  unreadableWithStatSwallowingError?: string[];
+  /** Keliai, kuriems pats `statPathKind` portas META klaidą (FS lūžis stat kelyje). */
+  statRejects?: string[];
 }): { ports: SecurityVerifyPorts; results: SecurityVerifyResult[] } {
   const results: SecurityVerifyResult[] = [];
   const contents = new Map(Object.entries(input.files ?? {}));
   const present = input.unreadableButPresent ?? [];
+  const presentButStatLies = input.unreadableWithStatSwallowingError ?? [];
+  const statRejects = input.statRejects ?? [];
+  const matches = (suffixes: string[], normalized: string): boolean =>
+    suffixes.some((suffix) => normalized.endsWith(suffix));
   const ports: SecurityVerifyPorts = {
     loadPolicy: async () =>
       input.policy ?? { blocked_file_patterns: [".env"], dangerous_code_patterns: ["eval("], no_secrets_in_repo: true },
@@ -141,12 +157,18 @@ function makeSecurityPorts(input: {
     readTextFile: async (absolutePath) => {
       const normalized = absolutePath.replace(/\\/g, "/");
       const hit = [...contents.entries()].find(([suffix]) => normalized.endsWith(suffix));
-      if (!hit) throw new Error(`ENOENT: ${normalized}`);
-      return hit[1];
+      if (hit) return hit[1];
+      // Tebeegzistuojantis failas duoda teisių klaidą, ištrintas — ENOENT: būtent šis skirtumas
+      // (o ne stat rezultatas) yra vartui prieinamas įrodymas.
+      if (matches(present, normalized) || matches(presentButStatLies, normalized)) {
+        throw errnoError("EACCES", `permission denied, open '${normalized}'`);
+      }
+      throw errnoError("ENOENT", `no such file or directory, open '${normalized}'`);
     },
     statPathKind: async (absolutePath) => {
       const normalized = absolutePath.replace(/\\/g, "/");
-      return present.some((suffix) => normalized.endsWith(suffix)) ? "file" : "absent";
+      if (matches(statRejects, normalized)) throw errnoError("EPERM", `operation not permitted, stat '${normalized}'`);
+      return matches(present, normalized) ? "file" : "absent";
     },
     writeResult: async (result) => void results.push(result),
   };
@@ -204,6 +226,52 @@ test("securityVerify: EGZISTUOJANTIS bet neįskaitomas pakeistas failas blokuoja
   const lockedResult = await securityVerify(locked.ports, [], "/repo");
   assert.equal(lockedResult.status, "blocked");
   assert.deepEqual(lockedResult.blocked_paths, [{ file: "src/locked.ts", pattern: "unreadable" }]);
+});
+
+// 2026-09-01 auditas (P2): ta pati apsauga turėjo spragą PO savimi. Sprendimą lėmė
+// `statPathKind(...).catch(() => "absent")`, o `nodeFsAdapter.statKind` ir pats VISAS stat klaidas
+// ryja į `"absent"` — tad EPERM ant stat kelio grąžindavo „failo nėra", ir tebeegzistuojantis,
+// NENUSKENUOTAS failas gaudavo tik warning → exit 0. Dabar sprendžia skaitymo `errno` kodas.
+test("securityVerify: stat klaida ir jos rijimas į absent nebėra leidimas neperskaitytam failui", async () => {
+  // (1) Produkcijos atvejis 1:1: skaitymas EACCES, o statKind apie tą patį kelią sako „absent",
+  // nes stat krito EPERM ir adapteris klaidą prarijo. Sena logika: kind === "absent" → warning.
+  const swallowed = makeSecurityPorts({
+    changed: ["src/locked.ts"],
+    files: {},
+    unreadableWithStatSwallowingError: ["src/locked.ts"],
+  });
+  const swallowedResult = await securityVerify(swallowed.ports, [], "/repo");
+  assert.equal(swallowedResult.status, "blocked", "melaginga absent reikšmė nebeperduoda sprendimo");
+  assert.deepEqual(swallowedResult.blocked_paths, [{ file: "src/locked.ts", pattern: "unreadable" }]);
+
+  // (2) Portas, kuris stat klaidos NEryja, o meta: dvigubas nepavykimas irgi yra nežinia → blokas.
+  const rejecting = makeSecurityPorts({
+    changed: ["src/locked.ts"],
+    files: {},
+    unreadableWithStatSwallowingError: ["src/locked.ts"],
+    statRejects: ["src/locked.ts"],
+  });
+  assert.equal((await securityVerify(rejecting.ports, [], "/repo")).status, "blocked");
+
+  // (3) ENOENT + krentantis stat: net kai skaitymas sako „nebėra", nepatvirtintas kelias blokuojamas.
+  const goneButStatBroken = makeSecurityPorts({
+    changed: ["src/gone.ts"],
+    files: {},
+    statRejects: ["src/gone.ts"],
+  });
+  const goneResult = await securityVerify(goneButStatBroken.ports, [], "/repo");
+  assert.equal(goneResult.status, "blocked");
+  assert.deepEqual(goneResult.blocked_paths, [{ file: "src/gone.ts", pattern: "unreadable" }]);
+
+  // (4) Neatpažinta skaitymo klaida (be `errno` kodo) — irgi nežinia, ne ištrynimas.
+  const noCode = makeSecurityPorts({ changed: ["src/weird.ts"], files: {} });
+  const opaque: SecurityVerifyPorts = {
+    ...noCode.ports,
+    readTextFile: async () => {
+      throw new Error("something went wrong");
+    },
+  };
+  assert.equal((await securityVerify(opaque, [], "/repo")).status, "blocked");
 });
 
 function makeSpecPorts(input: {

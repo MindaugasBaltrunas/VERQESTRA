@@ -4043,6 +4043,12 @@ main {
 }
 .filter-field-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--faint); }
 
+/* Faktinė datos lauko reikšmė ISO formatu. Ji stovi PO lauku ir monospace'u, kad skaitytųsi kaip
+   kanoninė reikšmė, o ne kaip antras įvesties laukas — būtent tai atskiria ją nuo naršyklės
+   piešiamo `mm/dd/yyyy` ir panaikina dviejų formatų prieštarą. */
+.filter-field-iso { display: block; margin-top: 2px; font-size: 10px; color: var(--muted); }
+.filter-field-iso code { font-family: "JetBrains Mono", Consolas, Monaco, monospace; font-size: 10px; }
+
 /* Kaina ir kartojimo priežastys: kodai monospace, kad juos būtų galima nukopijuoti į žurnalo
    paiešką — tas pats sprendimas kaip `.budget-reasons`. */
 .usage-cost-line { margin: 10px 0 0; font-size: 13px; }

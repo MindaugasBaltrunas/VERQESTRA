@@ -406,8 +406,11 @@ const lt: Record<string, string> = {
   "read": "skaityta",
   "creation": "sukurta",
   "No token-using task": "Nė viena užduotis tokenų nenaudojo",
-  "Dates are YYYY-MM-DD; the picker follows your browser's language.":
-    "Datos formatas — YYYY-MM-DD; kalendoriaus išvaizda priklauso nuo naršyklės kalbos.",
+  // Datos laukams: tekstas kalba apie SIUNČIAMĄ reikšmę, ne apie lauko išvaizdą — naršyklės
+  // picker'io formato pažadėti negalime (žr. TokenUsageFilterBar.tsx komentarą).
+  "The filter is sent as YYYY-MM-DD; the calendar itself is drawn by your browser.":
+    "Filtras siunčiamas YYYY-MM-DD formatu; patį kalendorių piešia naršyklė.",
+  "Sent as": "Siunčiama",
   "Max lines per file": "Daugiausia eilučių faile",
   "Cache hit rate": "Cache pataikymo rodiklis",
   "Token usage over time": "Tokenų naudojimas laikui bėgant",

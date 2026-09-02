@@ -92,20 +92,30 @@ export function TokenUsageFilterBar({
           kalbą; nei `document.lang`, nei `navigator.languages`, nei CSS jo nekeičia. Patikrinta
           gyvai: puslapio `lang` yra `lt`, o laukas vis tiek rodė amerikietišką tvarką.
 
-          Todėl rodoma tai, ką galime garantuoti: laukų REIKŠMĖ visada ISO (`YYYY-MM-DD`), ir tai
-          užrašyta šalia. Tai skirtumas tarp „sutvarkyta" ir „paaiškinta" — antrasis čia yra
-          vienintelis sąžiningas variantas, o operatorius bent nustoja spėlioti, kuris skaičius
-          yra mėnuo. */}
+          Iki 2026-09-02 šalia lauko stovėjo sakinys „Datos formatas — YYYY-MM-DD", o pats laukas
+          rodė `mm/dd/yyyy`: du vienu metu matomi formatai, kurių vienas tvirtino kitą esant
+          klaidingą (UI auditas 2026-08-31, P3). Prieštara pašalinta ne kovojant su picker'iu, o
+          atskiriant du skirtingus dalykus: laukas yra ĮVESTIS (jos išvaizda — naršyklės
+          reikalas), o po juo rodoma REIKŠMĖ, kuri iš tikrųjų keliauja į filtrą — visada ISO.
+          Pagalbinis tekstas dėl to kalba tik apie siunčiamą reikšmę ir nebeteigia, kaip laukas
+          atrodo. */}
       <div className="filter-field">
         <label htmlFor="token-usage-filter-from">{t("From")}</label>
         <input
           id="token-usage-filter-from"
           className="range-input"
           type="date"
-          aria-describedby="token-usage-date-format"
+          aria-describedby={
+            from === "" ? "token-usage-date-format" : "token-usage-from-iso token-usage-date-format"
+          }
           value={from}
           onChange={(e) => onFromChange(e.target.value)}
         />
+        {from !== "" && (
+          <small id="token-usage-from-iso" className="filter-field-iso">
+            {t("Sent as")} <code>{from}</code>
+          </small>
+        )}
       </div>
       <div className="filter-field">
         <label htmlFor="token-usage-filter-to">{t("To")}</label>
@@ -113,12 +123,19 @@ export function TokenUsageFilterBar({
           id="token-usage-filter-to"
           className="range-input"
           type="date"
-          aria-describedby="token-usage-date-format"
+          aria-describedby={
+            to === "" ? "token-usage-date-format" : "token-usage-to-iso token-usage-date-format"
+          }
           value={to}
           onChange={(e) => onToChange(e.target.value)}
         />
+        {to !== "" && (
+          <small id="token-usage-to-iso" className="filter-field-iso">
+            {t("Sent as")} <code>{to}</code>
+          </small>
+        )}
         <small id="token-usage-date-format" className="filter-field-hint">
-          {t("Dates are YYYY-MM-DD; the picker follows your browser's language.")}
+          {t("The filter is sent as YYYY-MM-DD; the calendar itself is drawn by your browser.")}
         </small>
       </div>
       <button className="button ghost small-button filter-reset" type="button" onClick={onReset}>

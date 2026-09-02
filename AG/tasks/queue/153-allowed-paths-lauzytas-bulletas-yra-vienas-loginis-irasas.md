@@ -92,17 +92,18 @@ Draudžiama:
 - `src/application/context-pack/worker-task-ir.ts` (parseBulletSection 342-372
   eil. sulanksto Veiksmas/Neįtraukta bullet'us ta pačia konvencija, bet gyvena
   application sluoksnyje — domain jos importuoti negali; žr. Neįtraukta)
-- `src/application/quality-gates/preflight.ts` ir
-  `src/application/token-governance/tool-budget-gates.ts` (skaičiuoja
-  teisingai — klaida įvestyje; slenksčiai nekeliami)
+- `src/application/quality-gates/preflight.ts` (skaičiuoja teisingai —
+  klaida įvestyje; slenkstis nekeliamas)
+- `src/application/token-governance/tool-budget-gates.ts` (tas pats)
 - `src/domain/tasks/etalonas-rules.ts` (etalono taisyklės nekinta)
 - `src/domain/tasks/size.ts` (isPathShapedToken lieka antru sargu dydžiui)
-- `src/tests/fixtures/characterization/worker-task-ir.json` ir
-  `src/tests/fixtures/characterization/task-sections.json` (turi tik
-  vienaeilius bullet'us — jų pokytis reikštų, kad paliesta ne-laužyta forma)
+- `src/tests/fixtures/characterization/worker-task-ir.json` (turi tik
+  vienaeilius bullet'us — pokytis reikštų, kad paliesta ne-laužyta forma)
+- `src/tests/fixtures/characterization/task-sections.json` (tas pats)
 - `AG/tasks/human-review/143-pack-semantics-descriptor-apima-visas-derinimo-konstantas.md`
-  ir `AG/tasks/human-review/116-pool-missing-lease-eilute-rodo-paskutine-provision-baigti.md`
-  (operatoriaus pataisyti; nekeisti)
+  (operatoriaus pataisytas; nekeisti)
+- `AG/tasks/human-review/116-pool-missing-lease-eilute-rodo-paskutine-provision-baigti.md`
+  (tas pats)
 - `dist/**`
 - `node_modules/**`
 

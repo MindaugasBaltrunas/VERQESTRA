@@ -84,13 +84,14 @@ Leidžiama:
 - `src/application/scheduling/wave-integration-coordinator.ts`
 - `src/tests/scheduling-pool.test.ts`
 - `src/tests/scheduling-wave-integration-coordinator.test.ts` (490 eil. — TIK esamų
-  `restoreFinishedSlots` testų 323-353 ir 475-490 lūkesčių pataisa; naujų testų čia nedėti)
+  restoreFinishedSlots testų 323-353 ir 475-490 lūkesčių pataisa; naujų testų čia nedėti;
+  pagrindime backtick'ų nėra sąmoningai — iki 153 parseris tęstinių eilučių tokenus skaičiuoja kaip failus)
 - `src/tests/scheduling-wave-restored-slots.test.ts` (numatomas naujas; jei tester'is
   randa tinkamesnį esamą failą su vieta iki 500 eil. — tas vietoje šio, įrašyti į ataskaitą)
 
 Draudžiama:
 - `src/application/scheduling/wave-scheduler.ts` (lygiai 500 eil. — vartas; sprendimas
-  privalo tilpti į koordinatorių ir planą, kurie jau turi `locateTask` portą)
+  privalo tilpti į koordinatorių ir planą, kurie jau turi locateTask portą)
 - `src/application/scheduling/wave-snapshot.ts` ir `wave-snapshot-persist.ts` (schemos
   keitimas — ne šio task'o kelias: atkūrimo žyma yra atminties faktas, ne disko laukas)
 - `src/application/scheduling/resume-run.ts`

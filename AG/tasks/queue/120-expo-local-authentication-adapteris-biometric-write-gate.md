@@ -42,10 +42,11 @@ Leidžiama:
   (numatomas naujas, su ta pačia vietos išlyga)
 - `mobile-app/native/src/composition/native-runtime.ts` (writeGate ir
   terminal portų surišimas)
-- `mobile-app/native/src/core.ts` (TIK `BiometricWriteGate` /
-  `BiometricGateError` eksportų pridėjimas — core.ts yra vienintelė leistina
-  siūlė į `@verqestra/mobile-app`, 118 antro bandymo parkavimo pamoka
-  2026-09-01)
+- `mobile-app/native/src/core.ts` (TIK BiometricWriteGate ir
+  BiometricGateError eksportų pridėjimas — core.ts yra vienintelė leistina
+  siūlė į mobile-app paketą, 118 antro bandymo parkavimo pamoka 2026-09-01;
+  pagrindime backtick'ų nėra sąmoningai — iki 153 parseris tęstinių eilučių
+  tokenus skaičiuoja kaip failus)
 - `mobile-app/native/src/tests/core-seam.test.ts` (siūlės paviršius kartu su
   naujais eksportais)
 

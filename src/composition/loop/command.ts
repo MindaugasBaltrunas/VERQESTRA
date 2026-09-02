@@ -344,6 +344,21 @@ export function buildLoopCyclePorts(deps: LoopCommandDeps): LoopCyclePorts {
             (result) => result.code,
           ),
       }),
+    // FS↔git lenktynių vartas (146-a-02): trūkstamas task failas kopijoje atkuriamas iš
+    // `slot.absoluteFile`. Klaidos RYJAMOS į `missing`; metimas čia nutrauktų visą bangą.
+    ensureTaskFileInWorktree: async (slot, worktreeAbs) => {
+      const worktreeTaskFile = path.join(worktreeAbs, slot.file);
+      try {
+        if ((await nodeFsAdapter.readTextFileIfExists(worktreeTaskFile)) !== undefined) return { status: "ok" as const };
+        const sourceContent = await nodeFsAdapter.readTextFileIfExists(slot.absoluteFile);
+        if (sourceContent === undefined) return { status: "missing" as const, reason: `nėra nei kopijoje, nei pirminiame medyje: ${slot.file}` };
+        await nodeFsAdapter.writeTextFile(worktreeTaskFile, sourceContent);
+        await deps.log(`WAVE SLOT TASK FILE RESTORED IN WORKTREE: slot=${slot.worker_id} task=${slot.task_id} file=${slot.file}`);
+        return { status: "ok" as const };
+      } catch (error) {
+        return { status: "missing" as const, reason: `task failo vartai kopijoje krito: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
   });
 
   return {

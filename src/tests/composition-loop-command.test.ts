@@ -13,6 +13,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { buildLoopCyclePorts, runLoopCommand, type LoopCommandDeps } from "../composition/loop/command.js";
 import type { EmptyQueuePorts } from "../application/scheduling/loop-empty-queue.js";
+import type { WaveDispatchSlot } from "../application/scheduling/wave-dispatch-model.js";
+import { acquireWorkerLease } from "../application/scheduling/worker-lease-store.js";
+import { schedulingFs } from "../composition/loop/adapters.js";
 
 async function deps(): Promise<{ deps: LoopCommandDeps; root: string }> {
   const root = await mkdtemp(path.join(os.tmpdir(), "vq-504-loop-"));
@@ -150,6 +153,86 @@ test("runLoopCommand: heartbeat šviežias bėgimo metu, o įrašas atlaisvinama
     // Švariai sustojęs ciklas savo įrašą ištrina — kitaip UI dar TTL laiką rodytų jį gyvą.
     assert.equal(existsSync(recordPath), false, "įrašas privalo būti atlaisvintas");
     assert.equal(existsSync(path.join(stateDir, "ui-loop.pid")), false, "legacy pid failas irgi");
+  } finally {
+    await rm(world.root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ensureTaskFileInWorktree (146-a-02): FS↔git lenktynių vartas
+// ---------------------------------------------------------------------------
+
+/**
+ * Nuosavybės vartai (`verifyOwnership` slot-task-runner.ts viduje) turi eiti PIRM negu vartas
+ * čia testuojamas — be laikino, bet realaus `held` lease slot'as niekada nepasiektų
+ * `ensureTaskFileInWorktree` iškvietimo.
+ */
+async function heldLease(root: string, workerId: string, taskId: string): Promise<string> {
+  const result = await acquireWorkerLease({
+    deps: { fs: schedulingFs },
+    projectRoot: root,
+    identity: { owner_id: "test-owner", run_id: "test-run", worker_id: workerId, task_id: taskId, attempt: 1 },
+  });
+  assert.equal(result.status, "acquired");
+  return result.status === "acquired" ? result.lease.lease_id : "";
+}
+
+test("ensureTaskFileInWorktree: trūkstamas task failas kopijoje atkuriamas iš pirminio medžio", async () => {
+  const world = await deps();
+  try {
+    const relativeFile = "AG/tasks/queue/146-a-02-test.md";
+    const absoluteFile = path.join(world.root, relativeFile);
+    await mkdir(path.dirname(absoluteFile), { recursive: true });
+    await writeFile(absoluteFile, "PIRMINIS TURINYS\n", "utf8");
+
+    const leaseId = await heldLease(world.root, "w-restore", "146-a-02-test");
+    const ports = buildLoopCyclePorts(world.deps);
+    const slot: WaveDispatchSlot = {
+      worker_id: "w-restore",
+      task_id: "146-a-02-test",
+      file: relativeFile,
+      absoluteFile,
+      worktree_path: ".ag-worktree-restore",
+      lease_id: leaseId,
+    };
+
+    // Kopijos dist nėra — `prepareWorktree` toliau nulūš, bet task failo vartai kviečiami PRIEŠ jį,
+    // tad atkūrimas jau įvyksta net kai visa slot'o baigtis lieka `task-failed`.
+    await ports.runSlotTask(slot);
+
+    const worktreeFile = path.join(world.root, ".ag-worktree-restore", relativeFile);
+    assert.equal(await readFile(worktreeFile, "utf8"), "PIRMINIS TURINYS\n");
+  } finally {
+    await rm(world.root, { recursive: true, force: true });
+  }
+});
+
+test("ensureTaskFileInWorktree: esamos kopijos task failo NELIEČIA", async () => {
+  const world = await deps();
+  try {
+    const relativeFile = "AG/tasks/queue/146-a-02-test.md";
+    const absoluteFile = path.join(world.root, relativeFile);
+    await mkdir(path.dirname(absoluteFile), { recursive: true });
+    await writeFile(absoluteFile, "PIRMINIS TURINYS\n", "utf8");
+
+    const worktreeFile = path.join(world.root, ".ag-worktree-existing", relativeFile);
+    await mkdir(path.dirname(worktreeFile), { recursive: true });
+    await writeFile(worktreeFile, "JAU KOPIJOJE\n", "utf8");
+
+    const leaseId = await heldLease(world.root, "w-existing", "146-a-02-test");
+    const ports = buildLoopCyclePorts(world.deps);
+    const slot: WaveDispatchSlot = {
+      worker_id: "w-existing",
+      task_id: "146-a-02-test",
+      file: relativeFile,
+      absoluteFile,
+      worktree_path: ".ag-worktree-existing",
+      lease_id: leaseId,
+    };
+
+    await ports.runSlotTask(slot);
+
+    assert.equal(await readFile(worktreeFile, "utf8"), "JAU KOPIJOJE\n");
   } finally {
     await rm(world.root, { recursive: true, force: true });
   }

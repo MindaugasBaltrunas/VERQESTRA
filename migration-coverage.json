@@ -583,6 +583,16 @@
   ],
   "deviations": [
     {
+      "date": "2026-09-02",
+      "area": "domain/architecture/node-verification-rules.ts — evaluatePolicies forbidden_dependencies",
+      "etalon_behaviour": "evaluatePolicies ciklu ėjo per architectureStyle.forbidden_dependencies ir KIEKVIENĄ įrašą dėjo į policy_blockers (strictness \"block\") arba policy_warnings KIEKVIENAM mazgui, nė karto nepatikrinęs, ar mazgas su ta priklausomybe susijęs.",
+      "verqestra_behaviour": "Įrašas graduojamas ta pačia domain funkcija, kurią naudoja preflight — detectForbiddenDependencyViolations (domain/policies/architecture-style.ts), prieš mazgo implemented_files; kopija nekuriama. Sąsajos nėra → tam mazgui negeneruojama nieko; sąsaja yra → blocker arba warning pagal strictness, su įrodymo eilute pranešime. Kontekstas (task tekstas, code-graph briaunos) paduodamas tuščias sąmoningai: per-node verifikacija jų neturi, tad vienintelis pasiekiamas įrodymas yra scope kelias ir jis yra confirmed.",
+      "reason": "Blanket blokeris darė block režimą nenaudojamą pagal konstrukciją: operatoriui sukūrus vq/architecture/architecture-style.json su strictness \"block\" ir bent vienu įrašu, NĖ VIENAS mazgas nebūtų pasiekęs done (application/architecture/node-verifier.ts kviečia evaluatePolicies ir policy_blockers krauna passed=false). Dormant divergencija su garantuotu sprogimu įjungus — audito P3.",
+      "direction": "griežtinantis — dingsta tik klaidingi blokai (nulis signalo), realūs lieka: mazgas, kurio implemented_files guli forbidden endpoint'e, blokuojamas kaip ir anksčiau, o dabar dar su įvardytu įrodymu. Naujų praleidimų neatsiranda: iki šiol block režimas praktiškai negalėjo būti įjungtas, tad nė vienas realus blokas nebuvo veikiantis.",
+      "etalon_annotation": "NEIRASYTA — etalonas uzsaldytas 2026-08-22 (AG_loop a75f9fe3), tasks.md nebekeiciamas; nukrypimas fiksuojamas cia ir commit'o ataskaitoje",
+      "tests": "src/tests/domain-vq204.test.ts (perrašytas pin'as: sąsaja+block → blocker su įrodymu, be sąsajos → nei blocker nei warning, sąsaja+warn → warning), src/tests/application-architecture.test.ts (verifyNode: susijęs įrašas blokuoja, nesusijęs block-mode įrašas mazgo NEstabdo — blanket'o regresijos vartas)"
+    },
+    {
       "date": "2026-08-29",
       "area": "application/quality-gates/quality-gates.ts + interfaces/cli/dispatch/claude-diagnose + domain/diagnosis/dispositions.ts + application/scheduling (resume log)",
       "etalon_behaviour": "(1) runQualityGates visus raudonus verdiktus išplaudavo į `exit_code: 1`, net kai vienintelė nesėkmė buvo runner'io infrastruktūrinis kodas (timeout 124, stale dist 78, IO 74); (2) claude-diagnose gates nesėkmę visada leisdavo per lokalią/LLM diagnozę; (3) isClearLocalIssue regex `exit_code:\\s*[1-9]` bet kokį nenulinį kodą (įskaitant 124) laikė aiškia lokalia klaida ir gimdė repair signature; (4) wave resume `discard-stale` su failu resumable bucket'e likdavo be jokio operatoriui matomo pėdsako.",

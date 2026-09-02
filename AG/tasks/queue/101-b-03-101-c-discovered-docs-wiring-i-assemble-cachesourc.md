@@ -4,8 +4,12 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- 101-discovered-docs-prijungti-su-cache-tapatybe-arba-pasalinti (A dalis)
-- 101-b — CONTROL_DOC_ROOTS turinio cache šaltinių modulis
+- 101-discovered-docs-prijungti-su-cache-tapatybe-arba-pasalinti
+- 101-a-02-101-b-control-doc-roots-turinio-cache-saltiniu-mod
+
+> 2026-09-02 pataisyta: abi priklausomybės buvo proza („(A dalis)", „101-b — …"), o ne
+> task id, tad planuoklė jas laikė `missing-dependency` ir task'as nepateko į bangą (w2 stovėjo
+> tuščias). Abu task'ai yra `done`.
 
 ## Tikslas
 Užpildyti sąmoningai paliktą lizdą: `GraphFirstContextCandidates.docsSnippets` (`assemble.ts:238`) visada `[]`, nors atranka (`context-selection-policy.ts:133`) kibirą jau apdoroja. Šis task'as prijungia discovered docs prie surinkimo IR uždaro cache tapatybės sąlygą, be kurios prijungimas draudžiamas.

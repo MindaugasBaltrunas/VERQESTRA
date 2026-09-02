@@ -4,7 +4,12 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- Reikalinga `src/tests/helpers/dead-export-gate-scan.ts` su `collectImportSpecifiers` / `resolveSpecifier` / `findOrphanFiles` (ankstesnė šio skėlimo užduotis). Jei helper'io nėra — sustok ir pranešk.
+- 140-dead-export-gate-mato-pilnai-naslaicius-failus
+
+> 2026-09-02 pataisyta: priklausomybė buvo proza apie helper'į, ne task id, tad planuoklė ją
+> laikė `missing-dependency`. Helper'is `src/tests/helpers/dead-export-gate-scan.ts` jau yra
+> (140 `done`); jei jame trūksta `collectImportSpecifiers` / `resolveSpecifier` /
+> `findOrphanFiles` — sustok ir pranešk.
 
 ## Tikslas
 Prijungti failų lygio našlaičių patikrą prie realaus `dead-export-gate.test.ts` varto: produkcinis src failas, kurio kelio neimportuoja nė vienas kitas src failas ir kuris nėra aiškiame entrypoint allowlist'e, yra pažeidimas `orphan-file`.

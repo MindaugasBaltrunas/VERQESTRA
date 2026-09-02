@@ -63,6 +63,12 @@ async function unmergedPaths(worktreePath: string): Promise<string[]> {
 /** Trailer'is, kuriuo integracinis merge commit'as neša savo sesijos šaką. */
 export const WORKTREE_INTEGRATION_TRAILER = "AG-Worker-Branch";
 
+/**
+ * Git konfigo raktas, kurį integracinis merge išjungia (žr. `integrateWorktreeBranch`). Eksportuotas
+ * tam, kad regresijos testas kontrolinį merge'ą darytų su TUO PAČIU raktu, o ne su perrašyta eilute.
+ */
+export const DIRECTORY_RENAMES_CONFIG = "merge.directoryRenames";
+
 export type WorktreeIntegrationRefusal =
   /** Pirminis medis yra detached HEAD — neaišku, į kurią šaką integruoti. */
   | "detached-head"
@@ -153,7 +159,14 @@ export async function integrateWorktreeBranch(input: {
     ...(input.taskId ? [`AG-Worker-Task: ${input.taskId}`] : []),
     `${WORKTREE_INTEGRATION_TRAILER}: ${branch}`,
   ].join("\n");
-  const mergeArgs = ["merge", "--no-ff", "--no-edit", "-m", message, ref];
+  // `merge.directoryRenames=false` — `AG/tasks/<bucket>/` yra BŪSENOS katalogai, ne pervadinami
+  // katalogai. Git'o numatytasis (`conflict`) katalogo pervadinimą IŠVEDA: kai pirminis medis nuo
+  // šakos bazės perkėlė VISUS `delegated/` failus į `done/` (tai daro pati integracija —
+  // `relocateTask`), o šaka į `delegated/` prideda savo task failą, git jį „perkelia" į `done/`
+  // ir praneša CONFLICT (file location) — nors nė vienas failas realiai nesikerta. 2026-09-01
+  // taip parkinta 7 užbaigtos šakos (015-a-02, 103, 113, 125, 101, 105-a-02, 146), o ar parkas
+  // įvyks, lėmė vien tai, ar tarp bazės ir merge kiti task'ai spėjo ištuštinti bucket'ą.
+  const mergeArgs = ["-c", `${DIRECTORY_RENAMES_CONFIG}=false`, "merge", "--no-ff", "--no-edit", "-m", message, ref];
   const retry = input.indexLockRetry ?? INDEX_LOCK_RETRY_DEFAULTS;
 
   // Bandymų ciklas dengia TIK laikiną `index.lock` kontenciją: turinio konfliktas ir tikros

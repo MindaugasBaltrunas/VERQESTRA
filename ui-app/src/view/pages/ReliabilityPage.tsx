@@ -140,7 +140,7 @@ export function ReliabilityPage({ activeRoute, onNavigate }: Props) {
       <Header root="" onRefresh={() => void load(true)} activeRoute={activeRoute} onNavigate={onNavigate} />
       <main>
         <div className="page-heading">
-          <div><p className="page-eyebrow">{t("Engineering intelligence")}</p><h2>{t("Reliability")}</h2><p>{t("File activity, failures, repairs, unresolved work, and deterministic token cost in one view.")}</p></div>
+          <div><p className="page-eyebrow">{t("Engineering intelligence")}</p><h1>{t("Reliability")}</h1><p>{t("File activity, failures, repairs, unresolved work, and deterministic token cost in one view.")}</p></div>
           {data && <span className="freshness-indicator"><i /> {t("Updated")} {new Date(data.generatedAt).toLocaleString(locale)}</span>}
         </div>
         {error && <div className="notice notice-error" role="alert">{t("Could not load reliability analytics")}: {error} <button className="button ghost small-button" onClick={() => void load()}>{t("Try again")}</button></div>}

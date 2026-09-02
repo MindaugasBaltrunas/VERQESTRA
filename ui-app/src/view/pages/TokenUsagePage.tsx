@@ -61,7 +61,7 @@ export function TokenUsagePage({ activeRoute, onNavigate }: Props) {
         {!isOptimization && <section className="usage-page-heading">
           <div>
             <p className="usage-eyebrow">{t("Performance intelligence")}</p>
-            <h2>{t("Model efficiency")}</h2>
+            <h1>{t("Model efficiency")}</h1>
             <p>{t("Token volume, workload distribution, cache efficiency, and anomalies in one view.")}</p>
           </div>
           <div className="usage-freshness">
@@ -138,7 +138,7 @@ export function TokenUsagePage({ activeRoute, onNavigate }: Props) {
         {isOptimization && <section className="usage-page-heading">
           <div>
             <p className="usage-eyebrow">{t("Optimization intelligence")}</p>
-            <h2>{t("Optimization opportunities")}</h2>
+            <h1>{t("Optimization opportunities")}</h1>
             <p>{t("Anomalies, comparable task groups, and concrete candidates for reducing token usage.")}</p>
           </div>
         </section>}

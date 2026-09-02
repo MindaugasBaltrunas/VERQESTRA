@@ -19,6 +19,20 @@ export type WritePolicyBlock = {
 const BLOCKED_FILES = [".env", ".env.local", ".env.production", ".env.staging"];
 /** Bet koks `.env` ar `.env.<suffix>`: konkretus sąrašas praleisdavo nestandartinius variantus. */
 const BLOCKED_ENV_FILE_PATTERN = /^\.env(\..+)?$/i;
+/**
+ * Vienintelis `.env*` vardas, kuris pagal apibrėžimą slaptukų NETURI: `.env.example` yra
+ * placeholder'ių šablonas (kintamųjų vardai su „change-me" reikšmėmis) ir industrijos standartas
+ * (`cp .env.example .env`). Be šios išimties `BLOCKED_ENV_FILE_PATTERN` blokuoja ir jį, tad
+ * env kintamųjų nebūdavo kur dokumentuoti — taisyklė, sukurta kredencialams saugoti, stabdydavo
+ * failą, kuris kredencialų neneša.
+ *
+ * Sąrašas sąmoningai vieno įrašo: kiekvienas papildomas šablonas (`.env.sample`,
+ * `.env.template`) yra papildomas kelias, kurį reikia pagrįsti atskirai. Lyginamas TIKSLUS
+ * lowercase basename, tad `.env.example.local` ir `.env.exampleX` lieka blokuoti, o plėtinių
+ * (`BLOCKED_EXTENSIONS`) ir kelių (`node_modules/`, `.git/`, `..`) patikros eina PO šios ir
+ * išimties nepaliečia.
+ */
+export const ALLOWED_ENV_TEMPLATE_BASENAMES: readonly string[] = [".env.example"];
 const BLOCKED_EXTENSIONS = [".pem", ".key", ".p12", ".pfx", ".secret", ".keystore"];
 const BLOCKED_PATHS = ["node_modules/", ".git/"];
 /** Sugeneruotas hook runtime: hook'ai vykdomi iš jo, tad tiesioginis rašymas apeitų build'ą. */
@@ -174,8 +188,11 @@ export function evaluateWritePolicy(
   }
 
   // Slaptukus nešantys vardai tikrinami case-insensitive VISOSE platformose: `.ENV` ar `key.PEM`
-  // Linux'e laiko lygiai tuos pačius kredencialus kaip Windows'e.
-  if (BLOCKED_FILES.includes(basename.toLowerCase()) || BLOCKED_ENV_FILE_PATTERN.test(basename)) {
+  // Linux'e laiko lygiai tuos pačius kredencialus kaip Windows'e. Vienintelė išimtis —
+  // `.env.example` šablonas (žr. ALLOWED_ENV_TEMPLATE_BASENAMES).
+  const lowerBasename = basename.toLowerCase();
+  const isEnvTemplate = ALLOWED_ENV_TEMPLATE_BASENAMES.includes(lowerBasename);
+  if (!isEnvTemplate && (BLOCKED_FILES.includes(lowerBasename) || BLOCKED_ENV_FILE_PATTERN.test(basename))) {
     return { reason: "saugomas failas", stderr: `BLOCKED: '${filePath}' yra saugomas failas (env/secrets).` };
   }
 

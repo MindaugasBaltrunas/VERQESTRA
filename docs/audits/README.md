@@ -23,6 +23,7 @@ būsena pasikeis ar bus išvalyta.
 | [ui-app-runtime-audit-2026-08-23.md](ui-app-runtime-audit-2026-08-23.md) | Operator UI paleidimas — 3 × P0, visi uždaryti tą pačią dieną | 2026-08-23 |
 | [020-session-writes-ledger-diagnosis-2026-08-25.md](020-session-writes-ledger-diagnosis-2026-08-25.md) | Prarandamas dispatch darbas — R1 uždarytas, R2 liko atviras | 2026-08-25 |
 | [038-subagento-kanalo-premisa-paneigta-2026-08-26.md](038-subagento-kanalo-premisa-paneigta-2026-08-26.md) | Task 038 prielaida paneigta kontrapavyzdžiu; įvardyti R3–R5 | 2026-08-26 |
+| [ui-app-overview-2026-09-02.md](ui-app-overview-2026-09-02.md) | Valdymo centras `#/` — 3 × P1: signalai iš vieno slot'o pirminio medžio artefaktų, prieštaraujančios task žymės, pasenęs „Aktyvus vykdymas" | 2026-09-02 |
 
 Paskutinis įrašas nėra epiko verdiktas, o PALEIDIMO auditas: jis rašomas tada, kai produktas
 tikrinamas taip, kaip jį paleidžia operatorius. Toks auditas pagavo tai, ko 1473 + 393 žali

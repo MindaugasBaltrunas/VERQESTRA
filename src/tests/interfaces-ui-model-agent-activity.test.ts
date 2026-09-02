@@ -196,3 +196,61 @@ test("readAgentActivity: bandymo keliai perrašo globalius šaltinius", async ()
   assert.equal(activity.statuses["architect"], "active");
   assert.equal(activity.mode, "subagents");
 });
+
+test("readAgentActivity: gyvas kontekstas + logPath → turinys imamas iš jo", async () => {
+  const liveLog = path.join(RUNTIME, "runtime", "attempt", "logs", "live.ndjson");
+  const ports = fakePorts({
+    [path.join(RUNTIME, "supervisor", "reformulated-task.md")]: TASK,
+    [liveLog]: assistant([{ type: "tool_use", id: "a1", name: "Agent", input: { subagent_type: "architect" } }]),
+  });
+
+  const activity = await readAgentActivity(ports, RUNTIME, { liveExecution: true, logPath: liveLog });
+  assert.equal(activity.mode, "subagents");
+  assert.equal(activity.statuses["architect"], "active");
+});
+
+test("readAgentActivity: gyvas kontekstas be logPath → tuščia, veidrodis NEskaitomas", async () => {
+  const mirrorPath = path.join(RUNTIME, "logs", "claude-last.log");
+  const store = new Map(Object.entries({
+    [path.join(RUNTIME, "supervisor", "reformulated-task.md")]: TASK,
+    [mirrorPath]: assistant([{ type: "tool_use", id: "a1", name: "Agent", input: { subagent_type: "architect" } }]),
+  }));
+  const ports: AgentActivityPorts = {
+    fs: {
+      readTextFileIfExists: (p) => {
+        if (p === mirrorPath) throw new Error("veidrodis neturėjo būti skaitomas gyvame kontekste");
+        return Promise.resolve(store.get(p));
+      },
+    },
+    now: () => NOW,
+  };
+
+  const activity = await readAgentActivity(ports, RUNTIME, { liveExecution: true });
+  assert.equal(activity.mode, "idle");
+  assert.equal(activity.currentAgent, null);
+  assert.deepEqual(activity.statuses, {});
+});
+
+test("readAgentActivity: gyvas kontekstas, šaltinis dingęs skaitymo metu → tuščia, ne crash", async () => {
+  const goneLog = path.join(RUNTIME, "runtime", "attempt", "logs", "gone.ndjson");
+  const ports = fakePorts({
+    [path.join(RUNTIME, "supervisor", "reformulated-task.md")]: TASK,
+  });
+
+  const activity = await readAgentActivity(ports, RUNTIME, { liveExecution: true, logPath: goneLog });
+  assert.equal(activity.mode, "idle");
+  assert.deepEqual(activity.statuses, {});
+});
+
+test("readAgentActivity: ne gyvas kontekstas → esamas veidrodžio kritimas lieka žalias", async () => {
+  const ports = fakePorts({
+    [path.join(RUNTIME, "supervisor", "reformulated-task.md")]: TASK,
+    [path.join(RUNTIME, "logs", "claude-last.log")]: assistant([
+      { type: "tool_use", id: "a1", name: "Agent", input: { subagent_type: "architect" } },
+    ]),
+  });
+
+  const activity = await readAgentActivity(ports, RUNTIME);
+  assert.equal(activity.mode, "subagents");
+  assert.equal(activity.statuses["architect"], "active");
+});

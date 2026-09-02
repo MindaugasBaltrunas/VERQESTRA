@@ -32,6 +32,14 @@ export type AgentActivitySources = {
    * slot'ą, tad jo `status`/`task_id` čia būtų MELAS, o ne praleista informacija.
    */
   session?: { taskId: string; status: string };
+  /**
+   * Kviečiantysis JAU žino, kad vykdymas gyvas (worktree dispatch, gyva lease ir pan.) ir turi
+   * arba neturi tiesioginio log'o kelio. Nurodžius `true`, numatytasis kritimas į
+   * `<runtimeRoot>/logs/claude-last.log` IŠJUNGIAMAS: tas failas yra tik paskutinio bandymo
+   * veidrodis, o gyvame kontekste be aiškaus `logPath` teisinga reikšmė yra TUŠČIA veikla,
+   * ne svetimo (galbūt 8 valandų senumo) paleidimo turinys.
+   */
+  liveExecution?: boolean;
 };
 
 type ResumeJson = { status?: string; phase?: string; task_id?: string };
@@ -42,11 +50,15 @@ export async function readAgentActivity(
   sources: AgentActivitySources = {},
 ): Promise<AgentActivity> {
   const taskPath = sources.taskFilePath ?? path.join(runtimeRoot, "supervisor", "reformulated-task.md");
-  const logPath = sources.logPath ?? path.join(runtimeRoot, "logs", "claude-last.log");
+  // Gyvame kontekste be aiškaus `logPath` NĖRA numatytojo kritimo į veidrodį: tas failas
+  // aprašo paskutinį BANDYMĄ, ne šitą vykdymą, tad jo skaitymas čia būtų svetima veikla.
+  const logPath = sources.liveExecution
+    ? sources.logPath
+    : (sources.logPath ?? path.join(runtimeRoot, "logs", "claude-last.log"));
 
   const [taskContent, logContent, resumeRaw] = await Promise.all([
     ports.fs.readTextFileIfExists(taskPath),
-    ports.fs.readTextFileIfExists(logPath),
+    logPath ? ports.fs.readTextFileIfExists(logPath) : Promise.resolve(undefined),
     sources.session
       ? Promise.resolve(undefined)
       : ports.fs.readTextFileIfExists(path.join(runtimeRoot, "state", "claude-resume.json")),

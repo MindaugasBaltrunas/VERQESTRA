@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { findOrphanFiles } from "./helpers/dead-export-gate-scan.js";
 
 const SRC_ROOT = path.resolve(process.cwd(), "src");
 
@@ -203,6 +204,12 @@ type ScannedFile = {
   isTest: boolean;
   counts: Map<string, number>;
   exported: string[];
+  /**
+   * Failo tekstas be komentarų, BET su re-eksportais. Token'iniam vartui re-eksportas nėra
+   * kvietimas, o failų lygiui `export ... from "./x.js"` yra tikras ryšys: barelio taikinys
+   * pasiekiamas. Todėl čia laikoma `stripped`, o ne `body`.
+   */
+  source: string;
 };
 
 async function collect(dir: string, prefix: string, out: ScannedFile[]): Promise<void> {
@@ -227,7 +234,7 @@ async function collect(dir: string, prefix: string, out: ScannedFile[]): Promise
       : [...body.matchAll(EXPORTED_FUNCTION), ...body.matchAll(EXPORTED_BINDING)]
           .map((match) => match[1])
           .filter((name): name is string => name !== undefined);
-    out.push({ relative, isTest, counts: tokenCounts(body), exported: [...new Set(exported)] });
+    out.push({ relative, isTest, counts: tokenCounts(body), exported: [...new Set(exported)], source: stripped });
   }
 }
 
@@ -281,6 +288,58 @@ const KNOWN_UNCALLED: Readonly<Record<string, string>> = {
   "application/release-readiness/backlog-audit.ts#auditBacklogDirectory": "NEPRIJUNGTA",
   // NEPRIJUNGTA: `symbolBearingLanguages` iš to paties failo prijungtas, šis predikatas — ne.
   "application/code-intelligence/indexing/language-capabilities.ts#ecmascriptExtensions": "NEPRIJUNGTA",
+};
+
+/**
+ * Failai, kurių kelio pagrįstai neimportuoja nė vienas kitas src failas.
+ *
+ * Drausmė ta pati kaip `KNOWN_UNCALLED`: kiekviena eilutė turi priežastį, ir kryptis tikrinama
+ * į abi puses. Atsiradęs importuotojas daro eilutę nebeteisingą — ji privalo dingti, kad
+ * sąrašas nedengtų kito tokio pat radinio. Dvi leistinos rūšys:
+ *
+ *   BIN — vykdomasis įėjimas. `dist/cli.js` yra paketo `main`/`bin` ir visų Claude Code
+ *   hook'ų kvietimo taškas; jo niekas neimportuoja iš principo — jį paleidžia Node.
+ *
+ *   BARELIS — `export * from` failas be jokios logikos (MOD-1 / WBR VQ-101 konvencija):
+ *   modulio deklaruotas viešas paviršius. Konvencija leidžia importuoti ir per barelį, ir
+ *   giliuoju keliu, o praktikoje pasirenkamas gilusis — todėl 31 iš 48 barelių in-tree
+ *   importuotojo neturi. Tai NĖRA atsitiktinis našlaitis, bet ir nėra nemokama: barelis be
+ *   importuotojo yra deklaracija, kurios niekas netikrina. Ar jie lieka kaip kontraktas, ar
+ *   trinami, yra OPERATORIAUS sprendimas — šis vartas juos tik padaro matomus, o ne tyli.
+ */
+const KNOWN_ENTRYPOINTS: Readonly<Record<string, string>> = {
+  "cli.ts": "BIN",
+  "application/analytics/index.ts": "BARELIS",
+  "application/architecture/index.ts": "BARELIS",
+  "application/code-intelligence/index.ts": "BARELIS",
+  "application/context-pack/index.ts": "BARELIS",
+  "application/learning/index.ts": "BARELIS",
+  "application/policy-governance/index.ts": "BARELIS",
+  "application/project-bootstrap/index.ts": "BARELIS",
+  "application/quality-gates/index.ts": "BARELIS",
+  "application/release-readiness/index.ts": "BARELIS",
+  "application/task-planning/index.ts": "BARELIS",
+  "application/token-governance/index.ts": "BARELIS",
+  "composition/index.ts": "BARELIS",
+  "domain/agents/index.ts": "BARELIS",
+  "domain/diagnosis/index.ts": "BARELIS",
+  "domain/git/index.ts": "BARELIS",
+  "domain/tokens/index.ts": "BARELIS",
+  "infrastructure/index.ts": "BARELIS",
+  "interfaces/cli/admin/index.ts": "BARELIS",
+  "interfaces/cli/architecture/index.ts": "BARELIS",
+  "interfaces/cli/audit/index.ts": "BARELIS",
+  "interfaces/cli/benchmark/index.ts": "BARELIS",
+  "interfaces/cli/bootstrap/index.ts": "BARELIS",
+  "interfaces/cli/code-intel/index.ts": "BARELIS",
+  "interfaces/cli/dispatch/index.ts": "BARELIS",
+  "interfaces/cli/github/index.ts": "BARELIS",
+  "interfaces/cli/reports/index.ts": "BARELIS",
+  "interfaces/cli/spec/index.ts": "BARELIS",
+  "interfaces/cli/task-queue/index.ts": "BARELIS",
+  "interfaces/http/index.ts": "BARELIS",
+  "interfaces/ui-model/index.ts": "BARELIS",
+  "shared/index.ts": "BARELIS",
 };
 
 /**
@@ -355,5 +414,37 @@ test("gate: kiekvienas produkcinis eksportas turi kvietėją arba įvardintą pr
     [],
     "šie KNOWN_UNCALLED įrašai nebeteisingi: simbolis prijungtas arba ištrintas. Išbrauk eilutę — " +
       "pasenęs pateisinimas dengia kitą tokį patį radinį",
+  );
+});
+
+/**
+ * FAILŲ lygio pjūvis. Token'inis vartas aukščiau mato VARDUS, tad pilnas failo dublikatas jam
+ * nematomas iš principo: abi kopijos „patvirtina" viena kitą tuo pačiu eksportuojamu vardu. Šis
+ * pjūvis mato KELIUS — failas gyvas tik jei jo kelią specifikatoriuje mini kitas failas.
+ *
+ * Skenavimas pats gyvena `helpers/dead-export-gate-scan.ts` ir turi atskirą savipatikrą
+ * sintetiniais įėjimais; čia jis tik prijungiamas prie tikro `src` medžio.
+ */
+test("gate: kiekvienas produkcinis failas turi importuotoją arba yra entrypoint", () => {
+  // Tuščias entrypoint'ų rinkinys sąmoningai: taip tas pats rezultatas atsako į abi puses —
+  // ir „kas naujai liko be importuotojo", ir „kuris įvardintas entrypoint'as jį jau turi".
+  const unimported = findOrphanFiles(files, new Set());
+
+  const known = Object.keys(KNOWN_ENTRYPOINTS);
+  const orphans = unimported.filter((relative) => !known.includes(relative)).sort();
+  const noLongerEntrypoints = known.filter((relative) => !unimported.includes(relative)).sort();
+
+  assert.deepEqual(
+    orphans,
+    [],
+    "orphan-file: šio produkcinio failo kelio neimportuoja nė vienas kitas src failas. Prijunk jį, " +
+      "ištrink arba įrašyk į KNOWN_ENTRYPOINTS su priežastimi — beprasmė eilutė vien tam, kad " +
+      "patikra praeitų, yra būtent tai, ką šis vartas gaudo",
+  );
+  assert.deepEqual(
+    noLongerEntrypoints,
+    [],
+    "šie KNOWN_ENTRYPOINTS įrašai nebeteisingi: failas jau turi importuotoją arba ištrintas. " +
+      "Išbrauk eilutę — pasenęs pateisinimas dengia kitą tokį patį radinį",
   );
 });

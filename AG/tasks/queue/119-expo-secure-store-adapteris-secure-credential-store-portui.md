@@ -1,5 +1,7 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: operatorius 2026-09-02 „aš visus tasks approve" (dependency + security vartai: expo-secure-store)
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

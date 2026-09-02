@@ -1,5 +1,7 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: operatorius 2026-09-02 „aš visus tasks approve" (security vartai: security-verify kelias)
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

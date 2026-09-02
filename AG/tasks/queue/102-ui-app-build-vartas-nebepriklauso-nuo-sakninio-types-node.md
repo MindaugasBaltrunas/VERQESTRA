@@ -1,5 +1,7 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: operatorius 2026-09-02 „aš visus tasks approve" (dependency vartai: ui-app/package.json)
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

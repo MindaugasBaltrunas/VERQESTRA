@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardData, LoopControlData, LoopSlotData } from "./types";
+import type { DashboardData, LoopControlData, LoopSlotData, UiWaveLease, UiWaveSlot, UiWavesView } from "./types";
 import {
   adaptLoopControl,
   adaptOverview,
   adaptWorkerControl,
   adaptWorkflowBuckets,
   sanitizeLogLine,
+  selectInFlightSlots,
   statusVariant,
 } from "./dashboardViewModel";
 
@@ -347,5 +348,104 @@ describe("adaptLoopControl", () => {
     expect(view.known).toBe(true);
     expect(view.loopStatus).toBe("stopped");
     expect(view.stopRequested).toBe(true);
+  });
+});
+
+// In-flight w1/w2 darbas iš `/api/waves` (task 137). Gryna funkcija, jokio UI: pagrindas
+// apžvalgos suvestinei ir Užduočių lentai, kurios šį sąrašą parodys sekančiame task'e.
+function waveSlot(overrides: Partial<UiWaveSlot> = {}): UiWaveSlot {
+  return {
+    worker_id: "w1",
+    task_id: "0900-example",
+    state: "running",
+    lease_status: "held",
+    acquired_at: "2026-08-11T10:00:00Z",
+    heartbeat_at: "2026-08-11T10:04:00Z",
+    expires_at: "2026-08-11T10:05:00Z",
+    lease_age_ms: 300_000,
+    heartbeat_age_ms: 45_000,
+    stale: false,
+    has_worktree: true,
+    last_failure: null,
+    ...overrides,
+  };
+}
+
+function waveLease(overrides: Partial<UiWaveLease> = {}): UiWaveLease {
+  return {
+    worker_id: "w1",
+    task_id: "0900-example",
+    status: "active",
+    expires_at: "2026-08-11T10:05:00Z",
+    has_worktree: true,
+    ...overrides,
+  };
+}
+
+function wavesView(overrides: Partial<UiWavesView> = {}): UiWavesView {
+  return {
+    events: [],
+    leases: [],
+    last_rejections: [],
+    degraded: [],
+    ...overrides,
+  };
+}
+
+describe("selectInFlightSlots", () => {
+  it("null/undefined įėjimas grąžina tuščią sąrašą", () => {
+    expect(selectInFlightSlots(null)).toEqual([]);
+    expect(selectInFlightSlots(undefined)).toEqual([]);
+  });
+
+  it("tuščias `waves` atsakymas (nė vieno slot'o, nė vienos lease'o) grąžina tuščią sąrašą", () => {
+    expect(selectInFlightSlots(wavesView())).toEqual([]);
+  });
+
+  it("`slots` yra pirmenybė: renkami tik `running` IR ne `stale`", () => {
+    const data = wavesView({
+      slots: [
+        waveSlot({ worker_id: "w1", task_id: "0900-running", state: "running", stale: false }),
+        waveSlot({ worker_id: "w2", task_id: "0901-stale", state: "running", stale: true }),
+        waveSlot({ worker_id: "w1", task_id: "0902-provisioned", state: "provisioned", stale: false }),
+      ],
+      // Lease'ai IGNORUOJAMI, kai `slots` laukas yra — jis tikslesnis įrodymas.
+      leases: [waveLease({ worker_id: "w2", task_id: "0903-from-lease" })],
+    });
+
+    expect(selectInFlightSlots(data)).toEqual([{ workerId: "w1", taskId: "0900-running" }]);
+  });
+
+  it("`slots` esant, bet be nė vieno `running`+ne-`stale` įrašo, grąžina tuščią sąrašą (lease fallback NEsuveikia)", () => {
+    const data = wavesView({
+      slots: [waveSlot({ state: "released", stale: false })],
+      leases: [waveLease({ worker_id: "w1", task_id: "0904-from-lease" })],
+    });
+
+    expect(selectInFlightSlots(data)).toEqual([]);
+  });
+
+  it("senas serveris be `slots` lauko krenta į `leases` fallback'ą", () => {
+    const data = wavesView({
+      leases: [
+        waveLease({ worker_id: "w1", task_id: "0900-example" }),
+        waveLease({ worker_id: "w2", task_id: "0901-other" }),
+      ],
+    });
+
+    expect(selectInFlightSlots(data)).toEqual([
+      { workerId: "w1", taskId: "0900-example" },
+      { workerId: "w2", taskId: "0901-other" },
+    ]);
+  });
+
+  it("task id normalizuojamas kanoniškai: kelias ir `.md` nunešami, kad lygintųsi su kortele", () => {
+    const data = wavesView({
+      slots: [
+        waveSlot({ worker_id: "w1", task_id: "AG/tasks/active/0900-example.md", state: "running", stale: false }),
+      ],
+    });
+
+    expect(selectInFlightSlots(data)).toEqual([{ workerId: "w1", taskId: "0900-example" }]);
   });
 });

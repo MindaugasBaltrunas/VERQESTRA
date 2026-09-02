@@ -6,6 +6,7 @@ import type {
   LoopSlotState,
   LoopWorkerId,
   RuntimeProcess,
+  UiWavesView,
   WorkerControlData,
   WorkflowBucket,
 } from "./types";
@@ -383,4 +384,31 @@ export function adaptLoopControl(data: LoopControlData | undefined): LoopControl
     ...(data?.invalid === undefined ? {} : { invalid: data.invalid }),
     slots,
   };
+}
+
+export type InFlightSlot = {
+  workerId: string;
+  taskId: string;
+};
+
+/**
+ * `/api/waves` → kas dabar vykdoma (worker→task), pagrindas apžvalgos suvestinei ir Užduočių
+ * lentai. `slots` yra tikslesnis įrodymas (turi `state`/`stale`), tad turi pirmenybę; `leases`
+ * yra fallback SENAM serveriui, kuris `slots` lauko dar nesiunčia (2026-09 papildymas, žr.
+ * `UiWavesView.slots` komentarą prie tipo apibrėžimo).
+ */
+export function selectInFlightSlots(data: UiWavesView | null | undefined): InFlightSlot[] {
+  if (!data) return [];
+  if (data.slots !== undefined) {
+    return data.slots
+      .filter((slot) => slot.state === "running" && !slot.stale)
+      .map((slot) => ({ workerId: slot.worker_id, taskId: normalizeTaskId(slot.task_id) }));
+  }
+  return data.leases.map((lease) => ({ workerId: lease.worker_id, taskId: normalizeTaskId(lease.task_id) }));
+}
+
+/** Tas pats kanoninimas kaip kortelių sąraše (`WorkflowBoard#taskIdOf`): kelias ir `.md` nunešami, kad vėliau lygintume su kortele, ne su pilnu keliu. */
+function normalizeTaskId(taskId: string): string {
+  const base = basenameOf(taskId);
+  return base.toLowerCase().endsWith(".md") ? base.slice(0, -3) : base;
 }

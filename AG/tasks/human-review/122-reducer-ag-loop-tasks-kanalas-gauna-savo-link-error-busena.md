@@ -43,10 +43,10 @@ readme-guard -> architect -> coder -> reviewer -> tester
 ## Failai
 Leidžiama:
 - `mobile-app/src/model/reducer.ts`
-- `mobile-app/src/model/state.ts` (`AppState` tipas — reducer.ts:6 importas;
+- `mobile-app/src/model/state.ts` (AppState tipas — reducer.ts:6 importas;
   liečiamas tik jei per-kanalo formai reikia naujų laukų)
 - `mobile-app/src/controller/presentation/ag-loop-presenter.ts` (tik jei
-  per-kanalo forma keičia skaitomus laukus — `stale`/`showLoadingPlaceholder`
+  per-kanalo forma keičia skaitomus laukus — stale ir showLoadingPlaceholder
   semantika lieka ta pati)
 - `mobile-app/src/tests/ag-loop-read-model.test.ts`
 - `mobile-app/src/tests/ag-loop-presentation.test.ts`

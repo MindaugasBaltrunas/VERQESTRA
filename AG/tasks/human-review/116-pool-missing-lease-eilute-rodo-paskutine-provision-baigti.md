@@ -61,6 +61,14 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
+- Ankstesnio bandymo darbas išsaugotas:
+  `refs/verqestra/preserved/2c69878b8f1b241bab294084ca9821ea87756ca4`
+  (bazė `7e9527e`, 6 keliai — visi šios Leidžiamos; įrašas
+  `vq/state/rollback-preserved/116-pool-missing-lease-eilute-rodo-paskutine-provision-baigti.json`).
+  2026-09-01 20:14 parkavimo priežastis buvo TIK du testų failai už tuometinės
+  Leidžiamos ribų (`scheduling-wave-integration-coordinator.test.ts`,
+  `scheduling-wave-scheduler.test.ts`) — dabar jie įtraukti. Atkurk išsaugotą
+  darbą ir tęsk nuo jo, ne nuo nulio.
 - `wave-provisioning.ts`: `provisionSlotLease` nesėkmių priežastys tampa
   prieinamos kvietėjui (pvz. `provisionMissingSlotLeases` grąžina arba
   kaupia `Map<task_id, paskutinė baigtis>`; forma — vykdytojo sprendimas,

@@ -39,10 +39,13 @@ import { TerminalScreen } from "./screens/TerminalScreen";
 /**
  * Root component of the product spaces.
  *
- * Ports are injected, never constructed here: the read-only AG Loop channel and
- * the terminal transport adapters land with the remaining adapter tasks, and
- * until they are passed in the screens honestly report what is not wired
- * instead of inventing data or offering controls that lead nowhere.
+ * Ports are injected, never constructed here, and the Expo entry point
+ * (`index.js`) is where they would be injected. Today it passes none: the native
+ * composition wires the transports React Native can provide, but no port on this
+ * contract has an adapter yet — the read-only channels wait for the gateway read
+ * adapters, and `terminal` waits for credentials (119), the write gate (120) and
+ * speech (121). Until they are passed in the screens honestly report what is not
+ * wired instead of inventing data or offering controls that lead nowhere.
  */
 export type AppProps = Readonly<{
   agLoopReads?: AgLoopUiReadPort;

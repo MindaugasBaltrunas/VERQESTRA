@@ -21,9 +21,7 @@ import {
   resolveExecutionContextMode,
   workerPromptPreview,
 } from "../application/task-execution/execution-context-gate.js";
-import {
-  buildExecutionContextMarker,
-} from "../application/context-pack/execution-context-fingerprint.js";
+import { buildExecutionContextMarker } from "../application/context-pack/execution-context-fingerprint.js";
 import type { LlmCallAuthorization } from "../application/token-governance/tool-budget-gates.js";
 import {
   claudeLastLogWriteFatal,
@@ -130,7 +128,9 @@ test("execution-context-gate: source-change detekcija, mode, tier paskelbimas", 
   assert.equal(isRepairDispatchPrompt(SOURCE_TASK), false);
 
   assert.equal(resolveExecutionContextMode({ AG_EXECUTION_CONTEXT_MODE: "required" }), "required");
-  assert.equal(resolveExecutionContextMode({ AG_EXECUTION_CONTEXT_MODE: "netinkamas" }), "preferred");
+  // Nežinoma NETUŠČIA reikšmė fail-closed į `required` (saugumo klaida netyčia nesuminkština); tuščia/nenurodyta — `preferred`.
+  assert.equal(resolveExecutionContextMode({ AG_EXECUTION_CONTEXT_MODE: "netinkamas" }), "required");
+  assert.equal(resolveExecutionContextMode({ AG_EXECUTION_CONTEXT_MODE: "" }), "preferred");
   assert.equal(resolveExecutionContextMode({}), "preferred");
 
   assert.equal(publishedTokenBudgetTier({ task_id: "0042", token_budget_tier: "large" }, "0042"), "large");

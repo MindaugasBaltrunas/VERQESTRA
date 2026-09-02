@@ -41,6 +41,15 @@ export type ClaudeAdapterDispatchOptions = ExecutionRequest & {
    * kvietėjas negali netyčia gauti kompiliuoto prompt'o.
    */
   compression?: ContextCompressionConfig;
+  /**
+   * Keliai, kurių SRC pjūviai pack'e nebeatitinka darbinio medžio, ARBA `"unchecked"`
+   * (žr. `execution-context-gate.ExecutionContextGateInput.staleSourceSlices`). Adapteris
+   * pats IO neturi — šviežumą privalo suskaičiuoti kvietėjas su disku (kaip CLI kelias
+   * `claude-dispatch/command.ts` per `context-pack/source-slice-freshness`) ir paduoti čia.
+   * Nenurodžius, numatytoji `"unchecked"` reiškia fail-closed REFUSE, jei pack'as neša SRC
+   * pjūvius — žr. komentarą prie `staleSourceSlices` žemiau.
+   */
+  staleSourceSlices?: readonly string[] | "unchecked";
 };
 
 export type AdapterExecutionRequestResult =
@@ -65,6 +74,7 @@ export function buildAdapterExecutionRequest(options: ClaudeAdapterDispatchOptio
     contextPackText,
     executionContextMode,
     compression,
+    staleSourceSlices,
     ...request
   } = options;
   if (taskText === undefined) {
@@ -92,15 +102,18 @@ export function buildAdapterExecutionRequest(options: ClaudeAdapterDispatchOptio
     ...(executionContext === undefined ? {} : { executionContext }),
     ...(contextPackText === undefined ? {} : { contextPackText }),
     isRepair: isRepairDispatchPrompt(taskText),
-    // Adapteris gauna TIK eilutes — nei `projectRoot`, nei failų sistemos — tad SRC pjūvių
-    // šviežumo patikrinti negali ir sako tai atvirai.
+    // Adapteris pats IO neturi — nei `projectRoot`, nei failų sistemos — tad SRC pjūvių
+    // šviežumo patikrinti negali. Kvietėjas gali paduoti realų `staleSourceSlices` (žr.
+    // `ClaudeAdapterDispatchOptions`), kaip CLI kelias tai daro per
+    // `context-pack/source-slice-freshness`; jei nepaduoda, numatytoji reikšmė yra
+    // `"unchecked"`.
     //
-    // Tai NĖRA spraga: vartas pats pažiūri, ar pack'e tų pjūvių apskritai yra, ir jei yra —
-    // konteksto neprisega. Tad šis kelias degraduoja tik tada, kai realiai turi ką prarasti, ir
-    // garantija nepriklauso nuo to, ar `symbol_slices` įjungtas. Norint čia gauti PILNĄ kontekstą
-    // su SRC pjūviais, šviežumą privalo suskaičiuoti kvietėjas, turintis diską — kaip tai daro
-    // CLI kelias (`claude-dispatch/command`).
-    staleSourceSlices: "unchecked",
+    // Tai NĖRA „degraduoja tik tada, kai realiai turi ką prarasti": vartas (žr.
+    // `execution-context-gate.validateExecutionContext`) `"unchecked"` + pack'ą su SRC pjūviais
+    // laiko fail-closed ir GRĄŽINA REFUSE, o non-repair source-change dispatch'ui failure virsta
+    // dispatch atsisakymu (`claudeAdapterDispatch` žemiau). Be kvietėjo paduoto šviežumo kelio
+    // šis kelias su `symbol_slices` pack'u NEDISPATCHINA, o ne tyliai praranda kontekstą.
+    staleSourceSlices: staleSourceSlices ?? "unchecked",
   });
   if (canonical.kind === "refuse") {
     return { kind: "refuse", reason: canonical.reason };

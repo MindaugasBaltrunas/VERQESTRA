@@ -72,9 +72,17 @@ export type ExecutionContextMode = "off" | "preferred" | "required";
 
 export const DEFAULT_EXECUTION_CONTEXT_MODE: ExecutionContextMode = "preferred";
 
+/**
+ * Tuščia/nenurodyta reikšmė = numatytasis `preferred` — tai NE saugumo signalas, o „operatorius
+ * nieko nesakė". Bet kokia NETUŠČIA nežinoma reikšmė (rašybos klaida, pasenusi konstanta) yra
+ * kitokia klasė: kažkas SĄMONINGAI mėgino nustatyti režimą, ir mes jo nesuprantame. Fail-open į
+ * `preferred` čia tyliai nuleistų griežtesnį lūkestį (pvz. `requried` vietoj `required`) į
+ * švelnesnį be jokio signalo, tad nežinoma netuščia reikšmė fail-closed į griežčiausią `required`.
+ */
 export function resolveExecutionContextMode(env: NodeJS.ProcessEnv = process.env): ExecutionContextMode {
   const raw = env["AG_EXECUTION_CONTEXT_MODE"]?.trim().toLowerCase();
-  return raw === "off" || raw === "preferred" || raw === "required" ? raw : DEFAULT_EXECUTION_CONTEXT_MODE;
+  if (raw === undefined || raw === "") return DEFAULT_EXECUTION_CONTEXT_MODE;
+  return raw === "off" || raw === "preferred" || raw === "required" ? raw : "required";
 }
 
 /** Sprendimo forma, kurios reikia tier paskelbimui — struktūrinis DecisionState poaibis. */

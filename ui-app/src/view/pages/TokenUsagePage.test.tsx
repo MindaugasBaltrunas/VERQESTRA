@@ -91,6 +91,67 @@ describe("TokenUsagePage", () => {
     expect(within(taskTable).getByText("task-beta")).toBeInTheDocument();
   });
 
+  it("keeps the table's task count aligned with the KPI and explains records with no task_id", async () => {
+    const records: TokenUsageRecord[] = [
+      {
+        ts: "2026-06-01T10:00:00.000Z",
+        phase: "dispatch",
+        task_id: "task-alpha",
+        model: "claude-opus",
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 5,
+        cache_creation_input_tokens: 2,
+      },
+      {
+        ts: "2026-06-02T10:00:00.000Z",
+        phase: "diagnose",
+        task_id: "task-beta",
+        model: "claude-haiku",
+        input_tokens: 40,
+        output_tokens: 10,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+      {
+        ts: "2026-06-03T10:00:00.000Z",
+        phase: "diagnose",
+        task_id: "",
+        model: "claude-haiku",
+        input_tokens: 7,
+        output_tokens: 3,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+      {
+        ts: "2026-06-04T10:00:00.000Z",
+        phase: "diagnose",
+        task_id: "   ",
+        model: "claude-haiku",
+        input_tokens: 7,
+        output_tokens: 3,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    ];
+    vi.mocked(api.fetchTokenUsage).mockResolvedValue({ records });
+    vi.mocked(api.fetchTokenAnalytics).mockResolvedValue(emptyAnalyticsResponse);
+
+    render(<TokenUsagePage activeRoute="analytics" onNavigate={noop} />);
+
+    const taskPanel = await screen.findByRole("region", { name: "Top token-consuming tasks" });
+    const taskTable = screen.getByRole("table", { name: "Task token usage for selected filters" });
+
+    expect(within(taskTable).getAllByRole("row")).toHaveLength(3); // header + 2 real tasks
+    expect(within(taskPanel).getByText("2 tasks")).toBeInTheDocument();
+
+    const uniqueTasksMetric = screen.getByText("Unique tasks").closest(".metric");
+    expect(uniqueTasksMetric).not.toBeNull();
+    expect(within(uniqueTasksMetric as HTMLElement).getByText("2")).toBeInTheDocument();
+
+    expect(within(taskPanel).getByText(/2 telemetry records have no assigned task \(task_id\)/)).toBeInTheDocument();
+  });
+
   it("renders the optimization error state as an alert when the analytics fetch is rejected", async () => {
     vi.mocked(api.fetchTokenUsage).mockResolvedValue(emptyResponse);
     vi.mocked(api.fetchTokenAnalytics).mockRejectedValue(new Error("analytics down"));

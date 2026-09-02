@@ -71,4 +71,20 @@ describe("TopTasksTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "task-01" }));
     expect(onSelectTask).toHaveBeenCalledWith("task-01");
   });
+
+  it("says nothing about unassigned records when there are none", () => {
+    render(<TopTasksTable rows={[row(1)]} />);
+    expect(screen.queryByText(/no assigned task/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces unassigned records as an explicit note instead of a silent drop", () => {
+    render(<TopTasksTable rows={[row(1), row(2)]} unassignedRecords={161} />);
+    expect(screen.getByText(/161 telemetry records have no assigned task \(task_id\)/)).toBeInTheDocument();
+  });
+
+  it("still explains unassigned records when every record was excluded from the table", () => {
+    render(<TopTasksTable rows={[]} unassignedRecords={161} />);
+    expect(screen.getByText("No data")).toBeInTheDocument();
+    expect(screen.getByText(/161 telemetry records have no assigned task \(task_id\)/)).toBeInTheDocument();
+  });
 });

@@ -3,7 +3,13 @@ import type { AggregateRow, SortDirection, SortKey } from "../../model/tokenUsag
 import { useI18n } from "../../i18n/I18nContext";
 import { sortAggregateRows } from "../../model/tokenUsageViewModel";
 
-type Props = { rows: AggregateRow[]; onSelectTask?: (taskId: string) => void };
+type Props = {
+  rows: AggregateRow[];
+  onSelectTask?: (taskId: string) => void;
+  /** Records excluded from `rows` because they carry no `task_id` — shown as an explicit note
+   *  so the drop reads as accounted-for, not as a silent gap between the table and the KPI. */
+  unassignedRecords?: number;
+};
 
 type Column = { key: SortKey; label: string; numeric?: boolean };
 
@@ -38,7 +44,7 @@ function formatPercent(value: number): string {
   return new Intl.NumberFormat("lt-LT", { style: "percent", maximumFractionDigits: 1 }).format(value);
 }
 
-export function TopTasksTable({ rows, onSelectTask }: Props) {
+export function TopTasksTable({ rows, onSelectTask, unassignedRecords = 0 }: Props) {
   const { t, locale, language } = useI18n();
   const [sortKey, setSortKey] = useState<SortKey>("totalTokens");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -183,6 +189,13 @@ export function TopTasksTable({ rows, onSelectTask }: Props) {
             <button type="button" disabled={safePage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} aria-label={t("Next page")}>›</button>
           </div>
         </div>
+      )}
+      {unassignedRecords > 0 && (
+        <p className="unassigned-records-note">
+          {language === "lt"
+            ? `${formatTokens(unassignedRecords)} telemetrijos įrašų neturi priskirtos užduoties (task_id) — jie neįskaityti nei šioje lentelėje, nei „${t("Unique tasks")}" skaičiuje.`
+            : `${formatTokens(unassignedRecords)} telemetry records have no assigned task (task_id) — they are excluded from this table and from the "${t("Unique tasks")}" count.`}
+        </p>
       )}
     </section>
   );

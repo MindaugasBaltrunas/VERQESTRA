@@ -242,7 +242,8 @@ header {
   max-width: 1600px;
   margin: 0 auto;
 }
-.brand h1 {
+.brand h1,
+.brand .brand-title {
   margin: 0;
   font-size: 19px;
   font-weight: 700;
@@ -2346,7 +2347,8 @@ header .muted {
 
 .usage-page { min-width: 0; }
 .usage-page-heading { align-items: flex-end; padding: 2px 2px 0; }
-.usage-page-heading h2 {
+.usage-page-heading h2,
+.usage-page-heading h1 {
   margin: 1px 0 3px;
   color: var(--text-strong);
   font-size: 24px;
@@ -3828,7 +3830,8 @@ header {
   box-shadow: none;
 }
 
-.brand h1 {
+.brand h1,
+.brand .brand-title {
   font-size: 16px;
   letter-spacing: -0.02em;
 }
@@ -3933,7 +3936,9 @@ main {
 }
 
 .page-heading h2,
-.usage-page-heading h2 {
+.usage-page-heading h2,
+.page-heading h1,
+.usage-page-heading h1 {
   margin: 2px 0 4px;
   color: var(--text-strong);
   font-size: clamp(24px, 3vw, 32px);
@@ -4513,7 +4518,8 @@ main {
     gap: 10px;
   }
   .brand .muted { display: none; }
-  .brand h1 { font-size: 15px; }
+  .brand h1,
+  .brand .brand-title { font-size: 15px; }
   /* Vardas atsako į „kur aš esu" — be jo susitraukusi juosta atsakytų tik į „ką galiu daryti". */
   .topbar-route {
     display: block;

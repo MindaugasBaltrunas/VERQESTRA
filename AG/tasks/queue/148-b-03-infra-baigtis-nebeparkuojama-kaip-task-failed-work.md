@@ -4,7 +4,13 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-148 vaikas 2 (`runChild` / `slot-task-runner` grąžina infra baigtį su exit kodu). Be jo čia nėra ką atskirti nuo `!slot.succeeded`.
+- 148-a-02-runchild-grazina-infra-baigti-vietoj-boolean-comma
+
+> 2026-09-02 pataisyta: priklausomybė buvo įrašyta proza („148 vaikas 2 …"), ne task id, tad
+> planuoklė jos nematė ir paleido šį task'ą lygiagrečiai su 148-a-02. Vykdytojas teisingai
+> sustojo be pakeitimų (`runChild` infra baigties šakoje dar nebuvo), o užbaigimo sargas parkavo
+> „executor made no write-tool calls". Be 148-a-02 sulieto darbo čia nėra ką atskirti nuo
+> `!slot.succeeded`.
 
 ## Tikslas
 `src/application/scheduling/worker-integration.ts:245-253` ir `292-299` kiekvieną `!slot.succeeded` slot'ą su `worktree_path` parkuoja `task-failed` į human-review. Dėl to 2026-09-01 21:17–21:31 dvidešimt task'ų (1232–1254) po ~5 s (`events=0`) atsidūrė human-review vien dėl Claude usage limito. Infra baigtis NIEKADA nėra `task-failed` parkas.

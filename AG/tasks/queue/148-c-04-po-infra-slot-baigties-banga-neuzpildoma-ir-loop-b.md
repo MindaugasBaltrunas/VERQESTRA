@@ -4,7 +4,11 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-148 vaikas 3 (`worker-integration` / `wave-outcome` grąžina infra baigtį be `task-failed` parko). Be jo loop lygyje nėra signalo, į kurį reaguoti.
+- 148-b-03-infra-baigtis-nebeparkuojama-kaip-task-failed-work
+
+> 2026-09-02 pataisyta: priklausomybė buvo proza („148 vaikas 3 …"), ne task id, tad planuoklė
+> jos nematė. Be 148-b-03 (`worker-integration` / `wave-outcome` infra baigtis be `task-failed`
+> parko) loop lygyje nėra signalo, į kurį reaguoti.
 
 ## Tikslas
 Dvi nesuderintos semantikos tam pačiam įvykiui: usage limitas pirminio medžio slot'e sustabdo loop'ą (`LOOP ABORT (infrastruktura)`), o vaiko slot'e ciklas rašo `WAVE SLOT ENDED NONZERO … CONTINUING QUEUE` ir degina eilę toliau. Vaiko infra baigtis turi elgtis kaip in-process kelias: bangos daugiau neužpildomos, loop'as baigiasi tuo pačiu infra kodu arba laukia, jei toks mechanizmas jau yra.

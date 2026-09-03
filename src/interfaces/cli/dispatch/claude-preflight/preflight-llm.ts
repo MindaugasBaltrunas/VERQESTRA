@@ -162,6 +162,21 @@ export const PATIKRA_DIRECTIVE =
   "\"## Patikra\" PRIVALO turėti bent vieną vykdomą komandą backtick'uose, po vieną eilutėje (pvz. - `pnpm test`). " +
   "Grąžink TIK galutinį JSON objektą su pataisytu claude_task.";
 
+/**
+ * Preflight LLM pakopa — FIKSUOTA konstanta, o ne `optimizedBudget.model_policy_hint`.
+ *
+ * Modelių auditas 2026-09-03 (R4): 125 LLM preflight'ų — 85 sukosi opus'e (≈ 47 $), 40
+ * sonnet'e (≈ 12 $); opus preflight'as kainuoja 0,5–0,95 $, sonnet ≤ 0,44 $. Hint'as yra
+ * task'o DYDŽIO/rizikos pakopa, todėl struktūriškai didelis task'as gaudavo opus
+ * REFORMULAVIMĄ — o reformulavimas, sekcijų normalizavimas ir skėlimo planas nėra opus lygio
+ * darbas: 90 % opus preflight'ų verdiktas buvo „vykdyk sonnet'u".
+ *
+ * `model_policy_hint` semantika NEKINTA — jis lieka užuomina VYKDYTOJUI (`selected_model`),
+ * ne šio kvietimo modeliu. Konfigūravimo per `token-budget.json` sąmoningai nėra: konstanta
+ * pakanka, kol nėra duomenų, kad kuriam nors task'ui reikia kitos pakopos.
+ */
+export const PREFLIGHT_LLM_TIER = "sonnet";
+
 export type PreflightAttemptOutcome =
   /** exitCode jau nustatytinas kvietėjo; halt reiškia „grįžk iš komandos". */
   | { kind: "halt"; exitCode: number }
@@ -174,7 +189,12 @@ export type PreflightLlmRunnerContext = {
   taskId: string;
   taskFile: string;
   model: string;
-  /** Apskaitos pakopa (preflightTier), rašoma į token-usage. */
+  /**
+   * Apskaitos pakopa, rašoma į `token-usage.jsonl` — REALIAI kvietusi pakopa
+   * (`PREFLIGHT_LLM_TIER`), ne vykdytojo užuomina. Iki 2026-09-03 čia keliavo
+   * `preflightTier`, todėl `model` laukas rodė biudžeto pakopą, o optimizavimo auditas jį
+   * perskaitė kaip vykdymo modelį.
+   */
   tier: string;
   maxTurns: number;
   buildPrompt(scale: PromptScale): string;

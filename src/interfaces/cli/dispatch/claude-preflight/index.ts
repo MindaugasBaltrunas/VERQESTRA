@@ -55,6 +55,7 @@ import {
   EMPTY_VERDICT_DIRECTIVE,
   NO_TOOLS_DIRECTIVE,
   PATIKRA_DIRECTIVE,
+  PREFLIGHT_LLM_TIER,
   buildBasePrompt,
   createPreflightLlmRunner,
   maxTurnsParkReason,
@@ -244,9 +245,10 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     turnLimits: tokenBudgetConfig.turnLimits,
   });
   const optimizedTier = optimizedBudget.model_policy_hint;
-  // Aktyvus OpenSpec darbas lieka bent Sonnet; rutininiai bounded task'ai gali gauti Haiku ir remtis retry eskalacija, jei quality gates nepraeis.
+  // `preflightTier` yra UŽUOMINA VYKDYTOJUI (`selected_model`, žemiau) — ne šio preflight'o LLM modelis: aktyvus OpenSpec darbas lieka bent Sonnet; rutininiai bounded task'ai gali gauti Haiku ir remtis retry eskalacija, jei quality gates nepraeis.
   const preflightTier = openSpecRefs.activeChangeDirs.length > 0 && optimizedTier === "haiku" ? "sonnet" : optimizedTier;
-  const model = await ports.resolveModel(preflightTier);
+  // Task 160: preflight'o LLM sukasi FIKSUOTA pakopa (žr. PREFLIGHT_LLM_TIER doc'ą) — biudžeto pakopa nebeperka opus reformulavimo.
+  const model = await ports.resolveModel(PREFLIGHT_LLM_TIER);
   // 016: žurnale — VYKDOMA reikšmė (ta pati lentelė + tos pačios dispatchMaxTurns lubos kaip dispatch'e), ne deklaratyvi. Iki 2026-08-25 čia buvo skelbiama max_turns=180, kurią dispatch'as su 120 lubomis niekada nevykdė (optimizavimo audito P1-2/P2-4).
   const publishedMaxTurns = resolveMaxTurns({
     phase: "implementation",
@@ -255,8 +257,8 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     ceiling: limits.dispatchMaxTurns,
   });
   await ports.agLog(
-    `CLAUDE PREFLIGHT: task=${taskId} token-budget tier=${optimizedBudget.tier} model=${preflightTier} ` +
-      `max_turns=${publishedMaxTurns || "none"} reasons=${optimizedBudget.reasons.join("; ")}`,
+    `CLAUDE PREFLIGHT: task=${taskId} token-budget tier=${optimizedBudget.tier} model_hint=${preflightTier} ` +
+      `max_turns=${publishedMaxTurns || "none"} reasons=${optimizedBudget.reasons.join("; ")} preflight_llm=${PREFLIGHT_LLM_TIER}`,
   );
 
   // TOK-01: deterministinis fast-path — kanoninis task'as dispatch'inamas be LLM.
@@ -350,7 +352,7 @@ export async function claudePreflight(args: string[], ports: ClaudePreflightPort
     taskId,
     taskFile,
     model,
-    tier: preflightTier,
+    tier: PREFLIGHT_LLM_TIER,
     maxTurns: semanticReviewMaxTurns,
     buildPrompt,
     taskText: activeText,

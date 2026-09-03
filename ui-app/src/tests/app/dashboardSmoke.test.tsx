@@ -95,12 +95,39 @@ const LEGACY_CONTROL_PLANE_PAYLOAD = {
   policy_controls: [],
 };
 
+/** Tuščios bangos: nė vieno slot'o, tad in-flight eilutės neturi būti. */
+const EMPTY_WAVES = { events: [], leases: [], last_rejections: [], degraded: [] };
+
+/** `interfaces/http/ui-waves-view.ts#UiWaveSlot` wire forma; `task_id` gali ateiti ir pilnu keliu. */
+function runningSlot(workerId: string, taskId: string) {
+  return {
+    worker_id: workerId,
+    task_id: taskId,
+    state: "running",
+    lease_status: "active",
+    acquired_at: "2026-09-03T09:00:00.000Z",
+    heartbeat_at: "2026-09-03T09:01:00.000Z",
+    expires_at: "2026-09-03T09:10:00.000Z",
+    lease_age_ms: 60_000,
+    heartbeat_age_ms: 1_000,
+    stale: false,
+    has_worktree: true,
+    last_failure: null,
+  };
+}
+
+/** Abu srautai dirba: w1 pirminiame medyje, w2 worktree kopijoje (task failas dar `queue`). */
+const LIVE_WAVES = {
+  ...EMPTY_WAVES,
+  slots: [runningSlot("w1", "0042-pavyzdys"), runningSlot("w2", "AG/tasks/queue/0043-kita.md")],
+};
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 /** `/api/dashboard` grąžina paduotą kūną; `/api/events` lieka neprisijungęs; kiti — tuščia. */
-function stubFetch(dashboardBody: unknown): void {
+function stubFetch(dashboardBody: unknown, wavesBody: unknown = EMPTY_WAVES): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
@@ -110,9 +137,7 @@ function stubFetch(dashboardBody: unknown): void {
       // ir tai neturi nuversti puslapio.
       if (url.includes("/api/events")) return Promise.reject(new Error("sse disabled in tests"));
       if (url.includes("/api/policies/proposals")) return Promise.resolve(jsonResponse({ proposals: [] }));
-      if (url.includes("/api/waves")) {
-        return Promise.resolve(jsonResponse({ events: [], leases: [], last_rejections: [], degraded: [] }));
-      }
+      if (url.includes("/api/waves")) return Promise.resolve(jsonResponse(wavesBody));
       return Promise.resolve(jsonResponse({}));
     }),
   );
@@ -160,6 +185,38 @@ describe("dashboard pirmas ekranas", () => {
       expect(screen.getByText(/Kai kurių dashboard'o šaltinių nepavyko perskaityti/)).toBeInTheDocument(),
     );
     expect(screen.getByText(/control_plane/)).toBeInTheDocument();
+  });
+
+  // 2026-09-03: worktree izoliacijoje `queue→active` perėjimas vyksta TIK slot'o kopijoje, tad
+  // suvestinės `active` lieka 0, kol dirba abu srautai. Vienintelis gyvas įrodymas yra `/api/waves`.
+  it("apžvalgos suvestinė ĮVARDIJA, kurį task'ą suka w1 ir w2", async () => {
+    stubFetch(DASHBOARD_PAYLOAD, LIVE_WAVES);
+    render(<AppRoot />);
+
+    expect(await screen.findByText("Vykdoma worktree srautuose:")).toBeInTheDocument();
+    // Pilnas kelias sunormuojamas iki tos pačios tapatybės, kurią neša kortelė.
+    expect(screen.getByText("w1 → 0042-pavyzdys, w2 → 0043-kita")).toBeInTheDocument();
+  });
+
+  it("be gyvų slot'ų suvestinė atrodo kaip iki šiol — jokio „0 vykdoma“", async () => {
+    stubFetch(DASHBOARD_PAYLOAD);
+    render(<AppRoot />);
+
+    expect(await screen.findByRole("heading", { name: "Sistemos apžvalga" })).toBeInTheDocument();
+    expect(screen.queryByText("Vykdoma worktree srautuose:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("`#/tasks` kortelėje sutampantis task id gauna „vykdomas (w1)“ ženklelį", async () => {
+    window.location.hash = "#/tasks";
+    stubFetch(DASHBOARD_PAYLOAD, LIVE_WAVES);
+    render(<AppRoot />);
+
+    await waitFor(() => expect(screen.getByText("vykdomas (w1)")).toBeInTheDocument());
+    const items = screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    expect(items.some((text) => /0042.*vykdomas \(w1\)/.test(text))).toBe(true);
+    expect(items.some((text) => /0043.*vykdomas \(w2\)/.test(text))).toBe(true);
+    window.location.hash = "";
   });
 
   it("`#/learning` be control-plane bloko rodo ĮVARDYTĄ būseną, o ne tuščią lapą", async () => {

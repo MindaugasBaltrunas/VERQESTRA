@@ -4,7 +4,11 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- 137 pirmoji dalis: in-flight išvedimas `ui-app/src/model/dashboardViewModel.ts`
+- 137-apzvalgos-suvestine-rodo-gyva-w1-w2-darba-is-waves
+
+> 2026-09-03 pataisyta: priklausomybė buvo proza („137 pirmoji dalis: in-flight
+> išvedimas …"), ne task id, tad planuoklė ją laikė `missing-dependency` ir
+> užblokavo bangą (`LOOP STOP: all-blocked`, 09:51). Tikrasis tėvas yra `done`.
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei (1) `ui-app/src/view/pages/DashboardPage.tsx` apžvalgos blokas (`QueueSnapshot`, ~375-389 eil.) rodo in-flight eilutę iš waves duomenų IR (2) `ui-app/src/view/components/WorkflowBoard.tsx` kortelė su gyvo slot'o task id gauna „vykdomas" badge — ALREADY_IMPLEMENTED: cituok abiejų vietų JSX ir testus.

@@ -4,7 +4,11 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- 141-b (dispositions priežasčių tekstai — ši užduotis naudoja jų priežasties kodą)
+- 141-a-02-141-b-dispositions-sava-priezastis-atvejui-rasymai
+
+> 2026-09-03 pataisyta: priklausomybė buvo proza („141-b (dispositions priežasčių
+> tekstai …)"), ne task id, tad planuoklė ją laikė `missing-dependency` ir
+> užblokavo bangą (`LOOP STOP: all-blocked`, 09:51). Tikrasis tėvas yra `done`.
 
 ## Tikslas
 verify-task re-check žinutėje atskirti „commit missing (executor wrote files, tree dirty)" nuo „work missing (no write-tool calls)", kad human-review įrašas iš karto rodytų, ar problema hook'e, ar darbo iš viso nebuvo.

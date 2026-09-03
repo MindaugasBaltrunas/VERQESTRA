@@ -26,6 +26,14 @@ Leidžiama:
 - `src/application/context-pack/context-pack-schema.ts` (tik jei architektas neša discovered tekstą pack'e)
 - `src/application/context-pack/render-execution-context.ts` (tik jei naujas pack laukas renderinamas)
 - `src/tests/context-pack-render-execution-context.test.ts` (numatomas vardas)
+- `src/tests/context-pack-guards.test.ts` (pina `CONTEXT_CACHE_VERSION`)
+- `src/tests/context-pack-code-index-identity.test.ts` (pina `CONTEXT_CACHE_VERSION`)
+
+> 2026-09-03 praplėsta po parko (`09:26:11`, `changed files outside allowed paths`).
+> Scope buvo per siauras pagal paties task'o mandatą: 25 eilutė LEIDŽIA kelti
+> `CONTEXT_CACHE_VERSION`, o abu šie testai tą konstantą pina — versijos pakėlimas
+> jų neliesti NEGALI. Tai buvo autorystės, ne vykdymo klaida, tad ribos ne
+> silpninamos, o pataisomos iki realios apimties.
 
 Draudžiama:
 - `src/application/code-intelligence/retrieval/discovered-docs.ts`

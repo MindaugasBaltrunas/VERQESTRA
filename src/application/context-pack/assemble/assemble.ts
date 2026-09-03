@@ -13,6 +13,7 @@ import { isContextCompressionFeatureEnabledForTask } from "../../../domain/polic
 import type { CodeIntelligenceFileSystemPort } from "../../code-intelligence/ports.js";
 import { checkCodeIndexFreshness, codeIndexPath } from "../../code-intelligence/store/code-index-store.js";
 import type { RetrievedFragment } from "../../code-intelligence/retrieval/spec-fragments.js";
+import { discoverControlDocCandidates, rankDiscoveredDocCandidates, selectDiscoveredDocs } from "../../code-intelligence/retrieval/discovered-docs.js";
 import { loadContextBudget } from "../../policy-governance/context-budget.js";
 import { loadContextPackToolFlags } from "../../policy-governance/tool-budget-config.js";
 import { loadAgentPolicy } from "../../policy-governance/agent-policy.js";
@@ -32,6 +33,7 @@ import { measureTaskSize } from "../../../domain/tasks/size.js";
 import { contextPackSchema, type ContextPack } from "../context-pack-schema.js";
 import { loadEffectiveCompressionPolicy } from "../effective-compression-policy.js";
 import { contextCompressionCacheSources } from "../compression-cache-sources.js";
+import { discoveredDocsCacheSources } from "../discovered-docs-cache-sources.js";
 import { codeGraphModeCacheSource, computeContextCacheKey } from "../context-cache-key.js";
 import { CODE_INDEX_STALE, CODE_INDEX_UNUSED } from "../context-cache-model.js";
 import { estimateTokensFromChars } from "../metrics.js";
@@ -63,15 +65,8 @@ export type AssembleContextPackDeps = {
 // A selection with every droppable context source empty — matuoja fiksuotą, nedroppinamą
 // overhead'ą, kuris rezervuojamas iš bendro biudžeto prieš varžantis droppinamiems šaltiniams.
 const EMPTY_SELECTION: GraphFirstSelection = {
-  spec_refs: [],
-  architecture_nodes: [],
-  allowed_paths: [],
-  related_files: [],
-  impacted_tests: [],
-  docs_snippets: [],
-  order: [],
-  dropped: [],
-  estimated_chars: 0,
+  spec_refs: [], architecture_nodes: [], allowed_paths: [], related_files: [], impacted_tests: [],
+  docs_snippets: [], order: [], dropped: [], estimated_chars: 0,
 };
 
 export async function assembleContextPack(
@@ -121,11 +116,7 @@ export async function assembleContextPack(
     model_hint: resolveAgentModelHint(agentSelection, agentPolicy),
   };
   const agents = [
-    ...new Set(
-      [agentSelection.primary, ...agentSelection.supporting]
-        .filter((r): r is string => Boolean(r))
-        .map((r) => r.toLowerCase()),
-    ),
+    ...new Set([agentSelection.primary, ...agentSelection.supporting].filter((r): r is string => Boolean(r)).map((r) => r.toLowerCase())),
   ];
   const targets = explicitAllowedPaths(parsedTask.allowedPaths);
 
@@ -161,9 +152,13 @@ export async function assembleContextPack(
       specSources: parsedTask.specSources,
     });
     // The pack's content also depends on the compression feature flags (task 0023) AND on
-    // the arrest that narrows them (task 0038) — both must invalidate cached packs.
+    // the arrest that narrows them (task 0038) — both must invalidate cached packs. Nuo
+    // task 101-c prie jų prisideda kontrolinių dokumentų medžio turinys: `docs_snippets`
+    // ateina IŠ jo, tad be šių šaltinių README pataisymas grįžtų kaip `hit` su pasenusiu
+    // discovered tekstu (101-b modulio antraštė aprašo, kodėl hash'uojamas EFEKTAS).
     cacheSources.push(
       ...(await contextCompressionCacheSources({ fs: deps.fs, root, runtimeRoot, arrestView })),
+      ...(await discoveredDocsCacheSources({ fs: deps.codeFs, projectRoot: root })),
       codeGraphModeCacheSource(withCodeGraph),
     );
     cacheKey = computeContextCacheKey(cacheSources);
@@ -227,6 +222,16 @@ export async function assembleContextPack(
 
   const fragmentByKey = new Map(specPhase.kept.map((fragment) => [fragmentKey(fragment), fragment]));
 
+  // Discovered docs (task 101-c): `CONTROL_DOC_ROOTS` gabalai, kurių task'as NEĮVARDIJO. Savas
+  // reitingavimas ir savas biudžetas (`discovered-docs.ts`), o atrankoje — ŽEMIAUSIAS kibiras,
+  // tad įvardyto turinio jie išstumti negali. Užklausa yra task'o tikslas: BM25 nulis = jokio
+  // lexinio ryšio = kandidatas krenta dar prieš biudžetą.
+  const discoveredDocs = selectDiscoveredDocs(
+    rankDiscoveredDocCandidates(await discoverControlDocCandidates(deps.codeFs, root), parsedTask.goal),
+    selectionLimits.max_spec_fragments,
+    Math.max(0, budget.max_context_chars - taskText.length),
+  );
+
   // allowed_paths are the authoritative edit boundary: always rendered in full and never
   // trimmed — accounted for as fixed reserved overhead, not as a droppable candidate here.
   const candidateSet: GraphFirstContextCandidates = {
@@ -235,13 +240,13 @@ export async function assembleContextPack(
     allowedPaths: [],
     codeGraphNeighbors: codeCandidates?.codeGraphNeighbors ?? [],
     impactedTests: codeCandidates?.impactedTests ?? [],
-    docsSnippets: [],
+    // Ta pati `${ref}\n${text}` forma kaip spec fragmentų: atranka mato realų svorį (ne vien
+    // ref'ą), o renderis tą pačią formą išskaido atgal į antraštę ir kūną.
+    docsSnippets: discoveredDocs.kept.map((doc) => `${doc.ref}\n${doc.text}`),
   };
 
   const keptFragmentsOf = (selection: GraphFirstSelection): RetrievedFragment[] =>
-    selection.spec_refs
-      .map((key) => fragmentByKey.get(key))
-      .filter((fragment): fragment is RetrievedFragment => Boolean(fragment));
+    selection.spec_refs.map((key) => fragmentByKey.get(key)).filter((f): f is RetrievedFragment => Boolean(f));
 
   /**
    * Spec ref'ai, kurių atranka NEIŠLAIKĖ: paimti kandidatai minus išlikę.
@@ -274,9 +279,7 @@ export async function assembleContextPack(
       ...(hypothetical > 0 ? { symbol_hypothetical_src_chars: hypothetical } : {}),
       notes: [
         ...codeCandidates.notes,
-        ...(selection.dropped.length > 0
-          ? [`context truncated by policy limits: dropped ${selection.dropped.length} item(s)`]
-          : []),
+        ...(selection.dropped.length > 0 ? [`context truncated by policy limits: dropped ${selection.dropped.length} item(s)`] : []),
       ],
     };
   };
@@ -324,6 +327,7 @@ export async function assembleContextPack(
           ...specPhase.warnings,
           ...[specSelectionDropWarning(droppedRefs)].filter((warning) => warning !== undefined),
         ]),
+        ...(selection.docs_snippets.length > 0 ? { docs_snippets: selection.docs_snippets } : {}),
         acceptance_criteria: parsedTask.acceptanceCriteria,
         ...(parsedTask.stopCondition ? { stop_condition: parsedTask.stopCondition } : {}),
         architecture_rules: codeContext?.notes ?? [],
@@ -360,11 +364,8 @@ export async function assembleContextPack(
   }
 
   const droppableKept = (selection: GraphFirstSelection): number =>
-    selection.spec_refs.length +
-    selection.architecture_nodes.length +
-    selection.related_files.length +
-    selection.impacted_tests.length +
-    selection.docs_snippets.length;
+    selection.spec_refs.length + selection.architecture_nodes.length + selection.related_files.length +
+    selection.impacted_tests.length + selection.docs_snippets.length;
 
   // Kopėčių numesti simboliai iki šiol buvo matomi TIK `reduction.note` eilutėje pack'o
   // pastabose — žmogui skirtame tekste, ne metrikoje. Trečias praradimų šaltinis, greta
@@ -485,8 +486,7 @@ async function currentCodeIndexDescriptor(
   }
   const manifest =
     freshness.manifest ??
-    (await codeFs
-      .readTextFile(codeIndexPath(projectRoot, "manifest.json"))
+    (await codeFs.readTextFile(codeIndexPath(projectRoot, "manifest.json"))
       .then((raw) => JSON.parse(raw) as { source_hash?: string; version?: string; records_hash?: string })
       .catch(() => undefined));
   if (!manifest) return CODE_INDEX_STALE;

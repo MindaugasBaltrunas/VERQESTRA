@@ -116,8 +116,15 @@ const nonEmptyString = z.string().trim().min(1);
  *      pačiam task'ui, nes senas skaičiavimas dublikatus laikė praradimu. Grynai loginis
  *      pakeitimas — pack'o TURINYS kitam tam pačiam task'ui, o `PACK_SEMANTICS_DESCRIPTOR`
  *      to nemato.
+ * 13 — 2026-09-03, task 101-c: pack'as gavo `docs_snippets` — neįvardytus kontrolinių dokumentų
+ *      gabalus (`discovered-docs.ts`). Naujas šaltinių rinkinys (`discoveredDocsCacheSources`)
+ *      dengia tik tuos projektus, kuriuose kontrolinių dokumentų YRA: kai jų nėra, rinkinys
+ *      tuščias, `spec` komponentas nepakitęs, ir v12 įrašas atitiktų raktą baitas į baitą.
+ *      Toks įrašas grįžtų kaip pilnavertis hit'as be `docs_snippets` lauko — o skaitytojas jo
+ *      nebuvimą laikytų „discovery nieko nerado", nors realiai discovery nė nebuvo paleista.
+ *      Šaltiniai mato DUOMENIS, versija — kad pats kelias atsirado.
  */
-export const CONTEXT_CACHE_VERSION = 12;
+export const CONTEXT_CACHE_VERSION = 13;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

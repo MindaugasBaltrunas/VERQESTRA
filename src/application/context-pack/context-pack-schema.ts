@@ -141,6 +141,25 @@ export const contextPackSchema = z
      * gali dingti tik kartu su fragmentu.
      */
     spec_fragment_truncated: stringList.default([]),
+    /**
+     * Kontrolinių dokumentų gabalai, kurių task'as NEĮVARDIJO (`discovered-docs.ts`, task 101-c).
+     * Ta pati `${ref}\n${text}` forma kaip `spec_fragments`, bet ATSKIRAS laukas, o ne priedas
+     * prie jų: `spec_fragments` reiškia „task'o `## Spec source` blokas to PRAŠĖ", ir būtent taip
+     * juos renderis pristato worker'iui. Sumaišius, discovered dokumentas atrodytų kaip task'o
+     * įvardytas įrodymas — o jis yra spėjimas, atrinktas BM25 balo prieš task'o tikslą.
+     *
+     * Tekstas gali būti nukirptas biudžeto (`selectDiscoveredDocs` kerpa ties riba); atskiro
+     * `truncated` sąrašo NĖRA — renderis kiekvieną tokį bloką skelbia kaip ištrauką, tad nėra
+     * lauko, kuris galėtų iškristi anksčiau už tai, ką jis aprašo.
+     *
+     * Nieko neradus laukas NEATSIRANDA — ne tuščias masyvas (`symbol_hypothetical_src_chars`
+     * precedentas). Priežastis matuojama: `"docs_snippets": [],` kainuoja 23 simbolius KIEKVIENO
+     * pack'o fiksuoto rezervo, ir ties ankšta riba ta kaina išstumia spec fragmentą — projektas,
+     * kuriame kontrolinių dokumentų nėra, mokėtų už kelią, kurio net nepaleido. Tuščias masyvas
+     * ir nesantis laukas čia reiškia tą patį („nieko neatrinkta"), tad pigesnė forma nieko
+     * nemeluoja; tuo šis laukas skiriasi nuo `spec_fragment_truncated`, kur nulis yra teiginys.
+     */
+    docs_snippets: stringList.optional(),
     // Acceptance criteria come from the task's `## Veiksmas` bullets, `stop_condition`
     // from `## Stop`. Both are carried in the pack so the execution context can state
     // "done" deterministically instead of re-parsing the task markdown downstream.
@@ -172,6 +191,13 @@ export type ContextPack = z.infer<typeof contextPackSchema>;
  *      pasitikėjimo ribos taisyklę ir `<retrieved_data>` aptvarus. Skaitytojas, matantis
  *      `version: 1`, negali žinoti, ar elementai neša pasitikėjimo žymas; be kėlimo jis abu
  *      formatus laikytų vienodais.
+ *
+ * NEKELTA 2026-09-03 (task 101-c), nors sekcijų rinkinys gavo `docs`: „only" šioje taisyklėje
+ * yra tikras. Naujas sekcijos vardas atsiranda TIK kartu su nauju `docs_snippets` lauku, kurio
+ * senesniuose pack'uose nėra, tad kiekvienas iki tol sudėtas pack'as renderinasi baitas į baitą
+ * taip pat ir reiškia tą patį. Priešingai nei kėlime 2, čia nė vieno ESAMO elemento prasmė
+ * nepasikeitė. Kėlimas kainuotų visų fingerprint'ų apyvartą už informaciją, kurios skaitytojui
+ * nereikia: dokumentas be `docs` blokų yra lygiai toks pat kaip anksčiau.
  */
 export const EXECUTION_CONTEXT_VERSION = 2;
 
@@ -187,6 +213,10 @@ export const executionContextSectionSchema = z.enum([
   "allowed-paths",
   "checks",
   "spec",
+  // Neįvardyti kontroliniai dokumentai (`docs_snippets`). ATSKIRA sekcija nuo `spec`: skaitytojas
+  // — ir žmogus, ir `dropped` sąrašą analizuojanti telemetrija — privalo matyti, kad šio įrodymo
+  // task'as neprašė. Sulietas su `spec` jis atrodytų kaip prašyto fragmento praradimas.
+  "docs",
   "symbols",
   "contracts",
   "impacted-tests",

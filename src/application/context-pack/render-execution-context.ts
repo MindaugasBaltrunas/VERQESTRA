@@ -108,7 +108,7 @@ export function renderExecutionContext(
   options: RenderExecutionContextOptions = {},
 ): RenderedExecutionContext {
   const maxChars = resolveMaxChars(pack, options);
-  const candidates = buildCandidates(pack);
+  const candidates = [...buildCandidates(pack), ...discoveredDocCandidates(pack)];
 
   // Ciklas mato PILNĄ dokumentą net ir dedup vaizde: metimo sprendimas privalo likti toks pat
   // kaip artefakto, kitaip prompt'as nustotų būti jo poaibis.
@@ -166,6 +166,38 @@ export function renderExecutionContext(
   );
 
   return { markdown, context };
+}
+
+/**
+ * Neįvardytų kontrolinių dokumentų blokai (`docs_snippets`, task 101-c).
+ *
+ * Gyvena ČIA, o ne `render-candidates` viduje, dėl vienos savybės: jie privalo stovėti canonical
+ * tvarkos GALE. Metimo ciklas viename prioritete atiduoda elementus nuo galo, o discovered docs
+ * yra silpniausias pack'o įrodymas — task'as jų neprašė. Bet kuri vieta `buildCandidates` sąrašo
+ * viduje padarytų juos atsparesnius už bloką, kurio task'as PRAŠĖ.
+ *
+ * `reason` sako tiesą apie abu dalykus: kilmę (lexinis atitikimas task'o tikslui, ne task'o
+ * nuoroda) ir kirpimą (`selectDiscoveredDocs` kerpa ties riba). Todėl atskiro `truncated` sąrašo
+ * pack'e nėra — nėra ir lauko, kuris galėtų iškristi anksčiau už bloką, kurį jis aprašo.
+ */
+function discoveredDocCandidates(pack: ContextPack): Candidate[] {
+  return (pack.docs_snippets ?? [])
+    .map((snippet, index): Candidate => {
+      const newline = snippet.indexOf("\n");
+      const ref = (newline === -1 ? snippet : snippet.slice(0, newline)).trim();
+      return {
+        id: `docs-${index + 1}`,
+        section: "docs",
+        title: `Discovered doc: ${ref}`,
+        priority: "low",
+        reason:
+          "control-doc excerpt the task did NOT name; matched to the goal by lexical overlap and " +
+          "possibly clipped to the context budget — background, not the specification",
+        body: (newline === -1 ? "" : snippet.slice(newline + 1)).trim(),
+        provenance: { type: "discovered-doc", source: ref },
+      };
+    })
+    .filter((candidate) => candidate.body.length > 0);
 }
 
 function resolveMaxChars(pack: ContextPack, options: RenderExecutionContextOptions): number {

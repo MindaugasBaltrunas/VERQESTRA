@@ -19,6 +19,7 @@ import { contextPackSchema } from "../application/context-pack/context-pack-sche
 import { buildCodeIndex } from "../application/code-intelligence/indexing/builder.js";
 import { parseExecutionContextMetadata, contextArtifactSha256 } from "../application/context-pack/execution-context-fingerprint.js";
 import { computeContextCacheKey } from "../application/context-pack/context-cache-key.js";
+import { createContextCacheAdapter } from "../infrastructure/persistence/context-cache-store.js";
 import { loadContextBudget, DEFAULT_CONTEXT_BUDGET } from "../application/policy-governance/context-budget.js";
 import { loadContextSelectionPolicy, DEFAULT_CONTEXT_SELECTION_LIMITS } from "../application/policy-governance/context-selection-policy.js";
 import { loadAgentPolicy } from "../application/policy-governance/agent-policy.js";
@@ -89,6 +90,9 @@ test("assembleContextPack: full path over a real workspace, deterministic re-run
     assert.deepEqual(result.pack.allowed_paths, ["src/module/a.ts"]);
     assert.ok(result.pack.spec_fragments[0]?.startsWith("doc/spec.md#alfa\n"), "spec fragmentas su heading atitikmeniu");
     assert.equal(result.pack.code_context?.enabled, true, "esamas taikinys → code context su index rebuild");
+    // Laukas NEATSIRANDA net kaip tuščias masyvas: kitaip kiekvienas pack'as mokėtų 23 simbolius
+    // fiksuoto rezervo už kelią, kurio net nepaleido, ir ties ankšta riba tai išstumtų fragmentą.
+    assert.equal(result.pack.docs_snippets, undefined, "be `CONTROL_DOC_ROOTS` turinio pack'as lieka nepakitęs");
     assert.ok(result.workerTaskIr, "shadow IR kompiliuojasi kanoniniam task'ui");
 
     // Fingerprint antraštė: task_sha256/context_pack_sha256 nuo TŲ PAČIŲ artefaktų diske.
@@ -198,6 +202,64 @@ test("assembleContextPack: spec_dropped_count fiksuoja retrieval stadijos prarad
       2,
       "žmogui skirtas kanalas irgi lieka",
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Task 101-c: discovered docs prijungimas. Du dalykai matuojami VIENU keliu, nes atskirai
+// nė vienas nieko neįrodo: laukas gali būti užpildytas ir su pasenusiu tekstu, o kešas gali
+// anuliuoti įrašą ir nieko neprijungęs. Trečia sąlyga („be dokumentų — nepakitęs elgesys")
+// gyvena pirmame šio failo teste: jo tmp šaknyje kontrolinių dokumentų nėra.
+const DISCOVERY_TASK = [
+  "# Task", "", "## Tikslas", "Retrieval biudžetas ir reitingavimas.", "",
+  "## Failai", "Leidžiama:", "- `src/a.ts`", "", "## Patikra", "- `pnpm test`", "",
+].join("\n");
+
+async function lastCacheStatus(root: string): Promise<unknown> {
+  const raw = await readFile(path.join(root, "vq", "logs", "context-size.jsonl"), "utf8");
+  return (JSON.parse(raw.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>)["cache_status"];
+}
+
+test("assembleContextPack: discovered docs patenka į pack'ą IR į kešo tapatybę", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-101c-"));
+  try {
+    await mkdir(path.join(root, "AG", "tasks", "queue"), { recursive: true });
+    await mkdir(path.join(root, "docs"), { recursive: true });
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await writeFile(path.join(root, "AG", "tasks", "queue", "0101-docs.md"), DISCOVERY_TASK, "utf8");
+    await writeFile(path.join(root, "src", "a.ts"), 'export const a = "x";\n', "utf8");
+    const doc = path.join(root, "docs", "retrieval.md");
+    await writeFile(doc, "# Retrieval\nreitingavimas ir biudžetas: BM25 balas sprendžia viską\n", "utf8");
+    await buildCodeIndex(nodeFsTestPort, root);
+
+    const deps = {
+      fs: nodeContextPackFsPort,
+      codeFs: nodeFsTestPort,
+      cache: createContextCacheAdapter(root, path.join(root, "vq")),
+    };
+    const args = ["AG/tasks/queue/0101-docs.md"];
+
+    const first = await assembleContextPack(args, root, deps);
+    assert.equal(await lastCacheStatus(root), "miss");
+    assert.deepEqual(
+      (first.pack.docs_snippets ?? []).map((snippet) => snippet.split("\n")[0]),
+      ["docs/retrieval.md#Retrieval"],
+      "neįvardytas dokumentas patenka į pack'ą su savo sintetiniu ref'u",
+    );
+    const rendered = await readFile(first.executionContextPath, "utf8");
+    assert.ok(rendered.includes("## Discovered doc: docs/retrieval.md#Retrieval"), "ir į worker'io dokumentą");
+    assert.ok(rendered.includes('type="discovered-doc"'), "aptvertas kaip DUOMENYS, ne kaip mūsų instrukcija");
+
+    // Kontrolinė pusė: be jos „miss po pakeitimo" nieko neįrodytų — kešas galėtų niekada neatitikti.
+    await assembleContextPack(args, root, deps);
+    assert.equal(await lastCacheStatus(root), "hit", "nepakitęs medis toliau duoda hit'ą");
+
+    // Keičiamas TIK dokumento turinys: task'as, taikiniai, politikos ir kodo indeksas nepajudėjo.
+    await writeFile(doc, "# Retrieval\nreitingavimas ir biudžetas: BM25 balas ir visai kitas tekstas\n", "utf8");
+    const third = await assembleContextPack(args, root, deps);
+    assert.equal(await lastCacheStatus(root), "miss", "discovered teksto pokytis anuliuoja įrašą");
+    assert.notDeepEqual(third.pack.docs_snippets, first.pack.docs_snippets, "ir grąžina NAUJĄ tekstą, ne seną");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

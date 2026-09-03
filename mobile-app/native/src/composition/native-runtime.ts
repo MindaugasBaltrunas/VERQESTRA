@@ -152,7 +152,7 @@ export function createReactNativeSpeechPorts(input?: Readonly<{
   const speech = createReactNativeSpeechRecognizer(input?.module);
   return {
     ...(speech === undefined ? {} : { speech }),
-    speechConsent: createReactNativeSpeechConsent(input?.store ?? createReactNativeSecureStore()),
+    speechConsent: createReactNativeSpeechConsent(input?.store),
   };
 }
 

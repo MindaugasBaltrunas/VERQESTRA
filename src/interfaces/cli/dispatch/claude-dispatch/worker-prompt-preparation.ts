@@ -31,6 +31,7 @@ import {
 } from "../../../../application/context-pack/arrest-attribution.js";
 import {
   CANARY_SIZE_FALLBACK_MARKER,
+  describesContextPack,
   readContextSizeMetrics,
   type ContextSizeMetricsRecord,
 } from "../../../../application/context-pack/metrics.js";
@@ -57,10 +58,13 @@ export type PrepareWorkerPromptDeps = {
 };
 
 /** Kiekvieno task'o VĖLIAUSIAS `canary_features` masyvas iš context-size žurnalo (append tvarka
- *  laužia lygiąsias, kaip ir analitikos pusėje) — atributuoja `compression_effect`. */
+ *  laužia lygiąsias, kaip ir analitikos pusėje) — atributuoja `compression_effect`. Eilutės, kurios
+ *  neaprašo context pack'o (pvz. finalize sintetinės eilutės be `max_context_chars`), narystės
+ *  nekeičia — kitaip užbaigto dispatch'o canary priklausomybė dingsta paskutinei žurnalo eilutei. */
 function latestCanaryFeaturesByTask(records: readonly ContextSizeMetricsRecord[]): Map<string, string[]> {
   const latest = new Map<string, { features: string[]; at: number }>();
   for (const record of records) {
+    if (!describesContextPack(record)) continue;
     const taskId = record.task_id.trim();
     if (!taskId) continue;
     const parsed = Date.parse(record.ts ?? "");

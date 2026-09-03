@@ -459,6 +459,8 @@ test("worker-prompt-preparation: 0037 atribucija — nesantis arba neperskaitoma
   assert.ok(!corrupt.logs.some((line) => line.startsWith("CANARY ARRESTED")), "LEGACY_RULE — neperskaitomas žurnalas, neareštuota");
 });
 
+test("worker-prompt-preparation: 154-b-03 — finalize eilutė be max_context_chars nepakeičia pack'o canary narystės", async () => assert.ok((await dispatchArrestScenario({ taskId: "0304", arrestState: arrestStateSeed(2, ["task-old-1", "task-old-2"]), contextSizeLines: [contextSizeLine("task-compress-2"), JSON.stringify({ ts: "2026-08-25T00:00:10.000Z", task_id: "task-compress-2", context_chars: 0, max_context_chars: 0 })], taskEvents: [{ task_id: "task-compress-2", to_state: "human-review", phase: "compilation", reason: "acceptance_criteria mismatch" }] })).logs.some((line) => line.startsWith("CANARY ARRESTED: feature=symbol_slices reason=human-review"))));
+
 test("stop-bridge-wait: 021-d-05 (022 audito Įvykis 4) regresija — vėlavęs svetimo nonce 'done' lieka matomas, ne 'none'", async () => {
   // 2026-08-25 19:20:43: bandymas N_A realiai commit'ino @19:20:21, bet orkestratorius jau
   // laukė KITO bandymo (N_B) baigties — darbo įrodymas neturi tyliai virsti "none".

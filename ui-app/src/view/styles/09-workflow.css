@@ -1,0 +1,176 @@
+/* ---- Workflow (kanban) cards ----------------------------------------- */
+.workflow-card {
+  position: relative;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  min-height: 150px;
+  overflow: hidden;
+  transition: transform var(--speed) var(--ease), border-color var(--speed) var(--ease),
+    box-shadow var(--speed) var(--ease);
+}
+.workflow-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--border-strong);
+}
+.workflow-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+  border-color: var(--border-strong);
+}
+.workflow-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.workflow-card h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.workflow-card p {
+  margin: 4px 0 0;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  /* Pakelta kartu su vardų laužymu: dviejų eilučių įrašas kitaip perpus sumažintų matomų
+     užduočių skaičių, ir vienas taisymas pagimdytų kitą trūkumą. */
+  max-height: 170px;
+  overflow: auto;
+  padding-right: 2px;
+}
+.task-list li {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  /* Vardas LAUŽOMAS, o ne kerpamas daugtaškiu. Nukirptas `0042-perkelti-loop-…` atrodo kaip
+     informacija, bet jos neneša: skiriamoji dalis yra būtent uodegoje. `anywhere` reikalingas,
+     nes slug'as yra vientisas žodis su brūkšneliais ir be jo eilutė nesilaužytų. */
+  overflow-wrap: anywhere;
+  min-width: 0;
+  transition: background var(--speed) var(--ease), transform var(--speed) var(--ease);
+}
+.task-list-summary {
+  margin: -4px 0 0 !important;
+  color: var(--muted) !important;
+  font-size: 11px !important;
+  font-variant-numeric: tabular-nums;
+}
+.task-list li:hover {
+  background: var(--surface-3);
+  transform: translateX(2px);
+}
+.task-list .empty-task {
+  color: var(--faint);
+  font-style: italic;
+  background: transparent;
+  border-style: dashed;
+}
+
+/* ---- Queue dropzone --------------------------------------------------- */
+.queue-dropzone {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  min-height: 48px;
+  transition: border-color var(--speed) var(--ease), background var(--speed) var(--ease);
+}
+.queue-dropzone strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.queue-dropzone span {
+  display: block;
+  color: var(--faint);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.queue-dropzone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--ring);
+}
+.queue-dropzone.uploading {
+  opacity: 0.68;
+  pointer-events: none;
+}
+.queue-file-input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---- Bucket accents --------------------------------------------------- */
+.bucket-good::before { background: linear-gradient(90deg, var(--good-line), color-mix(in srgb, var(--good-line) 50%, transparent)); }
+.bucket-good .task-list li { border-left: 3px solid var(--good-line); }
+.bucket-warning::before { background: linear-gradient(90deg, var(--warning-line), color-mix(in srgb, var(--warning-line) 50%, transparent)); }
+.bucket-warning .task-list li { border-left: 3px solid var(--warning-line); }
+.bucket-error::before { background: linear-gradient(90deg, var(--error-line), color-mix(in srgb, var(--error-line) 50%, transparent)); }
+.bucket-error .task-list li { border-left: 3px solid var(--error-line); }
+.bucket-live::before { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.bucket-live .task-list li { border-left: 3px solid var(--accent); }
+
+/* Currently-executing bucket (delegated/active with tasks): keep the operator's
+   eye on it without relying on the small task list alone. */
+.workflow-card--running {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* "Vykdoma: <task>" strip in the workflow board header */
+.running-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 60%;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+.running-now strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.running-now-label {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.bucket-neutral::before { background: var(--border-strong); }
+.bucket-neutral .task-list li { border-left: 3px solid var(--border-strong); }
+

@@ -1,0 +1,191 @@
+/* ---- SelectMenu (2026-08-28) --------------------------------------------
+   Valdomas ARIA combobox+listbox dropdown, pakeičiantis plikas <select>
+   ten, kur reikia parodyti variantą su tag ženkleliu. */
+@keyframes select-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Vertimas į viršų turi savo kryptį: žemyn atsidarančio sąrašo animacija, paleista aukštyn
+   atsidarančiam, atrodo kaip trūkčiojimas link trigger'io, o ne nuo jo. */
+@keyframes select-menu-in-above {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.select-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.select-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  min-width: 160px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+
+.select-menu-trigger:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.select-menu-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.select-menu-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.select-menu-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.select-menu-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-menu-chevron {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform var(--speed) var(--ease);
+}
+
+.select-menu-trigger[aria-expanded="true"] .select-menu-chevron {
+  transform: rotate(-135deg) translateY(-1px);
+  border-color: var(--accent);
+}
+
+/* Sąrašas renderinamas PORTALE prie `<body>` ir pozicionuojamas FIKSUOTAI pagal trigger'io
+   koordinates (2026-08-29). Anksčiau jis buvo `position: absolute` kortelės viduje — tada bet
+   kuris protėvis su `overflow: hidden|auto` jį apkirpdavo, o bet kuris `transform` būtų įkalinęs
+   ir `position: fixed`. Koordinatės (`top`/`bottom`/`left`/`min-width`/`max-height`) ateina
+   inline iš `measurePanel`: jos matuojamos iš tikro elemento, ir CSS jų žinoti negali.
+
+   `z-index: 90` — virš viso dashboard'o (aukščiausias kitas sluoksnis yra 60), bet po
+   `.skip-link` (100): klaviatūros praleidimo nuoroda lieka viršuje visada. */
+.select-menu-panel {
+  position: fixed;
+  z-index: 90;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  animation: select-menu-in 120ms var(--ease-out-soft);
+}
+
+.select-menu-panel-above {
+  animation-name: select-menu-in-above;
+}
+
+/* Pats sąrašas fokuso žiedo neturi SĄMONINGAI: fokusas fiziškai stovi ant jo, bet vartotojui
+   svarbi vieta yra aktyvus variantas (`aria-activedescendant`), ir du žiedai vienu metu rodytų
+   į dvi skirtingas vietas. */
+.select-menu-panel:focus-visible,
+.select-menu-panel:focus {
+  outline: none;
+}
+
+.select-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text);
+}
+
+.select-menu-option:hover,
+.select-menu-option.active {
+  background: var(--surface-2);
+}
+
+/* Aktyvus variantas yra KLAVIATŪROS fokusas, todėl jam reikia žiedo, o ne atspalvio: tamsioje
+   temoje `--surface-2` (#161f30) ant `--surface` (#121927) skiriasi keliais procentais šviesumo,
+   ir naršant rodyklėmis nesimato, kur esi. `--accent` temizuotas abiejose temose, tad žiedas
+   matomas ir šviesioje, ir tamsioje. `outline-offset: -2px` — kad žiedas tilptų sąrašo viduje ir
+   nebūtų nukirstas `overflow: auto`. */
+.select-menu-option.active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.select-menu-option[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.select-menu-option-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-menu-option-tag {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.select-menu-option[aria-selected="true"] .select-menu-option-tag {
+  background: var(--surface);
+}
+
+.select-menu-option-check {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid var(--accent-strong);
+  border-bottom: 2px solid var(--accent-strong);
+  transform: rotate(-45deg);
+}

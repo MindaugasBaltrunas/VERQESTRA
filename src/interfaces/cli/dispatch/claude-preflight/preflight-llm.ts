@@ -39,7 +39,7 @@ const ETALONAS_FAILAI_RULES =
   "wildcard'as leidžiamas TIK visos apimties migracijai su pagrindimo tekstu šalia kelio.\n" +
   "- Kiekvienas produkcinis failas `## Failai` sąraše ateina su savo testo failu (numatomas vardas su " +
   "išlyga, jei tikslus dar nežinomas).\n" +
-  "- UI task'as VISADA įtraukia `ui-app/src/i18n/I18nContext.tsx` ir `ui-app/src/view/styles/dashboard.css`.\n" +
+  "- UI task'as VISADA įtraukia `ui-app/src/i18n/I18nContext.tsx` ir bent vieną `ui-app/src/view/styles/*.css` (tą, kuriame gyvena keičiamos klasės; `dashboard.css` yra tik `@import` rodyklė).\n" +
   "- `Draudžiama:` įvardija gretimą sluoksnį, svetimą modulį, `dist/**`, `node_modules/**`.";
 
 export type PreflightPromptContext = {

@@ -1,0 +1,220 @@
+/* =========================================================================
+   2026 command-center information architecture
+   ========================================================================= */
+:root {
+  --sidebar-width: 244px;
+  --bg: #f6f7f9;
+  --bg-grad: none;
+  --surface-2: #f8f9fb;
+  --border: #e6e8ec;
+  --border-strong: #d6dae1;
+  --accent: #5b5bd6;
+  --accent-strong: #4646b8;
+  --accent-soft: #eeeeff;
+  --faint: #667085;
+  --radius: 10px;
+  --radius-lg: 12px;
+  --shadow: 0 8px 28px -18px rgba(15, 23, 42, 0.24);
+}
+
+[data-theme="dark"] {
+  --bg: #0c0d10;
+  --bg-grad: none;
+  --surface: #14161a;
+  --surface-2: #191b20;
+  --surface-3: #20232a;
+  --border: #272a31;
+  --border-strong: #363a44;
+  --muted: #b0bac9;
+  --faint: #9da8b8;
+  --accent: #8d8df2;
+  --accent-strong: #a5a5ff;
+  --accent-soft: #252348;
+}
+
+body {
+  font-size: 13px;
+  letter-spacing: -0.005em;
+}
+
+header {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-width);
+  padding: 20px 14px;
+  background: #111318;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.topbar {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 22px;
+}
+
+.brand-row {
+  padding: 0 8px;
+}
+
+.app-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.brand h1,
+.brand .brand-title {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.brand .muted {
+  max-width: 150px;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-tabs {
+  display: grid;
+  gap: 4px;
+}
+
+.nav-tab {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 560;
+  text-align: left;
+}
+
+.nav-tab span {
+  width: 18px;
+  color: rgba(255, 255, 255, 0.44);
+  font-size: 15px;
+  text-align: center;
+}
+
+.nav-tab:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-tab.active {
+  border-color: transparent;
+  background: rgba(112, 109, 244, 0.18);
+  color: #fff;
+}
+
+.nav-tab.active span {
+  color: #9d9bff;
+}
+
+header .toolbar {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: auto;
+}
+
+header .toolbar-divider {
+  display: none;
+}
+
+/* `min-width: 0` čia SUNAIKINDAVO WCAG 2.5.8 taisyklę žemiau (`.button { min-width: 44px }`):
+   `header .toolbar .button` yra specifiškesnis, tad laimėdavo nepriklausomai nuo tvarkos, ir
+   LT/EN mygtukai likdavo 27–30 px pločio — tiksliai tiek, kiek išmatavo operatorius. Vartas,
+   kurį nutildo kita to paties failo taisyklė, nėra vartas.
+   44 px vis dar mažiau už turinio plotį, tad ellipsis veikia kaip veikęs. */
+header .toolbar .button {
+  min-width: 44px;
+  padding: 8px 7px;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+header .toolbar .button.ghost:last-child {
+  grid-column: 1 / -1;
+}
+
+main {
+  max-width: 1480px;
+  min-height: 100vh;
+  margin: 0 0 0 var(--sidebar-width);
+  padding: 30px 36px 56px;
+  gap: 18px;
+}
+
+.page-heading,
+.usage-page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.page-heading h2,
+.usage-page-heading h2,
+.page-heading h1,
+.usage-page-heading h1 {
+  margin: 2px 0 4px;
+  color: var(--text-strong);
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  text-transform: none;
+}
+
+.page-heading p,
+.usage-page-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.page-eyebrow,
+.usage-eyebrow {
+  color: var(--accent) !important;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.freshness-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--faint);
+  font-size: 10px;
+}
+
+/* Ženklelio tonas seka JO PAČIO verdiktą: „gyvi" ir „pasenę" negali atrodyti vienodai, kitaip
+   tekstas pasikeičia, o ekranas ir toliau atrodo ramus (2026-08-24 operatoriaus radinys). */

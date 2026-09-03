@@ -1,0 +1,163 @@
+/* ---- Scrollbars ------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+  background-clip: padding-box;
+}
+
+/* ---- Header ----------------------------------------------------------- */
+header {
+  padding: 16px 28px;
+  background: var(--header-bg);
+  color: var(--header-text);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 30px -16px rgba(0, 0, 0, 0.5);
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+.brand h1,
+.brand .brand-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+/* ---- Navigation tabs (header) ------------------------------------------ */
+.nav-tabs {
+  display: flex;
+  gap: 6px;
+}
+.nav-tab {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease),
+    color var(--speed) var(--ease);
+}
+.nav-tab:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.42);
+}
+.nav-tab.active {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.app-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 6px 18px -6px var(--accent-ring), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  font-weight: 800;
+  font-size: 17px;
+  color: #fff;
+}
+
+/* ---- Layout ----------------------------------------------------------- */
+main {
+  padding: 22px 24px 40px;
+  display: grid;
+  gap: 18px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* ---- Panels (cards) --------------------------------------------------- */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--speed) var(--ease), border-color var(--speed) var(--ease);
+}
+.panel:hover {
+  box-shadow: var(--shadow);
+}
+
+.notice {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.notice-warning {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+}
+/* Trys puslapiai (`Benchmark`, `Reliability`, `Compression`) nepasiekiamą serverį žymėjo
+   `notice notice-error` su `role="alert"` — bet taisyklės nebuvo, tad juosta atrodė lygiai kaip
+   neutralus pranešimas. Spalvos imamos iš tų pačių `--error*` žetonų kaip ir `notice-warning`
+   iš `--warning*`, todėl abi temos padengtos be atskirų reikšmių. */
+.notice-error {
+  color: var(--error);
+  background: var(--error-bg);
+  border-color: color-mix(in srgb, var(--error) 34%, var(--border));
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.panel-header h2 {
+  margin: 0;
+}
+.panel-subtitle {
+  margin: 5px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+}
+

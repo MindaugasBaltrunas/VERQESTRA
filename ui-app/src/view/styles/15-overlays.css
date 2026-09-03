@@ -1,0 +1,183 @@
+/* ---- Veiksmų rezultatų krūvelė ---------------------------------------- */
+/* Pranešimai stovi fiksuotai apatiniame dešiniajame kampe: veiksmas gali būti paleistas bet kurioje
+   puslapio vietoje, o atsakymas neturi priklausyti nuo to, kur tuo metu nuslinkta. */
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+/* Sėkmės spalva imama iš `--good`, o ne iš `--success`: pastarasis kai kur naudojamas, bet nė vienoje
+   temoje neapibrėžtas, tad kraštinė būtų dingusi be pėdsakų. */
+.toast-success {
+  border-color: color-mix(in srgb, var(--good) 42%, var(--border));
+}
+.toast-error {
+  border-color: color-mix(in srgb, var(--error) 42%, var(--border));
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+/* ---- Expanded log overlay -------------------------------------------- */
+.log-panel.expanded {
+  position: fixed;
+  inset: 24px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+.log-panel.expanded .log {
+  flex: 1;
+  height: auto;
+  max-height: none;
+}
+body.has-expanded-log {
+  overflow: hidden;
+}
+body.has-expanded-log::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(6, 11, 20, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+/* ---- Agent chain ------------------------------------------------------ */
+.agent-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 0;
+}
+.agent-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.agent-step-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+.agent-step-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.agent-step-arrow {
+  color: var(--faint);
+  font-size: 13px;
+  margin: 0 1px;
+}
+.agent-step--active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
+}
+.agent-step--active .agent-step-name { color: var(--accent); }
+.agent-step--done {
+  border-color: color-mix(in srgb, var(--good) 35%, var(--border));
+}
+.agent-step--done .agent-step-name { color: var(--good); }
+.agent-step--error .agent-step-name { color: var(--error); }
+.agent-step--skip .agent-step-name { color: var(--muted); }
+.agent-step--pending {
+  opacity: 0.55;
+}
+.agent-step--pending .agent-step-name { color: var(--muted); }
+/* Aktyvaus žingsnio signalo taškas: pastovus akcento žiedas, jokio pulsavimo. Vardas
+   (`agent-step-pulse`) lieka, nes jis yra komponento kontraktas, o ne animacijos pavadinimas. */
+.agent-step-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.agent-idle {
+  color: var(--faint);
+  font-size: 13px;
+  padding: 12px 0;
+  font-style: italic;
+}
+.agent-current-activity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+}
+.agent-activity-text {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.agent-legend-item {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* ---- Antras (w2) grandinės srautas ------------------------------------ */
+.agent-chain-secondary {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.agent-chain-secondary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.agent-chain-secondary-label {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.agent-chain-secondary-task {
+  color: var(--faint);
+  font-family: "JetBrains Mono", Consolas, Monaco, monospace;
+}
+.agent-chain-secondary-activity {
+  margin-top: 8px;
+}
+

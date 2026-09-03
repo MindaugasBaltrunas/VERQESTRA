@@ -1,0 +1,148 @@
+/* ---- Slot (srauto) kortelė ---------------------------------------------
+   Bazė lieka `.runtime-card`; čia tik tai, ko srautui reikia papildomai. */
+.slot-card {
+  animation: card-enter 260ms var(--ease-out-soft) both;
+}
+.slot-card:nth-child(2) { animation-delay: var(--stagger); }
+.slot-card--compact {
+  padding: 11px 12px;
+  gap: 7px;
+}
+.slot-card__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.slot-card__row code,
+.slot-card__row strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.slot-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.slot-phase small {
+  color: var(--faint);
+  font-weight: 500;
+}
+.slot-eta {
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* Nežinoma ETA rodoma KITAIP nei reikšmė: pilkas kursyvas neleidžia jos perskaityti kaip prognozės. */
+.slot-eta--unavailable {
+  color: var(--faint);
+  font-style: italic;
+}
+.slot-liveness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: 11px;
+}
+.slot-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: state-morph var(--speed-morph) var(--ease-spring) both;
+}
+.slot-state-badge--live {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.slot-state-badge--good {
+  border-color: color-mix(in srgb, var(--good-line) 45%, var(--border));
+  background: var(--good-bg);
+  color: var(--good);
+}
+.slot-state-badge--warning {
+  border-color: color-mix(in srgb, var(--warning-line) 45%, var(--border));
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.slot-state-badge--error {
+  border-color: color-mix(in srgb, var(--error-line) 45%, var(--border));
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.system-console {
+  display: grid;
+  gap: 12px;
+}
+.system-health-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--success);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--success) 11%, transparent), transparent 32%),
+    var(--surface);
+}
+.system-health-attention {
+  border-left-color: var(--warning);
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--warning) 11%, transparent), transparent 32%),
+    var(--surface);
+}
+.system-health-critical {
+  border-left-color: var(--error);
+}
+.system-health-hero h2 {
+  margin: 3px 0 5px;
+  font-size: 24px;
+}
+.system-health-hero p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+.system-health-metrics {
+  display: flex;
+  gap: 8px;
+}
+.system-health-metrics > div {
+  min-width: 112px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+}
+.system-health-metrics span,
+.system-health-metrics strong {
+  display: block;
+}
+.system-health-metrics span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.system-health-metrics strong {
+  margin-top: 3px;
+  font-size: 20px;
+}
+

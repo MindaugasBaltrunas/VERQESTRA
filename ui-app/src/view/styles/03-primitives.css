@@ -1,0 +1,172 @@
+/* ---- Metrics ---------------------------------------------------------- */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.metric {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 16px 18px;
+  min-height: 92px;
+  overflow: hidden;
+  min-width: 0;
+  transition: transform var(--speed) var(--ease), border-color var(--speed) var(--ease),
+    box-shadow var(--speed) var(--ease);
+}
+.metric::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(var(--accent), var(--accent-2));
+  opacity: 0.85;
+}
+.metric:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+}
+.metric-label {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.metric-value {
+  margin-top: 10px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Badges ----------------------------------------------------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 3px 10px 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  border: 1px solid transparent;
+  max-width: 100%;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+  flex: 0 0 auto;
+}
+.status-good {
+  color: var(--good);
+  background: var(--good-bg);
+  border-color: color-mix(in srgb, var(--good) 30%, transparent);
+}
+.status-warning {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+.status-error {
+  color: var(--error);
+  background: var(--error-bg);
+  border-color: color-mix(in srgb, var(--error) 30%, transparent);
+}
+.status-live {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+/* „Gyva" būseną žymi spalva, rėmelis ir platesnis PASTOVUS taško žiedas — be judesio:
+   amžina animacija dashboard'e uždrausta, o judesys čia nieko nepasako, ko nepasako spalva. */
+.status-live::before {
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 28%, transparent);
+}
+.status-neutral {
+  color: var(--muted);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+/* Vėliavos eilutės hint'as, kai reikšmė deklaruota aktyvia, bet priklausomybė ją fail-closed
+   išjungia vykdymo metu (`inactive_reason`). Ne `.notice-warning` — tai vienos eilutės tekstas
+   tarp muted hint'ų, ne atskira dėžutė. */
+.compression-inactive-warning {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ---- Tables ----------------------------------------------------------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th,
+td {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  padding: 11px 10px;
+  vertical-align: top;
+}
+th {
+  width: 170px;
+  color: var(--muted);
+  font-weight: 600;
+}
+thead th {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+tbody tr {
+  transition: background var(--speed) var(--ease);
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+tbody tr:hover {
+  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
+}
+
+/* ---- Grids ------------------------------------------------------------ */
+.workflow-board {
+  display: grid;
+  /* Stulpelio MINIMUMAS yra užduoties VARDO reikalavimas, ne bucket'ų skaičiaus.
+     Iki 2026-08-24 (operatoriaus radinys) čia buvo 150px, pasirinkti tam, kad visi septyni
+     bucket'ai tilptų į vieną eilutę. Kaina buvo ta, kad 11px šriftu telpa ~20 simbolių, o
+     užduoties vardas yra `0042-aprasomasis-slug.md`: nukirsdavo būtent SLUG'ą, t. y. vienintelę
+     dalį, kuri vieną užduotį skiria nuo kitos. Lenta, kurios stulpelių negalima perskaityti,
+     neatlieka savo darbo — tad viena eilutė nusileidžia įskaitomumui ir bucket'ai persineša į
+     dvi eilutes. Horizontalaus slinkimo neatsiranda nė viename plotyje. */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.log-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+

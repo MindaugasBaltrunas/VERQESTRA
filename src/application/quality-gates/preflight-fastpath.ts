@@ -156,7 +156,18 @@ const TEST_DIR_SEGMENT = /(^|\/)tests?(\/|$)/i;
 const SOURCE_FILE_EXTENSION = /\.(m|c)?[jt]sx?$/i;
 
 const I18N_CONTEXT_PATH = "ui-app/src/i18n/I18nContext.tsx";
-const DASHBOARD_CSS_PATH = "ui-app/src/view/styles/dashboard.css";
+const DASHBOARD_STYLE_DIR = "ui-app/src/view/styles/";
+
+/**
+ * Bet kuris dashboard'o stilių failas. Iki 2026-09-03 čia buvo įkaltas vienas vardas
+ * (`dashboard.css`) — tada jis ir buvo vienintelis. Po jo suskaidymo įkaltas vardas verstų
+ * KIEKVIENĄ UI task'ą deklaruoti failą, kurio jis neredaguoja, o realų pakeitimą
+ * (`view/styles/13-buttons.css`) diagnozė matytų kaip išėjimą už leistinų kelių. Taisyklės
+ * KETINIMAS nesikeičia: nauja className privalo ateiti kartu su deklaruotu CSS failu.
+ */
+function isDashboardStylePath(path: string): boolean {
+  return path.startsWith(DASHBOARD_STYLE_DIR) && path.endsWith(".css");
+}
 
 function isTestLikePath(path: string): boolean {
   return TEST_LIKE_FILE.test(path) || TEST_DIR_SEGMENT.test(path);
@@ -236,8 +247,8 @@ function evaluateUiCoverageRule(paths: string[]): EtalonasRuleViolation[] {
   const violations: EtalonasRuleViolation[] = [];
   const citationPrefix =
     "000-etalonas.md ## Failai (3): \"UI task'as VISADA įtraukia `ui-app/src/i18n/I18nContext.tsx` " +
-    "(nauji tekstai) ir `ui-app/src/view/styles/dashboard.css` (naujos className — CSS dengiamumo " +
-    'vartas)."';
+    "(nauji tekstai) ir bent vieną `ui-app/src/view/styles/*.css` (naujos className — CSS " +
+    'dengiamumo vartas)."';
   if (!paths.includes(I18N_CONTEXT_PATH)) {
     violations.push({
       ruleId: "ui-file-without-i18n-context",
@@ -245,11 +256,11 @@ function evaluateUiCoverageRule(paths: string[]): EtalonasRuleViolation[] {
       detail: `## Failai turi UI komponentą, bet ne \`${I18N_CONTEXT_PATH}\``,
     });
   }
-  if (!paths.includes(DASHBOARD_CSS_PATH)) {
+  if (!paths.some(isDashboardStylePath)) {
     violations.push({
       ruleId: "ui-file-without-dashboard-css",
       citation: citationPrefix,
-      detail: `## Failai turi UI komponentą, bet ne \`${DASHBOARD_CSS_PATH}\``,
+      detail: `## Failai turi UI komponentą, bet nė vieno \`${DASHBOARD_STYLE_DIR}*.css\``,
     });
   }
   return violations;

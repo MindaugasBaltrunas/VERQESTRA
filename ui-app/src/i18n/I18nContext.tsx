@@ -1084,7 +1084,6 @@ const lt: Record<string, string> = {
   // „Ciklo" nepraleidžiamas: `Loop streams` yra „Ciklo srautai", ir apžvalgos antraštė turi vadinti
   // tą patį dalyką tuo pačiu vardu.
   "Loop streams overview": "Ciklo srautų apžvalga",
-  "Queue pipeline": "Eilės srautas",
   "Scheduler state per task: what is ready, running, blocked, failed, and done":
     "Scheduler'io būsena kiekvienai užduočiai: kas paruošta, vykdoma, blokuojama, nepavyko ir baigta",
   "Queued": "Eilėje",

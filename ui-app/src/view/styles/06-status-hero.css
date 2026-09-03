@@ -1,0 +1,142 @@
+/* ---- SystemStatusHero (task 059) --------------------------------------
+   `#/system` puslapio viršus: kas vyksta DABAR ir ko reikia iš operatoriaus. Sąmoningai atskira
+   nuo `.system-health-hero` (procesų pasiekiamumas žemiau) — čia atsakoma į KITĄ klausimą. */
+.system-status-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 24px;
+  margin: 0 0 4px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 32%),
+    var(--surface);
+}
+.system-status-hero--warning {
+  border-left-color: var(--warning);
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--warning) 11%, transparent), transparent 32%),
+    var(--surface);
+}
+.system-status-hero--neutral {
+  border-left-color: var(--border);
+  background: var(--surface);
+}
+.system-status-hero-primary h2 {
+  margin: 3px 0 5px;
+  font-size: 24px;
+}
+.system-status-hero-primary p {
+  margin: 0;
+  color: var(--muted);
+}
+.system-status-hero-primary .button {
+  margin-top: 14px;
+}
+.system-status-hero-stats {
+  display: flex;
+  gap: 8px;
+}
+.system-status-hero-stat {
+  min-width: 112px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+  text-align: left;
+}
+button.system-status-hero-stat-link {
+  cursor: pointer;
+  transition: border-color var(--speed) var(--ease);
+}
+button.system-status-hero-stat-link:hover {
+  border-color: var(--accent);
+}
+.system-status-hero-stat span,
+.system-status-hero-stat strong {
+  display: block;
+}
+.system-status-hero-stat span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.system-status-hero-stat strong {
+  margin-top: 3px;
+  font-size: 20px;
+}
+
+.system-signal-list {
+  display: grid;
+  gap: 8px;
+}
+.system-signal,
+.system-all-clear {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.system-signal p,
+.system-all-clear p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.signal-icon,
+.system-all-clear > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 13%, var(--surface));
+  color: var(--warning);
+  font-weight: 800;
+}
+.system-all-clear > span {
+  background: color-mix(in srgb, var(--success) 13%, var(--surface));
+  color: var(--success);
+}
+/* `signal-warning` ir `signal-neutral` iki 2026-08-26 buvo tik markup'e: ženkliuko spalvą visiems
+   diktavo bendra `.signal-icon` taisyklė, tad sustabdytas ciklas — neutralus faktas, ne triktis —
+   degdavo tokia pat įspėjimo spalva kaip nežinoma proceso būsena. Įspėjimo variantas užrašomas
+   atskirai, kad abu ketinimai būtų matomi vienoje vietoje, o ne vienas jų — numatytojoje. */
+.signal-warning .signal-icon {
+  background: color-mix(in srgb, var(--warning) 13%, var(--surface));
+  color: var(--warning);
+}
+.signal-neutral .signal-icon {
+  background: color-mix(in srgb, var(--muted) 16%, var(--surface));
+  color: var(--muted);
+}
+.system-project-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, auto);
+  align-items: center;
+  gap: 20px;
+}
+.system-project-card h2 {
+  margin: 3px 0 4px;
+}
+.system-project-card p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+.system-project-card > code {
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+

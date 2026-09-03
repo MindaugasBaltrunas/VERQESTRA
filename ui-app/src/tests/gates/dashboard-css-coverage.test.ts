@@ -8,8 +8,9 @@ import { describe, expect, it } from "vitest";
  * STILIŲ DENGIAMUMAS (2026-08-26, UI auditas P2-1: „klaidos juosta atrodo kaip neutralus
  * pranešimas").
  *
- * `dashboard.css` yra VIENINTELIS ui-app stilių šaltinis (`main.tsx` importuoja jį vieną; CSS
- * modulių, inline `<style>` ar antro `.css` failo projekte nėra). Iš to plaukia, kad TSX'e
+ * `view/styles/` yra VIENINTELIS ui-app stilių šaltinis (`main.tsx` importuoja `dashboard.css`,
+ * o šis `@import`'ais surenka likusius; CSS modulių ar inline `<style>` projekte nėra). Nuo
+ * 2026-09-03 failų ten daugiau nei vienas, tad vartas skaito KATALOGĄ. Iš to plaukia, kad TSX'e
  * užrašyta, bet `dashboard.css` neapibrėžta klasė nedaro NIEKO — ir nedaro tyliai: markup'as
  * lieka teisingas, `role="alert"` lieka vietoje, testai žali, o vartotojas mato neutralų
  * stačiakampį ten, kur turėtų matyti klaidą. Būtent taip `notice-error` išgyveno trijuose
@@ -32,7 +33,21 @@ import { describe, expect, it } from "vitest";
  */
 
 const sourceRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const styleSheet = path.join(sourceRoot, "view", "styles", "dashboard.css");
+const styleDir = path.join(sourceRoot, "view", "styles");
+
+/**
+ * VISI `view/styles/*.css`, o ne vienas įkaltas vardas. Iki 2026-09-03 čia stovėjo
+ * `dashboard.css` — tada jis ir buvo vienintelis. Po jo suskaidymo įkaltas vardas reikštų, kad
+ * į atskirą failą iškelta taisyklė vartui DINGSTA: klasė būtų apšaukta nepadengta, nors
+ * stilius veikia. Riba plati sąmoningai — naujas `.css` failas patenka į vartą pats, be jokio
+ * sąrašo redagavimo, tad varto apimtis negali tyliai atsilikti nuo katalogo.
+ */
+function styleSheets(): string[] {
+  return readdirSync(styleDir)
+    .filter((entry) => entry.endsWith(".css"))
+    .sort()
+    .map((entry) => path.join(styleDir, entry));
+}
 
 /**
  * Žymė vietoje `${…}`: ją turintis token'as yra nepilnas, todėl netikrinamas. Turi būti simbolis,
@@ -87,7 +102,13 @@ function selectorText(css: string): string {
 }
 
 function definedClasses(): Set<string> {
-  const css = readFileSync(styleSheet, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ");
+  // `@import` išmetamas PRIEŠ selektorių skaitymą: `"./01-tokens-base.css"` klasių regex'ui
+  // atrodo kaip `.css`, ir indeksas tyliai „apibrėžtų" klasę, kurios niekas neaprašė.
+  const css = styleSheets()
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/@import[^;]*;/g, " ");
   const selectors = selectorText(css);
   return new Set(
     [...selectors.matchAll(/\.(-?[A-Za-z_][\w-]*)/g)].flatMap((match) => match[1] ?? []),

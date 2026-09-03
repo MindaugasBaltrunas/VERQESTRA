@@ -1,0 +1,275 @@
+/* ---- Sortable table headers --------------------------------------------- */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.sort-arrow {
+  font-size: 10px;
+  color: var(--accent);
+}
+
+/* ---- Buttons ---------------------------------------------------------- */
+.button,
+.icon-button {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color var(--speed) var(--ease), transform var(--speed) var(--ease),
+    background var(--speed) var(--ease), box-shadow var(--speed) var(--ease), color var(--speed) var(--ease);
+}
+.button {
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.button.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 6px 16px -8px var(--accent-ring);
+}
+.button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none !important;
+}
+
+.policy-group {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.policy-group > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 2px;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.policy-group > summary b {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+.policy-group > .summary { margin-top: 8px; }
+
+/* `#/system` po-hero mechanizmai (059-f-07): kortelės lygio `<details>`, kurio TURINYS yra visa
+   panelė (RuntimePanel/TokenBudgetPanel/WavesPanel/DiagnosticsPanel), o ne sąrašo eilutė — todėl
+   kortelės rėmelis, ne `.policy-group` atlanko raštas. */
+.system-panel-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.system-panel-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 700;
+}
+.system-panel-details > summary::-webkit-details-marker { display: none; }
+.system-panel-details > summary::after {
+  margin-left: auto;
+  color: var(--accent);
+  content: "⌄";
+  font-size: 18px;
+  transition: transform var(--speed) var(--ease);
+}
+.system-panel-details[open] > summary::after { transform: rotate(180deg); }
+.system-panel-details[open] > summary { border-bottom: 1px solid var(--border); }
+.system-panel-details-body { padding: 18px 20px 20px; }
+
+.policy-workspace {
+  overflow: hidden;
+}
+.policy-workspace-header {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.policy-workspace-stats {
+  display: flex;
+  gap: 8px;
+}
+.policy-workspace-stats span {
+  display: grid;
+  min-width: 88px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.policy-workspace-stats strong {
+  color: var(--text-strong);
+  font-size: 18px;
+}
+.policy-workspace-stats .has-pending {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface-2));
+}
+.policy-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 4px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+.policy-search {
+  display: grid;
+  flex: 1;
+  max-width: 460px;
+  gap: 5px;
+}
+.policy-search > span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.policy-search input {
+  width: 100%;
+  min-height: 36px;
+}
+.policy-filter {
+  flex: 0 0 auto;
+}
+.policy-filter button,
+.proposal-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.policy-filter b,
+.proposal-view-switch b {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  font-size: 10px;
+  text-align: center;
+}
+.policy-empty {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 11px;
+  text-align: center;
+}
+.policy-empty p {
+  margin: 5px 0 12px;
+  color: var(--muted);
+}
+.policy-controls-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+.policy-control-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.policy-control-card.is-pending {
+  border-left: 3px solid var(--warning);
+}
+.policy-control-topline,
+.policy-control-footer,
+.policy-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.policy-control-topline code,
+.policy-control-footer code {
+  color: var(--faint);
+  font-size: 10px;
+}
+.policy-form-preview span {
+  display: block;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.policy-form-preview strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-size: 14px;
+}
+.policy-value-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+}
+.policy-value-flow > div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.policy-value-flow > div:only-child {
+  grid-column: 1 / -1;
+}
+.policy-value-flow span,
+.proposal-value-change span,
+.proposal-context p > span,
+.proposal-audit > span {
+  display: block;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.policy-value-flow strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+.policy-value-flow .pending {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
+}
+.policy-value-flow small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}

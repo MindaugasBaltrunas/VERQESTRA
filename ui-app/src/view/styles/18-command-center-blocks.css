@@ -1,0 +1,453 @@
+/* --- Biudžeto ir diagnostikos blokai (2026-08-24: „viskas matoma") ------------------------ */
+
+.budget-block,
+.diagnostics-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.budget-block h3,
+.diagnostics-block h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+.budget-grid > div { display: grid; gap: 2px; }
+.budget-grid span { font-size: 11px; color: var(--muted); }
+.budget-grid strong { font-variant-numeric: tabular-nums; }
+
+/* Priežastys yra vartų kodai — monospace, kad juos būtų galima nusikopijuoti į žurnalo paiešką. */
+.budget-reasons { margin-top: 12px; }
+.budget-reasons ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.budget-reasons code { font-size: 11px; }
+
+.diagnostics-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.diagnostics-table th,
+.diagnostics-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.diagnostics-table th[scope="row"] { font-weight: 500; }
+.diagnostics-table td { font-variant-numeric: tabular-nums; }
+/* Nesamas failas nublanksta, bet LIEKA sąraše: jo nebuvimas yra faktas, ne tuštuma. */
+.state-file-missing { color: var(--faint); }
+
+/* `.table-scroll` buvo naudojamas PENKIOSE benchmark lentelėse ir neturėjo NĖ VIENOS taisyklės —
+   klasė, pažadanti slinkimą, jo neteikė, o plačios lentelės stumdavo visą puslapį horizontaliai
+   (tiksliai tas gedimas, kurį operatorius matė siaurame ekrane). Slenka konteineris, ne puslapis. */
+.table-scroll { max-width: 100%; overflow-x: auto; }
+
+/* --- Kompresijos kohorta (canary vs control) ---------------------------------------------- */
+
+.compression-baseline { background: var(--surface-subtle, rgba(127, 127, 127, 0.06)); }
+.compression-baseline th[scope="row"] .badge { margin-left: 6px; }
+/* Variantas: ID monospace, funkcijos po juo — jos yra tapatybė, todėl matomos be paspaudimo. */
+.diagnostics-table th[scope="row"] code { font-size: 11px; }
+.diagnostics-table th[scope="row"] small { display: block; color: var(--muted); font-size: 11px; }
+/* Mažiau tokenų yra GERIAU, todėl neigiamas pokytis žalias. Spalva seka prasmę, ne ženklą. */
+.delta-better { color: var(--success, #15803d); }
+.delta-worse { color: var(--danger, #b91c1c); }
+
+/* Politikos formos etiketės. Matomos, nes placeholder dingsta vos pradėjus rašyti. */
+.policy-field-label {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.filter-field-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--faint); }
+
+/* Faktinė datos lauko reikšmė ISO formatu. Ji stovi PO lauku ir monospace'u, kad skaitytųsi kaip
+   kanoninė reikšmė, o ne kaip antras įvesties laukas — būtent tai atskiria ją nuo naršyklės
+   piešiamo `mm/dd/yyyy` ir panaikina dviejų formatų prieštarą. */
+.filter-field-iso { display: block; margin-top: 2px; font-size: 10px; color: var(--muted); }
+.filter-field-iso code { font-family: "JetBrains Mono", Consolas, Monaco, monospace; font-size: 10px; }
+
+/* Kaina ir kartojimo priežastys: kodai monospace, kad juos būtų galima nukopijuoti į žurnalo
+   paiešką — tas pats sprendimas kaip `.budget-reasons`. */
+.usage-cost-line { margin: 10px 0 0; font-size: 13px; }
+.usage-cost-line strong { font-variant-numeric: tabular-nums; }
+.usage-cost-line small { color: var(--muted); }
+.rework-reasons code { font-size: 11px; }
+
+.compression-combination { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.compression-combination h3 { margin: 0 0 4px; font-size: 13px; }
+.compression-combination ul { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; }
+.compression-combination code { font-size: 11px; }
+
+/* --- Signalai, taikiniai ir „Daugiau" meniu (2026-08-24, operatoriaus nurodymai) ---------- */
+
+/* Trys skirtingi faktai stovi šalia, bet kaip ATSKIRI ženklai — ne kaip vienas jungtinis. */
+.page-heading-signals { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.freshness-indicator.stream-disconnected { color: var(--warning, #b45309); }
+.freshness-indicator.stream-disconnected i,
+.freshness-indicator.stream-connecting i { background: currentColor; animation: none; }
+
+/* Užduoties ID ir pavadinimas: ID monospace ir netraukiamas, pavadinimas gauna likusį plotą. */
+.task-list li { display: flex; gap: 6px; align-items: baseline; }
+.task-id { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+.task-name { min-width: 0; }
+
+/* WCAG 2.5.8: paspaudimo taikinys ne mažesnis nei 44px. Kompaktiški mygtukai buvo 32–41px —
+   pakanka pelei, per maža pirštui, ir būtent jie yra dažniausiai spaudžiami valdikliai. */
+.button,
+.small-button,
+.nav-tab,
+.more-menu > summary {
+  min-height: 44px;
+}
+/* 2026-08-24, tęsinys: vienuoliktas ratas taisyklę pritaikė TIK `.button` šeimai, tad likę
+   interaktyvūs taikiniai jos niekada negavo — filtrų presetai ir puslapiavimas 30 px, paieškos
+   ir filtrų laukai 34–36 px. Operatorius pamatė LT/EN, nes jie siauriausi; klasė ta pati.
+   Įrašomi VARDAIS, o ne per `button, input, select`: pastarasis paliestų ir tuos elementus,
+   kurių dydį diktuoja lentelės eilutė, ir sugriautų tankias lenteles. */
+.filter-presets button,
+.table-pagination button,
+.filter-reset,
+.segmented-control button,
+.failure-query-toolbar input,
+.failure-query-toolbar select,
+.policy-search input {
+  min-height: 44px;
+}
+/* IŠMATUOTA tikrame renderyje 2026-08-24 (ne suskaičiuota iš CSS — tai ir buvo skirtumas).
+   Likę taikiniai 27–43 px juostoje: politikų grupės atlankas, filtrų laukai ir segmentuoto
+   valdiklio mygtukai, iš kurių siauriausias buvo 27 px pločio. */
+.policy-group > summary,
+.filter-field .range-input,
+.failure-day {
+  min-height: 44px;
+}
+.filter-presets button,
+.segmented-control button,
+.filter-field .range-input {
+  min-width: 44px;
+}
+
+/* SĄMONINGAI PALIEKAMI mažesni: `.bar-label-button`, `.task-drilldown-button` ir
+   `.table-sort-button` yra INLINE afordansai tankiuose duomenyse — diagramos eilutės vardas,
+   lentelės stulpelio antraštė. Jų padidinimas iki 44 px keistų ne mygtuką, o visos lentelės
+   eilučių ritmą ir sumažintų vienu metu matomų duomenų kiekį. WCAG 2.5.8 tokiems taikiniams turi
+   išimtį (inline tekste), ir kiekvienas jų turi alternatyvų kelią: rūšiavimą — per stulpelio
+   antraštę, gilinimąsi — per užduoties eilutę sąraše. Įrašyta, kad kitas auditas neieškotų iš
+   naujo ir nepakeistų šio sprendimo netyčia. */
+/* Ikoninius/tekstinius taikinius reikia ir horizontaliai: 44px aukštis be pločio vis tiek
+   palieka siaurą juostelę. */
+.button, .small-button { min-width: 44px; }
+
+.more-menu { position: relative; display: none; }
+.more-menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 220px;
+  max-height: 70vh;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.more-menu-heading {
+  margin: 6px 4px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.more-menu-panel nav { display: grid; gap: 2px; }
+.more-menu-settings-row { display: flex; gap: 4px; align-items: stretch; }
+.more-menu-settings-theme { flex: 1 1 0; text-align: center; }
+.more-menu-languages { display: flex; gap: 4px; }
+.more-menu-languages .more-menu-item { flex: 1 1 0; min-width: 44px; text-align: center; }
+/* Maršruto vardas juostoje reikalingas TIK tada, kai skirtukų nematyti (siauras ekranas). */
+.topbar-route { display: none; }
+.more-menu-item {
+  min-height: 44px;
+  text-align: left;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.more-menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.more-menu-item.active { background: var(--surface-3); font-weight: 600; }
+.more-menu-item:disabled { opacity: 0.45; cursor: default; }
+
+.freshness-indicator.freshness-stale { color: var(--warning, #b45309); }
+.freshness-indicator.freshness-failed { color: var(--error, #b91c1c); }
+.freshness-indicator.freshness-stale i,
+.freshness-indicator.freshness-failed i { background: currentColor; animation: none; }
+.freshness-indicator small { opacity: 0.75; }
+
+.freshness-indicator i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good-line);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good-line) 15%, transparent);
+}
+
+.panel,
+.chart-panel {
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+.panel:hover,
+.chart-panel:hover {
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+.summary {
+  gap: 10px;
+}
+
+.metric {
+  min-height: 84px;
+  border-radius: 9px;
+  padding: 14px 15px;
+  background: var(--surface);
+}
+
+.metric::before {
+  inset: auto 14px 0;
+  width: auto;
+  height: 2px;
+  border-radius: 999px 999px 0 0;
+  opacity: 0.55;
+}
+
+.metric:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.metric-label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.metric-value {
+  margin-top: 9px;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+
+.command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
+  gap: 18px;
+}
+
+.agent-chain-panel,
+.attention-panel {
+  min-height: 244px;
+}
+
+.agent-legend {
+  display: none;
+}
+
+.agent-current-activity {
+  padding: 13px 14px;
+}
+
+.attention-list {
+  display: grid;
+}
+
+.attention-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.attention-list > div:last-child {
+  border-bottom: 0;
+}
+
+.attention-list span {
+  color: var(--muted);
+}
+
+.attention-list strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-snapshot {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--border);
+}
+
+.queue-snapshot > div {
+  padding: 13px 14px;
+  background: var(--surface-2);
+}
+
+.queue-snapshot span,
+.queue-snapshot strong {
+  display: block;
+}
+
+.queue-snapshot span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.queue-snapshot strong {
+  margin-top: 4px;
+  font-size: 19px;
+}
+
+.content-stack,
+.recommendation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.review-hero {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 26px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.review-hero span,
+.review-hero strong {
+  display: block;
+}
+
+.review-hero span {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.review-hero strong {
+  margin-top: 4px;
+  font-size: 32px;
+}
+
+.review-hero p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.segmented-control {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.segmented-control button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.segmented-control button.active {
+  background: var(--surface);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented-control b {
+  margin-left: 3px;
+  color: var(--faint);
+}
+
+.recommendation-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.recommendation-card > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.recommendation-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.recommendation-card > summary > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.recommendation-card > summary strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommendation-card > summary > span {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.recommendation-card[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.recommendation-body {
+  padding: 14px 16px 16px;
+}
+
+.recommendation-labels {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+

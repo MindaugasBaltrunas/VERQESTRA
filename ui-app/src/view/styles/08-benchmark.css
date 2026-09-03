@@ -1,0 +1,306 @@
+/* ---- Benchmark intelligence ------------------------------------------ */
+.benchmark-page {
+  display: grid;
+  gap: 12px;
+}
+.benchmark-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.reliability-kpi,
+.benchmark-kpi {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--surface);
+}
+.benchmark-kpi span,
+.benchmark-kpi strong,
+.benchmark-kpi small {
+  display: block;
+}
+.benchmark-kpi span {
+  min-height: 24px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.benchmark-kpi strong {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+  font-size: 21px;
+}
+.benchmark-kpi small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.benchmark-reasons {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.benchmark-run-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.benchmark-run-fact-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 6px;
+}
+.benchmark-run-fact-card p {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.benchmark-run-fact-card p span {
+  color: var(--faint);
+}
+.benchmark-run-fact-missing {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--faint);
+  font-size: 12px;
+}
+.benchmark-mode-differences {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0 0 0 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.benchmark-scenario-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.benchmark-scenario-row.selected td {
+  background: var(--accent-soft);
+}
+.benchmark-scenario-row-trigger {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.benchmark-scenario-row-trigger:hover {
+  text-decoration: underline;
+}
+.benchmark-scenario-row-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.benchmark-regression-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.benchmark-regression-list > li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.benchmark-reproduction {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+.benchmark-reproduction span {
+  color: var(--faint);
+}
+
+.benchmark-verdict-tokens {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Benchmark insights: išvados, dvikovos diagrama, žodynėlis (2026-08-26) ---- */
+.benchmark-kpi-caption {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+}
+.benchmark-score {
+  font-size: 14px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.benchmark-score strong {
+  font-size: 18px;
+  color: var(--text);
+}
+.benchmark-conclusion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.benchmark-conclusion-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.benchmark-value-table {
+  font-variant-numeric: tabular-nums;
+}
+.benchmark-value-table td small {
+  color: var(--faint);
+}
+.benchmark-value-table td.value-winner {
+  font-weight: 700;
+}
+.benchmark-value-verdict {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #4f8cff);
+  border-radius: 9px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.benchmark-duel-grid {
+  display: grid;
+  gap: 14px;
+}
+.benchmark-duel-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.benchmark-duel-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.benchmark-duel-label span {
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+.benchmark-duel-label small {
+  color: var(--faint);
+  font-size: 11px;
+}
+.benchmark-duel-bars {
+  display: grid;
+  gap: 4px;
+}
+.benchmark-duel-bar {
+  display: grid;
+  grid-template-columns: 150px 1fr 90px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.benchmark-duel-bar.floor {
+  opacity: 0.55;
+}
+.benchmark-duel-bar.winner .benchmark-duel-mode {
+  font-weight: 700;
+}
+.benchmark-duel-mode {
+  color: var(--faint);
+  white-space: nowrap;
+}
+.benchmark-duel-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.benchmark-duel-fill {
+  height: 100%;
+  border-radius: 5px;
+}
+.benchmark-duel-fill.mode-ag-loop {
+  background: var(--accent, #4f8cff);
+}
+.benchmark-duel-fill.mode-agent-solo {
+  background: var(--warning, #d9a13b);
+}
+.benchmark-duel-fill.mode-deterministic-control {
+  background: var(--faint, #8a8f98);
+}
+.benchmark-duel-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.benchmark-glossary details {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  padding: 8px 12px;
+  margin: 0 0 8px;
+}
+.benchmark-glossary summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.benchmark-glossary-list {
+  margin: 8px 0 4px;
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) 1fr;
+  gap: 6px 14px;
+  font-size: 12px;
+}
+.benchmark-glossary-list dt {
+  font-weight: 600;
+  word-break: break-all;
+}
+.benchmark-glossary-list dd {
+  margin: 0;
+  color: var(--muted, var(--faint));
+}
+@media (max-width: 720px) {
+  .benchmark-duel-row,
+  .benchmark-glossary-list {
+    grid-template-columns: 1fr;
+  }
+  .benchmark-duel-bar {
+    grid-template-columns: 110px 1fr 80px;
+  }
+}
+

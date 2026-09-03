@@ -1,0 +1,276 @@
+/* TUŠČIA BŪSENA UŽIMA TIEK, KIEK NEŠA (2026-08-24, operatoriaus radinys).
+   Centruota 44 px paraštėmis apjuosta „herojinė" tuštuma buvo ~170 px aukščio ir sakė vieną
+   dalyką: čia nieko nėra. `#/reviews` ekrane prieš politikų valdiklius stovi DVI tokios, ir jos
+   nustumdavo valdiklius už matomos ribos — vienintelį dalyką tame ekrane, su kuriuo galima
+   dirbti. Dabar tai eilutė: piktograma ir tekstas šalia, ~52 px.
+   Dešimtas ratas sprendė tą patį TRINDAMAS vieną iš trijų blokų; likusios dvi rodė, kad problema
+   ne kiekis, o dydis. */
+.inbox-zero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.inbox-zero > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--good-bg);
+  color: var(--good);
+  font-size: 14px;
+}
+
+.inbox-zero strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+/* Paaiškinimas eina PO antrašte, bet tame pačiame stulpelyje — antra eilutė, ne antras blokas. */
+.inbox-zero > strong { flex: 0 1 auto; }
+.inbox-zero p {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--faint);
+  font-size: 11px;
+}
+/* `panel inbox-zero` (benchmark „ataskaitos nėra") nešą daugiau nei vieną sakinį — komandą,
+   kurią reikia paleisti. Jam eilutė per siaura, tad jis lieka stulpeliu. */
+.panel.inbox-zero {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px 20px;
+}
+
+.usage-page {
+  max-width: 1480px;
+}
+
+.chart-grid {
+  gap: 14px;
+}
+
+.analytics-grid {
+  margin-top: 18px;
+}
+
+@media (max-width: 1100px) {
+  :root { --sidebar-width: 210px; }
+  main { padding-inline: 24px; }
+  .command-grid { grid-template-columns: 1fr; }
+  .queue-snapshot { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .reliability-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .benchmark-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  /* LIPNI ANTRAŠTĖ — VIENA EILUTĖ (2026-08-24, operatoriaus radinys: 230 px = 27,3 % ekrano).
+     Ją sudarydavo trys sudėtos eilutės: prekės ženklas, laužoma įrankių juosta ir devynių
+     skirtukų slinkiklis. Lipnus elementas yra tas, kurio KAINA mokama visą laiką, tad jame lieka
+     tik tai, be ko negalima dirbti: kas tai per ekranas ir kaip patekti į bet kurį kitą.
+     Skirtukai ir juosta paslepiami TIK todėl, kad „Daugiau" meniu neša viską, ką jie rodė —
+     devynis ekranus, ciklo veiksmus, atnaujinimą, temą ir kalbą. Be to pakaitalo tai būtų
+     dešimto rato klaida iš naujo. */
+  header {
+    position: sticky;
+    inset: 0;
+    width: auto;
+    padding: 8px 14px;
+  }
+  .topbar { height: auto; gap: 0; }
+  .topbar-primary {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .brand .muted { display: none; }
+  .brand h1,
+  .brand .brand-title { font-size: 15px; }
+  /* Vardas atsako į „kur aš esu" — be jo susitraukusi juosta atsakytų tik į „ką galiu daryti". */
+  .topbar-route {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  header .nav-tabs,
+  header .toolbar { display: none; }
+  /* Pilnas ekranų ir įrankių sąrašas atsiranda TIK čia: plačiame ekrane visi devyni skirtukai
+     matomi vienu metu, tad meniu ten būtų antra to paties navigacija. */
+  .more-menu { display: inline-block; }
+  .more-menu > summary { min-width: 44px; }
+  /* Kalbos mygtukai meniu — šalia vienas kito, bet abu su pilnu taikiniu. */
+  .more-menu-languages { display: flex; gap: 4px; }
+  .more-menu-languages .more-menu-item { flex: 1 1 0; min-width: 44px; text-align: center; }
+  /* Užduočių kategorijos — VIENAS stulpelis. Du siauri stulpeliai laužo tekstą per vidurį ir
+     nesutaupo nieko: bucket'ų yra septyni, tad vertikalus sąrašas vis tiek slenkamas, o
+     kiekvienas jų gauna visą plotį ir tampa įskaitomas. */
+  .workflow-board { grid-template-columns: 1fr; }
+  main {
+    margin-left: 0;
+    padding: 20px 14px 36px;
+  }
+  main > *,
+  .page-heading > div,
+  .usage-page-heading > div,
+  .panel {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .page-heading p,
+  .panel {
+    overflow-wrap: anywhere;
+  }
+  .page-heading,
+  .usage-page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .freshness-indicator { display: none; }
+  .queue-snapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-hero { grid-template-columns: 1fr; gap: 10px; }
+  .recommendation-card > summary { grid-template-columns: 1fr; }
+  .policy-workspace-header,
+  .policy-toolbar,
+  .policy-control-footer,
+  .proposal-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .policy-workspace-stats {
+    width: 100%;
+  }
+  .policy-search {
+    width: 100%;
+    max-width: none;
+  }
+  .policy-filter,
+  .proposal-view-switch {
+    width: 100%;
+    overflow-x: auto;
+  }
+  .policy-filter button,
+  .proposal-view-switch button {
+    flex: 1 0 auto;
+  }
+  .policy-workspace-stats span {
+    flex: 1;
+  }
+  .policy-controls-grid,
+  .proposal-context {
+    grid-template-columns: 1fr;
+  }
+  .policy-value-flow,
+  .proposal-value-change {
+    grid-template-columns: 1fr;
+  }
+  .system-health-hero,
+  .system-status-hero,
+  .system-project-card {
+    grid-template-columns: 1fr;
+  }
+  .system-status-hero-stats {
+    width: 100%;
+  }
+  .system-status-hero-stat {
+    flex: 1;
+  }
+  .system-health-metrics {
+    width: 100%;
+  }
+  .system-health-metrics > div {
+    flex: 1;
+  }
+  .system-signal,
+  .system-all-clear {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .system-signal .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .reliability-kpis,
+  .reliability-two-column,
+  .reliability-token-grid,
+  .benchmark-kpis,
+  .benchmark-run-facts {
+    grid-template-columns: 1fr;
+  }
+  .reliability-period-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .reliability-period-bar .segmented-control {
+    width: 100%;
+    overflow-x: auto;
+  }
+  .failure-query-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .failure-query-toolbar .button { width: 100%; }
+  .file-bars {
+    overflow-x: auto;
+    grid-template-columns: repeat(30, minmax(12px, 1fr));
+  }
+  .failure-timeline-bars {
+    overflow-x: auto;
+    grid-template-columns: repeat(30, minmax(12px, 1fr));
+  }
+  .failure-selection {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  .failure-detail-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .failure-details > summary > span:nth-child(2) { display: none; }
+  .failure-type-list > div {
+    grid-template-columns: minmax(120px, 1fr) minmax(70px, 1fr) 30px;
+  }
+  .failure-type-list small { display: none; }
+  .extension-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .policy-flow-arrow,
+  .proposal-value-change > span {
+    transform: rotate(90deg);
+    justify-self: center;
+  }
+  .policy-control-footer .button {
+    width: 100%;
+  }
+}
+.language-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* Dviejų raidžių etiketė nesuteikia pločio pati: 36 px buvo pasirinkti tekstui, ne pirštui.
+   WCAG 2.5.8 minimumas taikomas ir čia — LT/EN spaudžiami taip pat dažnai kaip bet kas kitas. */
+.language-switch .button {
+  min-width: 44px;
+  min-height: 44px;
+  padding-inline: 8px;
+}
+
+.language-switch .button.active {
+  color: var(--text);
+  background: var(--surface-raised, rgba(127, 127, 127, 0.16));
+}
+

@@ -76,8 +76,10 @@ Draudžiama:
 >    Nežinai vardo — įrašyk numatomą su išlyga (žr. pavyzdį viršuje):
 >    klaidingas konkretus kelias pastebimas, wildcard'as — ne.
 > 3. UI task'as VISADA įtraukia `ui-app/src/i18n/I18nContext.tsx` (nauji
->    tekstai) ir `ui-app/src/view/styles/dashboard.css` (naujos className —
->    CSS dengiamumo vartas). Jei keiti mygtukus — patikrink, ar jie negyvena
+>    tekstai) ir bent vieną `ui-app/src/view/styles/*.css` (naujos className —
+>    CSS dengiamumo vartas). Deklaruok TĄ failą, kuriame gyvena keičiamos
+>    klasės: `dashboard.css` nuo 2026-09-03 yra tik `@import` rodyklė, ir
+>    klasių į ją nerašom. Jei keiti mygtukus — patikrink, ar jie negyvena
 >    LoopControls/ConfirmButton tipo vaikuose, ne tik tėviniame komponente.
 > 4. Serverio HTTP pakeitimas beveik visada liečia ir `ui-router-model.ts`
 >    (route tipai) bei `ui-error-mapping.ts` (klaidų kodai) — pagalvok apie
@@ -93,8 +95,10 @@ Draudžiama:
 >    `## Priklausomybės` eilutė, arba bendras pakeitimas iškeliamas į
 >    atskirą smulkų task'ą, nuo kurio abu priklauso.
 > 8. HOTSPOT failai, kurie serializuoja beveik visus UI task'us:
->    `ui-app/src/i18n/I18nContext.tsx`, `ui-app/src/view/styles/dashboard.css`,
->    `ui-app/src/model/types.ts`, `ui-app/src/model/api.ts`. Planuok UI
+>    `ui-app/src/i18n/I18nContext.tsx`, `ui-app/src/model/types.ts`,
+>    `ui-app/src/model/api.ts`. Stilių `dashboard.css` hotspot'u BUVO iki
+>    2026-09-03 skaidymo — dabar skirtingas sekcijas liečiantys task'ai gauna
+>    skirtingus `view/styles/*.css` failus ir nebesiserializuoja. Planuok UI
 >    task'ų partijas taip, kad vienu metu eilėje stovėtų daugiausia VIENAS
 >    hotspot'us liečiantis task'as, o kiti tuo metu — be jų.
 > 9. PIN'INANTYS TESTAI: jei task'as keičia reikšmę, kurią testas tvirtina

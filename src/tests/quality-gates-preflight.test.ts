@@ -485,6 +485,11 @@ test("070-a-02: wildcard be pagrindimo, UI be I18nContext, etaloną atitinkantis
   assert.match(missingI18n.citation, /I18nContext\.tsx/);
   const ok = "# Task\n\n## Failai\nLeidžiama:\n- `src/application/quality-gates/preflight-fastpath.ts`\n- `src/tests/quality-gates-preflight.test.ts`\n\n## Patikra\n- `pnpm test`\n";
   assert.deepEqual(evaluateEtalonasRuleViolations(ok), []);
+  // 2026-09-03: `view/styles/` yra katalogas — taisyklė priima BET KURĮ jo `.css`; kitaip UI
+  // task'as deklaruotų `dashboard.css` (dabar tik `@import` rodyklę), kurio neredaguoja.
+  const uiTask = (css: string): string => `# Task\n\n## Failai\nLeidžiama:\n- \`ui-app/src/view/components/SomePanel.tsx\`\n- \`ui-app/src/i18n/I18nContext.tsx\`\n${css}\n\n## Patikra\n- \`pnpm test\`\n`;
+  for (const css of ["dashboard.css", "13-buttons.css"]) assert.deepEqual(evaluateEtalonasRuleViolations(uiTask(`- \`ui-app/src/view/styles/${css}\``)), [], css);
+  assert.ok(evaluateEtalonasRuleViolations(uiTask("")).some((v) => v.ruleId === "ui-file-without-dashboard-css"), "UI task'as be view/styles/*.css privalo likti pažeidimu");
   const queueDir = "AG/tasks/queue";
   // Tuščia eilė — teisėta sėkmės būsena (2026-08-30); klaidingą kelią tebegaudo readdir ENOENT.
   const files = (await fs.readdir(queueDir)).filter((name) => name.endsWith(".md"));

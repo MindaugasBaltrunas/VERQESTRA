@@ -1,0 +1,205 @@
+/* =========================================================================
+   AG Orchestrator Console — design system
+   Profesionali dashboard tema. Klasių pavadinimai išlaikyti, kad React
+   komponentai (Header, OverviewPanel, WorkflowBoard, LogPanel, ...) nesulūžtų.
+   ========================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces & lines */
+  --bg: #eef1f6;
+  --bg-grad: radial-gradient(1200px 600px at 100% -10%, #e6ecf7 0%, transparent 55%),
+    radial-gradient(900px 500px at -10% 0%, #eaf0fb 0%, transparent 50%);
+  --surface: #ffffff;
+  --surface-2: #f4f6fa;
+  --surface-3: #eef1f6;
+  --border: #e2e7ef;
+  --border-strong: #cdd5e1;
+
+  /* Text */
+  --text: #0f1726;
+  --text-strong: #060b14;
+  --muted: #5b6675;
+  --faint: #8a94a3;
+
+  /* Brand / accent */
+  --accent: #3b6cf6;
+  --accent-2: #6a4bf5;
+  --accent-strong: #2a55d6;
+  --accent-soft: #e7edfe;
+  --accent-ring: rgba(59, 108, 246, 0.35);
+
+  /* Header */
+  --header-bg: linear-gradient(120deg, #0f1830 0%, #16223f 45%, #1b2c52 100%);
+  --header-text: #f4f7fc;
+
+  /* Terminal / log */
+  --log-bg: #0b1120;
+  --log-panel: #0e1526;
+  --log-text: #d7e0ef;
+
+  /* Semantic */
+  --good: #15803d;
+  --good-bg: #e3f7ea;
+  --good-line: #34c172;
+  --warning: #a96a09;
+  --warning-bg: #fdf2d8;
+  --warning-line: #e9b948;
+  --warning-log: #f5c451;
+  --error: #c43d1c;
+  --error-bg: #fde7e1;
+  --error-line: #f0664a;
+  --error-log: #fb8a72;
+
+  /* Geometry */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --ring: 0 0 0 3px var(--accent-ring);
+
+  /* Shadows (soft, layered) */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --shadow: 0 6px 16px -8px rgba(15, 23, 42, 0.18), 0 2px 6px -4px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.28);
+
+  --speed: 140ms;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Judesys srautų kortelėms (task 1233). Tamsiai temai atskirų reikšmių nereikia: spalvas jos
+     ima iš jau temizuotų `--good/--warning/--error/--accent` šeimų. */
+  --speed-slow: 420ms;
+  --speed-morph: 260ms;
+  --ease-spring: cubic-bezier(0.22, 1.28, 0.36, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --stagger: 60ms;
+  --progress-track: var(--surface-3);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0a0e16;
+  --bg-grad: radial-gradient(1100px 560px at 100% -10%, #131c30 0%, transparent 55%),
+    radial-gradient(900px 480px at -10% 0%, #101a2e 0%, transparent 52%);
+  --surface: #121927;
+  --surface-2: #161f30;
+  --surface-3: #1c2740;
+  --border: #232f44;
+  --border-strong: #324159;
+
+  --text: #e7edf6;
+  --text-strong: #f6f9ff;
+  --muted: #97a3b4;
+  --faint: #6b7688;
+
+  --accent: #5e8bff;
+  --accent-2: #9a7bff;
+  --accent-strong: #4a78f5;
+  --accent-soft: #17223f;
+  --accent-ring: rgba(94, 139, 255, 0.4);
+
+  --header-bg: linear-gradient(120deg, #0a1122 0%, #0e1730 50%, #121f3c 100%);
+  --header-text: #eef3fc;
+
+  --log-bg: #050a14;
+  --log-panel: #080e1b;
+  --log-text: #d4deee;
+
+  --good: #5fdc94;
+  --good-bg: #11241a;
+  --good-line: #34c172;
+  --warning: #f5c451;
+  --warning-bg: #2c2410;
+  --warning-line: #c79527;
+  --warning-log: #fbd96b;
+  --error: #fb8a72;
+  --error-bg: #2e1512;
+  --error-line: #e0593b;
+  --error-log: #fb8a72;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.6), 0 2px 8px -4px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 30px 80px -28px rgba(0, 0, 0, 0.7);
+}
+
+* {
+  box-sizing: border-box;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Navigacijos praleidimas (WCAG 2.4.1). Nematomas, kol negauna fokuso — tada tampa pirmu
+   matomu elementu puslapyje. `clip`/`width` triukas vietoj `display: none`, nes paslėptas
+   elementas fokuso apskritai negautų, ir mygtukas neegzistuotų klaviatūrai. */
+/* WCAG 2.5.8 taikoma ir čia. Praleidimo mygtukas buvo 41 px aukščio — vienintelis taikinys
+   visame puslapyje, likęs po riba (rasta 2026-08-24 IŠMATAVUS tikrą renderį; `.skip-link` nėra
+   `.button`, tad vienuolikto rato taisyklė jo nepasiekė). Tai pirmas fokusuojamas elementas
+   puslapyje, ir jį spaudžia būtent tas, kam pataikyti sunkiausia. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 0 0 8px 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  left: 0;
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Fokusas, perkeltas į `main`, neturi piešti nuolatinio rėmelio pelės naudotojui. */
+main:focus {
+  outline: none;
+}
+
+main:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -2px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Inter, "SF Pro Text", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "ss01";
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+

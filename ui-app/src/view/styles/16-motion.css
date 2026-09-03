@@ -1,0 +1,118 @@
+/* ---- Motion / responsive --------------------------------------------- */
+/* Skeletonai: laukiama duomenų, o ne „nieko nėra". Blizgesys juda `transform`, ne `background-position` —
+   taip animacija lieka kompozitoriaus sluoksnyje. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 70%, transparent), transparent);
+  animation: skeleton-sweep 1600ms var(--ease) infinite;
+  content: "";
+}
+.skeleton-line {
+  height: 10px;
+  margin: 6px 0;
+}
+.skeleton-line:nth-child(2)::after { animation-delay: var(--stagger); }
+
+/* Visos `@keyframes` juda TIK `transform` ir `opacity`: bet kas kita verstų perskaičiuoti išdėstymą. */
+@keyframes skeleton-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes state-morph {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes card-enter {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* Bendra taisyklė judesį tik pagreitina; čia jį pašaliname visiškai — nulinės trukmės ciklas vis
+     tiek liktų mirgėjimu, o nebaigta juosta liktų taške, kuriame ją paliko animacija. */
+  .progress-bar__fill { transition: none !important; }
+  .skeleton::after { display: none !important; }
+  .slot-state-badge,
+  .slot-card { animation: none !important; }
+  /* Nulinės trukmės ciklas liktų mirgėjimu: suktukas sustabdomas visiškai, o „vyksta" faktą toliau
+     neša `aria-busy` ir išjungtas mygtukas. */
+  .button-spinner { animation: none !important; }
+}
+
+@media (max-width: 1100px) {
+  .log-grid { grid-template-columns: 1fr; }
+  .chart-grid { grid-template-columns: 1fr; }
+  .chart-grid > * { grid-column: auto !important; }
+  .filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-reset { min-height: 34px; }
+  .top-tasks-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-snapshot-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-decision-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  header { padding: 13px 16px; }
+  main { padding: 14px 14px 28px; gap: 12px; }
+  .panel { padding: 16px; }
+  .topbar { align-items: flex-start; flex-direction: column; }
+  .agent-chain-panel .panel-header { align-items: flex-start; flex-direction: column; }
+  .log { height: 280px; }
+  .range-controls { grid-template-columns: 1fr; }
+  .summary,
+  .usage-summary-panel .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-bar { grid-template-columns: 1fr; }
+  .chart-grid { grid-template-columns: 1fr; }
+  .usage-page-heading { align-items: flex-start; flex-direction: column; }
+  .usage-freshness { justify-items: start; }
+  .usage-section-heading { align-items: flex-start; flex-direction: column; }
+  .token-detail-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .token-detail-strip > div + div { border-left: 0; }
+  .token-detail-strip > div:nth-child(even) { border-left: 1px solid var(--border); }
+  .token-detail-strip > div:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .usage-insights { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: minmax(90px, 0.8fr) minmax(80px, 1fr) 72px; }
+  .chart-panel { padding: 16px; }
+  .top-tasks-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .top-tasks-count { align-self: flex-start; }
+  .top-tasks-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .top-tasks-table-scroll { max-height: 560px; }
+  .analytics-snapshot-heading { flex-direction: column; gap: 8px; }
+  .filter-presets { overflow-x: auto; padding-bottom: 2px; }
+  .log-filter-row { grid-template-columns: 1fr; }
+  .agent-chain { overflow-x: auto; padding-bottom: 4px; }
+  .chart-kpi-pair { width: 100%; justify-content: space-between; }
+  .chart-kpi-pair span { justify-items: start; }
+  .comparison-axis { display: none; }
+  .comparison-row { grid-template-columns: minmax(92px, .8fr) minmax(100px, 1fr) 70px; }
+  .trend-chart-footer { grid-template-columns: 1fr 1fr; }
+  .trend-chart-footer span:nth-child(2) { display: none; }
+  .task-concentration-axis { display: none; }
+  .task-concentration-row {
+    grid-template-columns: 18px minmax(90px, .8fr) minmax(90px, 1fr) 76px;
+    gap: 6px;
+  }
+  .task-concentration-value { display: grid; justify-items: end; gap: 0; }
+}
+@media (max-width: 520px) {
+  .summary,
+  .usage-summary-panel .summary { grid-template-columns: 1fr; }
+  .metric { min-height: 82px; }
+  .top-tasks-overview { grid-template-columns: 1fr; }
+  .top-tasks-panel { margin-inline: 0; }
+  .analytics-snapshot-metrics { grid-template-columns: 1fr; }
+  .analytics-decision-heading { flex-direction: column; }
+  .analytics-decision-grid { grid-template-columns: 1fr; }
+}
+

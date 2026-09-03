@@ -173,3 +173,28 @@ Liko atvira (sąmoningai): pirminio medžio įrašai vis dar rodomi kaip „anks
 pakeičiami gyvų slot'ų bandymo artefaktais — per-slot'inis exit kodas / stop įrodymas dashboard'e
 reikalautų worktree kopijų `vq/state` skaitymo tokiu pat keliu kaip SSE `worktreeLiveSources`.
 Tai atskiras task'as; šis pakeitimas uždaro melą, ne trūkstamą duomenį.
+
+## Sveikatos patikra 2026-09-03 (~22:40)
+
+Tikrinta be naršyklės (plėtinys neprisijungė) ir be HTTP (`curl`/`Invoke-RestMethod` sandbox'e
+blokuoti): procesai, disko artefaktai, būsenos failai, testai.
+
+| Kas | Būsena | Faktas |
+|---|---|---|
+| UI serveris | veikia | pid 26376 (`ui-server.json`, port 4252), startas 10:25:55, gyvas |
+| Loop'as | veikia | pid 30528 (`ui-loop.pid`/`.runtime.json`), heartbeat šviežias; run `bfa0a3c0`, banga 1: 158 (w1) ir 159 (w2) `running`, 160 `ready` |
+| Būsenos žymės | nuoseklios | `current-task-id` = 158, `current-task-file` = `delegated/158-…` — tas pats task'as, tas pats bucket'as (09-02 P1-2 nebekartojasi) |
+| ui-app testai | žali | 66 failai / 686 testai (17:44), įsk. 137 in-flight ir `WorkflowBoard` ženklelio testus |
+| **Naršyklės bundle'as** | **PASENĘS** | `ui-app/dist/assets/index-*.js` 10:09:47; `ui-app/src` commit'ai PO to: 10:25 (`group app-ui`) ir 17:54 (137 — in-flight eilutė, „vykdomas (w1)" ženklelis). Operatorius ekrane 137 funkcijos NEMATO. `pnpm build:ui` po ui-app merge'o niekas nepaleido; autostart'as (`ui/command.ts:94-98`) esamą serverį tik pripažįsta, bundle'o amžiaus netikrina |
+| **API kodas serveryje** | **PASENĘS** | procesas startavo 10:25 su tuometiniu `dist/`; `dist/.buildstamp` dabar 22:35. Po 10:25 `src/application/analytics` gavo 154 (20:54) — kohortų puslapio pataisa gyvame serveryje neveiks iki restarto |
+| `ui.pid` | pasenęs | 26300 — proceso nėra; realų serverį aprašo `ui-server.json`. Neveikia niekas, tik klaidina |
+| `claude-stop-status.json` | nėra | status_files rodo „nėra įrašo" — teisinga (w1 dirba worktree kopijoje) |
+| 156 eilėje | **užblokuotas** | `gate:approval-required`: `dependencyEvidence` tekstas `replace(...) praleidžia \`- pnpm` — mano JS citata „replace" per 40 simb. nuo „pnpm" → „dependency-change". Pataisytas žodynas task'e; klasė ta pati kaip modelių audito R5 — rizikos raktažodžiai sutampa su projekto kalba |
+
+Verdiktas: **serveris ir ciklas veikia, ekranas rodo vakarykštį bundle'ą.** Šaknis — nėra
+grandies „ui-app merge → `pnpm build:ui`" ir nėra „dist pasikeitė → UI restart". Rekomendacija:
+(1) integracijos žingsnis, kuris `dist` perstato po `src` merge'o (yra), po `ui-app/src` merge'o
+paleidžia `pnpm build:ui` (nėra); (2) UI autostart'as lygina `ui-server.json` startą su
+`dist/.buildstamp` ir arba perstartuoja, arba rašo `UI SERVES STALE BUILD` į orchestrator.log.
+Dabar: `pnpm build:ui` (bundle matomas iš karto — statika skaitoma iš disko) ir UI restartas
+(API kodui).

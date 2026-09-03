@@ -44,7 +44,7 @@ Draudžiama:
 - `etalonas-rules.ts`: perkelti šešias preflight taisykles; `patikra-without-backtick-check`
   domain'e realizuojama per `taskBulletItems` (ne per `parseBacktickChecks` — application, domain
   jo importuoti negali) ir suliejama su esamu `checkPatikra`: komanda privalo būti backtick'uota
-  IR iš leistinų formų (dabar `replace(/^`|`$/g,"")` praleidžia `- pnpm test` be backtick'ų).
+  IR iš leistinų formų (dabar `checkPatikra` 202 eil. backtick'us nuima ir bullet'ą be jų praleidžia).
   Wildcard apibrėžimas — VIENAS (`**` arba `xxx/` gale, kaip domain'e); placeholder žodynas —
   `isPlaceholderDependency`, `preflight-fastpath` savo `DEPENDENCY_PLACEHOLDER_TOKENS` netenka.
 - `Violation` tipas gauna neprivalomus `citation`/`detail` laukus, kad preflight kvietėjas

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { WorkflowBucketView } from "../../../../model/dashboardViewModel";
+import { I18nProvider } from "../../../../i18n/I18nContext";
 import { WorkflowBoard } from "../../../../view/components/dashboard/WorkflowBoard";
 
 const buckets: WorkflowBucketView[] = [
@@ -130,6 +131,84 @@ describe("WorkflowBoard", () => {
     expect(screen.getByText("2 of these are running in worktree streams right now")).toBeInTheDocument();
     // Antraštė toliau įvardija abu.
     expect(screen.getByText("153-a-02-scheduling (Stream 1), 152-a-02-koordinatorius (Stream 2)")).toBeInTheDocument();
+  });
+
+  // 2026-09-03: bangų worker→task žemėlapis. Bucket'ai worktree bangos metu rodo `queue`, tad
+  // ženklelis yra VIENINTELIS vietoje, kur matyti, kad būtent w1 tą failą jau suka.
+  it("names the worker on the card whose canonical task id is in flight", () => {
+    render(
+      <WorkflowBoard
+        buckets={[
+          { name: "queue", tasks: ["118-native-shell.md", "150-allowed-paths.md"], totalTasks: 2, variant: "neutral", description: "Waiting to start", isQueue: true },
+        ]}
+        inFlight={[{ workerId: "w1", taskId: "118-native-shell" }]}
+        onOpenFolder={vi.fn()}
+        onUpload={vi.fn()}
+        onLoadTasks={vi.fn()}
+      />,
+    );
+
+    const items = screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    expect(items[0]).toMatch(/^118.*running \(w1\)$/);
+    // Nesutampanti užduotis ženklelio NEGAUNA: „vykdoma" be sutapimo būtų spėjimas.
+    expect(items[1]).toMatch(/^150/);
+    expect(items[1]).not.toMatch(/running/);
+  });
+
+  it("says nothing when no task id matches an in-flight worker", () => {
+    render(
+      <WorkflowBoard
+        buckets={[
+          { name: "queue", tasks: ["150-allowed-paths.md"], totalTasks: 1, variant: "neutral", description: "Waiting to start", isQueue: true },
+        ]}
+        inFlight={[{ workerId: "w2", taskId: "118-native-shell" }]}
+        onOpenFolder={vi.fn()}
+        onUpload={vi.fn()}
+        onLoadTasks={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/running \(/)).not.toBeInTheDocument();
+  });
+
+  // Darbininko vardas ir srauto numeris sako TĄ PATĮ, tad rodomas vienas ženklelis — tikslesnis.
+  it("prefers the worker name over the stream number and keeps a single badge", () => {
+    render(
+      <WorkflowBoard
+        buckets={[
+          { name: "delegated", tasks: ["122-reducer.md"], totalTasks: 1, variant: "live", description: "Agent is working", isQueue: false },
+        ]}
+        liveSlots={[{ workerId: "w1", index: 1, taskId: "122-reducer" }]}
+        inFlight={[{ workerId: "w1", taskId: "122-reducer" }]}
+        onOpenFolder={vi.fn()}
+        onUpload={vi.fn()}
+        onLoadTasks={vi.fn()}
+      />,
+    );
+
+    const item = screen.getAllByRole("listitem")[0]!;
+    expect(item.textContent).toMatch(/^122.*running \(w1\)$/);
+    // Antraštės „Running" juosta srauto numerį tebeneša; ženklelis eilutėje — vienas.
+    expect(item.textContent).not.toMatch(/Stream/);
+    expect(item.querySelectorAll(".badge")).toHaveLength(1);
+  });
+
+  it("translates the in-flight badge into Lithuanian, leaving the worker id alone", () => {
+    render(
+      <I18nProvider>
+        <WorkflowBoard
+          buckets={[
+            { name: "queue", tasks: ["118-native-shell.md"], totalTasks: 1, variant: "neutral", description: "Waiting to start", isQueue: true },
+          ]}
+          inFlight={[{ workerId: "w2", taskId: "118-native-shell" }]}
+          onOpenFolder={vi.fn()}
+          onUpload={vi.fn()}
+          onLoadTasks={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText("vykdomas (w2)")).toBeInTheDocument();
   });
 
   it("keeps the old running line when no stream information is available", () => {

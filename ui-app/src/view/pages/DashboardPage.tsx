@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { PolicyProposalsPanel } from "../components/dashboard/PolicyProposalsPanel";
 import { LOOP_RESUME_ACTION, useDashboardController } from "../../controller/useDashboardController";
 import { useWavesController } from "../../controller/useWavesController";
+import { selectInFlightSlots, type InFlightSlot } from "../../model/dashboardViewModel";
 import { fixableTaskIds } from "../../model/loopControlsViewModel";
 import { buildSlotProgressViews, correlateActivity } from "../../model/slotProgressViewModel";
 import { AgentChainProgress } from "../components/dashboard/AgentChainProgress";
@@ -62,10 +63,19 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
   };
 
   // Bangų duomenys imami VIENĄ kartą ir tik ten, kur jie matomi: `#/` srautų santraukai ir
-  // `#/system` panelėms. Anksčiau juos siurbė pati `WavesPanel`, tad du vartotojai reikštų du
-  // 30 s pollingo srautus tam pačiam endpoint'ui.
-  const wavesEnabled = activeRoute === "overview" || activeRoute === "system";
+  // in-flight eilutei, `#/tasks` lentos „vykdoma" ženkleliams, `#/system` panelėms. Anksčiau
+  // juos siurbė pati `WavesPanel`, tad du vartotojai reikštų du 30 s pollingo srautus tam
+  // pačiam endpoint'ui. Trečias vartotojas (`tasks`) nieko nekainuoja: valdiklis vienas, ir
+  // maršrutų sąlyga lieka VIENOJE vietoje — dubliuoti ją komponentuose reikštų du srautus.
+  const wavesEnabled = activeRoute === "overview" || activeRoute === "system" || activeRoute === "tasks";
   const { data: waves, error: wavesError, reload: reloadWaves } = useWavesController({ enabled: wavesEnabled });
+
+  // Kas DABAR sukasi w1/w2 — gryna `/api/waves` projekcija. Pagrindinio medžio bucket'ai to
+  // nemato: worktree slot'o vaikas `queue→active` perkėlimą daro SAVO kopijoje, tad suvestinės
+  // `active` čia amžinai 0 (2026-09-02 apžvalgos auditas). `null` duomenys ir bangų klaida
+  // duoda TUŠČIĄ sąrašą, o tuščias sąrašas nerodo nieko: „0 vykdoma" tvirtintų, kad nieko
+  // nevyksta, nors iš tiesų tiesiog nežinoma.
+  const inFlight = useMemo(() => selectInFlightSlots(waves), [waves]);
 
   const loopControl = dashboard?.loopControl ?? null;
   // `Date.now()` gyvena ČIA, o ne modelyje: gryna funkcija su savo laikrodžiu būtų netestuojama.
@@ -233,7 +243,7 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
               />
               <AttentionPanel buckets={dashboard.buckets} />
             </div>
-            <QueueSnapshot buckets={dashboard.buckets} onNavigate={() => onNavigate("tasks")} />
+            <QueueSnapshot buckets={dashboard.buckets} inFlight={inFlight} onNavigate={() => onNavigate("tasks")} />
           </>
         )}
         {activeRoute === "tasks" && (
@@ -244,6 +254,10 @@ export function DashboardPage({ activeRoute, onNavigate }: Props) {
             liveSlots={slotProgress.flatMap((view) =>
               view.taskId === null ? [] : [{ workerId: view.workerId, index: view.index, taskId: view.taskId }],
             )}
+            // Bangų worker→task žemėlapis: jis vardija DARBININKĄ, o `slotProgress` — srauto
+            // numerį. Ta pati eilutė, tikslesnis šaltinis: `/api/waves` mato ir tą slot'ą,
+            // kurio ciklo valdymo blokas dar nespėjo parodyti.
+            inFlight={inFlight}
             onOpenFolder={(bucket) => { void actions.openFolder(bucket); }}
             onUpload={actions.uploadTaskFiles}
             onLoadTasks={actions.loadWorkflowTasks}
@@ -400,13 +414,34 @@ function AttentionPanel({ buckets }: { buckets: Array<{ name: string; totalTasks
   );
 }
 
-function QueueSnapshot({ buckets, onNavigate }: { buckets: Array<{ name: string; totalTasks: number }>; onNavigate: () => void }) {
+function QueueSnapshot({
+  buckets,
+  inFlight,
+  onNavigate,
+}: {
+  buckets: Array<{ name: string; totalTasks: number }>;
+  /** Worker→task poros iš bangų; tuščia reiškia „nežinoma", ne „nieko nevyksta" — tada eilutės nėra. */
+  inFlight: readonly InFlightSlot[];
+  onNavigate: () => void;
+}) {
   const { t } = useI18n();
   const visible = buckets.filter((bucket) => bucket.name !== "done");
+  // Bucket'ų skaičiai atsako, KIEK darbo laukia; ši eilutė — KAS iš jo jau sukasi. Be jos
+  // worktree bangos metu suvestinė rodė vien nulius, nes slot'ų perėjimai vyksta kopijose.
+  const pairs = inFlight.map((slot) => `${slot.workerId} → ${slot.taskId}`).join(", ");
   return (
     <section className="panel">
       <div className="panel-header">
         <div><h2>{t("Workflow snapshot")}</h2><p className="panel-subtitle">{t("Distribution of active work")}</p></div>
+        {/* Tas pats ženklas kaip Užduočių lentoje: operatorius jį jau moka skaityti, ir naujos
+            klasės čia reikštų naują išvaizdą tam pačiam faktui. PILNAS sąrašas lieka `title`. */}
+        {inFlight.length > 0 && (
+          <div className="running-now" role="status" title={pairs}>
+            <span className="agent-step-pulse" />
+            <span className="running-now-label">{t("Running in worktree streams")}:</span>
+            <strong>{pairs}</strong>
+          </div>
+        )}
         <button className="button ghost small-button" type="button" onClick={onNavigate}>{t("Open tasks")} →</button>
       </div>
       <div className="queue-snapshot">

@@ -591,6 +591,11 @@ const lt: Record<string, string> = {
   "Running in stream {stream}; the file stays in the queue folder until the branch is merged":
     "Vykdoma sraute {stream}; failas lieka eilės aplanke, kol šaka sulieta",
   "{count} of these are running in worktree streams right now": "{count} iš jų šiuo metu vykdomos worktree srautuose",
+  // 2026-09-03: apžvalgos suvestinė ir lentos ženklelis vardija DARBININKĄ (`w1`/`w2`), nes
+  // bucket'ų skaičiai worktree bangos metu rodo nulius. Darbininko vardas NEVERČIAMAS — jis
+  // ateina iš `/api/waves` ir yra ta pati tapatybė, kuria kalbama su CLI.
+  "Running in worktree streams": "Vykdoma worktree srautuose",
+  "running ({worker})": "vykdomas ({worker})",
   // 2026-08-24 („viskas matoma"): biudžeto ir diagnostikos panelės.
   "Cost control": "Kaštų kontrolė",
   "Token budget": "Token biudžetas",

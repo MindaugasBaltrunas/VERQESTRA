@@ -20,13 +20,21 @@ Operatorius nemato, kad w1/w2 dirba: `QueueSnapshot` rodo tik pagrindinio medži
 Privaloma grandinė: readme-guard -> architect -> coder -> reviewer -> i18n -> tester
 
 ## Failai
+
+> 2026-09-03 pataisyta ANTRĄ kartą: trys iš šešių kelių buvo iš prieš-pertvarkymo
+> ui-app išdėstymo (`view/components/WorkflowBoard.tsx`, `src/dashboardSmoke.test.tsx`).
+> Vykdytojas dirbo teisinguose failuose, o diagnozė pamatė
+> `changed files outside allowed paths` ir parkavo (12:58). Keliai žemiau patikrinti
+> Glob'u prieš įrašant. `dashboard.css` pakeistas į `09-workflow.css`: nuo 2026-09-03
+> `dashboard.css` yra tik `@import` rodyklė, o `.running-now` gyvena 09-workflow.
+
 Leidžiama:
 - `ui-app/src/view/pages/DashboardPage.tsx`
-- `ui-app/src/dashboardSmoke.test.tsx`
-- `ui-app/src/view/components/WorkflowBoard.tsx`
-- `ui-app/src/view/components/WorkflowBoard.test.tsx`
+- `ui-app/src/tests/app/dashboardSmoke.test.tsx`
+- `ui-app/src/view/components/dashboard/WorkflowBoard.tsx`
+- `ui-app/src/tests/view/components/dashboard/WorkflowBoard.test.tsx`
 - `ui-app/src/i18n/I18nContext.tsx`
-- `ui-app/src/view/styles/dashboard.css`
+- `ui-app/src/view/styles/09-workflow.css`
 
 Draudžiama:
 - `ui-app/src/model/dashboardViewModel.ts`

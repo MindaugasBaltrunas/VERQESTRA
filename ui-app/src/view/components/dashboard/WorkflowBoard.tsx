@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import type { WorkflowBucketView, BucketVariant } from "../../../model/dashboardViewModel";
+import type { WorkflowBucketView, BucketVariant, InFlightSlot } from "../../../model/dashboardViewModel";
 import { fill } from "../../../model/fillTemplate";
 import { taskFileLabel } from "../../../model/taskFileLabel";
 import { useQueueUploadController } from "../../../controller/useQueueUploadController";
@@ -35,6 +35,12 @@ type Props = {
   onUpload: (files: File[]) => Promise<void>;
   onLoadTasks: (bucket: string) => Promise<string[]>;
   liveSlots?: readonly WorkflowLiveSlot[];
+  /**
+   * Worker→task poros iš `/api/waves` (`selectInFlightSlots`). Grynai VIZUALUS žymuo: stulpeliai,
+   * bucket'ų skaičiai ir perkėlimo veiksmai nuo jo nepriklauso — jis tik pavadina darbininką ant
+   * jau rodomos eilutės.
+   */
+  inFlight?: readonly InFlightSlot[];
 };
 
 const BACKSLASH = String.fromCharCode(92);
@@ -46,10 +52,28 @@ function taskIdOf(file: string): string {
 }
 
 type LiveByTask = ReadonlyMap<string, WorkflowLiveSlot>;
+/** Kanoninis task id → darbininkas, kuris jį DABAR vykdo (`w1`/`w2`). */
+type WorkerByTask = ReadonlyMap<string, string>;
 
-export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder, onUpload, onLoadTasks, liveSlots = [] }: Props) {
+/**
+ * Vienas gyvumo ženklelis vienai eilutei. Darbininko vardas turi PIRMENYBĘ prieš srauto numerį:
+ * „w1" ir „Srautas 1" sako tą patį, tad du ženkleliai greta kartotų vieną faktą dviem žodynais.
+ * Bangos yra tikslesnis šaltinis — jos mato worktree kopijoje vykstantį darbą, kurio pagrindinio
+ * medžio bucket'ai neturi.
+ */
+function liveBadgeLabel(
+  t: (text: string) => string,
+  worker: string | undefined,
+  live: WorkflowLiveSlot | undefined,
+): string | null {
+  if (worker !== undefined) return fill(t("running ({worker})"), { worker });
+  return live === undefined ? null : `${t("Stream")} ${live.index}`;
+}
+
+export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder, onUpload, onLoadTasks, liveSlots = [], inFlight = [] }: Props) {
   const { t } = useI18n();
   const liveByTask: LiveByTask = new Map(liveSlots.map((slot) => [slot.taskId, slot]));
+  const workerByTask: WorkerByTask = new Map(inFlight.map((slot) => [slot.taskId, slot.workerId]));
 
   // Pirminio medžio vykdymas (bucket'ai) ir worktree srautai (slot'ai) — VIENAS sąrašas, be dublių.
   const treeRunning = buckets
@@ -96,6 +120,7 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
             key={bucket.name}
             bucket={bucket}
             liveByTask={liveByTask}
+            workerByTask={workerByTask}
             pinnedLive={bucket.name === liveBucketName ? streamLive : []}
             hideLiveInPreview={bucket.isQueue && liveBucketName !== "queue"}
             streamLiveCount={bucket.isQueue ? streamLive.length : 0}
@@ -112,6 +137,8 @@ export const WorkflowBoard = memo(function WorkflowBoard({ buckets, onOpenFolder
 type BucketCardProps = {
   bucket: WorkflowBucketView;
   liveByTask: LiveByTask;
+  /** Bangų worker→task žemėlapis; sutampantis task id gauna „vykdomas (w1)" ženklelį. */
+  workerByTask: WorkerByTask;
   /** Worktree srautų task'ai, prisegami šios kortelės viršuje su srauto ženkleliu. */
   pinnedLive: readonly WorkflowLiveSlot[];
   /** Eilės peržiūroje srautų task'ai neberodomi — jų vieta yra vykdymo kortelė. */
@@ -126,6 +153,7 @@ type BucketCardProps = {
 function BucketCard({
   bucket,
   liveByTask,
+  workerByTask,
   pinnedLive,
   hideLiveInPreview,
   streamLiveCount,
@@ -186,6 +214,7 @@ function BucketCard({
       <ul className="task-list">
         {pinned.map((slot) => {
           const label = taskFileLabel(`${slot.taskId}.md`);
+          const badge = liveBadgeLabel(t, workerByTask.get(slot.taskId), slot);
           return (
             <li
               key={`live:${slot.taskId}`}
@@ -193,7 +222,7 @@ function BucketCard({
             >
               {label.id && <b className="task-id">{label.id}</b>}
               <span className="task-name">{label.name}</span>
-              <span className="badge status-live">{`${t("Stream")} ${slot.index}`}</span>
+              {badge && <span className="badge status-live">{badge}</span>}
             </li>
           );
         })}
@@ -201,12 +230,13 @@ function BucketCard({
           displayedTasks.map((task) => {
             const label = taskFileLabel(task);
             const live = liveByTask.get(taskIdOf(task));
+            const badge = liveBadgeLabel(t, workerByTask.get(taskIdOf(task)), live);
             return (
               // PILNAS vardas lieka `title`: sąrašas trumpinamas, informacija — ne.
               <li key={task} title={live ? fill(t("Running in stream {stream}"), { stream: live.index }) : task}>
                 {label.id && <b className="task-id">{label.id}</b>}
                 <span className="task-name">{label.name}</span>
-                {live && <span className="badge status-live">{`${t("Stream")} ${live.index}`}</span>}
+                {badge && <span className="badge status-live">{badge}</span>}
               </li>
             );
           })

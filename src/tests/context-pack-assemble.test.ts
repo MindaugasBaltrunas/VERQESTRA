@@ -90,7 +90,6 @@ test("assembleContextPack: full path over a real workspace, deterministic re-run
     assert.deepEqual(result.pack.allowed_paths, ["src/module/a.ts"]);
     assert.ok(result.pack.spec_fragments[0]?.startsWith("doc/spec.md#alfa\n"), "spec fragmentas su heading atitikmeniu");
     assert.equal(result.pack.code_context?.enabled, true, "esamas taikinys → code context su index rebuild");
-    assert.ok(result.workerTaskIr, "shadow IR kompiliuojasi kanoniniam task'ui");
     assert.equal(result.pack.discovered_docs, undefined, "be kontrolinių dokumentų lauko pack'e NĖRA (task 101-c)");
 
     // Fingerprint antraštė: task_sha256/context_pack_sha256 nuo TŲ PAČIŲ artefaktų diske.

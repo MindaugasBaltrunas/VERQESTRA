@@ -47,9 +47,6 @@ export type ContextSizeMetricsInput = {
   // Compression features this task got from the CANARY cohort rather than from a config-wide
   // `true` (task 0031). Absent or empty => control arm.
   canaryFeatures?: readonly ContextCompressionFeature[];
-  // True when the size guard would refuse this task's compiled body and send the raw task
-  // instead. See {@link CANARY_SIZE_FALLBACK_MARKER}.
-  canarySizeFallback?: boolean;
 } & ContextCompressionMetricsInput;
 
 // ---------------------------------------------------------------------------
@@ -61,14 +58,6 @@ export type ContextSizeMetricsInput = {
 export type ContextCompressionMetricsInput = {
   /** Raw canonical task Markdown size, before any IR/DSL compilation. */
   rawTaskChars?: number;
-  /**
-   * DEPRECATED alias of {@link irJsonChars}, kept for existing readers (task 0032: two logs
-   * wrote a `compiled_task_chars` measuring two DIFFERENT things; new readers must use
-   * {@link irJsonChars} here and `sent_prompt_chars` in the dispatch log).
-   */
-  compiledTaskChars?: number;
-  /** Size of the WorkerTaskIR as JSON (task 0021 shadow compilation). */
-  irJsonChars?: number;
   /**
    * Size of the worker prompt actually handed to the dispatch. Assembly-time telemetry cannot
    * measure it (the final prompt is resolved in the interfaces layer). The writer lives outside
@@ -89,28 +78,26 @@ export type ContextCompressionMetricsInput = {
   /**
    * Full worker prompt WITHOUT compression: the raw task body plus the SAME execution context
    * artifact a real dispatch would attach (task 0032 — `buildWorkerPrompt`, no `compiledTask`).
-   * This, not {@link rawTaskChars}, is one half of the pair a compression decision is actually
-   * made on: the task body alone is never what the worker receives.
+   * This, not {@link rawTaskChars}, is what the worker actually receives.
    */
   rawPromptChars?: number;
-  /**
-   * Full worker prompt WITH compression: the same execution context as {@link rawPromptChars},
-   * but with the task body replaced by its shadow-compiled WorkerTaskIR prompt (task 0032 —
-   * `buildWorkerPrompt` with `compiledTask` set). Absent when the shadow compilation refused
-   * the task, same fail-closed reasoning as {@link irJsonChars}.
-   */
-  compiledPromptChars?: number;
   /** Full tool schema size sent to the model, before `dispatch_tool_schema` reduction. */
   toolSchemaFullChars?: number;
   /** Reduced tool schema size after `dispatch_tool_schema` shrinks it for this dispatch. */
   toolSchemaReducedChars?: number;
-  /** Size of the `compact_dsl` intermediate representation, before DSL compilation. */
-  dslIrChars?: number;
-  /** Size of the `compact_dsl`-compiled output handed to the dispatch. */
-  dslCompiledChars?: number;
 };
 
-/** Record-side (snake_case) counterpart of {@link ContextCompressionMetricsInput}. */
+/**
+ * Record-side (snake_case) counterpart of {@link ContextCompressionMetricsInput} — deliberately
+ * a SUPERSET of it since task 155.
+ *
+ * `compiled_task_chars`, `ir_json_chars`, `compiled_prompt_chars`, `dsl_ir_chars` and
+ * `dsl_compiled_chars` have no writer left: they measured the `worker_task_ir`/`compact_dsl`
+ * shadow compilations that `persist.ts` stopped running. They stay declared and stay READ,
+ * because `vq/logs/context-size.jsonl` holds 204 historical records carrying them and the
+ * dashboard renders those pairs. Dropping them from the record type would not delete the data,
+ * only make it unreadable.
+ */
 export type ContextCompressionMetrics = {
   raw_task_chars?: number;
   compiled_task_chars?: number;
@@ -129,24 +116,33 @@ export type ContextCompressionMetrics = {
 };
 
 // Single input-key -> record-key table so a new measurement is added in exactly
-// one place and build/read paths cannot drift apart.
+// one place and every WRITTEN field is spelled once.
 const COMPRESSION_METRIC_FIELDS: ReadonlyArray<
   readonly [keyof ContextCompressionMetricsInput, keyof ContextCompressionMetrics]
 > = [
   ["rawTaskChars", "raw_task_chars"],
-  ["compiledTaskChars", "compiled_task_chars"],
-  ["irJsonChars", "ir_json_chars"],
   ["workerPromptChars", "worker_prompt_chars"],
   ["symbolSourceChars", "symbol_source_chars"],
   ["symbolSignatureChars", "symbol_signature_chars"],
   ["toolRawChars", "tool_raw_chars"],
   ["toolDigestChars", "tool_digest_chars"],
   ["rawPromptChars", "raw_prompt_chars"],
-  ["compiledPromptChars", "compiled_prompt_chars"],
   ["toolSchemaFullChars", "tool_schema_full_chars"],
   ["toolSchemaReducedChars", "tool_schema_reduced_chars"],
-  ["dslIrChars", "dsl_ir_chars"],
-  ["dslCompiledChars", "dsl_compiled_chars"],
+];
+
+/**
+ * Every field a LOGGED record may carry — the writable set above plus the five retired shadow
+ * measurements (task 155). Spelled out rather than derived, so that adding a writer for one of
+ * them again is a visible edit in two places instead of a silent widening of the read path.
+ */
+const COMPRESSION_METRIC_RECORD_KEYS: ReadonlyArray<keyof ContextCompressionMetrics> = [
+  ...COMPRESSION_METRIC_FIELDS.map(([, recordKey]) => recordKey),
+  "compiled_task_chars",
+  "ir_json_chars",
+  "compiled_prompt_chars",
+  "dsl_ir_chars",
+  "dsl_compiled_chars",
 ];
 
 /**
@@ -173,7 +169,7 @@ function selectCompressionMetrics(input: ContextCompressionMetricsInput): Contex
  */
 function readCompressionMetrics(record: Partial<ContextSizeMetricsRecord>): ContextCompressionMetrics {
   const metrics: ContextCompressionMetrics = {};
-  for (const [, recordKey] of COMPRESSION_METRIC_FIELDS) {
+  for (const recordKey of COMPRESSION_METRIC_RECORD_KEYS) {
     const value = record[recordKey];
     if (value === undefined) continue;
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -267,30 +263,31 @@ export function buildContextSizeMetrics(input: ContextSizeMetricsInput, now: Dat
       input.selectedTokenEstimate ?? estimateTokensFromChars(input.selectedChars ?? input.contextChars),
     exceeded: input.contextChars > input.maxContextChars,
     ...selectCompressionMetrics(input),
-    ...selectCanaryFeatures(input.canaryFeatures, input.canarySizeFallback),
+    ...selectCanaryFeatures(input.canaryFeatures),
   };
 }
 
 /**
- * Literal token appended to `canary_features` (never a real feature name) when the size guard
+ * Literal token that appears in `canary_features` (never a real feature name) when the size guard
  * sent a canary-cohort task down the raw path. Living in the SAME array as the real feature
  * names keeps `canary_features`' existing "empty means control" contract intact for every
  * reader that does not know this token.
+ *
+ * No writer since task 155: the guard prediction it came from only ever indicted
+ * `worker_task_ir`/`compact_dsl`, and both are off. The readers stay — historical records carry
+ * the token and must keep classifying into the same arm they always did.
  */
 export const CANARY_SIZE_FALLBACK_MARKER = "size-fallback";
 
 /**
- * Canary marker, or nothing at all. An empty cohort membership must not write an empty array:
+ * Cohort membership, or nothing at all. An empty cohort membership must not write an empty array:
  * "not in the canary" and "canary not configured" are the same control arm.
  */
 function selectCanaryFeatures(
   features: readonly ContextCompressionFeature[] | undefined,
-  sizeFallback: boolean | undefined,
 ): Pick<ContextSizeMetricsRecord, "canary_features"> {
   if (!features || features.length === 0) return {};
-  return {
-    canary_features: sizeFallback ? [...features, CANARY_SIZE_FALLBACK_MARKER] : [...features],
-  };
+  return { canary_features: [...features] };
 }
 
 /** Reads the canary marker back, rejecting a corrupted one rather than guessing the arm. */

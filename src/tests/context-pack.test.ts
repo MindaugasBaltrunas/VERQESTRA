@@ -11,7 +11,6 @@ import {
   parseExecutionContextMetadata,
 } from "../application/context-pack/execution-context-fingerprint.js";
 import {
-  COMPRESSION_FALLBACK_SIZE,
   compileWorkerPromptTask,
   compileWorkerPromptTaskForDispatch,
   compressionSizeFallbackReason,
@@ -150,7 +149,9 @@ test("worker prompt compilation: disabled, IR mode, compact mode, size guard fal
   const guarded = compileWorkerPromptTaskForDispatch({ config: irOnly, taskId: "t", taskText: tinyTask });
   assert.equal(guarded.kind, "fallback");
   if (guarded.kind === "fallback") {
-    assert.equal(guarded.fallback, COMPRESSION_FALLBACK_SIZE);
+    // Literalas, ne konstanta: `COMPRESSION_FALLBACK_SIZE` nuo task 155 nebeeksportuojama, o
+    // šis testas ir taip tvirtina VIEŠĄJĮ kontraktą — telemetrijos etiketę, kurią mato žurnalas.
+    assert.equal(guarded.fallback, "size");
     assert.equal(guarded.feature, "worker_task_ir");
     assert.match(guarded.reason, /^compiled output not smaller than raw \(\d+\/\d+ chars\)$/);
     assert.equal(guarded.reason, compressionSizeFallbackReason(Number(/\((\d+)\//.exec(guarded.reason)?.[1]), tinyTask.length));
@@ -438,7 +439,11 @@ test("mcp capability registry: precedence registry > environment > fail-open; di
   assert.equal(disabled.source, "dispatch_tool_schema disabled");
 });
 
-test("context-size metrics: canary size-fallback marker, jsonl round-trip via port", async () => {
+// Task 155: the builder no longer appends the size-fallback marker (the size-guard prediction
+// that produced it is gone), but the READER must keep classifying the historical records that
+// carry it into the same arm — otherwise removing a writer would retroactively rewrite the A/B
+// history the audit was drawn from.
+test("context-size metrics: canary features jsonl round-trip via port; legacy size-fallback marker still read", async () => {
   const record = buildContextSizeMetrics(
     {
       taskId: "0042-x",
@@ -447,11 +452,10 @@ test("context-size metrics: canary size-fallback marker, jsonl round-trip via po
       specFragmentCount: 1,
       codeContextItemCount: 2,
       canaryFeatures: ["worker_task_ir"],
-      canarySizeFallback: true,
     },
     new Date("2026-08-19T00:00:00.000Z"),
   );
-  assert.deepEqual(record.canary_features, ["worker_task_ir", CANARY_SIZE_FALLBACK_MARKER]);
+  assert.deepEqual(record.canary_features, ["worker_task_ir"], "žymės rašytojo nebėra");
   assert.equal(record.exceeded, false);
   assert.equal(record.cache_status, "unknown");
 
@@ -462,6 +466,18 @@ test("context-size metrics: canary size-fallback marker, jsonl round-trip via po
   assert.match(logPath, /context-size\.jsonl$/);
   const reread = await readContextSizeMetrics(memoryFs({ [logPath]: content }), runtimeRoot);
   assert.equal(reread.length, 1);
-  assert.deepEqual(reread[0]?.canary_features, ["worker_task_ir", CANARY_SIZE_FALLBACK_MARKER]);
+  assert.deepEqual(reread[0]?.canary_features, ["worker_task_ir"]);
   assert.equal(reread[0]?.selected_chars, 100);
+
+  // Toks pat įrašas, koks 204 kartus gulė į `vq/logs/context-size.jsonl` iki task 155.
+  const legacyLine = `${JSON.stringify({
+    ...record,
+    canary_features: ["worker_task_ir", CANARY_SIZE_FALLBACK_MARKER],
+    compiled_prompt_chars: 2500,
+    ir_json_chars: 1200,
+  })}\n`;
+  const legacy = await readContextSizeMetrics(memoryFs({ [logPath]: legacyLine }), runtimeRoot);
+  assert.deepEqual(legacy[0]?.canary_features, ["worker_task_ir", CANARY_SIZE_FALLBACK_MARKER]);
+  assert.equal(legacy[0]?.compiled_prompt_chars, 2500);
+  assert.equal(legacy[0]?.ir_json_chars, 1200);
 });

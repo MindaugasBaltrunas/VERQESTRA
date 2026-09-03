@@ -74,7 +74,10 @@ export type { CompactWorkerDslStats } from "./compact-dsl/model.js";
  * smaller than the raw task.
  */
 export const COMPRESSION_FALLBACK_RAW = "raw";
-export const COMPRESSION_FALLBACK_SIZE = "size";
+// Not exported since task 155: the last external caller was the context-pack size-guard
+// prediction, and it is gone. The label itself still reaches callers — through
+// `CompressionFallbackLabel` and through the `fallback` field of a refused compilation.
+const COMPRESSION_FALLBACK_SIZE = "size";
 
 export type CompressionFallbackLabel = typeof COMPRESSION_FALLBACK_RAW | typeof COMPRESSION_FALLBACK_SIZE;
 

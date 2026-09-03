@@ -13,7 +13,6 @@ import { parseCompactWorkerDsl } from "../application/context-pack/compact-dsl/p
 import { compactWorkerDslParity } from "../application/context-pack/compact-dsl/parity.js";
 import { contextArtifactSha256 } from "../application/context-pack/execution-context-fingerprint.js";
 import { workerTaskIrSchema, type WorkerTaskIr } from "../application/context-pack/worker-task-ir-schema.js";
-import { compileWorkerTaskIr } from "../application/context-pack/worker-task-ir.js";
 import { persistContextPack } from "../application/context-pack/assemble/persist.js";
 import { contextSizeMetricsLogPath } from "../application/context-pack/metrics.js";
 import type { ContextPackFileSystemPort } from "../application/context-pack/ports.js";
@@ -86,9 +85,9 @@ for (const dslCase of fixture.cases) {
   });
 }
 
-// Task 036-d-05: persist.ts must shadow-render the SAME IR it already shadow-compiles into the
-// compact worker DSL and flow the pair into the context-size log, unconditional of the
-// `compact_dsl` flag — same reasoning as the `worker_task_ir` shadow measure it sits beside.
+// Task 036-d-05 made persist.ts shadow-render the compact worker DSL into the context-size log;
+// task 155 removed that writer once the 204-sample answer was in. The fixture port below stays,
+// because the invariant worth guarding flipped rather than disappeared.
 function memoryFs(): ContextPackFileSystemPort {
   const store = new Map<string, string>();
   return {
@@ -158,14 +157,14 @@ function packFor(taskId: string, goal: string, allowedPaths: string[], checks: s
   };
 }
 
-test("persistContextPack: dsl_ir_chars/dsl_compiled_chars flow from the compact-dsl shadow render", async () => {
+// Task 155 inverts 036-d-05: persist.ts no longer shadow-renders the compact DSL at all, so the
+// pair is absent even for a task the renderer would happily compile. The parity fixture above is
+// untouched — the renderer itself still has to satisfy AG_loop byte for byte; what changed is
+// only that context-pack assembly stopped paying for a measurement whose answer is known.
+test("persistContextPack: the compact-dsl shadow pair is no longer written, even for a fully compilable task", async () => {
   const runtimeRoot = path.resolve("vq-test-root-036d05-compact-dsl");
   const fs = memoryFs();
   const pack = packFor("036d05-compilable", "Ilgas tikslas su pakankamai teksto.", ["src/module/a.ts"], ["pnpm test"]);
-
-  const compiled = compileWorkerTaskIr({ taskId: "036d05-compilable", taskMarkdown: COMPILABLE_TASK });
-  assert.equal(compiled.ok, true, "kompiliuojamas task'as -> shadow IR yra");
-  const expectedDsl = compiled.ok ? renderCompactWorkerDsl(compiled.value) : undefined;
 
   await persistContextPack({
     fs,
@@ -179,44 +178,12 @@ test("persistContextPack: dsl_ir_chars/dsl_compiled_chars flow from the compact-
     codeContextDroppedCount: 0,
     codeContextRebuilt: false,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
 
   const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
   const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
 
-  assert.equal(record["dsl_ir_chars"], expectedDsl?.stats.ir_chars);
-  assert.equal(record["dsl_compiled_chars"], expectedDsl?.stats.dsl_chars);
-});
-
-test("persistContextPack: dsl_ir_chars/dsl_compiled_chars are absent (not zero) when the shadow IR refuses the task", async () => {
-  const runtimeRoot = path.resolve("vq-test-root-036d05-noncompilable");
-  const fs = memoryFs();
-  const pack = packFor(
-    "036d05-noncompilable",
-    "Tikslas be jokių backtick patikrų — IR kompiliacija privalo atsisakyti.",
-    ["src/module/b.ts"],
-    [],
-  );
-
-  await persistContextPack({
-    fs,
-    runtimeRoot,
-    taskText: "Tikslas be backtick patikrų.",
-    encoded: JSON.stringify(pack),
-    maxContextChars: 20_000,
-    cacheStatus: "bypass",
-    droppedItemCount: 0,
-    specDroppedCount: 0,
-    codeContextDroppedCount: 0,
-    codeContextRebuilt: false,
-    canaryFeatures: [],
-    canarySizeFallback: false,
-  });
-
-  const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
-  const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
-
-  assert.equal("dsl_ir_chars" in record, false, "nesantis matavimas yra NESANTIS, ne 0");
+  assert.equal("dsl_ir_chars" in record, false, "nebevykdomas matavimas yra NESANTIS, ne 0");
   assert.equal("dsl_compiled_chars" in record, false);
+  assert.equal(typeof record["raw_prompt_chars"], "number", "žalias prompt'as matuojamas toliau");
 });

@@ -1,14 +1,13 @@
-// Task 0032: shadow telemetry must measure the pair a compression decision is actually made
-// on — the worker prompt WITH compression vs WITHOUT it, both wrapped in the SAME execution
-// context a real dispatch would attach. Before this task, `persist.ts` logged
-// `workerTaskIrChars(ir)` (the bare IR JSON) vs `input.taskText.length` (the bare task
-// Markdown) — neither is what the worker actually receives, so the comparison answered the
-// decision question systematically too gently.
+// Task 0032 asked telemetry to measure the pair a compression decision is made on — the worker
+// prompt WITH compression vs WITHOUT it, both wrapped in the SAME execution context a real
+// dispatch attaches. Task 155 closed that question with 204 measurements (the compiled half was
+// always BIGGER) and removed the shadow writer. What these tests now guard is the asymmetry that
+// remains: `persist.ts` still measures the prompt the worker really gets, no longer measures the
+// compiled counterpart, and the READER still parses every record that was written before.
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { persistContextPack } from "../application/context-pack/assemble/persist.js";
-import { compileWorkerPromptTask } from "../application/context-pack/worker-prompt-compilation.js";
 import { buildWorkerPrompt } from "../application/task-execution/execution-context-gate.js";
 import {
   appendContextSizeMetrics,
@@ -17,7 +16,6 @@ import {
   describesContextPack,
   readContextSizeMetrics,
 } from "../application/context-pack/metrics.js";
-import { parseContextCompressionConfig } from "../domain/policies/compression/features.js";
 import type { ContextPackFileSystemPort } from "../application/context-pack/ports.js";
 import { joinPostRunTruth } from "../application/analytics/post-run-truth-join.js";
 
@@ -104,12 +102,10 @@ function packFor(taskId: string, goal: string, allowedPaths: string[], checks: s
   };
 }
 
-const WORKER_TASK_IR_ONLY_CONFIG = parseContextCompressionConfig({
-  version: 1,
-  features: { worker_task_ir: true },
-});
-
-test("persistContextPack: raw/compiled prompt chars measure the SAME pair real dispatch builds", async () => {
+// Task 155: the shadow half of the 0032 pair is gone. `raw_prompt_chars` — the prompt the worker
+// really receives — is still measured on every assembly; `compiled_prompt_chars` and the IR/DSL
+// sizes beside it are not, because the audit answered the question they existed to ask.
+test("persistContextPack: raw prompt chars measure what real dispatch builds; the shadow half is no longer written", async () => {
   const runtimeRoot = path.resolve("vq-test-root-0032-compilable");
   const fs = memoryFs();
   const pack = packFor("0032-compilable", "Ilgas tikslas su pakankamai teksto, kad prompt'as turėtų realų dydį matuoti.", [
@@ -128,9 +124,7 @@ test("persistContextPack: raw/compiled prompt chars measure the SAME pair real d
     codeContextDroppedCount: 0,
     codeContextRebuilt: false,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
-  assert.ok(result.workerTaskIr, "kompiliuojamas task'as -> shadow IR yra");
 
   // Tas pats artefaktas, kurį realus dispatch skaitytų iš disko (persist.ts jį rašo per tą
   // patį `writeGlobalArtifact` kelią, kurį naudoja realus surinkimas be injektuoto sink'o).
@@ -141,31 +135,24 @@ test("persistContextPack: raw/compiled prompt chars measure the SAME pair real d
     taskText: COMPILABLE_TASK,
     executionContext: writtenExecutionContext,
   }).length;
-  const compilation = compileWorkerPromptTask({
-    config: WORKER_TASK_IR_ONLY_CONFIG,
-    taskId: "0032-compilable",
-    taskText: COMPILABLE_TASK,
-  });
-  assert.equal(compilation.kind, "compiled");
-  const compiledBody = compilation.kind === "compiled" ? compilation.task.text : "";
-  const expectedCompiledPromptChars = buildWorkerPrompt({
-    taskText: COMPILABLE_TASK,
-    compiledTask: compiledBody,
-    executionContext: writtenExecutionContext,
-  }).length;
 
   const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
   const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
 
   assert.equal(record["raw_prompt_chars"], expectedRawPromptChars);
-  assert.equal(record["compiled_prompt_chars"], expectedCompiledPromptChars);
-  // Reprodukuoja pačią spragą, dėl kurios šis task'as egzistuoja: seni laukai matuoja VISAI
-  // kitus dalykus (task kūną be konteksto), tad jie neturi sutapti su naująja pora.
+  // Task'as PILNAI kompiliuojamas į IR — ir vis tiek nė vieno shadow lauko: jų nebėra ne dėl
+  // kompiliatoriaus atsisakymo, o dėl to, kad rašytojas pašalintas.
+  assert.equal("compiled_prompt_chars" in record, false, "shadow kompiliacija nebevykdoma");
+  assert.equal("ir_json_chars" in record, false);
+  assert.equal("compiled_task_chars" in record, false);
+  assert.equal("dsl_ir_chars" in record, false);
+  assert.equal("dsl_compiled_chars" in record, false);
+  // Senasis laukas matuoja VISAI kitą dalyką (task kūną be konteksto), tad su prompt'o dydžiu
+  // sutapti negali — ta pati 0032 spraga, tik likusi pusė.
   assert.notEqual(record["raw_prompt_chars"], record["raw_task_chars"]);
-  assert.notEqual(record["compiled_prompt_chars"], record["ir_json_chars"]);
 });
 
-test("persistContextPack: compiled prompt chars absent (not zero) when shadow IR refuses the task", async () => {
+test("persistContextPack: a task the IR compiler would refuse logs exactly the same field set", async () => {
   const runtimeRoot = path.resolve("vq-test-root-0032-noncompilable");
   const fs = memoryFs();
   const pack = packFor(
@@ -175,7 +162,7 @@ test("persistContextPack: compiled prompt chars absent (not zero) when shadow IR
     [],
   );
 
-  const result = await persistContextPack({
+  await persistContextPack({
     fs,
     runtimeRoot,
     taskText: NON_COMPILABLE_TASK,
@@ -187,9 +174,7 @@ test("persistContextPack: compiled prompt chars absent (not zero) when shadow IR
     codeContextDroppedCount: 0,
     codeContextRebuilt: false,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
-  assert.equal(result.workerTaskIr, undefined, "trūksta backtick patikrų -> IR atsisako");
 
   const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
   const record = JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
@@ -200,7 +185,11 @@ test("persistContextPack: compiled prompt chars absent (not zero) when shadow IR
   assert.equal("compiled_task_chars" in record, false);
 });
 
-test("context-size metrics: raw/compiled prompt fields round-trip and stay absent when unmeasured", async () => {
+// Task 155: the builder no longer ACCEPTS the retired shadow fields, but the reader must keep
+// parsing them — `vq/logs/context-size.jsonl` holds 204 records that carry the pair and the
+// dashboard renders them. A record type narrowed together with its writer would not delete that
+// data, it would only make it unreadable.
+test("context-size metrics: raw prompt field round-trips; retired shadow fields are still read back", async () => {
   const withPrompt = buildContextSizeMetrics({
     taskId: "0032-x",
     contextChars: 100,
@@ -208,25 +197,10 @@ test("context-size metrics: raw/compiled prompt fields round-trip and stay absen
     specFragmentCount: 0,
     codeContextItemCount: 0,
     canaryFeatures: [],
-    canarySizeFallback: false,
     rawPromptChars: 500,
-    compiledPromptChars: 300,
   });
   assert.equal(withPrompt.raw_prompt_chars, 500);
-  assert.equal(withPrompt.compiled_prompt_chars, 300);
-
-  const withoutCompiled = buildContextSizeMetrics({
-    taskId: "0032-y",
-    contextChars: 100,
-    maxContextChars: 200,
-    specFragmentCount: 0,
-    codeContextItemCount: 0,
-    canaryFeatures: [],
-    canarySizeFallback: false,
-    rawPromptChars: 500,
-  });
-  assert.equal(withoutCompiled.raw_prompt_chars, 500);
-  assert.equal("compiled_prompt_chars" in withoutCompiled, false);
+  assert.equal("compiled_prompt_chars" in withPrompt, false);
 
   const runtimeRoot = path.resolve("vq-test-root-metrics-0032");
   const fs = memoryFs();
@@ -234,10 +208,30 @@ test("context-size metrics: raw/compiled prompt fields round-trip and stay absen
   const reread = await readContextSizeMetrics(fs, runtimeRoot);
   assert.equal(reread.length, 1);
   assert.equal(reread[0]?.raw_prompt_chars, 500);
-  assert.equal(reread[0]?.compiled_prompt_chars, 300);
+  assert.equal(reread[0]?.compiled_prompt_chars, undefined);
+
+  // Toks pat įrašas, kokį rašė persist.ts iki task 155.
+  const legacyLine = `${JSON.stringify({
+    ...withPrompt,
+    compiled_prompt_chars: 300,
+    compiled_task_chars: 1200,
+    ir_json_chars: 1200,
+    dsl_ir_chars: 900,
+    dsl_compiled_chars: 600,
+  })}\n`;
+  const legacy = await readContextSizeMetrics(
+    memoryFs({ [contextSizeMetricsLogPath(runtimeRoot)]: legacyLine }),
+    runtimeRoot,
+  );
+  assert.equal(legacy[0]?.raw_prompt_chars, 500);
+  assert.equal(legacy[0]?.compiled_prompt_chars, 300);
+  assert.equal(legacy[0]?.compiled_task_chars, 1200);
+  assert.equal(legacy[0]?.ir_json_chars, 1200);
+  assert.equal(legacy[0]?.dsl_ir_chars, 900);
+  assert.equal(legacy[0]?.dsl_compiled_chars, 600);
 });
 
-test("context-size metrics: dispatch_tool_schema/compact_dsl shadow fields round-trip and stay absent when unmeasured", async () => {
+test("context-size metrics: dispatch_tool_schema shadow fields round-trip and stay absent when unmeasured", async () => {
   const withShadowPairs = buildContextSizeMetrics({
     taskId: "0036-x",
     contextChars: 100,
@@ -245,16 +239,11 @@ test("context-size metrics: dispatch_tool_schema/compact_dsl shadow fields round
     specFragmentCount: 0,
     codeContextItemCount: 0,
     canaryFeatures: [],
-    canarySizeFallback: false,
     toolSchemaFullChars: 4000,
     toolSchemaReducedChars: 1200,
-    dslIrChars: 900,
-    dslCompiledChars: 600,
   });
   assert.equal(withShadowPairs.tool_schema_full_chars, 4000);
   assert.equal(withShadowPairs.tool_schema_reduced_chars, 1200);
-  assert.equal(withShadowPairs.dsl_ir_chars, 900);
-  assert.equal(withShadowPairs.dsl_compiled_chars, 600);
 
   const withoutShadowPairs = buildContextSizeMetrics({
     taskId: "0036-y",
@@ -263,12 +252,9 @@ test("context-size metrics: dispatch_tool_schema/compact_dsl shadow fields round
     specFragmentCount: 0,
     codeContextItemCount: 0,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
   assert.equal("tool_schema_full_chars" in withoutShadowPairs, false, "nesantis matavimas yra NESANTIS, ne 0");
   assert.equal("tool_schema_reduced_chars" in withoutShadowPairs, false);
-  assert.equal("dsl_ir_chars" in withoutShadowPairs, false);
-  assert.equal("dsl_compiled_chars" in withoutShadowPairs, false);
 
   const runtimeRoot = path.resolve("vq-test-root-metrics-0036");
   const fs = memoryFs();
@@ -277,8 +263,6 @@ test("context-size metrics: dispatch_tool_schema/compact_dsl shadow fields round
   assert.equal(reread.length, 1);
   assert.equal(reread[0]?.tool_schema_full_chars, 4000);
   assert.equal(reread[0]?.tool_schema_reduced_chars, 1200);
-  assert.equal(reread[0]?.dsl_ir_chars, 900);
-  assert.equal(reread[0]?.dsl_compiled_chars, 600);
 });
 
 // Task 036-b-03: symbol_source_chars/symbol_signature_chars used to be computed in persist.ts
@@ -310,7 +294,6 @@ test("persistContextPack: symbol_source_chars/symbol_signature_chars are written
     codeContextDroppedCount: 0,
     codeContextRebuilt: false,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
 
   const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
@@ -359,7 +342,6 @@ test("persistContextPack: symbol_source_chars/symbol_signature_chars sum only th
     codeContextDroppedCount: 0,
     codeContextRebuilt: false,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
 
   const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
@@ -386,7 +368,6 @@ test("persistContextPack: symbol_source_chars/symbol_signature_chars are 0 (pres
     codeContextDroppedCount: 0,
     codeContextRebuilt: false,
     canaryFeatures: [],
-    canarySizeFallback: false,
   });
 
   const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
@@ -429,7 +410,6 @@ test("persistContextPack: symbol_source_chars adds the pack's hypothetical SRC f
       codeContextDroppedCount: 0,
       codeContextRebuilt: false,
       canaryFeatures: [],
-      canarySizeFallback: false,
     });
     const metricsRaw = await fs.readTextFileIfExists(contextSizeMetricsLogPath(runtimeRoot));
     return JSON.parse(metricsRaw?.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;

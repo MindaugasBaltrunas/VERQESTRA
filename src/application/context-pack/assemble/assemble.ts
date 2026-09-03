@@ -37,7 +37,6 @@ import { discoveredDocsCacheSources } from "../discovered-docs-cache-sources.js"
 import { codeGraphModeCacheSource, computeContextCacheKey } from "../context-cache-key.js";
 import { CODE_INDEX_STALE, CODE_INDEX_UNUSED } from "../context-cache-model.js";
 import { estimateTokensFromChars, type AttemptIdentityPort } from "../metrics.js";
-import { COMPRESSION_FALLBACK_SIZE, compileWorkerPromptTaskForDispatch } from "../worker-prompt-compilation.js";
 import { systemClock, type ContextCachePort, type ContextPackFileSystemPort } from "../ports.js";
 import { explicitAllowedPaths, parseTaskMarkdown, retrievalQuery } from "./parse-task.js";
 import { capSpecRetrievalWarnings, runSpecPhase, specSelectionDropWarning } from "./spec-phase.js";
@@ -116,11 +115,11 @@ export async function assembleContextPack(
     loadEffectiveCompressionPolicy({ fs: deps.fs, clock: systemClock, runtimeRoot, taskId }),
   );
   const symbolSlicesEnabled = isContextCompressionFeatureEnabledForTask(compression, "symbol_slices", taskId);
-  // Size guard prediction (task 0007/0032): TA PATI gryna kompiliacija, kurią vykdo
-  // dispatch, nusprendžia, ar šio task'o kompiliuotas kūnas būtų atmestas dėl dydžio.
-  // Skaičiuojama VIENĄ kartą, kad abu persist kvietimai kohortą žymėtų identiškai.
-  const dispatchCompilation = compileWorkerPromptTaskForDispatch({ config: compression, taskId, taskText });
-  const canarySizeFallback = dispatchCompilation.kind === "fallback" && dispatchCompilation.fallback === COMPRESSION_FALLBACK_SIZE;
+  // Task 155: size-guard prognozės (task 0007/0032) čia nebėra. Ji kompiliavo task'ą per
+  // `compileWorkerPromptTaskForDispatch` kas surinkimą vien tam, kad telemetrijai gimtų
+  // `size-fallback` žymė — o ji buvo prasminga tik `worker_task_ir`/`compact_dsl` kohortoms,
+  // kurios išjungtos (compression-audit-2026-09-03 §1). Žymės skaitytojai lieka: seni
+  // `context-size.jsonl` įrašai ją tebeneša.
 
   const cacheEnabled = !args.includes("--no-context-cache") && deps.cache !== undefined;
   const cache = deps.cache;
@@ -165,7 +164,6 @@ export async function assembleContextPack(
         codeContextDroppedCount: lookup.entry.code_context_dropped_count,
         codeContextRebuilt: false,
         canaryFeatures,
-        canarySizeFallback,
         ...(deps.attemptIdentity === undefined ? {} : { attemptIdentity: deps.attemptIdentity }),
         ...(deps.artifacts === undefined ? {} : { artifacts: deps.artifacts }),
       });
@@ -443,7 +441,6 @@ export async function assembleContextPack(
     codeContextDroppedCount,
     codeContextRebuilt: codeCandidates?.rebuilt ?? false,
     canaryFeatures,
-    canarySizeFallback,
     ...(deps.attemptIdentity === undefined ? {} : { attemptIdentity: deps.attemptIdentity }),
     ...(deps.artifacts === undefined ? {} : { artifacts: deps.artifacts }),
   });

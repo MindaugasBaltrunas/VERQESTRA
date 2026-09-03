@@ -223,6 +223,29 @@ export type ContextSizeMetricsRecord = {
   canary_features?: string[];
 } & ContextCompressionMetrics;
 
+/**
+ * True when `record` is a real context-pack assembly row — the row that carries the actual
+ * `canary_features` arm and budget — rather than one of the synthetic telemetry rows appended
+ * later in the same task's lifecycle by writers outside this module. Three known synthetic
+ * writers always set `max_context_chars: 0` and never set `canary_features`, so a "latest wins"
+ * reader that does not filter through this predicate silently demotes every canary task to
+ * control (compression-audit-2026-09-03.md, section 3: 34/34 completed canary tasks demoted):
+ * - dispatch finalize's `worker_prompt_chars` row (claude-dispatch-finalize.ts, task 0086)
+ * - dispatch finalize's `dispatch_tool_schema` shadow row (same file, task 0036)
+ * - the post-hook bash-digest shadow row (post-hooks.ts, task 036-a-02)
+ * None of these three measure a context pack at all — they measure a sent prompt, a tool
+ * schema, or a bash digest — so `max_context_chars: 0` on them is not "a pack with zero
+ * budget", it is "not a pack". A real assembly (persist.ts) always threads a positive
+ * `maxContextChars` sourced from config, so `> 0` cleanly separates the two.
+ * Missing entirely (`undefined`) is treated as NOT a pack, on purpose: every real pack row,
+ * legacy or current, always carries `max_context_chars` — see {@link readContextSizeMetrics},
+ * which rejects a record missing it outright. Absence here means a foreign/corrupted record,
+ * not an old pack format worth trusting.
+ */
+export function describesContextPack(record: Partial<ContextSizeMetricsRecord>): boolean {
+  return typeof record.max_context_chars === "number" && record.max_context_chars > 0;
+}
+
 export function buildContextSizeMetrics(input: ContextSizeMetricsInput, now: Date = new Date()): ContextSizeMetricsRecord {
   return {
     ts: now.toISOString(),

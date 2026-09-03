@@ -14,6 +14,7 @@ import {
   appendContextSizeMetrics,
   buildContextSizeMetrics,
   contextSizeMetricsLogPath,
+  describesContextPack,
   readContextSizeMetrics,
 } from "../application/context-pack/metrics.js";
 import { parseContextCompressionConfig } from "../domain/policies/compression/features.js";
@@ -485,4 +486,14 @@ test("buildContextSizeMetrics + joinPostRunTruth: dispatch-finalize-shaped recor
   assert.equal(rows[0]?.input_tokens, 900);
   assert.equal(rows[0]?.billable, 900 + 150 + 50);
   assert.equal(rows[0]?.accepted, null);
+});
+
+// Task 154: synthetic writers append max_context_chars:0 rows without canary_features; "latest
+// wins" readers demote canary tasks to control unless filtered through describesContextPack.
+test("describesContextPack: synthetic rows false, real pack row true, missing field false", () => {
+  const syntheticRow = buildContextSizeMetrics({ taskId: "154-shadow", contextChars: 0, maxContextChars: 0, specFragmentCount: 0, codeContextItemCount: 0, toolSchemaFullChars: 4000 });
+  const realPackRow = buildContextSizeMetrics({ taskId: "154-real", contextChars: 500, maxContextChars: 12_000, specFragmentCount: 3, codeContextItemCount: 2, canaryFeatures: ["compact_dsl"] });
+  assert.equal(describesContextPack(syntheticRow), false);
+  assert.equal(describesContextPack(realPackRow), true);
+  assert.equal(describesContextPack({}), false);
 });

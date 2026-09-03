@@ -2,9 +2,9 @@
   "version": 1,
   "turnLimits": {
     "small": 20,
-    "medium": 60,
+    "medium": 90,
     "large": 180,
-    "repair": 30,
+    "repair": 45,
     "semanticReview": 12
   },
   "perTurnWallclockAllowanceMs": 20000,

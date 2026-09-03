@@ -43,18 +43,20 @@ export type TokenBudgetInput = {
  * Iš kur gautas dispatch turn lango tier'as:
  * - `token-budget` — preflight paskelbtas `optimizeTokenBudget` verdiktas (kanoninis kelias);
  * - `structural` — preflight sprendimo nėra arba jis priklauso kitam task'ui;
- * - `reduced` — bazinis tier'as nuleistas vienu laipteliu per soft biudžeto kelią.
+ * - `reduced` — bazinis tier'as nuleistas vienu laipteliu per soft biudžeto kelią;
+ * - `escalated` — modelio eskalacija (`routing.tier !== routing.base_tier`) pakelia turn
+ *   langą iki `large`.
  */
-export type TurnTierSource = "token-budget" | "structural" | "reduced";
+export type TurnTierSource = "token-budget" | "structural" | "reduced" | "escalated";
 
 export type DispatchTurnTierDecision = {
   /** Tier'as, kuriuo skaičiuojamas `--max-turns`. */
   tier: TokenBudgetTier;
   source: TurnTierSource;
-  /** Tier'as prieš `reduced` nuleidimą (be nuleidimo — lygus `tier`). */
+  /** Tier'as prieš `reduced` nuleidimą ar `escalated` pakėlimą (be jų — lygus `tier`). */
   baseTier: TokenBudgetTier;
-  /** Bazinio tier'o šaltinis; `reduced` atveju rodo, KĄ nuleido. */
-  baseSource: Exclude<TurnTierSource, "reduced">;
+  /** Bazinio tier'o šaltinis; `reduced`/`escalated` atveju rodo, KĄ pakeitė. */
+  baseSource: Exclude<TurnTierSource, "reduced" | "escalated">;
   /** `DISPATCH TURN BUDGET: ... source=` laukas — be tarpų, kad log liktų parsinamas. */
   sourceLabel: string;
   reasons: string[];
@@ -64,6 +66,11 @@ export type DispatchTurnTierDecision = {
  * Vienintelė vieta, kuri nusprendžia dispatch sesijos turn lango tier'ą (task 0941).
  * Kanoninis šaltinis — preflight paskelbtas token biudžeto tier'as; be jo grįžtama prie
  * struktūrinių metrikų. Griežtinti tier'ą galima TIK soft biudžeto keliu, vienu laipteliu.
+ *
+ * 2026-09-03 (modelių auditas R2): eskaluotas bandymas paveldi `large` turn'ų biudžetą.
+ * Vienintelė stebėta eskalacija (task 030, 3-ias bandymas, opus) buvo nukirsta ties 61
+ * turn'u už 4,4 $ — routing'as pakėlė MODELĮ, o langas liko `medium`. Stipresnis modelis
+ * be didesnio lango yra opus kaina už sonnet lubas.
  */
 export function resolveDispatchTurnTier(input: {
   /** Preflight `decision.token_budget_tier`; `undefined` → struktūrinis atsarginis kelias. */
@@ -71,10 +78,14 @@ export function resolveDispatchTurnTier(input: {
   metrics: TaskSizeMetrics;
   /** Soft biudžeto priežastys, kai `reduce_context` aktyvus; kitu atveju tuščia. */
   reduceContextReasons?: readonly string[];
+  /** Dispatch'o laiko faktas `routing.tier !== routing.base_tier`; preflight'o sprendimo neliečia. */
+  escalated?: boolean;
 }): DispatchTurnTierDecision {
   const structural = structuralTaskTier(input.metrics);
   const baseTier = input.publishedTier ?? structural.tier;
-  const baseSource: Exclude<TurnTierSource, "reduced"> = input.publishedTier ? "token-budget" : "structural";
+  const baseSource: Exclude<TurnTierSource, "reduced" | "escalated"> = input.publishedTier
+    ? "token-budget"
+    : "structural";
   const baseReasons = input.publishedTier
     ? [`preflight published token budget tier=${input.publishedTier}`]
     : structural.reasons.length > 0
@@ -82,6 +93,26 @@ export function resolveDispatchTurnTier(input: {
       : ["structurally small task by default"];
 
   const softReasons = (input.reduceContextReasons ?? []).map((reason) => reason.trim()).filter(Boolean);
+
+  // Eskalacija tikrinama PRIEŠ soft kelią: ji jau yra sprendimas leisti daugiau, tad
+  // nuleisti langą tam pačiam bandymui reikštų atimti būtent tai, ką eskalacija davė.
+  if (input.escalated === true) {
+    return {
+      tier: "large",
+      source: "escalated",
+      baseTier,
+      baseSource,
+      sourceLabel: "escalated",
+      reasons: [
+        ...baseReasons,
+        `model escalation inherits large turn budget (base tier=${baseTier})`,
+        ...(softReasons.length > 0
+          ? [`soft budget reduction not applied to escalated attempt: ${softReasons.join("; ")}`]
+          : []),
+      ],
+    };
+  }
+
   if (softReasons.length === 0) {
     return { tier: baseTier, source: baseSource, baseTier, baseSource, sourceLabel: baseSource, reasons: baseReasons };
   }

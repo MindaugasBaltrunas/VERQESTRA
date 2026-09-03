@@ -30,6 +30,12 @@ export type DispatchBudgetPlanInput = {
   phase: TurnBudgetPhase;
   reduceContextReasons: readonly string[];
   remainingTaskTokens: number | null;
+  /**
+   * Modelio eskalacija šiam bandymui (`routing.tier !== routing.base_tier`) — TAS PATS
+   * palyginimas, kuris `dispatch-routing-plan.ts` rašo `MODEL ESCALATION` eilutę. Turn
+   * langą pakelia iki `large`; preflight'o paskelbto tier'o nekeičia.
+   */
+  escalated?: boolean;
   policyFs: PolicyConfigFileSystemPort;
   env?: NodeJS.ProcessEnv;
 };
@@ -48,6 +54,7 @@ export async function resolveDispatchBudgetPlan(input: DispatchBudgetPlanInput) 
     ...(publishedTier === undefined ? {} : { publishedTier }),
     metrics: input.taskMetrics,
     reduceContextReasons: input.reduceContextReasons,
+    ...(input.escalated === undefined ? {} : { escalated: input.escalated }),
   });
   const dispatchMaxTurns = resolveMaxTurns({
     phase: input.phase,
@@ -74,7 +81,9 @@ export async function resolveDispatchBudgetPlan(input: DispatchBudgetPlanInput) 
     midDispatchLimit,
     turnLog:
       `DISPATCH TURN BUDGET: task=${input.taskId} phase=${input.phase} tier=${turnTier.tier} source=${turnTier.sourceLabel} ` +
-      (turnTier.source === "reduced" ? `base_tier=${turnTier.baseTier} base_source=${turnTier.baseSource} ` : "") +
+      (turnTier.source === "reduced" || turnTier.source === "escalated"
+        ? `base_tier=${turnTier.baseTier} base_source=${turnTier.baseSource} `
+        : "") +
       `max_turns=${dispatchMaxTurns || "none"} timeout_ms=${dispatchTimeoutMs} ` +
       `budget_source=${turnTier.tier}:${tokenBudget.sources[turnTier.tier]},` +
       `perTurn:${tokenBudget.sources.perTurnWallclockAllowanceMs},` +

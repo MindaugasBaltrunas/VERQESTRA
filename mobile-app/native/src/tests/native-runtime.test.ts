@@ -37,17 +37,19 @@ function importSpecifiers(source: string): string[] {
 /**
  * Every module `native-runtime.ts` may name. The list stays exact and therefore
  * fail-closed: `../core` is the single seam to the MVC core, the adapter paths are
- * native-shell-internal, and `expo-secure-store` (task 119) plus
- * `expo-local-authentication` (task 120) are the platform packages the composition
- * root binds to ports. A new bare specifier here has to be argued for by editing
- * this line.
+ * native-shell-internal, and `expo-secure-store` (task 119),
+ * `expo-local-authentication` (task 120) plus `expo-speech-recognition` (task 121)
+ * are the platform packages the composition root binds to ports. A new bare
+ * specifier here has to be argued for by editing this line.
  */
 const allowedRuntimeImports: ReadonlySet<string> = new Set([
   "../core",
   "../adapters/expo-biometric-authenticator",
   "../adapters/expo-secure-store-adapter",
+  "../adapters/native-speech-recognizer",
   "expo-local-authentication",
   "expo-secure-store",
+  "expo-speech-recognition",
 ]);
 
 test("native-runtime reaches the core only through the seam and names only audited modules", async () => {
@@ -126,16 +128,20 @@ test("the gateway base URL has no default and comes from an Expo public env var"
  * an unaudited addition must fail here rather than arrive with a feature.
  *
  * The transports still contribute nothing — they wrap `fetch` and `WebSocket`.
- * Two deliberate additions carry an operator approval each: `expo-secure-store`
- * (task 119, 2026-09-02), because the OS keystore has no global to wrap, and
+ * Three deliberate additions carry an operator approval each: `expo-secure-store`
+ * (task 119, 2026-09-02), because the OS keystore has no global to wrap,
  * `expo-local-authentication` (task 120, 2026-09-03), because neither has the
- * biometric prompt `BiometricAuthenticatorPort` needs.
+ * biometric prompt `BiometricAuthenticatorPort` needs, and
+ * `expo-speech-recognition` (task 121, 2026-09-03), because a recogniser that
+ * can be *required* to stay on the device is what makes the port's "no cloud
+ * without consent" rule enforceable rather than merely asserted.
  */
 const auditedRuntimeDependencies = [
   "@verqestra/mobile-app",
   "expo",
   "expo-local-authentication",
   "expo-secure-store",
+  "expo-speech-recognition",
   "react",
   "react-native",
 ];

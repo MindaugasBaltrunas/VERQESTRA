@@ -1,17 +1,22 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
-import { GatewayHttpClient, TerminalStreamClient } from "../core";
+import { ExpoSpeechRecognitionModule as SpeechRecognition } from "expo-speech-recognition";
+import { GatewayHttpClient, SecureCloudConsentStore, TerminalStreamClient } from "../core";
 import type {
   BiometricAuthenticatorPort,
   MobileHttpTransportPort,
   MobileWebSocketFactory,
   MobileWebSocketPort,
   SecureStorePort,
+  SpeechConsentPort,
+  SpeechRecognitionPort,
 } from "../core";
 import { createExpoBiometricAuthenticator } from "../adapters/expo-biometric-authenticator";
 import type { ExpoLocalAuthenticationModule } from "../adapters/expo-biometric-authenticator";
 import { createExpoSecureStoreAdapter } from "../adapters/expo-secure-store-adapter";
 import type { ExpoSecureStoreModule } from "../adapters/expo-secure-store-adapter";
+import { createNativeSpeechRecognizer } from "../adapters/native-speech-recognizer";
+import type { ExpoSpeechRecognitionModule } from "../adapters/native-speech-recognizer";
 
 /**
  * Platform transports for the two network adapters the MVC core defines but
@@ -20,10 +25,11 @@ import type { ExpoSecureStoreModule } from "../adapters/expo-secure-store-adapte
  * Native already provides (`fetch`, `WebSocket`), so they add no dependency.
  *
  * This module is also where the platform packages the shell needs by name are
- * bound to ports: `expo-secure-store` behind `SecureStorePort` and
- * `expo-local-authentication` behind `BiometricAuthenticatorPort`. A composition
- * root is the correct place for that — the adapters themselves stay module-free,
- * and each import appears exactly once in the package.
+ * bound to ports: `expo-secure-store` behind `SecureStorePort`,
+ * `expo-local-authentication` behind `BiometricAuthenticatorPort` and
+ * `expo-speech-recognition` behind `SpeechRecognitionPort`. A composition root
+ * is the correct place for that — the adapters themselves stay module-free, and
+ * each import appears exactly once in the package.
  *
  * `DeviceProofPort` and `MobileIdPort` still have no production adapter: the
  * former needs device-identity signing, the latter a random UUID source. The
@@ -76,6 +82,78 @@ export function createReactNativeBiometricAuthenticator(
   module: ExpoLocalAuthenticationModule = LocalAuthentication,
 ): BiometricAuthenticatorPort {
   return createExpoBiometricAuthenticator({ module });
+}
+
+/**
+ * Whether the speech module is actually linked into this binary.
+ *
+ * `expo-speech-recognition` is autolinked in a development or production build,
+ * but a client running under a runtime that does not carry it resolves the
+ * import to something with no methods on it. That case is a missing ability, not
+ * a broken shell: `MobileTerminalPorts.speech` is optional precisely so an
+ * unwired recogniser removes push-to-talk instead of leaving an unguarded voice
+ * path behind, so it is detected here rather than surfacing as a crash on the
+ * first hold.
+ */
+function isLinkedSpeechModule(
+  module: Partial<ExpoSpeechRecognitionModule> | undefined,
+): module is ExpoSpeechRecognitionModule {
+  return module !== undefined
+    && typeof module.isRecognitionAvailable === "function"
+    && typeof module.supportsOnDeviceRecognition === "function"
+    && typeof module.start === "function"
+    && typeof module.addListener === "function";
+}
+
+/**
+ * `SpeechRecognitionPort` backed by the platform recogniser, or `undefined` when
+ * this build has none.
+ *
+ * The annotated return type is the seam's only compile-time check that the
+ * adapter's locally restated capability, result and handle shapes still match
+ * the core's port, for the same reason `createReactNativeSecureStore` carries
+ * one.
+ */
+export function createReactNativeSpeechRecognizer(
+  module: Partial<ExpoSpeechRecognitionModule> | undefined = SpeechRecognition,
+): SpeechRecognitionPort | undefined {
+  if (!isLinkedSpeechModule(module)) return undefined;
+  return createNativeSpeechRecognizer({ module });
+}
+
+/**
+ * `SpeechConsentPort` backed by the OS keystore.
+ *
+ * Unlike `writeGate` and `credentials` below, this decorator is reachable: the
+ * core's barrel re-exports `SecureCloudConsentStore`, so the consent slot is
+ * bound here instead of being left to a shell that would have to invent its own
+ * storage — and inventing one is how a grant ends up somewhere it survives an
+ * uninstall.
+ */
+export function createReactNativeSpeechConsent(
+  store: SecureStorePort = createReactNativeSecureStore(),
+): SpeechConsentPort {
+  return new SecureCloudConsentStore(store);
+}
+
+/**
+ * The pair `MobileTerminalPorts` takes for push-to-talk.
+ *
+ * `speech` is omitted rather than passed as `undefined` when no recogniser is
+ * linked, so an unwired build hands the App exactly the shape it documents as
+ * "no push-to-talk at all". `speechConsent` is always wired: it stores a refusal
+ * as an absence, so a consent store with nothing in it blocks cloud
+ * transcription rather than enabling anything.
+ */
+export function createReactNativeSpeechPorts(input?: Readonly<{
+  module?: Partial<ExpoSpeechRecognitionModule> | undefined;
+  store?: SecureStorePort;
+}>): Readonly<{ speech?: SpeechRecognitionPort; speechConsent: SpeechConsentPort }> {
+  const speech = createReactNativeSpeechRecognizer(input?.module);
+  return {
+    ...(speech === undefined ? {} : { speech }),
+    speechConsent: createReactNativeSpeechConsent(input?.store ?? createReactNativeSecureStore()),
+  };
 }
 
 export function createReactNativeHttpTransport(): MobileHttpTransportPort {

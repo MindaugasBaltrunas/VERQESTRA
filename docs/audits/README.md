@@ -24,6 +24,7 @@ būsena pasikeis ar bus išvalyta.
 | [020-session-writes-ledger-diagnosis-2026-08-25.md](020-session-writes-ledger-diagnosis-2026-08-25.md) | Prarandamas dispatch darbas — R1 uždarytas, R2 liko atviras | 2026-08-25 |
 | [038-subagento-kanalo-premisa-paneigta-2026-08-26.md](038-subagento-kanalo-premisa-paneigta-2026-08-26.md) | Task 038 prielaida paneigta kontrapavyzdžiu; įvardyti R3–R5 | 2026-08-26 |
 | [ui-app-overview-2026-09-02.md](ui-app-overview-2026-09-02.md) | Valdymo centras `#/` — 3 × P1: signalai iš vieno slot'o pirminio medžio artefaktų, prieštaraujančios task žymės, pasenęs „Aktyvus vykdymas" | 2026-09-02 |
+| [compression-audit-2026-09-03.md](compression-audit-2026-09-03.md) | Kompresorius: nė viena feature nemažina (compact_dsl 204/204 didina, symbol_slices +50 % pack'o), pack'as < 0,05 % sesijos tokenų, 34/34 canary stebėjimai demotuoti į control | 2026-09-03 |
 
 Paskutinis įrašas nėra epiko verdiktas, o PALEIDIMO auditas: jis rašomas tada, kai produktas
 tikrinamas taip, kaip jį paleidžia operatorius. Toks auditas pagavo tai, ko 1473 + 393 žali

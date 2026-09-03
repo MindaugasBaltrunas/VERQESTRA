@@ -4,16 +4,22 @@
 // INVARIANTAS: joks kelias nesibaigia be `stopBridge` įrašo. Orkestratorius iš jo sprendžia,
 // ar bandymas baigėsi, tad tyliai grįžęs Stop hook'as jam atrodo kaip pakibusi sesija.
 //
+// Nuo task'o 141 invariantas galioja ir NEPLANUOTAI išimčiai (`finishCrashed`), o žalias darbas,
+// nepatekęs į commit'ą, visada įvardijamas vardais (`strandedProductWork`). Tyli tuštuma po žalio
+// vykdytojo darbo yra draudžiama baigtis — ne prasta, o neleistina.
+//
 // `git add --all` čia NIEKADA nenaudojamas: stage'inama tik šios sesijos rašymų aibė plius
 // lifecycle keliai, kad lygiagrečios sesijos svetimi produkto edit'ai negalėtų būti sušluoti į
 // šio task'o commit'ą.
 
 import path from "node:path";
+import { normalizeGitPath } from "../../domain/git/changes.js";
 import {
   commitTitleFromFiles,
   fallbackCommitBody,
   isWipCommitMessage,
 } from "../../domain/policies/commit-message.js";
+import { toError } from "../../shared/errors.js";
 import { enforceCommitTitlePolicy } from "../../application/policy-governance/git-automation-policy.js";
 import { honestAutoCommitFiles } from "../../application/task-execution/session-staging.js";
 import { recordSessionChanges } from "./session-changes.js";
@@ -170,6 +176,24 @@ async function clearAuthoredCommitMessage(context: StopHookContext): Promise<voi
   await context.deps.ports.fs.writeTextFile(context.logPath("commit-msg.md"), "");
 }
 
+/**
+ * Pakeisti produkto failai, kurių NĖ VIENAS įrodymų sluoksnis nepriskyrė nei šiai sesijai, nei
+ * svetimai — t. y. darbas, kuris lieka medyje be jokio paaiškinimo.
+ *
+ * Įrodytai svetimas (`plan.foreign`) purvas čia SĄMONINGAI neįskaitomas: jo palikimas nepaliestam
+ * yra kontraktas, ne gedimas, ir jam skirta atskira „tik svetimi pakeitimai" šaka. Lieka tik tai,
+ * apie ką staging'as neturi ką pasakyti — vienintelis atvejis, kuriuo tylus „done" meluoja.
+ */
+function strandedProductWork(changedFiles: readonly string[], plan: StagePlanResult): string[] {
+  const accountedFor = new Set([...plan.foreign, ...plan.stagePaths].map(normalizeGitPath));
+  const stranded = new Set<string>();
+  for (const file of changedFiles) {
+    const normalized = normalizeGitPath(file);
+    if (normalized && !accountedFor.has(normalized)) stranded.add(normalized);
+  }
+  return [...stranded];
+}
+
 async function logStagingEvidence(context: StopHookContext, plan: StagePlanResult, taskId: string): Promise<void> {
   if (plan.foreign.length > 0) {
     await context.log(
@@ -216,15 +240,83 @@ async function readStopSessionId(ports: StopHookDeps["ports"]): Promise<string> 
   }
 }
 
+/**
+ * Stop hook'o įėjimas su GEDIMO SULAIKYMU.
+ *
+ * Diagnozė (task 141, bėgimas 098 vs 097, 2026-09-01, run `ec04af19`): abu task'ai suko tą pačią
+ * worktree bootstrap aibę, tik skirtinguose slot'uose. 097 (w1) commit'ino ir susimerge'ino; 098
+ * (w2) baigė žaliai (`CLAUDE FINISHED exit_code=0`, diagnozė `verdict=done reason=checks passed`),
+ * paliko 5 produkto failus — ir NEI commit'o, NEI priežasties eilutės. Diagnozės pusė tą patį
+ * bandymą pažymėjo `WARNING: dispatch identity unavailable — ownership attribution skipped`, o ta
+ * eilutė reiškia tiksliai vieną dalyką: ledger'yje nuosavybės įrašų BUVO, bet stop įrodymo su
+ * `dispatch_nonce` NEBUVO. Kadangi žemiau kiekviena terminalinė šaka eina per `finish`, kuris
+ * VISADA rašo `stopBridge`, įrodymo nebuvimas reiškia, kad nė viena šaka nebuvo pasiekta:
+ * `runStopHook` metė iš vidurio.
+ *
+ * O metimas iki šiol buvo TYLUS: `hookOnStop` neturėjo nė vieno `catch`, tad bet kurio porto
+ * (`runShell`, `gitStatusPorcelain`, `filterGitIgnored`, `commitAndPush`, pats `stopBridge`)
+ * išimtis pralėkdavo pro visą hook'ą — jokios `hooks.log` eilutės, jokio stop įrodymo, jokio
+ * commit'o. `loadGitAutomationPolicy` šią klasę savo viduje jau buvo uždaręs vienai funkcijai
+ * („throw'as čia nužudytų stop procesą neįrašius stop-status"); čia ji uždaroma visam keliui.
+ *
+ * Tikslus 098 metęs portas neįvardijamas sąmoningai: tos kopijos `vq/logs/hooks.log` nebėra —
+ * worktree buvo suarchyvuotas ir pašalintas 2026-09-02 (`ORPHAN INTEGRATION PARKED`). Sulaikymas
+ * taiso KLASĘ, ir kitas toks atvejis priežastį pasakys pats.
+ */
 export async function hookOnStop(deps: StopHookDeps): Promise<number> {
   const context = stopHookContext(deps);
-  const ports = deps.ports;
+  try {
+    return await runStopHook(context);
+  } catch (error: unknown) {
+    return await finishCrashed(context, error);
+  }
+}
+
+/**
+ * Aktyvaus task'o id, arba `""`. Skaitymo klaida NEGALI būti hook'o klaida: tapatybė yra
+ * tikslinimo priemonė, o be jos stop įrodymas vis tiek privalo būti įrašytas.
+ */
+async function readCurrentTaskId(context: StopHookContext): Promise<string> {
+  try {
+    return ((await context.deps.ports.fs.readTextFileIfExists(context.statePath("current-task-id"))) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Paskutinė gynybos linija: neplanuota išimtis paverčiama GARSIA baigtimi.
+ *
+ * Kiekvienas žingsnis atskirai apsaugotas, nes čia jau žinoma, kad aplinka gedi: pats žurnalas,
+ * pats stop tiltas ar pats task id gali kristi antrą kartą. Tyli tuštuma po žalio darbo yra
+ * blogesnė už bet kurią iš tų dalinių nesėkmių — bent vienas kanalas (hooks.log, stderr,
+ * stop-bridge) pasako, kad darbas liko necommit'intas.
+ */
+async function finishCrashed(context: StopHookContext, error: unknown): Promise<number> {
+  const detail = toError(error).message || "nežinoma klaida";
+  const taskId = await readCurrentTaskId(context);
+  await context
+    .log(`STOP NEBAIGTAS — Stop hook'as krito prieš terminalinę šaką (task=${taskId || "?"}): ${detail}`)
+    .catch(() => undefined);
+  try {
+    context.io.error(`STOP hook'as krito: ${detail}. Sesijos darbas LIKO NECOMMIT'INTAS — vq/logs/hooks.log.`);
+  } catch {
+    /* io kanalas nepasiekiamas — žurnalo eilutė jau įrašyta */
+  }
+  await context.deps.ports
+    .stopBridge({ status: "error", reason: `stop hook crashed: ${detail}`, taskId })
+    .catch(() => undefined);
+  return STOP_OK_EXIT_CODE;
+}
+
+async function runStopHook(context: StopHookContext): Promise<number> {
+  const ports = context.deps.ports;
   await ports.fs.makeDirectory(path.join(context.runtimeRoot, "logs"));
   await context.log("STOP įvykis");
 
   // Orkestratoriaus įrašas, kurį task'ą Claude vykdo dabar — įspaudžiamas į kiekvieną
   // stop-status rašymą, kad vėlesnis resume/diagnose atpažintų svetimo bandymo įrodymus.
-  const taskId = ((await ports.fs.readTextFileIfExists(context.statePath("current-task-id"))) ?? "").trim();
+  const taskId = await readCurrentTaskId(context);
 
   const changedFiles = await ports.collectChangedFiles(context.root);
   if (changedFiles.length === 0) {
@@ -312,6 +404,24 @@ export async function hookOnStop(deps: StopHookDeps): Promise<number> {
   const plan = await resolveStagePlan(context, taskId);
   await logStagingEvidence(context, plan, taskId);
   if (plan.stagePaths.length === 0) {
+    // Tuščias planas turi DVI visiškai skirtingas prasmes, ir iki task'o 141 abi buvo skelbiamos
+    // kaip „done": (a) visas purvas ĮRODYTAI svetimas — tada nieko nedaryti yra teisinga; (b)
+    // medyje guli produkto darbas, kurio nė vienas įrodymų sluoksnis nepriskyrė svetimam — tada
+    // „done" yra melas, po kurio orkestratorius mato tik „Claude did not create a new commit".
+    // Antrasis atvejis nuo šiol įvardija failus ir baigiasi `error`.
+    const stranded = strandedProductWork(changedFiles, plan);
+    if (stranded.length > 0) {
+      return await finish(context, {
+        status: "error",
+        reason: `stop hook made no commit: ${stranded.length} product file(s) outside every staging evidence layer`,
+        taskId,
+        logLine:
+          `NECOMMIT'INTAS DARBAS: task=${taskId || "?"} — ${stranded.length} produkto failas(-ai) liko ` +
+          `nestage'inti, nes jų nematė nei session-writes ledger'is, nei baseline rescue, nei ` +
+          `allowed-paths fallback'as: ${stranded.join(", ")}`,
+        error: `STOP: ${stranded.length} produkto failas(-ai) liko necommit'inti. Detalės: vq/logs/hooks.log.`,
+      });
+    }
     await clearChangesLog(context);
     return await finish(context, {
       status: "done",

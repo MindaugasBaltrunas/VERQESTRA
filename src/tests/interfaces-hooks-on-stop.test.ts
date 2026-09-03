@@ -341,6 +341,91 @@ test("hookOnStop: allowed-paths fallback stage'ina ledger'iui nematomą darbą s
   );
 });
 
+// ---------------------------------------------------------------------------
+// task 141: tyli tuštuma po žalio darbo
+// ---------------------------------------------------------------------------
+
+// Atkurta 098 sąlyga (2026-09-01, run ec04af19): vykdytojas baigė žaliai, medyje guli produkto
+// failai, o Stop hook'o portas metė iš vidurio. Iki šio testo tai reiškė NULĮ pėdsakų: jokios
+// hooks.log eilutės, jokio stop-bridge įrašo, jokio commit'o — orkestratorius matė tik vėlesnį
+// „Claude did not create a new commit". 097 tame pačiame bėgime commit'ino, tad skirtumo
+// paaiškinti nebuvo iš ko.
+test("hookOnStop: kritęs portas nebelieka tylus — garsi eilutė IR stop-bridge įrašas", async () => {
+  const world = stopWorld({ [CURRENT_TASK]: "098\n", [LEDGER]: JSON.stringify(["src/a.ts"]) });
+  world.changed = ["src/a.ts"];
+  world.status = " M src/a.ts\n";
+  world.ports.filterGitIgnored = () => Promise.reject(new Error("git ls-files nulūžo"));
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.equal(world.commits.length, 0, "kritęs kelias necommit'ina");
+  assert.deepEqual(world.bridge.at(-1), {
+    status: "error",
+    reason: "stop hook crashed: git ls-files nulūžo",
+    taskId: "098",
+  });
+  assert.match(world.store.get(HOOKS_LOG) ?? "", /STOP NEBAIGTAS — Stop hook'as krito.*git ls-files nulūžo/);
+  assert.match(world.errors.join("\n"), /LIKO NECOMMIT'INTAS/);
+});
+
+// Sulaikymas privalo išgyventi ir tada, kai gedimas yra pats stop tiltas: bent vienas kanalas
+// (hooks.log arba stderr) turi pasakyti, kad darbas liko medyje.
+test("hookOnStop: kritęs stop-bridge NENUŽUDO garsios eilutės", async () => {
+  const world = stopWorld({ [CURRENT_TASK]: "098\n" });
+  world.changed = ["src/a.ts"];
+  world.ports.collectChangedFiles = () => Promise.reject(new Error("git status nepasiekiamas"));
+  world.ports.stopBridge = () => Promise.reject(new Error("attempt namespace nepasiekiamas"));
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.match(world.store.get(HOOKS_LOG) ?? "", /STOP NEBAIGTAS/);
+  assert.match(world.errors.join("\n"), /STOP hook'as krito: git status nepasiekiamas/);
+});
+
+// Antra 098 klasės pusė: hook'as terminalinę šaką PASIEKIA, bet staging planas tuščias, nors
+// medyje guli žalias produkto darbas. Toks atvejis skelbdavosi „done" — melas, kurio orkestratorius
+// paskui negalėdavo paaiškinti. Įrodytai svetimas purvas (testas aukščiau) lieka „done".
+test("hookOnStop: tuščias planas su žaliu darbu — error su failų vardais, ne tylus done", async () => {
+  const world = stopWorld({ [CURRENT_TASK]: "098\n", [LEDGER]: "[]" });
+  world.changed = ["src/application/code-intelligence/code-map/coverage.ts"];
+  world.status = " M src/application/code-intelligence/code-map/coverage.ts\n";
+  // Galiojantis SAVO baseline su nepaaiškintu co-tenant'o purvu: clean-baseline rescue išsijungia
+  // (baseline nešvarus), gap saugiklis išsijungia (bandymo startas ŽINOMAS), o allowed-paths
+  // fallback'as be `current-task-file` net neįsijungia. Planas lieka tuščias — lygiai ta būsena,
+  // kurioje 098 darbas liko medyje.
+  world.store.set(
+    path.join(RUNTIME, "state", "session-start-status.json"),
+    JSON.stringify({
+      dispatch_nonce: "nonce-098",
+      task_id: "098",
+      baseline_valid: true,
+      non_runtime_dirty_entries: [{ status: " M", path: "src/co-tenant.ts" }],
+    }),
+  );
+  world.ports.env = (name) => (name === "AG_DISPATCH_NONCE" ? "nonce-098" : undefined);
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.equal(world.commits.length, 0);
+  assert.equal(world.bridge.at(-1)?.status, "error");
+  assert.match(world.bridge.at(-1)?.reason ?? "", /stop hook made no commit: 1 product file\(s\)/);
+  assert.match(
+    world.store.get(HOOKS_LOG) ?? "",
+    /NECOMMIT'INTAS DARBAS: task=098 .*src\/application\/code-intelligence\/code-map\/coverage\.ts/,
+  );
+  // changes.log NEVALOMAS: darbas tebėra medyje, tad jo įrodymas negali dingti.
+  assert.equal(world.store.get(CHANGES_LOG), undefined);
+});
+
+// 097 klasės kelias — žalias darbas, matomas ledger'yje — nepakito nė per vieną eilutę.
+test("hookOnStop: 097 klasės kelias nepakitęs — ledger'io darbas commit'inamas kaip anksčiau", async () => {
+  const world = stopWorld({ [CURRENT_TASK]: "097\n", [LEDGER]: JSON.stringify(["src/a.ts", "src/b.ts"]) });
+  world.changed = ["src/a.ts", "src/b.ts"];
+  world.status = " M src/a.ts\n M src/b.ts\n";
+
+  assert.equal(await hookOnStop(deps(world)), 0);
+  assert.deepEqual(world.commits[0]?.paths, ["src/a.ts", "src/b.ts"]);
+  assert.equal(world.bridge.at(-1)?.status, "done");
+  assert.equal(world.store.get(CHANGES_LOG), "");
+});
+
 test("hookOnStop: sesijos nuotrauka užrašoma PRIEŠ commit'ą, kuris išvalo changes.log", async () => {
   const world = stopWorld({ [CURRENT_TASK]: "890\n", [LEDGER]: JSON.stringify(["src/a.ts"]) });
   world.changed = ["src/a.ts"];

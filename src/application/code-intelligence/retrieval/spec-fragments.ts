@@ -66,6 +66,15 @@ export type RetrievedFragment = {
    * už patį fragmentą — ir tada worker'is nepilną specifikaciją laikytų pilna.
    */
   truncated?: true;
+  /**
+   * Turinys PRIEŠ šio fragmento per-fragmento kirpimą (žr. `retrieveOneFragment`), naudojamas
+   * TIK dedup tapatybei fazėje 2 (144-b). `text` čia netinka: prie išsekusio biudžeto fazė 1
+   * kerpa VISUS fragmentus iki bendro likučio, ir ties nuliu jie visi tampa `""` — dedup pagal
+   * `text` tada SKIRTINGUS ref'us paverstų dublikatais, nors jų turinys niekada nebuvo lygintas.
+   * Neprivalomas: rankomis testuose surašyti fragmentai gali jo neturėti, tuomet dedup krenta
+   * atgal ant `text`.
+   */
+  fullText?: string;
 };
 
 /**
@@ -169,10 +178,20 @@ export async function retrieveSpecFragmentCandidates(
   // kandidato vietą reiškė, kad tarpais išskirstytas `## Spec source` blokas prarasdavo tikrus
   // ref'us anksčiau, nei pasiekdavo tikrąją ribą.
   let considered = 0;
+  // Identiškas (po `trim`) ref'as, surašytas du kartus, anksčiau būdavo skaitomas DU kartus —
+  // dvigubas IO ir dvi identiškos `unresolved`/fragmento eilutės, valgančios tiek `considered`
+  // lubas, tiek vėliau `MAX_SPEC_RETRIEVAL_WARNINGS` (144-b). Antras pasikartojimas praleidžiamas
+  // VISIŠKAI — jis nesuvalgo nei IO, nei kandidato vietos.
+  const seenRefs = new Set<string>();
   for (const ref of refs) {
-    if (!ref.trim()) {
+    const trimmedRef = ref.trim();
+    if (!trimmedRef) {
       continue;
     }
+    if (seenRefs.has(trimmedRef)) {
+      continue;
+    }
+    seenRefs.add(trimmedRef);
     if (considered >= MAX_SPEC_CANDIDATES) {
       unresolved.push({ ref, reason: "candidate_limit" });
       continue;
@@ -217,7 +236,9 @@ export function applySpecFragmentBudget(
   const kept: RetrievedFragment[] = [];
   const dropped: DroppedSpecFragment[] = [];
   const truncated: string[] = [];
-  const seen = new Set<string>();
+  // Tapatybė iš turinio, kuris keliaus PIRMĄ KARTĄ pamatytas — žr. `keptDedupKeys` žemiau dėl to,
+  // kodėl raktas tampa "duplicate" tik po to, kai pirmasis egzempliorius realiai PATEKO į `kept`.
+  const keptDedupKeys = new Set<string>();
   let usedChars = 0;
 
   for (const fragment of fragments) {
@@ -226,17 +247,27 @@ export function applySpecFragmentBudget(
     // biudžeto praradimas. Dedup daromas čia, PRIEŠ išlaidas, ir apie jį pranešama, nes tai
     // task'o rašymo defektas.
     //
-    // Tapatybė yra TURINYS, ne `ref` + turinys (2026-08-24, RAG auditas 4). Du SKIRTINGAI
-    // užrašyti ref'ai gali duoti tą patį tekstą — `AG/openspec/changes/x` ir
-    // `AG/openspec/changes/x/proposal.md` išsisprendžia į tą patį failą, o `spec.md` ir
-    // `spec.md#viena-vienintelė-antraštė` gali sutapti pažodžiui. Su `ref` rakte tokia pora
-    // praeidavo kaip du kandidatai ir išleisdavo biudžetą dukart tam pačiam tekstui — būtent tas
-    // praradimas, kurio dedup ir skirtas išvengti, tik viena abstrakcijos pakopa aukščiau.
-    if (seen.has(fragment.text)) {
+    // Tapatybė yra NEKIRPTAS TURINYS (`fullText`), ne `ref` + turinys (2026-08-24, RAG auditas 4;
+    // patikslinta 144-b). Du SKIRTINGAI užrašyti ref'ai gali duoti tą patį tekstą —
+    // `AG/openspec/changes/x` ir `AG/openspec/changes/x/proposal.md` išsisprendžia į tą patį
+    // failą, o `spec.md` ir `spec.md#viena-vienintelė-antraštė` gali sutapti pažodžiui.
+    //
+    // `fragment.text` čia netiktų: fazė 1 jį jau apkerpa iki BENDRO biudžeto (žr.
+    // `retrieveSpecFragmentCandidates` kvietimą su `specCharBudget`). Prie išsekusio biudžeto
+    // (task tekstas ≥ `max_context_chars`) VISI fragmentai fazėje 1 tampa `""`, ir dedup pagal
+    // `text` SKIRTINGUS ref'us paverstų „dublikatais", nors jų turinys niekada nebuvo lygintas —
+    // operatorius tada matytų task'o rašybos defektą ten, kur realiai išseko biudžetas.
+    const dedupKey = fragment.fullText ?? fragment.text;
+
+    // Dublikatu skelbiamas TIK toks turinys, kurio PIRMASIS egzempliorius realiai pateko į
+    // `kept` (144-b). Jei pirmasis pats krito dėl `fragment_limit`/`char_budget`, biudžetas jau
+    // išseko / limitas jau pasiektas — antras irgi kris dėl TOS PAČIOS priežasties per žemiau
+    // esančias patikras, ir jam priklauso TIKROJI priežastis, ne „duplicate" (kuris sako
+    // „nieko neprarasta", o čia prarasta).
+    if (keptDedupKeys.has(dedupKey)) {
       dropped.push({ ref: fragment.ref, reason: "duplicate" });
       continue;
     }
-    seen.add(fragment.text);
 
     if (kept.length >= maxFragments) {
       dropped.push({ ref: fragment.ref, reason: "fragment_limit" });
@@ -264,6 +295,7 @@ export function applySpecFragmentBudget(
       truncated.push(fragment.ref);
     }
     kept.push({ ...fragment, text, ...(wasTruncated ? { truncated: true as const } : {}) });
+    keptDedupKeys.add(dedupKey);
     usedChars += text.length;
   }
 
@@ -316,6 +348,9 @@ async function retrieveOneFragment(
   return {
     ref,
     text: clipped,
+    // Nekirptas turinys (jau po antraštės atrankos, dar prieš `clipToBoundary` aukščiau) —
+    // dedup tapatybei fazėje 2, žr. `RetrievedFragment.fullText`.
+    fullText: text,
     ...(headingMiss ? { headingMiss } : {}),
     // KODĖL sekcijos negauta — sprendžiama ČIA, kur žinomas GALUTINIS kelias, ir keliauja su
     // fragmentu. Kvietėjas to atgal iš `ref` išvesti negali: change katalogo nuoroda

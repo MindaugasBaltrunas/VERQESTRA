@@ -25,17 +25,21 @@ import { PACK_SEMANTICS_DESCRIPTOR } from "../application/context-pack/context-c
 import { IMPACTED_TEST_IMPORTER_DEPTH } from "../application/code-intelligence/query/query.js";
 import type { CodeIntelligenceFileSystemPort } from "../application/code-intelligence/ports.js";
 
-function fragment(ref: string, text: string): RetrievedFragment {
-  return { ref, text };
+function fragment(ref: string, text: string, fullText?: string): RetrievedFragment {
+  return { ref, text, ...(fullText !== undefined ? { fullText } : {}) };
 }
 
-// ─── P2: biudžetas ir dedup ────────────────────────────────────────────────────────────────
+// ─── P2: biudžetas ir dedup (144-b: tapatybė NEKIRPTAS turinys, po biudžeto patikros) ───────
 
-test("du SKIRTINGI ref'ai su tuo pačiu turiniu biudžeto nemoka dukart", () => {
+test("du SKIRTINGI ref'ai su tuo pačiu NEKIRPTU turiniu biudžeto nemoka dukart", () => {
   // `AG/openspec/changes/x` ir `AG/openspec/changes/x/proposal.md` išsisprendžia į TĄ PATĮ failą,
-  // tad tekstas identiškas, o `ref` — ne. Su `ref` dedup rakte pora praeidavo kaip du kandidatai.
+  // tad nekirptas turinys identiškas, o `ref` — ne. Su `ref` dedup rakte pora praeidavo kaip du
+  // kandidatai.
   const selection = applySpecFragmentBudget(
-    [fragment("AG/openspec/changes/x", "TURINYS"), fragment("AG/openspec/changes/x/proposal.md", "TURINYS")],
+    [
+      fragment("AG/openspec/changes/x", "TURINYS", "TURINYS"),
+      fragment("AG/openspec/changes/x/proposal.md", "TURINYS", "TURINYS"),
+    ],
     10,
     1000,
   );
@@ -44,7 +48,60 @@ test("du SKIRTINGI ref'ai su tuo pačiu turiniu biudžeto nemoka dukart", () => 
   assert.deepEqual(
     selection.dropped,
     [{ ref: "AG/openspec/changes/x/proposal.md", reason: "duplicate" }],
-    "tapatybė yra TURINYS, o ne tai, kaip ref'as užrašytas",
+    "tapatybė yra NEKIRPTAS TURINYS, o ne tai, kaip ref'as užrašytas",
+  );
+});
+
+test("išsekęs biudžetas skirtingus ref'us numeta REALIA priežastimi, ne kaip 'duplicate' (144-b)", () => {
+  // Fazė 1 prie nulinio/išsekusio biudžeto visus fragmentus apkerpa iki `""` (žr.
+  // `retrieveSpecFragmentCandidates` su `maxCharsPerFragment` lygiu bendram biudžetui). Prieš
+  // 144-b taisymą dedup rakte buvo `fragment.text`, tad VISI tušti fragmentai atrodydavo kaip
+  // to paties turinio dublikatai, nors jų nekirptas `fullText` yra visiškai skirtingas.
+  const selection = applySpecFragmentBudget(
+    [
+      fragment("a.md", "", "pilnas a.md turinys"),
+      fragment("b.md", "", "pilnas b.md turinys"),
+      fragment("c.md", "", "pilnas c.md turinys"),
+    ],
+    10,
+    0,
+  );
+
+  assert.deepEqual(selection.kept, []);
+  assert.deepEqual(
+    selection.dropped,
+    [
+      { ref: "a.md", reason: "char_budget" },
+      { ref: "b.md", reason: "char_budget" },
+      { ref: "c.md", reason: "char_budget" },
+    ],
+    "nulinis biudžetas apkirpo VISUS fazėje 1 — tapatybė (fullText) skirtinga, tad nė vienas nėra 'duplicate'",
+  );
+});
+
+test("dublikato numetimas tinka TIK kai pirmasis egzempliorius PATEKO į kept (144-b)", () => {
+  // Pirmasis „x" egzempliorius pats krenta dėl `fragment_limit` (nespėja į vieno fragmento
+  // limitą), tad antrasis, identiško turinio, egzempliorius NĖRA „duplicate" — jis turi TIKRĄJĄ
+  // priežastį (tą pačią, dėl kurios krito ir pirmasis), nes „nieko neprarasta" būtų melas: pirmas
+  // irgi neteko vietos pack'e.
+  const selection = applySpecFragmentBudget(
+    [
+      fragment("stumdantis.md", "stumdo x lauk", "stumdantis turinys"),
+      fragment("x-pirmas.md", "TURINYS", "TURINYS"),
+      fragment("x-antras.md", "TURINYS", "TURINYS"),
+    ],
+    1,
+    1000,
+  );
+
+  assert.deepEqual(selection.kept.map((entry) => entry.ref), ["stumdantis.md"]);
+  assert.deepEqual(
+    selection.dropped,
+    [
+      { ref: "x-pirmas.md", reason: "fragment_limit" },
+      { ref: "x-antras.md", reason: "fragment_limit" },
+    ],
+    "antrasis 'x' negali būti 'duplicate', nes pirmasis pats niekada nepateko į kept",
   );
 });
 
@@ -70,6 +127,36 @@ test("tuščios `## Spec source` eilutės nevalgo kandidatų limito", async () =
 
   assert.deepEqual(candidates.unresolved, [], "tuščia eilutė jokio IO nekainuoja — vietos ji irgi neužima");
   assert.deepEqual(candidates.fragments.map((entry) => entry.ref), ["spec.md"]);
+});
+
+test("tas pats neegzistuojantis ref du kartus duoda VIENĄ 'not found' eilutę (144-b)", async () => {
+  let readAttempts = 0;
+  let statAttempts = 0;
+  const fs = {
+    statKind: () => {
+      statAttempts += 1;
+      return Promise.resolve("absent" as const);
+    },
+    readTextFile: () => {
+      readAttempts += 1;
+      return Promise.reject(new Error("neturėjo būti kviečiama"));
+    },
+  } as unknown as CodeIntelligenceFileSystemPort;
+
+  const candidates = await retrieveSpecFragmentCandidates(
+    fs,
+    "/repo",
+    ["nera.md", "nera.md", "  nera.md  "],
+    1000,
+  );
+
+  assert.deepEqual(
+    candidates.unresolved,
+    [{ ref: "nera.md", reason: "not_found" }],
+    "identiškas (po trim) ref'as antrą kartą praleidžiamas VISIŠKAI, o ne dar kartą deklaruojamas",
+  );
+  assert.equal(statAttempts, 1, "antras pasikartojimas nekainuoja net vieno statKind kvietimo");
+  assert.equal(readAttempts, 0);
 });
 
 // ─── P1 + P2: įspėjimų svarba ir vėlyvieji praradimai ───────────────────────────────────────

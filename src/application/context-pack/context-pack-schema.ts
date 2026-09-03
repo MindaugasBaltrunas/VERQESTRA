@@ -141,6 +141,22 @@ export const contextPackSchema = z
      * gali dingti tik kartu su fragmentu.
      */
     spec_fragment_truncated: stringList.default([]),
+    /**
+     * Kontrolinių dokumentų gabalai, kurių task'as NEĮVARDIJO (task 101-c): `CONTROL_DOC_ROOTS`
+     * discovery + BM25 reitingas prieš to paties task'o tikslą. Forma ta pati kaip
+     * `spec_fragments` — `ref\ntext` — tad renderis abu skaido vienodai.
+     *
+     * `.optional()`, o NE `.default([])`: laukas turi atsirasti tik ten, kur kandidatų realiai
+     * buvo. Su default'u KIEKVIENAS pack'as gautų `discovered_docs: []`, ir kiekvienas iki
+     * 101-c sudėtas artefaktas nustotų būti baitas į baitą palyginamas su naujuoju. Ta pati
+     * priežastis kaip `symbol_hypothetical_src_chars` lauke.
+     *
+     * Prioritetas — žemiausias (`docs_snippets` yra paskutinis `CONTEXT_PRIORITY_ORDER`
+     * kibiras), tad šis turinys niekada neišstumia įvardyto įrodymo; jis atiduodamas pirmas.
+     */
+    discovered_docs: stringList.optional(),
+    /** Ref'ai, kurių discovered tekstas nukirptas biudžeto — žr. `spec_fragment_truncated`. */
+    discovered_docs_truncated: stringList.optional(),
     // Acceptance criteria come from the task's `## Veiksmas` bullets, `stop_condition`
     // from `## Stop`. Both are carried in the pack so the execution context can state
     // "done" deterministically instead of re-parsing the task markdown downstream.
@@ -187,6 +203,10 @@ export const executionContextSectionSchema = z.enum([
   "allowed-paths",
   "checks",
   "spec",
+  // Neįvardyti kontrolinių dokumentų gabalai (task 101-c). ATSKIRA sekcija nuo `spec`
+  // sąmoningai: `spec` reiškia „task'as šito PRAŠĖ", ir skaitytojas — žmogus ar telemetrija —
+  // privalo matyti skirtumą tarp prašyto įrodymo ir spėjimo, kuris pasirodė esąs susijęs.
+  "discovered-docs",
   "symbols",
   "contracts",
   "impacted-tests",

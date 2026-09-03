@@ -17,13 +17,14 @@ import { loadContextBudget } from "../../policy-governance/context-budget.js";
 import { loadContextPackToolFlags } from "../../policy-governance/tool-budget-config.js";
 import { loadAgentPolicy } from "../../policy-governance/agent-policy.js";
 import {
-  effectiveContextSelectionLimits,
-  loadContextSelectionPolicy,
-  planCodeContextReductions,
-  selectGraphFirstContext,
-  type GraphFirstContextCandidates,
-  type GraphFirstSelection,
-} from "../../policy-governance/context-selection-policy.js";
+  discoverControlDocCandidates,
+  rankDiscoveredDocCandidates,
+  selectDiscoveredDocs,
+} from "../../code-intelligence/retrieval/discovered-docs.js";
+// Importai ir literalai sutraukti į vieną eilutę sąmoningai (task 101-c): failas stovėjo ties
+// 500 eilučių vartu. Sutrauktos TIK mechaninės vietos — nė viena pagrindimo eilutė nedingo.
+import { effectiveContextSelectionLimits, loadContextSelectionPolicy, planCodeContextReductions, selectGraphFirstContext } from "../../policy-governance/context-selection-policy.js";
+import type { GraphFirstContextCandidates, GraphFirstSelection } from "../../policy-governance/context-selection-policy.js";
 import { optimizeTokenBudget } from "../../token-governance/token-budget-optimizer.js";
 import { classifyTask } from "../../../domain/policies/task-classification.js";
 import { defaultTaskClassificationPolicy } from "../../../domain/policies/task-classification-defaults.js";
@@ -32,22 +33,18 @@ import { measureTaskSize } from "../../../domain/tasks/size.js";
 import { contextPackSchema, type ContextPack } from "../context-pack-schema.js";
 import { loadEffectiveCompressionPolicy } from "../effective-compression-policy.js";
 import { contextCompressionCacheSources } from "../compression-cache-sources.js";
+import { discoveredDocsCacheSources } from "../discovered-docs-cache-sources.js";
 import { codeGraphModeCacheSource, computeContextCacheKey } from "../context-cache-key.js";
 import { CODE_INDEX_STALE, CODE_INDEX_UNUSED } from "../context-cache-model.js";
-import { estimateTokensFromChars } from "../metrics.js";
+import { estimateTokensFromChars, type AttemptIdentityPort } from "../metrics.js";
 import { COMPRESSION_FALLBACK_SIZE, compileWorkerPromptTaskForDispatch } from "../worker-prompt-compilation.js";
 import { systemClock, type ContextCachePort, type ContextPackFileSystemPort } from "../ports.js";
-import { explicitAllowedPaths, parseTaskMarkdown } from "./parse-task.js";
+import { explicitAllowedPaths, parseTaskMarkdown, retrievalQuery } from "./parse-task.js";
 import { capSpecRetrievalWarnings, runSpecPhase, specSelectionDropWarning } from "./spec-phase.js";
-import {
-  autoGatherCodeContextCandidates,
-  gatherCodeContextCandidates,
-  type CodeContext,
-  type CodeContextGatherOptions,
-} from "./gather.js";
+import { autoGatherCodeContextCandidates, gatherCodeContextCandidates } from "./gather.js";
+import type { CodeContext, CodeContextGatherOptions } from "./gather.js";
 import { applyCodeContextReduction, applyCodeContextTiers, codeContextSymbolState, measureHypotheticalSourceChars } from "./tiers.js";
 import { persistContextPack, type ContextPackArtifactSink, type ContextPackResult } from "./persist.js";
-import type { AttemptIdentityPort } from "../metrics.js";
 
 export type { ContextPackArtifactSink, ContextPackResult } from "./persist.js";
 
@@ -63,15 +60,8 @@ export type AssembleContextPackDeps = {
 // A selection with every droppable context source empty — matuoja fiksuotą, nedroppinamą
 // overhead'ą, kuris rezervuojamas iš bendro biudžeto prieš varžantis droppinamiems šaltiniams.
 const EMPTY_SELECTION: GraphFirstSelection = {
-  spec_refs: [],
-  architecture_nodes: [],
-  allowed_paths: [],
-  related_files: [],
-  impacted_tests: [],
-  docs_snippets: [],
-  order: [],
-  dropped: [],
-  estimated_chars: 0,
+  spec_refs: [], architecture_nodes: [], allowed_paths: [], related_files: [], impacted_tests: [],
+  docs_snippets: [], order: [], dropped: [], estimated_chars: 0,
 };
 
 export async function assembleContextPack(
@@ -98,9 +88,7 @@ export async function assembleContextPack(
   // config breaks every queued task, so the caller aborts the loop as infrastructure
   // instead of parking one innocent task in human-review. Deliberately an allowlist of
   // loader calls: render-execution-context validates TASK data and stays outside it.
-  const baseBudget = await withPolicyConfigErrors(configFile("context-budget.json"), () =>
-    loadContextBudget(deps.fs, runtimeRoot),
-  );
+  const baseBudget = await withPolicyConfigErrors(configFile("context-budget.json"), () => loadContextBudget(deps.fs, runtimeRoot));
   const budget = optimizeTokenBudget({
     metrics: measureTaskSize(taskText),
     // Klasifikacijos konfigo loader'is — VQ-305; iki jo galioja etalono defaults rinkinys
@@ -108,42 +96,31 @@ export async function assembleContextPack(
     classification: classifyTask(taskText, parsedTask.allowedPaths, defaultTaskClassificationPolicy),
     baseBudget,
   });
-  const toolFlags = await withPolicyConfigErrors(configFile("tool-budget.json"), () =>
-    loadContextPackToolFlags(deps.fs, runtimeRoot),
-  );
-  const agentPolicy = await withPolicyConfigErrors(configFile("agents.json"), () =>
-    loadAgentPolicy(deps.fs, runtimeRoot),
-  );
+  const toolFlags = await withPolicyConfigErrors(configFile("tool-budget.json"), () => loadContextPackToolFlags(deps.fs, runtimeRoot));
+  const agentPolicy = await withPolicyConfigErrors(configFile("agents.json"), () => loadAgentPolicy(deps.fs, runtimeRoot));
   const agentSelection = parseAgentBlock(taskText);
   const agent = {
     role: effectiveAgentRole(agentSelection, agentPolicy),
     supporting: agentSelection.supporting,
     model_hint: resolveAgentModelHint(agentSelection, agentPolicy),
   };
-  const agents = [
-    ...new Set(
-      [agentSelection.primary, ...agentSelection.supporting]
-        .filter((r): r is string => Boolean(r))
-        .map((r) => r.toLowerCase()),
-    ),
-  ];
+  const roles = [agentSelection.primary, ...agentSelection.supporting].filter((r): r is string => Boolean(r));
+  const agents = [...new Set(roles.map((r) => r.toLowerCase()))];
   const targets = explicitAllowedPaths(parsedTask.allowedPaths);
 
   // Deterministic context cache (task 1108, spec RAG-2). Cohort membership is a property of
   // the TASK (task 0031), so the whole effective policy — arrest applied, cohort resolved
   // off it — is loaded once here and travels to the single telemetry writer.
   const taskId = taskFileStem(taskPath);
-  const { config: compression, arrestView, canaryFeatures = [] } = await withPolicyConfigErrors(
-    configFile("context-compression.json"),
-    () => loadEffectiveCompressionPolicy({ fs: deps.fs, clock: systemClock, runtimeRoot, taskId }),
+  const { config: compression, arrestView, canaryFeatures = [] } = await withPolicyConfigErrors(configFile("context-compression.json"), () =>
+    loadEffectiveCompressionPolicy({ fs: deps.fs, clock: systemClock, runtimeRoot, taskId }),
   );
   const symbolSlicesEnabled = isContextCompressionFeatureEnabledForTask(compression, "symbol_slices", taskId);
   // Size guard prediction (task 0007/0032): TA PATI gryna kompiliacija, kurią vykdo
   // dispatch, nusprendžia, ar šio task'o kompiliuotas kūnas būtų atmestas dėl dydžio.
   // Skaičiuojama VIENĄ kartą, kad abu persist kvietimai kohortą žymėtų identiškai.
   const dispatchCompilation = compileWorkerPromptTaskForDispatch({ config: compression, taskId, taskText });
-  const canarySizeFallback =
-    dispatchCompilation.kind === "fallback" && dispatchCompilation.fallback === COMPRESSION_FALLBACK_SIZE;
+  const canarySizeFallback = dispatchCompilation.kind === "fallback" && dispatchCompilation.fallback === COMPRESSION_FALLBACK_SIZE;
 
   const cacheEnabled = !args.includes("--no-context-cache") && deps.cache !== undefined;
   const cache = deps.cache;
@@ -162,8 +139,12 @@ export async function assembleContextPack(
     });
     // The pack's content also depends on the compression feature flags (task 0023) AND on
     // the arrest that narrows them (task 0038) — both must invalidate cached packs.
+    // Discovered docs keliauja į pack'ą (žemiau), tad jų TURINYS privalo dalyvauti rakte:
+    // be šito pakeistas README grąžintų `hit` su pasenusiu tekstu — tiksliai tas tylus
+    // anuliavimas, kurio 101-b modulis ir buvo būtina sąlyga.
     cacheSources.push(
       ...(await contextCompressionCacheSources({ fs: deps.fs, root, runtimeRoot, arrestView })),
+      ...(await discoveredDocsCacheSources({ fs: deps.codeFs, projectRoot: root })),
       codeGraphModeCacheSource(withCodeGraph),
     );
     cacheKey = computeContextCacheKey(cacheSources);
@@ -202,30 +183,27 @@ export async function assembleContextPack(
 
   // The policy file may carry its own `max_context_chars` ceiling, while the pack below is
   // measured and enforced against the PER-TASK budget the optimizer produced (task 0006).
-  const selectionLimits = effectiveContextSelectionLimits(
-    await withPolicyConfigErrors(configFile("context-selection-policy.json"), () =>
-      loadContextSelectionPolicy(deps.fs, runtimeRoot, {
-        max_spec_fragments: budget.max_spec_fragments,
-        max_context_chars: budget.max_context_chars,
-      }),
-    ),
-    budget.max_context_chars,
+  const packLimits = { max_spec_fragments: budget.max_spec_fragments, max_context_chars: budget.max_context_chars };
+  const selectionPolicy = await withPolicyConfigErrors(configFile("context-selection-policy.json"), () =>
+    loadContextSelectionPolicy(deps.fs, runtimeRoot, packLimits),
   );
+  const selectionLimits = effectiveContextSelectionLimits(selectionPolicy, budget.max_context_chars);
   // With `symbol_slices` off both options are inert, so the gathered candidates — and the
   // pack built from them — stay byte-identical to the pre-0023 behaviour.
   const codeContextOptions: CodeContextGatherOptions = {
-    maxContractSymbols: symbolSlicesEnabled ? selectionLimits.max_contract_symbols : 0,
-    readSourceSlices: symbolSlicesEnabled,
+    maxContractSymbols: symbolSlicesEnabled ? selectionLimits.max_contract_symbols : 0, readSourceSlices: symbolSlicesEnabled,
   };
-  const codeCandidates = withCodeGraph
-    ? await gatherCodeContextCandidates(deps.codeFs, deps.fs, root, targets, selectionLimits, codeContextOptions)
-    : await autoGatherCodeContextCandidates(deps.codeFs, deps.fs, root, targets, selectionLimits, codeContextOptions);
+  const gatherCandidates = withCodeGraph ? gatherCodeContextCandidates : autoGatherCodeContextCandidates;
+  const codeCandidates = await gatherCandidates(deps.codeFs, deps.fs, root, targets, selectionLimits, codeContextOptions);
 
   // Single priority-aware budget decision (tasks 921 + 977): one selectGraphFirstContext
   // call trims every droppable context source against one char budget.
   const fragmentKey = (fragment: RetrievedFragment): string => `${fragment.ref}\n${fragment.text}`;
 
   const fragmentByKey = new Map(specPhase.kept.map((fragment) => [fragmentKey(fragment), fragment]));
+
+  /** `ref\ntext` → `ref`. Discovered kandidatai neša tą pačią formą kaip `fragmentKey`. */
+  const entryRef = (entry: string): string => entry.slice(0, Math.max(0, entry.indexOf("\n")));
 
   // allowed_paths are the authoritative edit boundary: always rendered in full and never
   // trimmed — accounted for as fixed reserved overhead, not as a droppable candidate here.
@@ -239,9 +217,7 @@ export async function assembleContextPack(
   };
 
   const keptFragmentsOf = (selection: GraphFirstSelection): RetrievedFragment[] =>
-    selection.spec_refs
-      .map((key) => fragmentByKey.get(key))
-      .filter((fragment): fragment is RetrievedFragment => Boolean(fragment));
+    selection.spec_refs.map((key) => fragmentByKey.get(key)).filter((f): f is RetrievedFragment => Boolean(f));
 
   /**
    * Spec ref'ai, kurių atranka NEIŠLAIKĖ: paimti kandidatai minus išlikę.
@@ -274,9 +250,7 @@ export async function assembleContextPack(
       ...(hypothetical > 0 ? { symbol_hypothetical_src_chars: hypothetical } : {}),
       notes: [
         ...codeCandidates.notes,
-        ...(selection.dropped.length > 0
-          ? [`context truncated by policy limits: dropped ${selection.dropped.length} item(s)`]
-          : []),
+        ...(selection.dropped.length > 0 ? [`context truncated by policy limits: dropped ${selection.dropped.length} item(s)`] : []),
       ],
     };
   };
@@ -293,7 +267,13 @@ export async function assembleContextPack(
    * BŪTENT todėl, kad įspėjimas yra viena eilutė su pastoviomis lubomis: jis nebeauga su kiekvienu
    * nauju praradimu, tad ciklas negali persekioti savo paties diagnostikos.
    */
-  const buildPack = (selection: GraphFirstSelection, droppedRefs: string[]): ContextPack => {
+  const buildPack = (
+    selection: GraphFirstSelection,
+    droppedRefs: string[],
+    // Kirpti discovered ref'ai. Numatytai tuščias dėl tos pačios priežasties kaip `droppedRefs`:
+    // rezervo matavimas vyksta PRIEŠ discovery, ir tuo momentu kirpimo dar nėra ko skelbti.
+    discoveredTruncated: ReadonlySet<string> = new Set(),
+  ): ContextPack => {
     const codeContext = buildCodeContext(selection);
     const keptFragments = keptFragmentsOf(selection);
     return parseWithSchema(
@@ -315,6 +295,12 @@ export async function assembleContextPack(
         agents,
         spec_fragments: keptFragments.map(fragmentKey),
         spec_fragment_truncated: keptFragments.filter((fragment) => fragment.truncated).map((fragment) => fragment.ref),
+        // Laukai atsiranda TIK kai kandidatų realiai yra: tuščiam rinkiniui pack'as lieka baitas
+        // į baitą toks pat kaip iki 101-c (ta pati kryptis kaip `symbol_hypothetical_src_chars`).
+        ...(selection.docs_snippets.length === 0 ? {} : {
+          discovered_docs: selection.docs_snippets,
+          discovered_docs_truncated: selection.docs_snippets.map(entryRef).filter((ref) => discoveredTruncated.has(ref)),
+        }),
         // Įspėjimai sudedami TIK ČIA, kai selection jau žinoma (2026-08-24, RAG auditas 4).
         // Iki tol jie buvo užrakinami spec fazėje, o graph-first atranka numesdavo spec ref'us
         // PO to — tyliai: pack'e likdavo tik bendras „dropped N item(s)" `code_context.notes`
@@ -360,11 +346,8 @@ export async function assembleContextPack(
   }
 
   const droppableKept = (selection: GraphFirstSelection): number =>
-    selection.spec_refs.length +
-    selection.architecture_nodes.length +
-    selection.related_files.length +
-    selection.impacted_tests.length +
-    selection.docs_snippets.length;
+    selection.spec_refs.length + selection.architecture_nodes.length + selection.related_files.length +
+    selection.impacted_tests.length + selection.docs_snippets.length;
 
   // Kopėčių numesti simboliai iki šiol buvo matomi TIK `reduction.note` eilutėje pack'o
   // pastabose — žmogui skirtame tekste, ne metrikoje. Trečias praradimų šaltinis, greta
@@ -398,19 +381,37 @@ export async function assembleContextPack(
     }
   }
 
+  // Discovered docs (task 101-c): sąmoningai tuščias `docsSnippets` lizdas užpildomas ČIA, po
+  // rezervo matavimo — kirpimo riba privalo remtis tuo, ką fiksuotas overhead'as realiai paliko.
+  //
+  // Kibiras yra PASKUTINIS `CONTEXT_PRIORITY_ORDER` sąraše, tad neįvardytas dokumentas negali
+  // išstumti nė vieno įrodymo, kurio task'as prašė. Pre-clip iki VIENO kibiro dalies saugo nuo
+  // priešingos pusės: `selectGraphFirstContext` biudžeto išsekimas UŽSKLENDŽIA (pirmas netilpęs
+  // elementas numeta ir visus po jo), tad be jos vienas ilgas dokumentas nusineštų visus kitus,
+  // geriau reitinguotus. Užklausa — ta pati `retrievalQuery`, kuria reitinguojami spec fragmentai:
+  // du atrankos keliai prieš tą patį task'o tikslą, o ne du skirtingi tikslo apibrėžimai.
+  const discoveredBudget = Math.max(0, selectionLimits.max_context_chars - reservedChars);
+  const discovered = selectDiscoveredDocs(
+    rankDiscoveredDocCandidates(await discoverControlDocCandidates(deps.codeFs, root), retrievalQuery(parsedTask)),
+    selectionLimits.max_spec_fragments,
+    Math.floor(discoveredBudget / Math.max(1, selectionLimits.max_spec_fragments)),
+  );
+  const discoveredTruncated = new Set(discovered.truncated);
+  candidateSet.docsSnippets = discovered.kept.map((candidate) => `${candidate.ref}\n${candidate.text}`);
+
   // The per-item estimate inside selectGraphFirstContext is close but not exact, so
   // re-measure the real encoded pack (877/878 regression). If it still overshoots, force
   // the *same* priority model to drop one more lowest-priority item by shrinking its
   // effective budget just below current usage, then re-measure.
   let selection = selectGraphFirstContext(candidateSet, selectionLimits, reservedChars);
-  let pack = buildPack(selection, droppedSpecRefs(selection));
+  let pack = buildPack(selection, droppedSpecRefs(selection), discoveredTruncated);
   let encoded = encode(pack);
   while (encoded.length > budget.max_context_chars && droppableKept(selection) > 0) {
     // Tightened against the SELECTION ceiling the estimate was produced by, so the next
     // pass gives up exactly one more lowest-priority item.
     const tightenedReserved = selectionLimits.max_context_chars - (selection.estimated_chars - 1);
     selection = selectGraphFirstContext(candidateSet, selectionLimits, tightenedReserved);
-    pack = buildPack(selection, droppedSpecRefs(selection));
+    pack = buildPack(selection, droppedSpecRefs(selection), discoveredTruncated);
     encoded = encode(pack);
   }
 
@@ -421,8 +422,7 @@ export async function assembleContextPack(
       key: cacheKey,
       taskId: pack.task_id,
       contextPackJson: encoded,
-      codeIndexDescriptor:
-        codeCandidates === undefined ? CODE_INDEX_UNUSED : await currentCodeIndexDescriptor(deps.codeFs, root),
+      codeIndexDescriptor: codeCandidates === undefined ? CODE_INDEX_UNUSED : await currentCodeIndexDescriptor(deps.codeFs, root),
       selectedChars: encoded.length,
       selectedTokenEstimate: estimateTokensFromChars(encoded.length),
       droppedItemCount: selection.dropped.length,

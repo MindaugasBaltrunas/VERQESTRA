@@ -116,8 +116,17 @@ const nonEmptyString = z.string().trim().min(1);
  *      pačiam task'ui, nes senas skaičiavimas dublikatus laikė praradimu. Grynai loginis
  *      pakeitimas — pack'o TURINYS kitam tam pačiam task'ui, o `PACK_SEMANTICS_DESCRIPTOR`
  *      to nemato.
+ * 13 — 2026-09-03, task 101-c: `assemble.ts` užpildė sąmoningai tuščią `docsSnippets` lizdą —
+ *      `CONTROL_DOC_ROOTS` discovery kandidatai dabar konkuruoja atrankoje ir keliauja pack'e
+ *      kaip `discovered_docs` (+ `discovered_docs_truncated`). Tam pačiam task'ui ir tiems
+ *      patiems failams pack'as gauna TURINIO, kurio v12 įraše nėra, o `docs_snippets` kibiras
+ *      dalyvauja ir biudžeto sprendime, tad pasikeisti gali net kitų šaltinių sudėtis.
+ *
+ *      Kartu su šiuo kėlimu prijungti ir 101-b `discoveredDocsCacheSources` — nuo šiol
+ *      dokumentų TURINYS yra rakto dalis, tad TOLESNI README/docs pakeitimai anuliuoja įrašus
+ *      patys. Šis kėlimas lieka dėl jau esamų v12 įrašų, kurie tų šaltinių neturi.
  */
-export const CONTEXT_CACHE_VERSION = 12;
+export const CONTEXT_CACHE_VERSION = 13;
 
 // Hash sentinel for an evidence source that does not exist yet. Its later creation
 // changes the fingerprint, so a missing spec file cannot be cached away.

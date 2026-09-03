@@ -16,6 +16,7 @@ import {
 import type { CodeContextCandidates, TieredContextSymbol } from "../application/context-pack/assemble/gather.js";
 import type { SourceSlice } from "../application/context-pack/source-slice.js";
 import { contextPackSchema } from "../application/context-pack/context-pack-schema.js";
+import { createContextCacheAdapter } from "../infrastructure/persistence/context-cache-store.js";
 import { buildCodeIndex } from "../application/code-intelligence/indexing/builder.js";
 import { parseExecutionContextMetadata, contextArtifactSha256 } from "../application/context-pack/execution-context-fingerprint.js";
 import { computeContextCacheKey } from "../application/context-pack/context-cache-key.js";
@@ -90,6 +91,7 @@ test("assembleContextPack: full path over a real workspace, deterministic re-run
     assert.ok(result.pack.spec_fragments[0]?.startsWith("doc/spec.md#alfa\n"), "spec fragmentas su heading atitikmeniu");
     assert.equal(result.pack.code_context?.enabled, true, "esamas taikinys → code context su index rebuild");
     assert.ok(result.workerTaskIr, "shadow IR kompiliuojasi kanoniniam task'ui");
+    assert.equal(result.pack.discovered_docs, undefined, "be kontrolinių dokumentų lauko pack'e NĖRA (task 101-c)");
 
     // Fingerprint antraštė: task_sha256/context_pack_sha256 nuo TŲ PAČIŲ artefaktų diske.
     const executionContext = await readFile(result.executionContextPath, "utf8");
@@ -198,6 +200,63 @@ test("assembleContextPack: spec_dropped_count fiksuoja retrieval stadijos prarad
       2,
       "žmogui skirtas kanalas irgi lieka",
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/** Paskutinis `context-size.jsonl` įrašas — surinkimo kešo verdiktas. */
+async function lastCacheStatus(root: string): Promise<unknown> {
+  const raw = await readFile(path.join(root, "vq", "logs", "context-size.jsonl"), "utf8");
+  return (JSON.parse(raw.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>)["cache_status"];
+}
+
+// Task 101-c: `candidateSet.docsSnippets` lizdas nebe tuščias. Testas laiko VISUS tris to
+// prijungimo pjūvius vienoje vietoje, nes atskirai kiekvienas jų praeitų ir su spraga:
+// kandidatas pack'e, jo tekstas `execution-context.md` UŽ pasitikėjimo aptvaro, ir dokumento
+// TURINYS cache rakte. Be trečiojo hit'as grąžintų pasenusį tekstą — tyliai anuliuotų patį
+// prijungimą, o pack'as apie tai nieko nesakytų.
+//
+// Dokumentas — `docs/notes.md`: `.md` nėra indeksuojamų plėtinių sąraše, jis nėra nei taikinys,
+// nei `## Spec source`, tad jo pakeitimas gali paveikti raktą TIK per naujuosius šaltinius.
+test("assembleContextPack: discovered docs patenka į pack'ą, renderį ir cache tapatybę", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vq-101c-docs-"));
+  try {
+    const task = [
+      "# Task", "",
+      "## Tikslas", "Prijungti discovered dokumentų atranką prie context pack surinkimo.", "",
+      "## Failai", "Leidžiama:", "- `src/a.ts`", "",
+      "## Veiksmas", "- Atranka ima kontrolinius dokumentus.", "",
+      "## Patikra", "- `pnpm test`", "",
+    ].join("\n");
+    await mkdir(path.join(root, "AG", "tasks", "queue"), { recursive: true });
+    await mkdir(path.join(root, "docs"), { recursive: true });
+    await writeFile(path.join(root, "AG", "tasks", "queue", "0101-docs.md"), task, "utf8");
+    const doc = "# Kontroliniai dokumentai\n\nContext pack atranka ima discovered dokumentų gabalus.\n";
+    await writeFile(path.join(root, "docs", "notes.md"), doc, "utf8");
+
+    const deps = {
+      fs: nodeContextPackFsPort,
+      codeFs: nodeFsTestPort,
+      cache: createContextCacheAdapter(root, path.join(root, "vq")),
+    };
+    const first = await assembleContextPack(["AG/tasks/queue/0101-docs.md"], root, deps);
+    const discovered = first.pack.discovered_docs ?? [];
+    assert.ok(discovered.length > 0, "kontrolinis dokumentas privalo tapti kandidatu");
+    assert.ok(discovered.every((entry) => entry.startsWith("docs/notes.md")), `ref rodo į dokumentą: ${discovered[0]}`);
+    assert.deepEqual(first.pack.discovered_docs_truncated, [], "netilpusio kirpimo šioje apimtyje nėra");
+
+    const rendered = await readFile(first.executionContextPath, "utf8");
+    assert.match(rendered, /## Discovered doc: docs\/notes\.md/, "blokas pasiekia worker'io dokumentą");
+    assert.match(rendered, /type="discovered-doc"/, "svetimas tekstas guli UŽ aptvaro, ne plikas");
+
+    await assembleContextPack(["AG/tasks/queue/0101-docs.md"], root, deps);
+    assert.equal(await lastCacheStatus(root), "hit", "kontrolė: nepakitęs medis privalo duoti hit'ą");
+
+    await writeFile(path.join(root, "docs", "notes.md"), `${doc}\nAtranka gabalus dar ir rikiuoja.\n`, "utf8");
+    const third = await assembleContextPack(["AG/tasks/queue/0101-docs.md"], root, deps);
+    assert.equal(await lastCacheStatus(root), "miss", "pakeistas dokumentas privalo anuliuoti įrašą");
+    assert.notDeepEqual(third.pack.discovered_docs, discovered, "ir pack'as neša jau naują tekstą");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

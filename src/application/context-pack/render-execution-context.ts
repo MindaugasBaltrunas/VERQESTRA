@@ -108,7 +108,7 @@ export function renderExecutionContext(
   options: RenderExecutionContextOptions = {},
 ): RenderedExecutionContext {
   const maxChars = resolveMaxChars(pack, options);
-  const candidates = buildCandidates(pack);
+  const candidates = [...buildCandidates(pack), ...discoveredDocCandidates(pack)];
 
   // Ciklas mato PILNĄ dokumentą net ir dedup vaizde: metimo sprendimas privalo likti toks pat
   // kaip artefakto, kitaip prompt'as nustotų būti jo poaibis.
@@ -166,6 +166,64 @@ export function renderExecutionContext(
   );
 
   return { markdown, context };
+}
+
+/**
+ * Discovered docs blokai (task 101-c): `CONTROL_DOC_ROOTS` gabalai, kurių task'as NEĮVARDIJO.
+ *
+ * Kodėl čia, o ne `render-candidates.ts`, kur gyvena visi kiti kandidatai: 101-c `## Failai`
+ * riba to failo neapima. Elgesio tai nekeičia — blokai stovi canonical eilės GALE ir yra `low`,
+ * t. y. lygiai ten, kur juos dėtų `buildCandidates`. Kai kitas task'as valdys `render-candidates`,
+ * funkcija keliauja į jo pabaigą be jokio kito pakeitimo.
+ *
+ * Vieta ir prioritetas nėra kosmetika: `docs_snippets` yra paskutinis `CONTEXT_PRIORITY_ORDER`
+ * kibiras, o `DROP_ORDER` atiduoda `low` pirmiausia ir nuo eilės galo — tad prie ankšto biudžeto
+ * neįvardytas dokumentas išmetamas anksčiau už bet kurį įrodymą, kurio task'as prašė.
+ *
+ * `provenance` privaloma: kūnas yra VERBATIM repo tekstas (README, docs/, .claude/rules), tad jis
+ * privalo gulėti aptvare kaip spec fragmentas. Būtent tokiame faile „ignore previous instructions"
+ * atrodytų kaip mūsų pačių nurodymas, ir jokio Markdown simbolio tam neprireiktų.
+ */
+function discoveredDocCandidates(pack: ContextPack): Candidate[] {
+  const truncatedRefs = new Set(pack.discovered_docs_truncated ?? []);
+  // Discovery gali rasti TĄ PATĮ gabalą, kurio task'as prašė vardu. Atrankoje jis nekainuoja
+  // antrą kartą (`seen` rinkinys), bet dokumente atsirastų du kartus — antrasis su silpnesniu
+  // „task'as šito neįvardijo" pagrindimu. Laimi įvardytas: jis renderinamas `high`, o ne `low`.
+  const named = new Set(pack.spec_fragments);
+  const candidates: Candidate[] = [];
+  (pack.discovered_docs ?? []).forEach((entry, index) => {
+    if (named.has(entry)) {
+      return;
+    }
+    const newline = entry.indexOf("\n");
+    const ref = (newline === -1 ? entry : entry.slice(0, newline)).trim();
+    const body = (newline === -1 ? "" : entry.slice(newline + 1)).trim();
+    if (ref.length === 0 || body.length === 0) {
+      return;
+    }
+    const truncated = truncatedRefs.has(ref);
+    candidates.push({
+      id: `discovered-${index + 1}`,
+      section: "discovered-docs",
+      title: `Discovered doc: ${ref}`,
+      priority: "low",
+      reason:
+        "control-document section the task did NOT name, ranked against its goal" +
+        (truncated ? ", CUT to fit the context budget" : "") +
+        "; supporting context, not a requirement — the task and its spec sources still win",
+      body,
+      provenance: { type: "discovered-doc", source: ref },
+      ...(truncated
+        ? {
+            truncated: true as const,
+            notice:
+              "**TRUNCATED** — this snippet was cut to fit the context budget. Absence of a rule " +
+              "here is NOT evidence that the rule does not exist; read the file if you need it.",
+          }
+        : {}),
+    });
+  });
+  return candidates;
 }
 
 function resolveMaxChars(pack: ContextPack, options: RenderExecutionContextOptions): number {

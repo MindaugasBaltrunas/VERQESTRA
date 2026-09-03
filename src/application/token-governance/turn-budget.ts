@@ -29,14 +29,20 @@ export type TurnLimits = {
 // kainuoja brangiau nei sutaupyti turn'ai). 2026-08-07: large 80 -> 120 (opus grandinės
 // kirstos paskutiniuose turn'uose, į master pateko sugadintas kodas). 2026-08-08 (0033,
 // HUMAN-REVIEW-APPROVED): large 120 -> 180 (~49 % atsarga virš stebėto 121 turn'o).
+// 2026-09-03 (modelių auditas, `token-usage.jsonl`, 306 dispatch'ų): medium 60 -> 90 ir
+// repair 30 -> 45. Įrodymas — nesėkmes gamino lubos, ne darbas: 15 dispatch'ų baigė
+// TIKSLIAI 61 turn'u ir 13 iš jų failed, o visos 4 repair nesėkmės sustojo ties savo
+// lubomis (31, 31, 31, 61). Mediana 30, p75 47 — 90/45 lieka žemiau p95, bet virš tos
+// p92 uodegos, kurioje sesija dar dirba. `large: 180` per 13 dienų nepasiektas nė karto,
+// tad jis (kaip ir `small`/`semanticReview`) nekinta.
 // KONFIGO SLUOKSNIS (0033-03): ši lentelė ir žemiau esantys PER_TURN/OVERHEAD yra
 // FAIL-SAFE BAZĖ; kanoninis override — token-budget konfigas (VQ-305), importo kryptis
 // viena: config -> optimizer.
 export const DEFAULT_TURN_LIMITS: TurnLimits = {
   small: 20,
-  medium: 60,
+  medium: 90,
   large: 180,
-  repair: 30,
+  repair: 45,
   semanticReview: 12,
 };
 

@@ -260,6 +260,9 @@ export async function claudeDispatch(args: string[], ports: ClaudeDispatchPorts)
     phase: dispatchPhase,
     reduceContextReasons: authorization.reduce_context ? authorization.soft_reasons : [],
     remainingTaskTokens: authorization.remaining_total_tokens,
+    // Modelių auditas R2 (2026-09-03): eskaluotas bandymas paveldi `large` turn langą —
+    // tas pats palyginimas, kuris aukščiau davė `MODEL ESCALATION` eilutę.
+    escalated: routing.tier !== routing.base_tier,
     policyFs: ports.policyFs,
   });
   const { tokenBudget, dispatchMaxTurns, dispatchTimeoutMs, midDispatchLimit } = budgetPlan;

@@ -121,6 +121,26 @@ tai queue formos, ne planuoklės klausimas. Bet log'e dominuoja `missing-lease` 
 PRIEŽASTĮ, kodėl antras slot'as tuščias (nėra kandidato / sankirta / priklausomybė), o
 buhalteriją — po jos.
 
+## Papildymas (tos pačios dienos antras praėjimas)
+
+- **Kaštų koncentracija.** 24 dispatch'ai ≥ 4 $ (8 % dispatch'ų) ≈ 150 $ (≈ 30 % dispatch išlaidų).
+  Visi keturi mobile paketo task'ai (117 — 11,8 $/118 turn'ų, 119, 120, 121 — 8,2 $/83) yra tarp
+  jų: `mobile-*` `node_modules` sąmoningai neinstaliuoti → worker'is negali paleisti `pnpm
+  test:mobile-*` ir tyrinėja ilgiau. Kompozicijos/wiring task'ai (029 — 12 $, 101-b-03 — 10,4 $,
+  012-a-02 — 5,5 $) — antra brangi klasė.
+- **Pakartotiniai ratai.** `task-events.jsonl`: 139 perėjimų į `human-review` prieš 179 į `done`
+  (0,78 : 1). Tas pats task'as į human-review: 065 ×7, 012-a-02 ×7, 0001-audits-index ×5, dar
+  penki ×3. `preflight_retry_without_change` 7. Requeue be teksto pakeitimo = tas pats parkas
+  už tą pačią kainą; `accept-scope` (158) ir validatorius (156/157) taiko į tai.
+- **Blokuoti bash kvietimai.** `hooks.log` (44,6 h): 91 `BLOCKED` — `sed` 12, `echo` 9, `dist`
+  9, `git` 7, `cd` 5, `pnpm` variantai 3, `find` 3, `awk` 2. Kiekvienas blokas = sudegintas
+  turn'as, o turn'ai yra ir kaina, ir lubos (L1). Read-only tekstų įrankių (`sed -n`, `awk`,
+  `cut`, `echo`, `head -c`) allowlist'as be shell mutacijų nepakeistų saugumo, bet sumažintų
+  tuščius turn'us. Dalis šių blokų — interaktyvios sesijos, ne worker'ių.
+- **Converge drift.** `CONVERGE DRIFT: 32 issue(s) — 1 incomplete-work, 31 missing-task`
+  paskutiniame cikle: 31 spec plano punktas be task'o — backlog'o, ne efektyvumo signalas,
+  bet jį rodo tik log'as ciklo pabaigoje.
+
 ## Ko NEreikia optimizuoti
 
 - **Prompt'o dydis** — pack'as 2–3 k tokenų prieš 1–15 M cache_read per dispatch'ą (kompresijos

@@ -220,6 +220,61 @@ test("enforceExecutionBudget: žalias kelias, modelio/įrankių/konteksto veto",
   assert.ok(badTool.reasons.includes("tool not allowed: browser"));
 });
 
+test("enforceExecutionBudget: HUMAN-REVIEW-APPROVED slopina TIK `context files` priežastį", async () => {
+  const CONTEXT_BUDGET = { "/repo/vq/config/context-budget.json": JSON.stringify({ max_files: 2, max_context_chars: 120 }) };
+  const wide = { task_id: "0042", allowed_paths: ["src/a.ts", "src/b.ts", "src/c.ts"] };
+
+  const { ports } = makeGatePorts({ configs: CONTEXT_BUDGET });
+  const parked = await enforceExecutionBudget(ports, "/repo/vq", { model: "sonnet", contextPack: wide });
+  assert.equal(parked.ok, false, "be žymos apimtis vis dar parkuoja");
+  assert.ok(parked.reasons.includes("context files 3 > 2"), `got: ${parked.reasons.join("; ")}`);
+  assert.deepEqual(parked.suppressed_reasons, []);
+
+  const approved = await enforceExecutionBudget(ports, "/repo/vq", {
+    model: "sonnet",
+    contextPack: wide,
+    humanReviewApproved: "operatorius 2026-09-03 ok",
+  });
+  assert.equal(approved.ok, true, `žyma atrakina apimtį (reasons: ${approved.reasons.join("; ")})`);
+  assert.ok(!approved.reasons.some((reason) => reason.startsWith("context files")), "priežastis nebeįtraukiama");
+  assert.deepEqual(approved.suppressed_reasons, [
+    "context files 3 > 2 — suppressed by HUMAN-REVIEW-APPROVED: operatorius 2026-09-03 ok",
+  ]);
+
+  // Tuščia/blanki žyma nėra patvirtinimas.
+  const blank = await enforceExecutionBudget(ports, "/repo/vq", { model: "sonnet", contextPack: wide, humanReviewApproved: "  " });
+  assert.equal(blank.ok, false);
+  assert.ok(blank.reasons.includes("context files 3 > 2"));
+
+  // Slopinimo apimtis SIAURA: modelis, įrankiai, `context chars` ir ledger'io lubos lieka.
+  const others = await enforceExecutionBudget(ports, "/repo/vq", {
+    model: "fable",
+    contextPack: { ...wide, filler: "x".repeat(200) },
+    requestedTools: ["browser"],
+    humanReviewApproved: "operatorius 2026-09-03 ok",
+  });
+  assert.equal(others.ok, false);
+  assert.ok(others.reasons.includes("model not allowed: fable"));
+  assert.ok(others.reasons.includes("tool not allowed: browser"));
+  assert.ok(others.reasons.some((reason) => reason.startsWith("context chars")), `got: ${others.reasons.join("; ")}`);
+
+  const heavy = makeGatePorts({
+    configs: CONTEXT_BUDGET,
+    usageLog: [
+      usageLine({ task_id: "0042", phase: "dispatch", ts: "2026-08-20T01:00:00Z", input_tokens: 10 }),
+      usageLine({ task_id: "0042", phase: "dispatch", ts: "2026-08-20T02:00:00Z", attempt: 2, retry_reason: "x", input_tokens: 10 }),
+      usageLine({ task_id: "0042", phase: "dispatch", ts: "2026-08-20T03:00:00Z", attempt: 3, retry_reason: "x", input_tokens: 10 }),
+    ].join("\n"),
+  });
+  const ledgerBlocked = await enforceExecutionBudget(heavy.ports, "/repo/vq", {
+    model: "sonnet",
+    contextPack: wide,
+    humanReviewApproved: "operatorius 2026-09-03 ok",
+  });
+  assert.equal(ledgerBlocked.ok, false, "žyma neapmoka realių sąnaudų");
+  assert.ok(ledgerBlocked.reasons.includes("LLM calls 4 > 3"), `got: ${ledgerBlocked.reasons.join("; ")}`);
+});
+
 test("enforceExecutionBudget: ledger vartai — dispatch riba, infra nedega bandymo, reset atrakina", async () => {
   const heavyLog = [
     usageLine({ task_id: "0042", phase: "dispatch", ts: "2026-08-20T01:00:00Z", input_tokens: 10 }),

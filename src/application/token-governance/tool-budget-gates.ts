@@ -40,6 +40,12 @@ export type BudgetEnforcementRequest = {
   taskId?: string;
   /** Fazė, kurios kvietimas ruošiamas — jai priskiriamas projektuojamas kvietimas. */
   phase?: TaskPhase;
+  /**
+   * `HUMAN-REVIEW-APPROVED:` žymos turinys iš task teksto (`analyzeHumanReviewGates`
+   * `approved_marker`). Kai jis yra, slopinama TIK `context files N > M` priežastis —
+   * apimtis sąmoningai siaura, žr. {@link enforceExecutionBudget} doc'ą.
+   */
+  humanReviewApproved?: string;
 };
 
 export type BudgetEnforcementStatus = {
@@ -47,6 +53,11 @@ export type BudgetEnforcementStatus = {
   model: string;
   profile: ToolBudgetName;
   reasons: string[];
+  /**
+   * Priežastys, kurias nutildė `HUMAN-REVIEW-APPROVED` žyma („<priežastis> — suppressed by
+   * HUMAN-REVIEW-APPROVED: <žyma>"). Diagnostika: NIEKADA neverčia {@link ok} į `false`.
+   */
+  suppressed_reasons: string[];
   context_chars: number;
   files: number;
   /** Migracijos kontraktas: implementacijos (dispatch + repair dispatch) kvietimai + 1. */
@@ -105,6 +116,24 @@ export function tokenUsageLogPath(runtimeRoot: string): string {
   return path.join(runtimeRoot, "logs", "token-usage.jsonl");
 }
 
+/**
+ * Whole-task biudžeto vartas prieš dispatch'ą.
+ *
+ * `HUMAN-REVIEW-APPROVED` žyma slopina TIK vieną priežastį — `context files N > M`.
+ * Pagrindimas: `max_files` šioje sistemoje nėra karpymo limitas, o ŽMOGAUS PERŽIŪROS
+ * slenkstis. Taip jį deklaruoja ir `context-pack/assemble/assemble.ts` (`allowed_paths`
+ * NEKARPOMA, „o jei žmogus ją patvirtino, riba privalo atkeliauti pilna"), ir preflight
+ * rizikos kelias (`interfaces/cli/dispatch/claude-preflight`), kuris tą pačią žymą jau
+ * gerbia. Kol biudžeto kanalas jos nepaisė, patvirtintas task'as suko ratą: žmogus
+ * patvirtina apimtį, preflight praleidžia, o enforcement vėl parkuoja
+ * `budget_enforcement_failed=context files 9 > 8` — patvirtinimas neturėjo išeities.
+ *
+ * Slopinimo apimtis sąmoningai siaura. Ledger'io kietos ribos (LLM kvietimai, billable
+ * tokenai), modelio politika, `context chars` ir įrankių allowlist žymos NEPAISO: jos saugo
+ * ne žmogaus sprendimą apie apimtį, o realias sąnaudas ir politiką, kurių operatoriaus
+ * parašas task'o faile neapmoka. Nutildyta priežastis nedingsta — ji lieka
+ * `suppressed_reasons` ir statuso veidrodyje.
+ */
 export async function enforceExecutionBudget(
   ports: TokenBudgetGatePorts,
   runtimeRoot: string,
@@ -131,7 +160,14 @@ export async function enforceExecutionBudget(
 
   if (!modelAllowed(modelPolicy, request.model)) reasons.push(`model not allowed: ${request.model}`);
   if (contextChars > maxContext) reasons.push(`context chars ${contextChars} > ${maxContext}`);
-  if (files > maxFiles) reasons.push(`context files ${files} > ${maxFiles}`);
+
+  const approvedMarker = request.humanReviewApproved?.trim();
+  const suppressedReasons: string[] = [];
+  if (files > maxFiles) {
+    const filesReason = `context files ${files} > ${maxFiles}`;
+    if (approvedMarker) suppressedReasons.push(`${filesReason} — suppressed by HUMAN-REVIEW-APPROVED: ${approvedMarker}`);
+    else reasons.push(filesReason);
+  }
 
   for (const tool of requestedTools) if (!profile[tool]) reasons.push(`tool not allowed: ${tool}`);
 
@@ -140,6 +176,7 @@ export async function enforceExecutionBudget(
     model: request.model,
     profile: profileName,
     reasons,
+    suppressed_reasons: suppressedReasons,
     context_chars: contextChars,
     files,
     llm_calls: gate.llmCalls,

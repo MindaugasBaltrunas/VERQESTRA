@@ -117,6 +117,24 @@
       "expect": "clean tree without work evidence (deliverable missing — possibly rolled back)"
     },
     {
+      "id": "nocommit-review-reason-wrote-dirty-tree-blames-stop-hook",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": true, "productDirtyCount": 3, "hasWorkEvidence": false, "writeActivity": "wrote" },
+      "expect": "writes present, tree dirty, no commit — stop hook did not commit (work is in the working tree)"
+    },
+    {
+      "id": "nocommit-review-reason-no-writes-dirty-tree-keeps-no-writes-reason",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": true, "productDirtyCount": 3, "hasWorkEvidence": false, "writeActivity": "no-writes" },
+      "expect": "executor made no write-tool calls"
+    },
+    {
+      "id": "nocommit-review-reason-unknown-dirty-tree-blames-stop-hook",
+      "fn": "resolveNoCommitReviewReason",
+      "input": { "hasAlreadyImplementedMarker": true, "productDirtyCount": 3, "hasWorkEvidence": false, "writeActivity": "unknown" },
+      "expect": "writes present, tree dirty, no commit — stop hook did not commit (work is in the working tree)"
+    },
+    {
       "id": "nocommit-review-reason-unknown-keeps-clean-tree-reason",
       "fn": "resolveNoCommitReviewReason",
       "input": { "hasAlreadyImplementedMarker": false, "productDirtyCount": 0, "hasWorkEvidence": false, "writeActivity": "unknown" },

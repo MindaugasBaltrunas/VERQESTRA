@@ -303,10 +303,25 @@ export function resolveNoCommitDisposition(inputs: NoCommitDoneInputs): NoCommit
  * dispozicija lieka human-review — ir operatoriui reikia žinoti, KURIO iš dviejų įrodymų
  * trūksta. Bendra „clean tree without work evidence" eilutė čia siųstų ieškoti dingusio
  * deliverable, nors auditas deliverable ir neturi: trūksta būtent skaitytojo signalo.
+ *
+ * Task 141-b: „rašymų nebuvo" ir „rašymai buvo, bet liko neužcommit'inti" yra dvi skirtingos
+ * baigtys su skirtingu operatoriaus veiksmu. Kai medyje yra produkto dirty įrašų, darbas NIEKUR
+ * nedingo — jis guli darbiniame medyje, o neįvyko commit'as (stop hook'as jo nepadarė).
+ * „clean tree without work evidence" čia meluoja dukart (medis nėra švarus, darbas yra) ir
+ * siunčia operatorių ieškoti to, kas niekada nebuvo prarasta.
+ *
+ * Dirty įrašų skaičius yra git stebėjimas, ne log'o spėjimas, tad jis pakanka „rašymai buvo"
+ * teiginiui ir be `writeActivity === "wrote"` — lygiai tą pačią prasmę jam jau suteikia
+ * `resolveNoCommitDisposition` rollback šaka. Todėl `"unknown"` čia priežastį patikslina, nors
+ * pats log'as nieko neįrodo. Vienintelė išimtis lieka `"no-writes"`: patvirtintas nulinis
+ * rašymo aktyvumas ir toliau grąžina savo, iki task 141-b buvusią priežastį.
  */
 export function resolveNoCommitReviewReason(inputs: NoCommitDoneInputs): string {
   if (inputs.writeActivity === "no-writes") {
     return "executor made no write-tool calls";
+  }
+  if (inputs.productDirtyCount > 0) {
+    return "writes present, tree dirty, no commit — stop hook did not commit (work is in the working tree)";
   }
   if (inputs.hasAuditCompleteMarker === true) {
     return "AUDIT_COMPLETE marker without confirmed zero-write evidence";

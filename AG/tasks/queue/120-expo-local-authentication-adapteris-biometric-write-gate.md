@@ -1,5 +1,9 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: mindebaltru 2026-09-03 operatoriaus nurodymas „visus,3" (3 = šie
+patvirtinimo vartai) — leidžiama pridėti `expo-local-authentication` į
+`mobile-app/native/package.json`; `pnpm install` po to lieka operatoriaus žingsnis.
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

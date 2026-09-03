@@ -49,10 +49,14 @@ ir žalias `pnpm test` — worker'is dirba, ne klaidžioja). Tikėtina: −13 ne
 tiesiogiai, −3 pilni vartų paleidimai kiekvienam nukirstam run'ui. Rizika: ilgesnė uodega vienam
 run'ui — bet 180 lubos didelėms niekada nesuveikė, tad realus limitas ir taip yra darbo pabaiga.
 
-### L2 (P1) — klasifikacijos žodynas sutampa su projekto kalba → 45 % task'ų gauna opus + large
+### L2 (P1) — klasifikacijos žodynas sutampa su projekto kalba → 22 % dispatch'ų opus, 50 % — large biudžetas
 
-`preflight` tier eilutės (284): **large/opus 128, large/sonnet 15, medium/sonnet 141.**
-„classification sensitivity is high" — 79 kartus. `task-classification-policy.json` „high"
+`preflight` tier eilutės (284): **large 143 (biudžeto pakopa, 180 turn'ų), medium 141.** Eilutės
+`model=opus` žymė yra biudžeto pakopos užuomina, NE vykdymo modelis: realų modelį skiria
+`MODEL ROUTING` pagal klasifikacijos bazinę pakopą — `advanced` → opus 55 kartų, `risk-signals` 1,
+eskalacija 1; iš viso **opus 68 iš 306 dispatch'ų (22 %)**. „classification sensitivity is high" —
+79 kartus; „structurally large" (keliai/veiksmai/domenai) — 91, ir jis kelia TIK turn'ų biudžetą.
+(Pataisyta 2026-09-03 modelių audite: pirminė versija šias dvi pakopas suliejo į „45 % opus".) `task-classification-policy.json` „high"
 kategorijos raktažodžiai: `policy`, `dependency`, `boundary`, `architecture`, `approval`,
 `security`, `permission`. VERQESTRA **yra** orkestravimo politikų, ribų ir priklausomybių
 produktas — tie žodžiai yra kasdienė task'ų kalba, ne rizikos signalas. Pvz. 154 (analitikos

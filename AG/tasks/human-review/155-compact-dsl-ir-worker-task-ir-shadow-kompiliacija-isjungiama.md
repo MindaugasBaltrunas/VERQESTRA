@@ -34,7 +34,17 @@ nes jų `## Failai` priklauso nuo to, kurie eksportai po šio task'o liks be kvi
 readme-guard -> architect -> schedule-domain -> coder -> reviewer -> tester
 
 ## Failai
+
+> 2026-09-03 19:18 parkas: `changed files outside allowed paths: src/tests/context-pack-assemble.test.ts`.
+> Autorystės klaida: tas testas tvirtino `result.workerTaskIr` (93 eil.) — shadow IR lauką,
+> kurį šis task'as ir šalina. Grep'inau `canarySizeFallback|compiledPromptChars|shadow*`,
+> bet ne `workerTaskIr`. Vykdytojo darbas (šaka
+> `ag/worker/60af1d0f-…/155-compact-dsl-ir-worker-task--d9a23276/a1`, commit 965999a4, 9 failų,
+> +151/−267) yra tiksliai pagal `## Veiksmas` ir žalias; vienintelis pakeitimas už ribos —
+> viena pašalinta assert eilutė. Kelias pridedamas žemiau; darbas suliejamas, ne perdirbamas.
+
 Leidžiama:
+- `src/tests/context-pack-assemble.test.ts` (93 eil. `result.workerTaskIr` assert'as — laukas šalinamas)
 - `src/application/context-pack/assemble/persist.ts`
 - `src/application/context-pack/assemble/assemble.ts`
 - `src/application/context-pack/metrics.ts` (builder'io įėjimas; skaitytojo tipas lieka)

@@ -8,9 +8,9 @@ import type {
   BenchmarkScenarioSection,
 } from "../../model/types";
 import { tProse, useI18n } from "../../i18n/I18nContext";
-import { BenchmarkInsights } from "../components/BenchmarkInsights";
-import { CompressionCohortPanel } from "../components/CompressionCohortPanel";
-import { Header, type Route } from "../components/Header";
+import { BenchmarkInsights } from "../components/benchmark/BenchmarkInsights";
+import { CompressionCohortPanel } from "../components/benchmark/CompressionCohortPanel";
+import { Header, type Route } from "../components/layout/Header";
 
 // Read-only view over the backend's authoritative benchmark report
 // (BENCH-10, BENCH-11). Every number shown here is read off `report` as the

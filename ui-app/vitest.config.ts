@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
+    setupFiles: ["./src/tests/setup.ts"],
     // 2026-08-27: ReliabilityPage puslapio testas ramioje mašinoje renderina ~4.2s, o vartai
     // pagal dizainą bėga LYGIAGREČIAI su Claude dispatch'u — po apkrova numatytasis 5s
     // limitas virsdavo deterministiniu near-miss (raudoni vartai blokavo ir task'ą, ir stop).

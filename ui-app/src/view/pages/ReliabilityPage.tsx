@@ -3,7 +3,7 @@ import { fetchReliabilityAnalytics } from "../../model/api";
 import { buildFailureCsv } from "../../model/failureCsv";
 import type { ReliabilityAnalyticsResponse } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
-import { Header, type Route } from "../components/Header";
+import { Header, type Route } from "../components/layout/Header";
 import type { Language } from "../../i18n/I18nContext";
 
 type Props = { activeRoute: Route; onNavigate: (route: Route) => void };

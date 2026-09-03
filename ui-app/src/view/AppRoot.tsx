@@ -6,8 +6,8 @@ import { ReliabilityPage } from "./pages/ReliabilityPage";
 import { BenchmarkPage } from "./pages/BenchmarkPage";
 import { CompressionPage } from "./pages/CompressionPage";
 import { I18nProvider, useI18n } from "../i18n/I18nContext";
-import { ErrorBoundary } from "./components/ErrorBoundary";
-import { SkipToContent } from "./components/SkipToContent";
+import { ErrorBoundary } from "./components/shared/ErrorBoundary";
+import { SkipToContent } from "./components/shared/SkipToContent";
 
 /**
  * Riba yra IŠORINIS sluoksnis — virš `I18nProvider`: renderio klaida provider'io viduje

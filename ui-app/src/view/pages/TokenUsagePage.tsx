@@ -1,19 +1,19 @@
 import { useTokenUsageController } from "../../controller/useTokenUsageController";
 import { useTokenAnalyticsController } from "../../controller/useTokenAnalyticsController";
-import { Header, type Route } from "../components/Header";
-import { TokenUsageFilterBar } from "../components/TokenUsageFilterBar";
-import { TokenUsageSummaryPanel } from "../components/TokenUsageSummaryPanel";
-import { TokenTrendChart } from "../components/CostOverTimeChart";
-import { UsageBreakdownChart } from "../components/UsageBreakdownChart";
-import { TopTasksTable } from "../components/TopTasksTable";
-import { DistributionDonutChart } from "../components/DistributionDonutChart";
-import { CacheEfficiencyTrendChart } from "../components/CacheEfficiencyTrendChart";
-import { GroupComparisonChart } from "../components/GroupComparisonChart";
-import { SimilarTaskGroupsTable } from "../components/SimilarTaskGroupsTable";
-import { OptimizationCandidatesList } from "../components/OptimizationCandidatesList";
-import { TokenAnalyticsSnapshotPanel } from "../components/TokenAnalyticsSnapshotPanel";
-import { AnalyticsDecisionPanel } from "../components/AnalyticsDecisionPanel";
-import { TaskConcentrationChart } from "../components/TaskConcentrationChart";
+import { Header, type Route } from "../components/layout/Header";
+import { TokenUsageFilterBar } from "../components/tokens/TokenUsageFilterBar";
+import { TokenUsageSummaryPanel } from "../components/tokens/TokenUsageSummaryPanel";
+import { TokenTrendChart } from "../components/tokens/CostOverTimeChart";
+import { UsageBreakdownChart } from "../components/tokens/UsageBreakdownChart";
+import { TopTasksTable } from "../components/tokens/TopTasksTable";
+import { DistributionDonutChart } from "../components/tokens/DistributionDonutChart";
+import { CacheEfficiencyTrendChart } from "../components/tokens/CacheEfficiencyTrendChart";
+import { GroupComparisonChart } from "../components/tokens/GroupComparisonChart";
+import { SimilarTaskGroupsTable } from "../components/tokens/SimilarTaskGroupsTable";
+import { OptimizationCandidatesList } from "../components/tokens/OptimizationCandidatesList";
+import { TokenAnalyticsSnapshotPanel } from "../components/tokens/TokenAnalyticsSnapshotPanel";
+import { AnalyticsDecisionPanel } from "../components/tokens/AnalyticsDecisionPanel";
+import { TaskConcentrationChart } from "../components/tokens/TaskConcentrationChart";
 import { useI18n } from "../../i18n/I18nContext";
 
 type Props = {

@@ -1,6 +1,6 @@
 {
-  // Testų projektas. Trys testai (`i18n/coverage`, `model/apiEnvelopes`,
-  // `view/components/dashboard-css-coverage`) skaito repo failus per `node:fs`/`node:path`/
+  // Testų projektas. Trys testai (`tests/gates/i18n-coverage`, `tests/model/apiEnvelopes`,
+  // `tests/gates/dashboard-css-coverage`) skaito repo failus per `node:fs`/`node:path`/
   // `node:url`, tad jiems Node tipai yra BŪTINI — bet tik jiems.
   //
   // Kodėl atskiras projektas, o ne `types: ["node"]` visam `tsconfig.app.json`: aplikacijos

@@ -1,0 +1,254 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DashboardData } from "../../../../model/types";
+import { I18nProvider, useI18n } from "../../../../i18n/I18nContext";
+import { DiagnosticsPanel } from "../../../../view/components/dashboard/DiagnosticsPanel";
+import { TokenBudgetPanel } from "../../../../view/components/tokens/TokenBudgetPanel";
+
+/**
+ * 2026-08-24, operatoriaus nurodymas: „taisyk taip, kad viskas būtų matoma ir veiktų."
+ *
+ * Šie testai pin'ina, kad laukai, kuriuos serveris siunčia nuo pirmo audito rato, REALIAI pasiekia
+ * ekraną. Iki šio rato jie buvo skaičiuojami, serializuojami ir numetami kas 30 s — o `token_budget`
+ * buvo brangiausias iš jų, nes jis vienintelis atsako, kodėl dispatch'as pristabdytas.
+ */
+
+const base: DashboardData = {
+  root: "/repo",
+  currentTaskId: null,
+  currentTaskFile: null,
+  claudeExit: null,
+  stableRef: null,
+  stopStatus: {},
+  decision: {},
+  supervisorResume: {},
+  claudeResume: {},
+  runtime: [],
+  claudeLogUpdatedAt: null,
+  claudeLogBytes: null,
+  workflowBuckets: [],
+};
+
+describe("DiagnosticsPanel", () => {
+  it("rodo būsenos failus, log antspaudą ir tęsimo taškus", () => {
+    render(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          claudeLogUpdatedAt: "2026-08-24T10:00:00.000Z",
+          claudeLogBytes: 4096,
+          claudeLogSource: "legacy",
+          supervisorResume: { status: "verified" },
+          claudeResume: { status: "running", next_action: "quality-gates" },
+          statusFiles: [
+            { name: "current-task-id", present: true, bytes: 12, updatedAt: "2026-08-24T09:00:00.000Z" },
+            { name: "claude-resume.json", present: false },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("current-task-id")).toBeInTheDocument();
+    // Nesamas failas LIEKA sąraše ir pavadinamas: jo nebuvimas yra faktas, ne tuštuma.
+    expect(screen.getByText("claude-resume.json")).toBeInTheDocument();
+    expect(screen.getByText("missing")).toBeInTheDocument();
+    // Log kilmė matoma: `legacy` antspaudas gali priklausyti KITAM task'ui.
+    expect(screen.getByText("legacy")).toBeInTheDocument();
+    expect(screen.getByText("quality-gates")).toBeInTheDocument();
+  });
+
+  it("SVETIMAS tęsimo taškas pavadinamas, o sutampantis netriukšmauja", () => {
+    // `run-coordinator` prieš praleisdamas preflight'ą tikrina `supervisorResume.task_id ===
+    // state.taskId` ir nesutapimą traktuoja kaip švarų startą. Ekranas rodė TIK `status`, tad
+    // operatorius darydavo išvadą apie dabartinę užduotį iš kito task'o įrašo.
+    const { rerender } = render(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          currentTaskId: "0100-dabartine",
+          supervisorResume: { status: "finished", phase: "preflight", task_id: "0042-sena" },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("0042-sena");
+    expect(screen.getByText("preflight")).toBeInTheDocument();
+
+    rerender(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          currentTaskId: "0100-dabartine",
+          supervisorResume: { status: "finished", phase: "preflight", task_id: "0100-dabartine" },
+        }}
+      />,
+    );
+
+    // Sutampantis priskyrimas nieko neprideda — įspėti apie jį reikštų mokyti ignoruoti įspėjimus.
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("checkpoint'as BE task_id nėra nesutapimas", () => {
+    // Visi resume laukai optional: failas rašomas palaipsniui. Teigti „priklauso kitam task'ui"
+    // apie dalinai įrašytą failą reikštų tvirtinti tai, ko nežinome.
+    render(<DiagnosticsPanel data={{ ...base, currentTaskId: "0100-dabartine", claudeResume: { status: "running" } }} />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("stack sprendimas su human-review reikalavimu rodo PRIEŽASTĮ", () => {
+    render(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          controlPlane: {
+            config_controls: [
+              { id: "auto_push_enabled", label: "Auto push", value: false, source: "vq/config/git.json", editable: true },
+            ],
+            human_review_tasks: [],
+            learning_recommendations: [],
+            learning_summary: {
+              records: 0,
+              by_type: {},
+              pending_recommendations: 0,
+              approved_recommendations: 0,
+              rejected_recommendations: 0,
+            },
+            stack_decision: {
+              selected_language: "typescript",
+              selected_framework: null,
+              architecture_style: "hexagonal",
+              confidence: "low",
+              human_review_required: true,
+              reason: "README neįvardija karkaso",
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("typescript")).toBeInTheDocument();
+    expect(screen.getByRole("status").textContent).toContain("README neįvardija karkaso");
+    // Automatikos politika irgi matoma — iki šio rato `config_controls` neturėjo NĖ VIENOS panelės.
+    expect(screen.getByText("Auto push")).toBeInTheDocument();
+  });
+
+  describe("baitų formatavimas ir locale", () => {
+    beforeEach(() => localStorage.clear());
+
+    function LanguageSwitch() {
+      const { setLanguage } = useI18n();
+      return (
+        <button type="button" onClick={() => setLanguage("en")}>
+          switch-to-en
+        </button>
+      );
+    }
+
+    it("baitų atvaizdavimas seka aktyvų locale, ne prikaltą lt-LT", () => {
+      // 053: anksčiau `formatBytes` naudojo modulio lygio `Intl.NumberFormat("lt-LT")`, nors
+      // datos tame pačiame faile jau ėjo per aktyvų `locale`.
+      const bytes = 1536;
+      const ltFormatted =
+        new Intl.NumberFormat("lt-LT", { notation: "compact", maximumFractionDigits: 1 }).format(bytes) + " B";
+      const enFormatted =
+        new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(bytes) + " B";
+      expect(ltFormatted).not.toBe(enFormatted);
+
+      const { container } = render(
+        <I18nProvider>
+          <LanguageSwitch />
+          <DiagnosticsPanel data={{ ...base, claudeLogUpdatedAt: null, claudeLogBytes: bytes }} />
+        </I18nProvider>,
+      );
+
+      expect(container.textContent).toContain(ltFormatted);
+
+      fireEvent.click(container.querySelector("button")!);
+
+      expect(container.textContent).toContain(enFormatted);
+      expect(container.textContent).not.toContain(ltFormatted);
+    });
+  });
+
+  /**
+   * 052 review radinys: vienintelis būdas šią reikšmę pakeisti (`command`) buvo paslėptas
+   * `title` atribute — matomas tik po užvedimu pele. Dabar jis rodomas kaip `<code>` blokas su
+   * kopijavimo mygtuku.
+   */
+  it("rodo automatikos politikos komandą matomą, ne title atribute, su kopijavimo mygtuku", () => {
+    const writeText = vi.fn();
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(
+      <DiagnosticsPanel
+        data={{
+          ...base,
+          controlPlane: {
+            config_controls: [
+              {
+                id: "auto_push_enabled",
+                label: "Auto push",
+                value: false,
+                source: "vq/config/git.json",
+                editable: true,
+                command: "verqestra policy propose auto_push_enabled true",
+              },
+            ],
+            human_review_tasks: [],
+            learning_recommendations: [],
+            learning_summary: {
+              records: 0,
+              by_type: {},
+              pending_recommendations: 0,
+              approved_recommendations: 0,
+              rejected_recommendations: 0,
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("verqestra policy propose auto_push_enabled true")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+    expect(writeText).toHaveBeenCalledWith("verqestra policy propose auto_push_enabled true");
+  });
+});
+
+describe("TokenBudgetPanel", () => {
+  it("be verdikto sako TAI, o ne rodo melagingus nulius", () => {
+    render(<TokenBudgetPanel budget={undefined} />);
+    // Be `I18nProvider` `t()` grąžina raktą — tai numatytoji anglų kalba, ne trūkstamas vertimas.
+    expect(screen.getByText("The budget gates have not recorded a verdict yet.")).toBeInTheDocument();
+  });
+
+  it("atmestas biudžetas rodo priežasčių KODUS, o ne perpasakojimą", () => {
+    render(
+      <TokenBudgetPanel
+        budget={{
+          budget_enforcement: {
+            ok: false,
+            billable_tokens: 120_000,
+            total_llm_calls: 9,
+            limits: { max_llm_calls: null, max_total_llm_calls: 10, max_total_tokens: 100_000 },
+            reasons: ["max_total_tokens_exceeded"],
+          },
+        }}
+      />,
+    );
+
+    // Kodas rodomas nepakeistas: būtent jo ieškoma žurnale ir snapshot'e.
+    expect(screen.getByText("max_total_tokens_exceeded")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("`null` riba reiškia neribotą, o ne nulį", () => {
+    render(
+      <TokenBudgetPanel
+        budget={{ llm_call_authorization: { allowed: true, remaining_total_tokens: null, phase: "implementation" } }}
+      />,
+    );
+
+    expect(screen.getAllByText("unlimited").length).toBeGreaterThan(0);
+    expect(screen.getByText("implementation")).toBeInTheDocument();
+  });
+});

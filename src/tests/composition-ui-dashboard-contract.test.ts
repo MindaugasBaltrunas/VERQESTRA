@@ -7,7 +7,8 @@
 //
 // Čia paleidžiamas visas kelias — `node:http` kiautas, gryna maršrutizavimo funkcija, realūs
 // failų adapteriai — ir tikrinama forma, kurią gauna `ui-app`. Naršyklės čia nėra sąmoningai:
-// ji šio repo toolchain'e neegzistuoja, o renderio pusę dengia `ui-app/src/App.test.tsx`.
+// ji šio repo toolchain'e neegzistuoja, o renderio pusę dengia
+// `ui-app/src/tests/view/components/dashboard/PolicyProposalsPanel.test.tsx`.
 
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";

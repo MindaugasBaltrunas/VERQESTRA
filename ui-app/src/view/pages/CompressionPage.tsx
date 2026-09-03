@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchCompression, setCompressionFeature } from "../../model/api";
 import type { CompressionFeature, CompressionFeatureValue, CompressionIrPair, CompressionView } from "../../model/types";
 import { useI18n } from "../../i18n/I18nContext";
-import { Header, type Route } from "../components/Header";
+import { Header, type Route } from "../components/layout/Header";
 
 /**
  * Kompresijos vėliavų valdymas ir jų shadow telemetrija.

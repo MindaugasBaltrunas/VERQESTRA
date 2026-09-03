@@ -36,14 +36,17 @@ function importSpecifiers(source: string): string[] {
 
 /**
  * Every module `native-runtime.ts` may name. The list stays exact and therefore
- * fail-closed: `../core` is the single seam to the MVC core, the adapter path is
- * native-shell-internal, and `expo-secure-store` is the one platform package the
- * composition root binds to a port (task 119). A new bare specifier here has to
- * be argued for by editing this line.
+ * fail-closed: `../core` is the single seam to the MVC core, the adapter paths are
+ * native-shell-internal, and `expo-secure-store` (task 119) plus
+ * `expo-local-authentication` (task 120) are the platform packages the composition
+ * root binds to ports. A new bare specifier here has to be argued for by editing
+ * this line.
  */
 const allowedRuntimeImports: ReadonlySet<string> = new Set([
   "../core",
+  "../adapters/expo-biometric-authenticator",
   "../adapters/expo-secure-store-adapter",
+  "expo-local-authentication",
   "expo-secure-store",
 ]);
 
@@ -123,13 +126,15 @@ test("the gateway base URL has no default and comes from an Expo public env var"
  * an unaudited addition must fail here rather than arrive with a feature.
  *
  * The transports still contribute nothing — they wrap `fetch` and `WebSocket`.
- * `expo-secure-store` is the single deliberate addition (task 119, operator
- * approved 2026-09-02): the OS keystore has no global to wrap, so `SecureStorePort`
- * cannot be implemented without it.
+ * Two deliberate additions carry an operator approval each: `expo-secure-store`
+ * (task 119, 2026-09-02), because the OS keystore has no global to wrap, and
+ * `expo-local-authentication` (task 120, 2026-09-03), because neither has the
+ * biometric prompt `BiometricAuthenticatorPort` needs.
  */
 const auditedRuntimeDependencies = [
   "@verqestra/mobile-app",
   "expo",
+  "expo-local-authentication",
   "expo-secure-store",
   "react",
   "react-native",

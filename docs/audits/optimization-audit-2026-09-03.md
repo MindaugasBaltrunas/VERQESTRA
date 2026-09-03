@@ -81,6 +81,14 @@ niekur neloginama. Pirmas žingsnis — išmatuoti. Tikėtina: −30…−50 % v
 
 ### L4 (P2) — preflight LLM ir skėlimas: 26 skėlimai su VIENU vaiku
 
+> PATAISA 2026-09-03 (modelių auditas): `preflight-llm.ts:74` — „pirmą įrašyk į `claude_task`,
+> likusias į `child_tasks`", `enqueue-child-tasks.ts:313` `ordinal: index + 2`. **Tėvas YRA
+> 1-a dalis, vaikai — 2…N.** Todėl „1 vaiko skėlimas" = skėlimas į DVI dalis, o tėvo dispatch'as
+> po skėlimo yra dizainas, ne dubliavimas. Žemiau esantys teiginiai (a) ir (c) NEGALIOJA;
+> lieka klausimas (b) — kodėl 8 kelių / 5 veiksmų / 75 eilučių task'as (154) gavo „split plan
+> required": `exceedsLimits` ribos (8/6/2/120) 154 formaliai netenkina nė vienos. Atskiras
+> patikrinimas prieš bet kokį task'ą.
+
 LLM preflight'as: 101 verdiktai — 27 `delegate`, **74 `reformulate_delegate`**; `TASK SPLIT` 64
 tėvai → 125 vaikai (26×1, 25×2, 8×3, 2×4, 1×5, 2×6). **Skėlimas į vieną vaiką nieko nelygiagretina
 ir neapmoka nei preflight'o (≈ 0,5 $), nei papildomo dispatch'o.** Struktūrinės ribos

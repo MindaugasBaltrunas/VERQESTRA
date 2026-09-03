@@ -1,5 +1,7 @@
 # Task
 
+HUMAN-REVIEW-APPROVED: operatorius 2026-09-03 speech paketo dependency patvirtinta
+
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 

@@ -19,6 +19,24 @@ Užpildyti sąmoningai paliktą lizdą: `GraphFirstContextCandidates.docsSnippet
 Privaloma grandinė: readme-guard -> architect -> coder -> reviewer -> tester.
 
 ## Failai
+
+> 2026-09-03 praplėsta po parko (`09:26:11`, `changed files outside allowed paths`).
+> Scope buvo per siauras pagal paties task'o mandatą: `context-cache-model.ts` eilutė
+> LEIDŽIA kelti `CONTEXT_CACHE_VERSION`, o abu pinantys testai tą konstantą tvirtina —
+> versijos pakėlimas jų neliesti NEGALI. Tai buvo autorystės, ne vykdymo klaida, tad
+> ribos ne silpninamos, o pataisomos iki realios apimties.
+>
+> 2026-09-03 ANTRAS parkas (`12:27:14`, `budget_enforcement_failed=context files 11 > 8`)
+> kilo iš pačios šios anotacijos: ji gulėjo TARP `Leidžiama:` ir `Draudžiama:`, o
+> `allowedBlock` (`src/domain/tasks/allowed-paths.ts:50-57`) ima VISKĄ tarp tų dviejų
+> žymeklių. Ne-bullet eilutėje `collectPathTokensFromLine` (92-98 eil.) paima VISUS
+> backtick tokenus, tad proza `09:26:11`, `changed files outside allowed paths` ir
+> `CONTEXT_CACHE_VERSION` tapo trimis „keliais": 8 tikri + 3 iš teksto = lygiai 11.
+> Anotacija perkelta VIRŠ `Leidžiama:` — ten parseris jos nemato. Tuo pačiu iš
+> `Draudžiama:` pašalintas `context-pack-guards.test.ts`: pirmasis taisymas jį įrašė į
+> `Leidžiama:`, bet paliko ir draudime — tas pats kelias abiejose pusėse yra ne riba,
+> o dviprasmybė vykdytojui.
+
 Leidžiama:
 - `src/application/context-pack/assemble/assemble.ts`
 - `src/tests/context-pack-assemble.test.ts`
@@ -29,19 +47,12 @@ Leidžiama:
 - `src/tests/context-pack-guards.test.ts` (pina `CONTEXT_CACHE_VERSION`)
 - `src/tests/context-pack-code-index-identity.test.ts` (pina `CONTEXT_CACHE_VERSION`)
 
-> 2026-09-03 praplėsta po parko (`09:26:11`, `changed files outside allowed paths`).
-> Scope buvo per siauras pagal paties task'o mandatą: 25 eilutė LEIDŽIA kelti
-> `CONTEXT_CACHE_VERSION`, o abu šie testai tą konstantą pina — versijos pakėlimas
-> jų neliesti NEGALI. Tai buvo autorystės, ne vykdymo klaida, tad ribos ne
-> silpninamos, o pataisomos iki realios apimties.
-
 Draudžiama:
 - `src/application/code-intelligence/retrieval/discovered-docs.ts`
 - `src/application/context-pack/discovered-docs-cache-sources.ts` (tik importuojamas, nekeičiamas)
 - `src/application/policy-governance/context-selection-policy.ts`
 - `src/infrastructure/persistence/context-cache-store.ts`
 - `src/tests/context-pack-cache-bypass.test.ts`
-- `src/tests/context-pack-guards.test.ts`
 - `dist/**`
 - `node_modules/**`
 

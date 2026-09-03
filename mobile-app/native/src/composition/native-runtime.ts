@@ -1,11 +1,15 @@
+import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import { GatewayHttpClient, TerminalStreamClient } from "../core";
 import type {
+  BiometricAuthenticatorPort,
   MobileHttpTransportPort,
   MobileWebSocketFactory,
   MobileWebSocketPort,
   SecureStorePort,
 } from "../core";
+import { createExpoBiometricAuthenticator } from "../adapters/expo-biometric-authenticator";
+import type { ExpoLocalAuthenticationModule } from "../adapters/expo-biometric-authenticator";
 import { createExpoSecureStoreAdapter } from "../adapters/expo-secure-store-adapter";
 import type { ExpoSecureStoreModule } from "../adapters/expo-secure-store-adapter";
 
@@ -15,15 +19,24 @@ import type { ExpoSecureStoreModule } from "../adapters/expo-secure-store-adapte
  * `TerminalStreamClient` needs a WebSocket factory. Both wrap globals React
  * Native already provides (`fetch`, `WebSocket`), so they add no dependency.
  *
- * This module is also where the one platform package the shell needs by name is
- * bound to a port: `expo-secure-store` behind `SecureStorePort`. A composition
- * root is the correct place for that — the adapter itself stays module-free, and
- * the import appears exactly once in the package.
+ * This module is also where the platform packages the shell needs by name are
+ * bound to ports: `expo-secure-store` behind `SecureStorePort` and
+ * `expo-local-authentication` behind `BiometricAuthenticatorPort`. A composition
+ * root is the correct place for that — the adapters themselves stay module-free,
+ * and each import appears exactly once in the package.
  *
  * `DeviceProofPort` and `MobileIdPort` still have no production adapter: the
- * former needs device-identity signing (task 120), the latter a random UUID
- * source. The factories below accept them as parameters instead of constructing
- * them, so this module wires exactly what exists today.
+ * former needs device-identity signing, the latter a random UUID source. The
+ * factories below accept them as parameters instead of constructing them, so this
+ * module wires exactly what exists today.
+ *
+ * What still cannot be wired here, and why: `MobileTerminalPorts.writeGate` wants
+ * the core's `BiometricWriteGate` decorator standing on the authenticator below,
+ * and `credentials` wants `SecureCredentialStore` standing on the secure store
+ * above. Neither class is re-exported by `@verqestra/mobile-app`'s barrel, and
+ * `mvc-boundaries.test.ts` allows the shell no other route into the core — not
+ * even through the seam module. Reaching them needs a barrel change, which is a
+ * public-contract decision this package cannot take on its own.
  */
 
 /**
@@ -45,6 +58,24 @@ export function createReactNativeSecureStore(
     module,
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
+}
+
+/**
+ * `BiometricAuthenticatorPort` backed by the OS biometric prompt.
+ *
+ * The annotated return type is the seam's only compile-time check that the
+ * adapter's locally restated outcome union still matches the core's port, for
+ * the same reason `createReactNativeSecureStore` carries one.
+ *
+ * The device-passcode fallback is left closed — the adapter's default — and is
+ * not exposed as a parameter here: the gate in front of terminal writes asks for
+ * a biometric confirmation, and an opt-out worth having would be a policy
+ * decision written down in the core, not a flag a wiring site can flip.
+ */
+export function createReactNativeBiometricAuthenticator(
+  module: ExpoLocalAuthenticationModule = LocalAuthentication,
+): BiometricAuthenticatorPort {
+  return createExpoBiometricAuthenticator({ module });
 }
 
 export function createReactNativeHttpTransport(): MobileHttpTransportPort {

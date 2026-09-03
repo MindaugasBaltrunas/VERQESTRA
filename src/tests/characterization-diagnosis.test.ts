@@ -87,6 +87,22 @@ for (const dispositionCase of fixture.cases) {
   });
 }
 
+// Task 141-b: dvi baigtys, kurios iki šiol dalinosi viena „clean tree" priežastimi, turi būti
+// atskiriamos viena nuo kitos — operatorius, siunčiamas ieškoti dingusio darbo, jo neranda,
+// nes darbas guli medyje ir trūksta tik commit'o.
+test("no-commit review reason: darbo nebuvo vs. darbas yra, bet neužcommit'intas", () => {
+  const base = { hasAlreadyImplementedMarker: true, hasWorkEvidence: false } as const;
+  const noWrites = resolveNoCommitReviewReason({ ...base, productDirtyCount: 0, writeActivity: "no-writes" });
+  const dirtyWrites = resolveNoCommitReviewReason({ ...base, productDirtyCount: 2, writeActivity: "wrote" });
+
+  assert.equal(noWrites, "executor made no write-tool calls");
+  assert.match(dirtyWrites, /stop hook did not commit/);
+  assert.notEqual(dirtyWrites, noWrites);
+  // Nė viena iš dviejų priežasčių nebekartoja „dingusio deliverable" versijos.
+  assert.doesNotMatch(noWrites, /clean tree without work evidence/);
+  assert.doesNotMatch(dirtyWrites, /clean tree without work evidence/);
+});
+
 // Task 066-a-02 (GeoGravity 1178/7): evaluateRuntimeOversizeDisposition nėra etalono fixture'e
 // (naujas VERQESTRA sprendimas, ne AG_loop elgesys), tad testuojamas tiesiogiai, ne per PAR-1
 // characterization runner'į.

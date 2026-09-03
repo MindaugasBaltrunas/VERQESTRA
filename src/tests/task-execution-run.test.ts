@@ -258,40 +258,41 @@ test("verifyTask: done su produkto commit'ais → done; be jų — marker/clean-
   assert.equal(parked.kind, "human-review");
   assert.match((parked as { reason: string }).reason, /clean tree without work evidence/);
   assert.ok(env.cliCalls.some((args) => args[0] === "rollback-stable"));
-
-  // Purvinas medis be markerio → rollback šaka, missing-commit parkas.
-  env.behavior.git.productDirtyCount = 3;
-  const dirty = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
-  assert.equal(dirty.kind, "human-review");
-  assert.match((dirty as { reason: string }).reason, /Claude did not create a new commit/);
+  // Purvinas medis be markerio (rollback šaka, missing-commit parkas) tikrinamas 141-c teste
+  // žemiau — ten ta pati baigtis tvirtinama anksčiau su tikslia, prie galo pririšta žinute.
 });
 
-test("verifyTask: rašymo aktyvumo signalas patikslina human-review priežastį (task 032)", async () => {
+// 141-c: „commit missing" (rašymai buvo ir tebeguli medyje — neįvyko commit'as, Stop hook'o
+// kelias, task 141) ir „work missing" (rašymo įrankis nekviestas nė karto) yra dvi skirtingos
+// šaknys po ta pačia human-review baigtimi; `unknown` log'as neįrodo nė vienos, tad jam lieka
+// iki šiol buvusi žinutė. Verdiktas visur nepakitęs — TIK įvardijimas (032 signalas + 141-c).
+test("verifyTask: rašymo aktyvumas įvardija commit missing vs work missing (032, 141-c)", async () => {
   const { env } = verifyEnv();
   const { state } = await makeState(env, "active");
   env.behavior.decision = { status: "ok", decision: { verdict: "done" } };
   env.behavior.git.hasNewHeadSince = false;
   env.behavior.git.changedProductPaths = [];
   env.behavior.git.committedProductWorkSha = undefined;
-
-  // Vykdytojas nė karto nekvietė rašymo įrankio (tik Read) → tiksli priežastis, ne
-  // bendra "possibly rolled back" spėlionė.
-  env.behavior.claudeLog = [
-    '{"type":"system","subtype":"init","tools":["Read","Grep"]}',
-    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r1","name":"Read"}]}}',
-  ].join("\n");
-  const noWrites = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
-  assert.equal(noWrites.kind, "human-review");
-  assert.match((noWrites as { reason: string }).reason, /executor made no write-tool calls/);
-
-  // Vykdytojas rašė, bet vis tiek nėra darbo įrodymo istorijoje → sena priežastis lieka.
-  env.behavior.claudeLog = [
-    '{"type":"system","subtype":"init","tools":["Read","Write"]}',
-    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"w1","name":"Write"}]}}',
-  ].join("\n");
-  const wrote = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
-  assert.equal(wrote.kind, "human-review");
-  assert.match((wrote as { reason: string }).reason, /clean tree without work evidence/);
+  const toolLog = (tool: string) => `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"${tool}"}]}}`;
+  const reasonFor = async (claudeLog: string, productDirtyCount: number): Promise<string> => {
+    env.behavior.claudeLog = claudeLog;
+    env.behavior.git.productDirtyCount = productDirtyCount;
+    const result = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
+    assert.equal(result.kind, "human-review", "verdiktas nepakitęs — keičiasi tik įvardijimas");
+    return (result as { reason: string }).reason;
+  };
+  // Tik Read: rašymo įrankis nekviestas nė karto → darbo nebuvo, ieškoti operatoriui nėra ko.
+  assert.match(await reasonFor(toolLog("Read"), 0), /^TASK NOT DONE: 0042 work_missing=1 executor made no write-tool calls$/);
+  // Rašymai buvo IR tebeguli medyje → darbas nedingo, tiesiog neįvyko commit'as.
+  const dirty = await reasonFor(toolLog("Write"), 2);
+  assert.match(dirty, /^TASK NOT DONE: 0042 commit_missing=1 writes present, tree dirty, no commit/);
+  assert.doesNotMatch(dirty, /work_missing|executor made no write-tool calls/);
+  // Rašymai buvo, bet medis švarus ir įrodymo istorijoje nėra → nė vienas teiginys neįrodytas.
+  const rolledBack = await reasonFor(toolLog("Write"), 0);
+  assert.match(rolledBack, /clean tree without work evidence/);
+  assert.doesNotMatch(rolledBack, /commit_missing|work_missing/);
+  // Neatpažintas (tuščias) log'as nėra įrodymas → žinutė lieka tokia, kokia buvo iki 141-c.
+  assert.match(await reasonFor("", 2), /^TASK NOT DONE: 0042 Claude did not create a new commit$/);
 });
 
 test("verifyTask: 018 seka — rollback išsaugo necommit'intą darbą, priežastyje matoma vieta", async () => {

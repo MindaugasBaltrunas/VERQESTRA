@@ -13,6 +13,7 @@ import type {
   TaskRunPorts,
 } from "./run-coordinator-ports.js";
 import { decisionInvalidMarker } from "./run-coordinator-ports.js";
+import type { NoCommitDoneInputs } from "../../domain/diagnosis/dispositions.js";
 import { reviewPreservedWork } from "./preserved-work-review.js";
 import type { PreservedWorkReviewPorts } from "./preserved-work-review-model.js";
 import type { TaskRunState } from "./task-run-state.js";
@@ -91,6 +92,32 @@ export async function verifyTask(
  */
 function stopEvidenceOrigin(snapshot: StopStatusSnapshot): "attempt" | "legacy" {
   return (snapshot as { source?: unknown }).source === "attempt" ? "attempt" : "legacy";
+}
+
+/**
+ * Task 141-c: „commit'o nėra" turi dvi visiškai skirtingas šaknis, o human-review įraše jos
+ * iki šiol atrodydavo vienodai („Claude did not create a new commit"). Operatoriaus veiksmas
+ * skiriasi iš esmės, tad kodas eina PRIEŠ priežasties tekstą — įrašo pradžia atsako, ar
+ * problema hook'e, ar darbo iš viso nebuvo:
+ *
+ *   - `commit_missing`: vykdytojas RAŠĖ (`writeActivity === "wrote"`) ir jo darbas tebeguli
+ *     medyje (`productDirtyCount > 0`). Darbas niekur nedingo — neįvyko commit'as, t.y.
+ *     problema yra Stop hook'o kelyje (task 141 šaknis). Darbą reikia atgauti, ne kartoti.
+ *   - `work_missing`: skaitytojas PATVIRTINO nulinį rašymo aktyvumą (`"no-writes"`) prie
+ *     švaraus medžio — darbo iš viso nebuvo, tad ieškoti nėra ko.
+ *
+ * Abu kodai reikalauja DVIGUBO įrodymo (log'o pjūvis IR git būsena), nes `"unknown"` pagal
+ * `ExecutorWriteActivity` (domain/diagnosis/dispositions.ts) NĖRA įrodymas: nutylėta ar
+ * nukirsta sesija lieka be kodo ir su iki šiol buvusia žinute. Taip pat be kodo lieka prieštaringi deriniai („no-writes" prie
+ * purvino medžio, „wrote" prie švaraus) — jie nepatvirtina nė vieno iš dviejų teiginių.
+ *
+ * Verdiktas nuo kodo NEPRIKLAUSO: abi šakos ir toliau yra human-review; keičiasi tik
+ * įvardijimas ir žinutės turinys.
+ */
+function noCommitReasonCode(inputs: NoCommitDoneInputs): "commit_missing" | "work_missing" | undefined {
+  if (inputs.writeActivity === "wrote" && inputs.productDirtyCount > 0) return "commit_missing";
+  if (inputs.writeActivity === "no-writes" && inputs.productDirtyCount === 0) return "work_missing";
+  return undefined;
 }
 
 /**
@@ -206,12 +233,18 @@ async function classifyDoneVerdict(
     return { kind: "human-review", reason: `TASK HUMAN REVIEW: ${state.taskId} rollback_failed=${rollback.code} missing_commit` };
   }
 
-  const noCompletionSignalReason =
-    disposition === "human-review"
+  // Task 141-c: kai kodas yra, priežasties TEKSTĄ duoda 141-b (`resolveNoCommitReviewReason`) —
+  // viena tekstų vieta abiem keliams, įskaitant `rollback` dispoziciją, kuri iki šiol jos
+  // nekviesdavo ir tad niekada nerodydavo 141-b „writes present, tree dirty" eilutės. Be kodo
+  // (pvz. `unknown` rašymo aktyvumas) žinutė lieka lygiai tokia, kokia buvo.
+  const reasonCode = noCommitReasonCode(noCommitInputs);
+  const baseReason =
+    disposition === "human-review" || reasonCode !== undefined
       ? ports.rules.resolveNoCommitReviewReason(noCommitInputs)
       : isRepo
         ? "Claude did not create a new commit"
         : "no verified product changes (non-git project)";
+  const noCompletionSignalReason = reasonCode === undefined ? baseReason : `${reasonCode}=1 ${baseReason}`;
   const preservedRef = /^ROLLBACK PRESERVED: .*\bref=(\S+)/m.exec(rollback.output)?.[1];
   // 063-b: preserved ref be review porto ARBA be turinio (materializavimas nepavyko) elgiasi
   // kaip iki šiol — review use-case'as tikrina TIK kai turi ką tikrinti. Detali priežastis su

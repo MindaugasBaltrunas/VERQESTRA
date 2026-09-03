@@ -246,6 +246,17 @@ export type ExecutionPolicyPort = {
     contextPack: Record<string, unknown>;
     taskId: string;
     phase: "implementation" | "repair";
+    /**
+     * 142-B: `HUMAN-REVIEW-APPROVED:` žymos turinys iš to paties prompt failo, iš kurio
+     * surinktas `contextPack`. Lauko NEBUVIMAS reiškia „žymos nėra" — elgesys lieka
+     * baitas-į-baitą toks, koks buvo iki jo atsiradimo, tad esami `ExecutionPolicyPort`
+     * fake'ai galioja be pakeitimų.
+     *
+     * Kvietėjas žymos NEINTERPRETUOJA: ką ji slopina (TIK `context files N > M`) sprendžia
+     * `enforceExecutionBudget`. Portas yra vien laidas — be jo 142-A slopinimo kelias
+     * nepasiekiamas iš gyvo dispatch'o.
+     */
+    humanReviewApproved?: string;
   }): Promise<{ ok: boolean; reasons: string[] }>;
   /** Meta klaidą, kai task'o `## Agentai` rolė neleidžia claude adapterio. */
   assertLoopAdapterAllowed(promptFile: string): Promise<void>;

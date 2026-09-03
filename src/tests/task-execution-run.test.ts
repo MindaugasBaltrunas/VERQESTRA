@@ -9,7 +9,7 @@ import test from "node:test";
 import { PolicyConfigError } from "../shared/errors.js";
 import { POLICY_CONFIG_INVALID_EXIT_CODE } from "../shared/exit-codes.js";
 import { createTaskRunState } from "../application/task-execution/task-run-state.js";
-import { dispatchTask, runPreDispatchGates } from "../application/task-execution/dispatch-task.js";
+import { dispatchTask, runPreDispatchGates, type PreDispatchGateResult } from "../application/task-execution/dispatch-task.js";
 import { verifyTask } from "../application/task-execution/verify-task.js";
 import { repairTask } from "../application/task-execution/repair-task.js";
 import { authorizeLlmCall } from "../application/token-governance/tool-budget-gates.js";
@@ -17,12 +17,7 @@ import { coordinatorPolicyPort } from "../composition/loop/coordinator-execution
 import { loadProjectProfile } from "../composition/agent/preflight-adapters.js";
 import { policyConfigFs, tokenBudgetPorts } from "../composition/runtime/node-adapters.js";
 import { resolveDispatchRoutingPlan } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-routing-plan.js";
-import {
-  loadModelsEnv,
-  modelTierOfRoutingTier,
-  resolveRoutedModel,
-  routingTierOfSelection,
-} from "../infrastructure/adapters/claude-model-env.js";
+import { loadModelsEnv, modelTierOfRoutingTier, resolveRoutedModel, routingTierOfSelection } from "../infrastructure/adapters/claude-model-env.js";
 import { noRuntimeAttemptResolution } from "../infrastructure/state/attempt-resolution.js";
 import { createFakeTaskRunEnv, fakeBucketPath, type FakeTaskRunEnv } from "./helpers/fake-task-run-ports.js";
 import type { CoordinatorAdapterInput } from "../composition/loop/coordinator-adapters.js";
@@ -34,8 +29,7 @@ const TASK_MD = `${TASK}.md`;
 async function makeState(env: FakeTaskRunEnv, bucket: TaskBucket = "delegated", body = "# Task\n## Tikslas\nX") {
   const file = fakeBucketPath(bucket, TASK_MD);
   env.files.set(file, body);
-  const state = await createTaskRunState(file, env.ports, { interrupted: bucket !== "queue" });
-  return { state, file };
+  return { state: await createTaskRunState(file, env.ports, { interrupted: bucket !== "queue" }), file };
 }
 
 test("runPreDispatchGates: sugadintas decision.json → human-review dar prieš adapterio vartus", async () => {
@@ -303,14 +297,8 @@ test("verifyTask: 018 seka — rollback išsaugo necommit'intą darbą, priežas
   // commit'o nėra — tiksliai ta baigtis, kuri anksčiau sunaikindavo darbą tyliai.
   env.behavior.git.productDirtyCount = 2;
   env.behavior.git.committedProductWorkSha = undefined;
-  env.behavior.cli = (args) =>
-    args[0] === "rollback-stable"
-      ? {
-          code: 0,
-          output:
-            "ROLLBACK PRESERVED: task=0042 ref=refs/verqestra/preserved/deadbeef commit=deadbeef paths=2 record=/vq/state/rollback-preserved/0042.json\nROLLBACK TASK-SCOPED: restored 2 task path(s) to 88a695cc",
-        }
-      : 0;
+  const preservedOutput = "ROLLBACK PRESERVED: task=0042 ref=refs/verqestra/preserved/deadbeef commit=deadbeef paths=2 record=/vq/state/rollback-preserved/0042.json\nROLLBACK TASK-SCOPED: restored 2 task path(s) to 88a695cc";
+  env.behavior.cli = (args) => (args[0] === "rollback-stable" ? { code: 0, output: preservedOutput } : 0);
   const result = await verifyTask(state, env.ports, { diagnoseCmd: "d" });
   assert.equal(result.kind, "human-review");
   const reason = (result as { reason: string }).reason;
@@ -414,32 +402,17 @@ test("repairTask: veto prieš vykdytoją atstato originalų tekstą error bucket
 // nepaleis (arba praleistų tą, kurį paleis), tad sutapimas tikrinamas realiais adapteriais —
 // tikra runtime šaknimi, tikrais retry skaitikliais ir tuo pačiu task tekstu.
 const ROUTED_TASK = [
-  "# Task",
-  "## Tikslas",
-  "Surišti maršruto skaičiavimą su biudžeto vartais.",
-  "## Failai",
-  "Leidžiama:",
-  "- `src/composition/loop/coordinator-execution-adapters.ts`",
-  "- `src/tests/task-execution-run.test.ts`",
-  "## Veiksmas",
-  "- Realizuoti adapterį.",
-  "- Patikrinti determinizmą.",
-  "## Patikra",
-  "- `pnpm test`",
+  "# Task", "## Tikslas", "Surišti maršruto skaičiavimą su biudžeto vartais.", "## Failai", "Leidžiama:",
+  "- `src/composition/loop/coordinator-execution-adapters.ts`", "- `src/tests/task-execution-run.test.ts`",
+  "## Veiksmas", "- Realizuoti adapterį.", "- Patikrinti determinizmą.", "## Patikra", "- `pnpm test`",
 ].join("\n");
 
 function routingAdapterInput(projectRoot: string, runtimeRoot: string): CoordinatorAdapterInput {
   const unusedCli = (): never => {
     throw new Error("CLI portas šiame teste nekviečiamas");
   };
-  return {
-    projectRoot,
-    runtimeRoot,
-    agRoot: path.join(projectRoot, "AG"),
-    resolution: noRuntimeAttemptResolution,
-    runCli: unusedCli,
-    runCliCaptured: unusedCli,
-  };
+  const agRoot = path.join(projectRoot, "AG");
+  return { projectRoot, runtimeRoot, agRoot, resolution: noRuntimeAttemptResolution, runCli: unusedCli, runCliCaptured: unusedCli };
 }
 
 test("resolveDispatchModelClass: vartų modelis sutampa su dispatch'inamu, o klaida propaguojasi", async () => {
@@ -485,15 +458,42 @@ test("resolveDispatchModelClass: vartų modelis sutampa su dispatch'inamu, o kla
       projectProfile: await loadProjectProfile(runtimeRoot),
       logDispatch: async () => {},
     });
-
     assert.equal(gateModel, plan.effectiveTier, "vartai tikrina TĄ PATĮ modelį, kurį paleis dispatch'as");
     assert.notEqual(plan.routing.tier, plan.routing.base_tier, "eskalacijos šaka realiai išbandyta");
     assert.equal(await policy.resolveDispatchModelClass(gateRequest), gateModel, "tie patys įėjimai — tas pats modelis");
-
     // Sugadinti retry skaitikliai: adapteris META. Tylus nusileidimas į 0 bandymų reikštų, kad
     // vartai patikrino PRIEŠ eskalaciją buvusį modelį — kvietėjas apie tai nė nesužinotų.
     await writeFile(retryCountsFile, "[]", "utf8");
     await assert.rejects(() => policy.resolveDispatchModelClass(gateRequest), /retry counts file is corrupt/);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+// 142-B: žymos faktas privalo nueiti VISĄ kelią — aktyvaus task'o tekstas → `enforceBudget`
+// request → composition adapteris → 142-A slopinimas. Vartai čia TIKRI: fake'as įrodytų tik
+// tai, kad kažkas kažką perdavė, o ne kad patvirtintas platus task'as pagaliau praeina.
+test("runPreDispatchGates: HUMAN-REVIEW-APPROVED atrakina apimties ribą, be žymos — parkas (142-B)", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "vq-142-b-")), runtimeRoot = path.join(projectRoot, "vq");
+  try {
+    for (const dir of ["config", "state"]) await mkdir(path.join(runtimeRoot, dir), { recursive: true });
+    const configs = [["context-budget.json", { max_files: 2 }], ["tool-budget.json", { default: { max_llm_calls: 3 } }], ["model-policy.json", { tiers: ["sonnet"] }]] as const;
+    for (const [name, body] of configs) await writeFile(path.join(runtimeRoot, "config", name), JSON.stringify(body), "utf8");
+    const realPolicy = coordinatorPolicyPort(routingAdapterInput(projectRoot, runtimeRoot));
+    const seen: (string | undefined)[] = [];
+    const gate = async (body: string): Promise<PreDispatchGateResult> => {
+      const env = createFakeTaskRunEnv();
+      env.behavior.contextPack = () => ({ task_id: TASK, allowed_paths: ["a.ts", "b.ts", "c.ts"] });
+      env.ports.policy.enforceBudget = async (request) => { seen.push(request.humanReviewApproved); return realPolicy.enforceBudget(request); };
+      const { state, file } = await makeState(env, "delegated", body);
+      return runPreDispatchGates(state, env.ports, { promptFile: file, isRepair: false });
+    };
+    const parked = (await gate("# Task\n## Tikslas\nPlati apimtis")) as { reason: string };
+    assert.equal(parked.reason, `TASK HUMAN REVIEW: ${TASK} budget_enforcement_failed=context files 3 > 2`);
+    assert.equal(seen.at(-1), undefined, "be žymos laukas į request'ą nepatenka");
+    const approved = await gate("# Task\n## Tikslas\nPlati apimtis\n- HUMAN-REVIEW-APPROVED: operatorius 2026-09-03 ok");
+    assert.equal(approved.kind, "ok", "ta pati apimtis su žyma nebeparkuojama");
+    assert.equal(seen.at(-1), "operatorius 2026-09-03 ok", "žymos turinys atkeliavo į request'ą");
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
   }

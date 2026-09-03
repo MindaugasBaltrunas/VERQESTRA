@@ -14,6 +14,7 @@
  */
 import { isUsageErrorExitCode, POLICY_CONFIG_INVALID_EXIT_CODE } from "../../shared/exit-codes.js";
 import { isPolicyConfigError, type PolicyConfigError } from "../../shared/errors.js";
+import { analyzeHumanReviewGates } from "../../domain/tasks/human-review/gates.js";
 import type { TaskRunPorts } from "./run-coordinator-ports.js";
 import { decisionInvalidMarker } from "./run-coordinator-ports.js";
 import type { TaskRunState } from "./task-run-state.js";
@@ -133,6 +134,26 @@ async function buildContextPack(
   }
 }
 
+/**
+ * `HUMAN-REVIEW-APPROVED:` žyma biudžeto vartams (142-B).
+ *
+ * Skaitomas TAS PATS `promptFile`, iš kurio ką tik surinktas context-pack — kitaip žyma ir
+ * apimtis, kurią ji patvirtina, būtų iš skirtingų tekstų (reformuluotas task'as gali turėti
+ * kitą `## Failai` sąrašą nei žalias). Vienas failas abiem įėjimams reiškia, kad operatoriaus
+ * parašas visada dengia būtent tą apimtį, kurią vartai matuoja.
+ *
+ * Skaitymo klaida NĖRA parkavimo priežastis: nesant teksto žymos tiesiog nėra, ir biudžeto
+ * vartai elgiasi lygiai taip, kaip iki šio kelio atsiradimo (fail-closed link griežtumo).
+ *
+ * Domain taisyklė (`analyzeHumanReviewGates`) yra ta pati, kurią naudoja preflight rizikos
+ * kelias, tad du vartai fiziškai negali nesutarti dėl to, kas yra galiojanti žyma.
+ */
+async function readHumanReviewApproval(ports: TaskRunPorts, promptFile: string): Promise<string | undefined> {
+  const taskText = await ports.tasks.readTaskBody(promptFile).catch(() => "");
+  const marker = analyzeHumanReviewGates(taskText).approved_marker;
+  return marker ? marker : undefined;
+}
+
 /** Vartų verdiktas PRIEŠ vykdytojo paleidimą: nė vienas jų dar nepalietė nei failų, nei sesijos. */
 export type PreDispatchGateResult =
   | { kind: "ok" }
@@ -212,11 +233,17 @@ export async function runPreDispatchGates(
     // PC-TOOLBUDGET-03: naudojamas vienintelis `default` tool-budget profilis. `taskId`/`phase`
     // perduodami eksplicitiškai, kad whole-task valdymas nepriklausytų nuo context-pack turinio
     // ir projektuojamas kvietimas būtų priskirtas realiai vykdomai fazei.
+    //
+    // 142-B: žymos FAKTAS keliauja kartu su apimtimi, kurią ji patvirtina. Be jo 142-A
+    // slopinimo kelias liktų nepasiekiamas iš gyvo dispatch'o, o žmogaus patvirtintas
+    // platus task'as vėl ir vėl parkuotųsi ties `context files N > M`.
+    const humanReviewApproved = await readHumanReviewApproval(ports, promptFile);
     const budgetStatus = await ports.policy.enforceBudget({
       model,
       contextPack: packResult.pack,
       taskId: state.taskId,
       phase: isRepair ? "repair" : "implementation",
+      ...(humanReviewApproved === undefined ? {} : { humanReviewApproved }),
     });
     if (!budgetStatus.ok) {
       return {

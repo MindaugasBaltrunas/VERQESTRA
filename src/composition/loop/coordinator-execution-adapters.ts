@@ -166,12 +166,15 @@ export function coordinatorPolicyPort(input: CoordinatorAdapterInput): Execution
       });
       return modelTierOfRoutingTier(routing.tier);
     },
+    // 142-B: žyma perduodama NEPAKEISTA. Adapteris jos netikrina ir neinterpretuoja —
+    // sprendimas, ką ji slopina, gyvena viename taške (`enforceExecutionBudget`).
     enforceBudget: async (request) => {
       const verdict = await enforceExecutionBudget(tokenBudgetPorts(input.runtimeRoot), input.runtimeRoot, {
         model: request.model,
         contextPack: request.contextPack,
         taskId: request.taskId,
         phase: request.phase,
+        ...(request.humanReviewApproved === undefined ? {} : { humanReviewApproved: request.humanReviewApproved }),
       });
       return { ok: verdict.ok, reasons: verdict.reasons };
     },

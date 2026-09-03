@@ -398,6 +398,7 @@ export function selectCohortContextSizeRecords(rows: readonly unknown[]): Cohort
     const record = row as {
       ts?: unknown;
       task_id?: unknown;
+      max_context_chars?: unknown;
       canary_features?: unknown;
       run_id?: unknown;
       worker_id?: unknown;
@@ -409,6 +410,12 @@ export function selectCohortContextSizeRecords(rows: readonly unknown[]): Cohort
     return [{
       ts: typeof record.ts === "string" ? record.ts : "",
       task_id: taskId,
+      // 154-a-02: be šio lauko dashboard'o kelias nemato `describesContextPack` taisyklės ir
+      // sintetinė finalize eilutė vėl perrašo pack'o arm'ą. Blogo tipo reikšmė IŠMETAMA, ne
+      // koercijuojama — eilutė lieka „ne pack'as", o ne pack'as su išgalvotu biudžetu.
+      ...(typeof record.max_context_chars === "number" && Number.isFinite(record.max_context_chars)
+        ? { max_context_chars: record.max_context_chars }
+        : {}),
       canary_features: normalizeFeatures(record.canary_features as readonly string[] | undefined),
       // 0046: tapatybė pernešama tik kai rašytojas ją realiai pagamino (0045) — pre-0045
       // eilutė lieka teisingai legacy, o ne gauna tuščios eilutės tapatybę.

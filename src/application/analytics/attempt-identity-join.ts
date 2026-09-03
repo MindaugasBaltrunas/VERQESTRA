@@ -8,9 +8,10 @@
 //
 // Apimtis: koreguojama TIK usage ATRIBUCIJA. Kuriam arm'ui task_id apskritai priklauso —
 // 0034/0037 politika, čia nekeičiama: task'as išlaiko arm'ą, kurį priskyrė jo VĖLIAUSIAS
-// context-size įrašas.
+// context-size PACK'O įrašas. „Pack'o" (154-a-02) yra vienintelis patikslinimas: to paties
+// žurnalo sintetinės eilutės, kurios jokio pack'o nematuoja, į „vėliausias laimi" nebeįeina.
 
-import { CANARY_SIZE_FALLBACK_MARKER } from "../context-pack/metrics.js";
+import { CANARY_SIZE_FALLBACK_MARKER, describesContextPack } from "../context-pack/metrics.js";
 import type {
   AppliedArm,
   AssignmentArm,
@@ -53,6 +54,24 @@ function normalizeFeatures(features: readonly string[] | undefined): readonly st
 
 function numeric(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Ar ši context-size eilutė apskritai aprašo surinktą pack'ą. Bendras predikatas su rašytoju
+ * ({@link describesContextPack}) — kohortų projekcija neša tik jo įėjimo lauką, tad taisyklė
+ * čia nedublikuojama, o pernaudojama.
+ *
+ * Kodėl VISI šio modulio „vėliausias laimi" skaitytojai per jį eina: to paties task'o žurnale
+ * po pack'o eilutės guli sintetinės telemetrijos eilutės (dispatch finalize sent-prompt ir
+ * tool-schema, post-hook bash digest), kurios nemato jokio pack'o ir todėl niekada neneša
+ * `canary_features`. Be filtro vėlesnė tokia eilutė perrašo canary narystę į control ir dar
+ * pripučia `dispatchCount` — būtent taip 34 iš 34 užbaigtų canary task'ų kohortų raporte
+ * atsidūrė control arm'e (compression-audit-2026-09-03, 3 skyrius).
+ */
+function describesPackRecord(record: CohortContextSizeRecord): boolean {
+  return describesContextPack(
+    record.max_context_chars === undefined ? {} : { max_context_chars: record.max_context_chars },
+  );
 }
 
 /**
@@ -124,14 +143,20 @@ export type ArmAssignment = {
 
 /**
  * Vienas arm assignment per TASK'Ą, ne per įrašą: retried/re-dispatched task'as rašo kelis
- * context-size įrašus ir jo canary narystė tarp jų gali skirtis — laimi VĖLIAUSIAS įrašas,
- * nes jis aprašo pack'ą, po kurio gimė galutinė task'o baigtis (0034 politika).
+ * context-size įrašus ir jo canary narystė tarp jų gali skirtis — laimi VĖLIAUSIAS PACK'O
+ * įrašas, nes jis aprašo pack'ą, po kurio gimė galutinė task'o baigtis (0034 politika).
+ *
+ * „Pack'o" čia yra apibrėžimo dalis, ne optimizacija: ne-pack eilutė praleidžiama PRIEŠ
+ * latest-wins ir PRIEŠ `dispatchCount` — ji nei keičia arm'o, nei skaitosi kaip dispatch'as
+ * (žr. {@link describesPackRecord}). Task'as, kurio žurnale nėra NĖ VIENOS pack'o eilutės,
+ * arm'o negauna visai: tai teisingas „neišmatuota", o ne tylus control.
  */
 export function assignArms(records: readonly CohortContextSizeRecord[]): Map<string, ArmAssignment> {
   const byTask = new Map<string, ArmAssignment>();
   for (const record of records) {
     const taskId = taskIdOf(record);
     if (!taskId) continue;
+    if (!describesPackRecord(record)) continue;
     const classified = classifyArms(normalizeFeatures(record.canary_features));
     const at = timeMs(record.ts);
     const current = byTask.get(taskId);
@@ -203,8 +228,9 @@ export type LegacyAttemptGroup = {
   excludedUsageRecords: number;
 };
 
-/** task_id -> jo skirtingi bandymų raktai, skaitomi TIK iš context-size pusės: būtent ji
- *  sprendžia, kiek kandidatinių arm'ų task'as realiai turi. */
+/** task_id -> jo skirtingi bandymų raktai, skaitomi TIK iš context-size PACK'O eilučių: būtent
+ *  jos sprendžia, kiek kandidatinių arm'ų task'as realiai turi. Sintetinė eilutė arm'o
+ *  neišsprendžia, tad ji negali ir pagimdyti „antro bandymo", kuriam usage būtų atmestas. */
 function contextIdentityKeysByTask(
   records: readonly CohortContextSizeRecord[],
 ): Map<string, Set<string>> {
@@ -212,6 +238,7 @@ function contextIdentityKeysByTask(
   for (const record of records) {
     const key = attemptIdentityKey(record);
     if (key === null) continue;
+    if (!describesPackRecord(record)) continue;
     const taskId = taskIdOf(record);
     const set = byTask.get(taskId) ?? new Set<string>();
     set.add(key);
@@ -221,12 +248,14 @@ function contextIdentityKeysByTask(
 }
 
 /** Kurį assignment arm kiekvienas tapatybės raktas išsprendžia — latest-wins kaip
- *  {@link assignArms}, bet vieno task'o jau atfiltruotoje aibėje. */
+ *  {@link assignArms} (įskaitant ne-pack eilučių praleidimą), bet vieno task'o jau
+ *  atfiltruotoje aibėje. */
 function assignmentArmByKey(records: readonly CohortContextSizeRecord[]): Map<string, AssignmentArm> {
   const latestByKey = new Map<string, { arm: AssignmentArm; at: number }>();
   for (const record of records) {
     const key = attemptIdentityKey(record);
     if (key === null) continue;
+    if (!describesPackRecord(record)) continue;
     const { assignmentArm } = classifyArms(normalizeFeatures(record.canary_features));
     const at = timeMs(record.ts);
     const current = latestByKey.get(key);

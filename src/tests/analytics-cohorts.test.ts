@@ -30,11 +30,28 @@ import { CANARY_SIZE_FALLBACK_MARKER } from "../application/context-pack/metrics
 const T0 = "2026-08-20T08:00:00Z";
 const T1 = "2026-08-20T09:00:00Z";
 
+/** Realaus pack'o biudžetas: teigiamas `max_context_chars` ir yra tai, kas eilutę daro pack'u. */
+const PACK_MAX_CONTEXT_CHARS = 12_000;
+
 function ctx(taskId: string, features: string[], ts = T0, identity?: { run: string; worker: string; attempt: string }): CohortContextSizeRecord {
   return {
     ts,
     task_id: taskId,
+    max_context_chars: PACK_MAX_CONTEXT_CHARS,
     canary_features: features,
+    ...(identity ? { run_id: identity.run, worker_id: identity.worker, runtime_attempt_id: identity.attempt } : {}),
+  };
+}
+
+/**
+ * Sintetinė to paties žurnalo eilutė: dispatch finalize sent-prompt/tool-schema arba post-hook
+ * bash digest. Jokio pack'o nematuoja — todėl `max_context_chars: 0` ir jokių `canary_features`.
+ */
+function syntheticRow(taskId: string, ts = T0, identity?: { run: string; worker: string; attempt: string }): CohortContextSizeRecord {
+  return {
+    ts,
+    task_id: taskId,
+    max_context_chars: 0,
     ...(identity ? { run_id: identity.run, worker_id: identity.worker, runtime_attempt_id: identity.attempt } : {}),
   };
 }
@@ -86,6 +103,38 @@ test("assignArms: latest-wins, dispatchCount ir fallback markerio semantika", ()
   assert.deepEqual(fallback?.features, ["symbol_slices"], "markeris nuimtas iš features");
 
   assert.equal(assignments.get("0003")?.appliedArm, "control");
+});
+
+// 154-a-02 / compression-audit-2026-09-03, 3 skyrius: kiekvienas canary task'as žurnale turi
+// pack'o eilutę su `canary_features` IR vėlesnę sintetinę finalize eilutę be jų. Kol
+// „vėliausias laimi" žiūrėjo į abi, 34 iš 34 užbaigtų canary task'ų raporte buvo control.
+test("assignArms: sintetinės eilutės nei perrašo arm'o, nei pučia dispatchCount", () => {
+  const withFinalize = assignArms([
+    ctx("0001", ["symbol_slices"], T0),
+    syntheticRow("0001", T1),
+  ]);
+  assert.equal(withFinalize.get("0001")?.assignmentArm, "canary", "finalize eilutė nedemotuoja");
+  assert.equal(withFinalize.get("0001")?.appliedArm, "compressed");
+  assert.deepEqual(withFinalize.get("0001")?.features, ["symbol_slices"]);
+  assert.equal(withFinalize.get("0001")?.dispatchCount, 1, "sintetinė eilutė nėra dispatch'as");
+
+  // Latest-wins pati NEDINGO — ji tik susiaurinta iki pack'o eilučių.
+  const twoPacks = assignArms([
+    ctx("0002", ["symbol_slices"], T0),
+    ctx("0002", [], T1),
+    syntheticRow("0002", T1),
+  ]);
+  assert.equal(twoPacks.get("0002")?.assignmentArm, "control", "laimi vėliausias PACK'O įrašas");
+  assert.equal(twoPacks.get("0002")?.dispatchCount, 2, "skaičiuojami tik pack'ai");
+
+  // Vien sintetinės eilutės — task'as arm'o negauna VISAI, o ne tyliai patenka į control.
+  const syntheticOnly = assignArms([syntheticRow("0003", T0), syntheticRow("0003", T1)]);
+  assert.equal(syntheticOnly.get("0003"), undefined, "neišmatuota ≠ control");
+  assert.equal(syntheticOnly.size, 0);
+
+  // Ta pati taisyklė matoma ir raporte: canary task'as lieka canary eilutėje.
+  const report = buildCompressionCohortReport([ctx("c1", ["f"], T0), syntheticRow("c1", T1)], [], []);
+  assert.deepEqual(report.rows.map((row) => row.arm), ["canary"]);
 });
 
 // Ta pati aritmetika yra RESTATE'inta benchmark pakete (`AG/benchmark/src/domain/compression/
@@ -208,15 +257,24 @@ test("tokenizer-unfriendly signalas: chars sumažėjo, tokenai ne — tik su pak
 
 test("tolerantiškos projekcijos: blogos eilutės krenta po vieną, tipai nekoercijuojami", () => {
   const contextRows = selectCohortContextSizeRecords([
-    { task_id: "0001", canary_features: ["f"], run_id: "r", worker_id: "w", runtime_attempt_id: "a1" },
+    { task_id: "0001", max_context_chars: 12_000, canary_features: ["f"], run_id: "r", worker_id: "w", runtime_attempt_id: "a1" },
     { task_id: "0002", canary_features: "ne-masyvas" },
     { task_id: "  " },
     null,
-    { task_id: "0003" },
+    { task_id: "0003", max_context_chars: 0 },
+    { task_id: "0004", max_context_chars: "ne-skaicius" },
   ]);
-  assert.deepEqual(contextRows.map((row) => row.task_id), ["0001", "0003"]);
+  assert.deepEqual(contextRows.map((row) => row.task_id), ["0001", "0003", "0004"]);
   assert.equal(contextRows[0]?.run_id, "r", "tapatybė pernešta kai yra");
   assert.equal(contextRows[1]?.run_id, undefined, "pre-0045 eilutė be tuščios tapatybės");
+  // Be šio pernešimo dashboard'o kelias nemato pack'o predikato (154-a-02).
+  assert.equal(contextRows[0]?.max_context_chars, 12_000, "pack'o biudžetas pernešamas");
+  assert.equal(contextRows[1]?.max_context_chars, 0, "sintetinės eilutės nulis lieka nuliu");
+  assert.equal(contextRows[2]?.max_context_chars, undefined, "blogo tipo biudžetas IŠMESTAS");
+
+  // Ir projekcija, ir arm'ų skaitytojas dirba su ta pačia taisykle: pack'as gauna arm'ą,
+  // sintetinė eilutė — ne.
+  assert.deepEqual([...assignArms(contextRows).keys()], ["0001"]);
 
   const events = selectCohortTaskEvents([
     { task_id: "0001", to_state: "human-review", phase: "diagnosis", reason: "x", exit_code: 1 },

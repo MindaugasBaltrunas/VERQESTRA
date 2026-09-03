@@ -23,6 +23,14 @@ export type AppliedArm = "compressed" | "raw-fallback" | "control";
 export type CohortContextSizeRecord = {
   ts?: string;
   task_id: string;
+  /**
+   * Pack'o biudžetas — vienintelis laukas, iš kurio `describesContextPack` atskiria realią
+   * pack'o eilutę nuo sintetinių telemetrijos eilučių, kurias to paties task'o gyvavimo cikle
+   * priduria dispatch finalize ir post-hook'ai (visos jos neša `0` ir niekada `canary_features`).
+   * Projekcija jį PRIVALO pernešti: be jo „vėliausias laimi" skaitytojas demotuoja į control
+   * kiekvieną canary task'ą (compression-audit-2026-09-03, 3 skyrius — 34 iš 34).
+   */
+  max_context_chars?: number;
   canary_features?: readonly string[];
   /** Pilna bandymo tapatybė (0045) — attempt-scoped join'ui. Pre-0045 įrašuose jos nėra. */
   run_id?: string;

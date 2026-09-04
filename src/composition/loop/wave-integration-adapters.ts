@@ -27,12 +27,13 @@ import type {
 } from "../../application/scheduling/wave-integration-ports.js";
 import { gitResolveCommit } from "../../infrastructure/git/git-client.js";
 import { pushPrimaryBranch } from "../../infrastructure/git/git-automation.js";
-import { integrationTouchedOrchestratorSrc } from "../../infrastructure/git/integration-build-impact.js";
+import { integrationTouchedSourceSurfaces } from "../../infrastructure/git/integration-build-impact.js";
 import { deleteWorktreeBranch, integrateWorktreeBranch } from "../../infrastructure/git/worktrees/worktree-branch-integration.js";
 import { removeTaskWorktree } from "../../infrastructure/git/worktrees/worktree-removal.js";
 import { worktreeLayout } from "../../infrastructure/git/worktrees/worktree-layout.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { packageManagerExecutable, run } from "../../infrastructure/process/run-process.js";
+import { UI_REBUILD_ARGS, UI_REBUILD_COMMAND } from "../../interfaces/http/ui-rebuild.js";
 
 const REBUILD_TIMEOUT_MS = 300_000;
 
@@ -118,6 +119,8 @@ export function createWaveIntegrationAdapters(deps: WaveIntegrationAdapterDeps):
   integrateBranch: (input: { branch: string; task_id: string }) => Promise<BranchIntegrationOutcome>;
   integrationTouchedSrc: (input: { before?: string | undefined; after: string }) => Promise<boolean>;
   rebuildDist: () => Promise<{ ok: boolean; detail: string }>;
+  integrationTouchedUiSrc: (input: { before?: string | undefined; after: string }) => Promise<boolean>;
+  rebuildUiBundle: () => Promise<{ ok: boolean; detail: string }>;
   pushPrimaryBranch: () => Promise<{ ok: boolean; branch?: string; detail?: string }>;
   relocateTask: (taskId: string, bucket: "done" | "human-review") => Promise<TaskRelocation>;
   restoreDoneCopy: (input: { taskId: string; preMergeHead: string | undefined }) => Promise<DoneCopyRestoreOutcome>;
@@ -165,17 +168,36 @@ export function createWaveIntegrationAdapters(deps: WaveIntegrationAdapterDeps):
     },
 
     integrationTouchedSrc: (input) =>
-      integrationTouchedOrchestratorSrc({
+      integrationTouchedSourceSurfaces({
         projectRoot: deps.projectRoot,
         ...(input.before === undefined ? {} : { before: input.before }),
         after: input.after,
-      }),
+      }).then((surfaces) => surfaces.orchestratorSrc),
 
     async rebuildDist() {
       // `packageManagerExecutable` BŪTINAS: plikas "pnpm" Windows'e su shell:false duoda ENOENT
       // (run-process .cmd kelią per cmd.exe įjungia tik komandai, kuri BAIGIASI .cmd) — 2026-09-01
       // pirmoji reali integracija (099) sulietą kodą paliko be dist perstatymo ir parkavo done task'ą.
       const result = await run(packageManagerExecutable("pnpm"), ["build"], { cwd: deps.projectRoot, timeoutMs: REBUILD_TIMEOUT_MS });
+      return result.code === 0
+        ? { ok: true, detail: "" }
+        : { ok: false, detail: (result.stderr === "" ? result.stdout : result.stderr).trim() };
+    },
+
+    integrationTouchedUiSrc: (input) =>
+      integrationTouchedSourceSurfaces({
+        projectRoot: deps.projectRoot,
+        ...(input.before === undefined ? {} : { before: input.before }),
+        after: input.after,
+      }).then((surfaces) => surfaces.uiSrc),
+
+    async rebuildUiBundle() {
+      // Ta pati komanda kaip operatoriaus UI rebuild endpoint'as (`ui-rebuild.ts`), kad abu keliai
+      // niekada neišsiskirtų: konstantos importuojamos, ne kopijuojamos.
+      const result = await run(packageManagerExecutable(UI_REBUILD_COMMAND), [...UI_REBUILD_ARGS], {
+        cwd: deps.projectRoot,
+        timeoutMs: REBUILD_TIMEOUT_MS,
+      });
       return result.code === 0
         ? { ok: true, detail: "" }
         : { ok: false, detail: (result.stderr === "" ? result.stdout : result.stderr).trim() };

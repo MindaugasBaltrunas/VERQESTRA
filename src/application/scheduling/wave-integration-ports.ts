@@ -70,6 +70,14 @@ export type WaveIntegrationPorts = {
   /** Ar suliejimas palietė `src` — tik tada verta perstatyti `dist`. */
   integrationTouchedSrc: (input: { before?: string | undefined; after: string }) => Promise<boolean>;
   rebuildDist: () => Promise<{ ok: boolean; detail: string }>;
+  /**
+   * Ar suliejimas palietė `ui-app/src` — tik tada verta perstatyti UI bundle'ą. Neprivaloma:
+   * jos nesant (senesnis ar testinis ports objektas), UI bundle'o perstatymas tiesiog
+   * praleidžiamas, o variklio `dist` kelias lieka nepaliestas.
+   */
+  integrationTouchedUiSrc?: (input: { before?: string | undefined; after: string }) => Promise<boolean>;
+  /** UI bundle'o (`ui-app/dist`) perstatymas. Nesėkmė — stebėjimo paviršius, ne vartas. */
+  rebuildUiBundle?: () => Promise<{ ok: boolean; detail: string }>;
   pushPrimaryBranch: () => Promise<{ ok: boolean; branch?: string; detail?: string }>;
   relocateTask: (taskId: string, bucket: "done" | "human-review") => Promise<TaskRelocation>;
   restoreDoneCopy: (input: { taskId: string; preMergeHead: string | undefined }) => Promise<DoneCopyRestoreOutcome>;

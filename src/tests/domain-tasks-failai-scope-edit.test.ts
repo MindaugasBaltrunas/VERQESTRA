@@ -21,6 +21,7 @@ readme-guard -> coder -> tester
 ## Failai
 Leidžiama:
 - \`src/domain/example.ts\`
+- \`src/tests/example.test.ts\`
 
 Draudžiama:
 - \`dist/**\`
@@ -87,7 +88,7 @@ test("pakartotinis kvietimas tais pačiais argumentais nieko nekeičia (idempote
 
 test("trūkstama ## Failai sekcija grąžina err", () => {
   const withoutFailai = TASK.replace(
-    /## Failai\nLeidžiama:\n- `src\/domain\/example\.ts`\n\nDraudžiama:\n- `dist\/\*\*`\n- `node_modules\/\*\*`\n\n/,
+    /## Failai\nLeidžiama:\n- `src\/domain\/example\.ts`\n- `src\/tests\/example\.test\.ts`\n\nDraudžiama:\n- `dist\/\*\*`\n- `node_modules\/\*\*`\n\n/,
     "",
   );
   assert.ok(!withoutFailai.includes("## Failai"));

@@ -28,6 +28,7 @@ readme-guard -> coder -> tester
 ## Failai
 Leidžiama:
 - \`src/domain/example.ts\`
+- \`src/tests/example.test.ts\`
 
 Draudžiama:
 - \`dist/**\`
@@ -145,4 +146,52 @@ test("taisyklė 4: leistinos ## Patikra formos (build, test, ui-app build) — p
   );
   const violations = validateTaskAgainstEtalonas(withUiApp, []);
   assert.ok(!violations.some((v) => v.ruleId === "patikra-unknown-command"));
+});
+
+test("taisyklė 5: ## Patikra be nė vienos backtick komandos blokuojama", () => {
+  const withoutBackticks = VALID_TASK.replace(
+    "## Patikra\n- `pnpm build`\n- `pnpm test`\n",
+    "## Patikra\n- pnpm build\n- pnpm test\n",
+  );
+  const violations = validateTaskAgainstEtalonas(withoutBackticks, []);
+  assert.ok(violations.some((v) => v.ruleId === "patikra-without-backtick-check"));
+});
+
+test("taisyklė 5: ## Patikra su backtick komandomis — praeina", () => {
+  const violations = validateTaskAgainstEtalonas(VALID_TASK, []);
+  assert.ok(!violations.some((v) => v.ruleId === "patikra-without-backtick-check"));
+});
+
+test("taisyklė 6: produkcinis src/** failas be testo kelio blokuojamas", () => {
+  const withoutTest = VALID_TASK.replace("- `src/tests/example.test.ts`\n", "");
+  const violations = validateTaskAgainstEtalonas(withoutTest, []);
+  assert.ok(violations.some((v) => v.ruleId === "production-file-without-test"));
+});
+
+test("taisyklė 6: produkcinis src/** failas su testo keliu — praeina", () => {
+  const violations = validateTaskAgainstEtalonas(VALID_TASK, []);
+  assert.ok(!violations.some((v) => v.ruleId === "production-file-without-test"));
+});
+
+const UI_TASK_WITHOUT_COVERAGE = VALID_TASK.replace(
+  "- `src/domain/example.ts`\n- `src/tests/example.test.ts`",
+  "- `ui-app/src/view/components/SomePanel.tsx`\n- `src/tests/example.test.ts`",
+);
+
+test("taisyklė 7: UI komponentas be I18nContext ir dashboard CSS blokuojamas", () => {
+  const violations = validateTaskAgainstEtalonas(UI_TASK_WITHOUT_COVERAGE, []);
+  assert.ok(violations.some((v) => v.ruleId === "ui-file-without-i18n-context"));
+  assert.ok(violations.some((v) => v.ruleId === "ui-file-without-dashboard-css"));
+});
+
+test("taisyklė 7: UI komponentas su I18nContext ir dashboard CSS — praeina", () => {
+  const uiTaskWithCoverage = UI_TASK_WITHOUT_COVERAGE.replace(
+    "- `ui-app/src/view/components/SomePanel.tsx`\n",
+    "- `ui-app/src/view/components/SomePanel.tsx`\n" +
+      "- `ui-app/src/i18n/I18nContext.tsx`\n" +
+      "- `ui-app/src/view/styles/13-buttons.css`\n",
+  );
+  const violations = validateTaskAgainstEtalonas(uiTaskWithCoverage, []);
+  assert.ok(!violations.some((v) => v.ruleId === "ui-file-without-i18n-context"));
+  assert.ok(!violations.some((v) => v.ruleId === "ui-file-without-dashboard-css"));
 });

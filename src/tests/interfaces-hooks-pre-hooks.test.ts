@@ -344,7 +344,7 @@ test("hookPreWrite: nuosavybės atmetimas blokuoja paskutinis, jau praėjus pigi
 
 /** Minimal etalono-shaped task; viena šaltinio eilutė, kad file-length vartai netemptų. */
 const VALID_ETALONAS_TASK =
-  "# Task\n\n## Spec source\nopenspec/changes/example\n\n## Tikslas\nProblema su irodymu.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/domain/example.ts`\n\nDraudziama:\n- `dist/**`\n- `node_modules/**`\n\n## Veiksmas\n- Padaryti X.\n\n## Patikra\n- `pnpm build`\n- `pnpm test`\n\n## Stop\nCommit'ink, kai patikros zalios.\n\n## Neitraukta\nY liks kitam task'ui.\n";
+  "# Task\n\n## Spec source\nopenspec/changes/example\n\n## Tikslas\nProblema su irodymu.\n\n## Agentai\nreadme-guard -> coder -> tester\n\n## Failai\nLeidziama:\n- `src/domain/example.ts`\n- `src/tests/example.test.ts`\n\nDraudziama:\n- `dist/**`\n- `node_modules/**`\n\n## Veiksmas\n- Padaryti X.\n\n## Patikra\n- `pnpm build`\n- `pnpm test`\n\n## Stop\nCommit'ink, kai patikros zalios.\n\n## Neitraukta\nY liks kitam task'ui.\n";
 const NO_STOP = VALID_ETALONAS_TASK.replace("## Stop\nCommit'ink, kai patikros zalios.\n\n", "");
 const readmeOkFiles = (extra: Record<string, string> = {}): Record<string, string> => ({
   "vq/state/readme-read-events.json": JSON.stringify(["README.md"]),

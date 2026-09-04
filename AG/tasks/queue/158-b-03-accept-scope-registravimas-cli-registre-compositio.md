@@ -4,7 +4,10 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- Dalis 2: `src/interfaces/cli/task-queue/accept-scope.ts` privalo egzistuoti. Jei jo nėra — STOP.
+- 158-a-02-accept-scope-cli-adapteris-interfaces
+
+Prielaida iš Dalies 2: `src/interfaces/cli/task-queue/accept-scope.ts` privalo egzistuoti.
+Jei jo nėra — STOP.
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `src/composition/cli/commands-tasks.ts` jau registruoja `accept-scope` ir

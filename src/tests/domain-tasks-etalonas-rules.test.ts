@@ -2,12 +2,13 @@
 // atvejį, plius teigiamas kontrolinis atvejis — pats etalono failas privalo grąžinti tuščią
 // Violation[] (jis pats yra visų sekcijų, įskaitant neprivalomas, kanoninis pavyzdys).
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { validateTaskAgainstEtalonas } from "../domain/tasks/etalonas-rules.js";
 
 const ETALONAS_PATH = path.resolve(process.cwd(), "AG", "tasks", "examples", "000-etalonas.md");
+const TASKS_ROOT = path.resolve(process.cwd(), "AG", "tasks");
 
 function loadEtalonas(): Promise<string> {
   return readFile(ETALONAS_PATH, "utf8");
@@ -194,4 +195,150 @@ test("taisyklė 7: UI komponentas su I18nContext ir dashboard CSS — praeina", 
   const violations = validateTaskAgainstEtalonas(uiTaskWithCoverage, []);
   assert.ok(!violations.some((v) => v.ruleId === "ui-file-without-i18n-context"));
   assert.ok(!violations.some((v) => v.ruleId === "ui-file-without-dashboard-css"));
+});
+
+// --- 157: šešios naujos deterministinės taisyklės (auditas 2026-09-03, R2–R4) ------------
+
+test("taisyklė 8: prozinė ## Priklausomybės eilutė blokuojama (R2: LOOP STOP all-blocked)", () => {
+  const prose = withPriklausomybes("- 137 pirmoji dalis: in-flight išvedimas per portą");
+  const found = validateTaskAgainstEtalonas(prose, ["137-in-flight"]).find(
+    (v) => v.ruleId === "priklausomybe-not-a-task-id",
+  );
+  assert.ok(found, "prozinė priklausomybė turi būti pažymėta");
+  assert.match(found?.detail ?? "", /137 pirmoji dalis/);
+});
+
+test("taisyklė 8: etalono `<…>` šablonas ir tikras id — praeina", () => {
+  const template = validateTaskAgainstEtalonas(withPriklausomybes("- <pilnas-task-id-be-md>"), []);
+  assert.ok(!template.some((v) => v.ruleId === "priklausomybe-not-a-task-id"));
+  const realId = validateTaskAgainstEtalonas(withPriklausomybes("- 001-zinomas-taskas"), ["001-zinomas-taskas"]);
+  assert.ok(!realId.some((v) => v.ruleId === "priklausomybe-not-a-task-id"));
+});
+
+test("taisyklė 8: be knownTaskIds tikrinama tik id forma, ne rezoliucija", () => {
+  const violations = validateTaskAgainstEtalonas(withPriklausomybes("- 999-nezinomas-taskas"));
+  assert.ok(!violations.some((v) => v.ruleId === "priklausomybe-unknown-id"));
+  assert.ok(!violations.some((v) => v.ruleId === "priklausomybe-not-a-task-id"));
+});
+
+test("taisyklė 9: `> …` anotacija tarp Leidžiama: ir Draudžiama: blokuojama (R3: 101-b-03)", () => {
+  const withProse = VALID_TASK.replace(
+    "Leidžiama:\n",
+    "Leidžiama:\n> Pastaba: žr. `docs/audits/etalonas-tests-audit-2026-09-03.md` ir `vq/logs/orchestrator.log`.\n",
+  );
+  const found = validateTaskAgainstEtalonas(withProse, []).find((v) => v.ruleId === "failai-prose-inside-leidziama");
+  assert.ok(found, "ne-bullet eilutė su backtick'ais turi būti pažymėta");
+  assert.match(found?.message ?? "", /VIRŠ `Leidžiama:`/);
+});
+
+test("taisyklė 9: anotacija VIRŠ Leidžiama: ir tęstinė bullet'o eilutė — praeina", () => {
+  const aboveMarker = VALID_TASK.replace(
+    "## Failai\nLeidžiama:\n",
+    "## Failai\n> Pastaba: žr. `docs/audits/etalonas-tests-audit-2026-09-03.md`.\nLeidžiama:\n",
+  );
+  assert.ok(!validateTaskAgainstEtalonas(aboveMarker, []).some((v) => v.ruleId === "failai-prose-inside-leidziama"));
+
+  const folded = VALID_TASK.replace(
+    "- `src/tests/example.test.ts`\n",
+    "- `src/tests/example.test.ts` (numatomas naujas; jei testas gyvena\n  kitur — `src/tests/kitas.test.ts` vietoje šio)\n",
+  );
+  assert.ok(!validateTaskAgainstEtalonas(folded, []).some((v) => v.ruleId === "failai-prose-inside-leidziama"));
+});
+
+test("taisyklė 10: tas pats kelias Leidžiama IR Draudžiama blokuojamas", () => {
+  const conflicting = VALID_TASK.replace("Draudžiama:\n", "Draudžiama:\n- `src/domain/example.ts`\n");
+  const found = validateTaskAgainstEtalonas(conflicting, []).find(
+    (v) => v.ruleId === "failai-path-both-allowed-and-forbidden",
+  );
+  assert.ok(found, "dviprasmiškas kelias turi būti pažymėtas");
+  assert.equal(found?.detail, "src/domain/example.ts");
+});
+
+test("taisyklė 10: nesikertantys Leidžiama/Draudžiama sąrašai — praeina", () => {
+  const violations = validateTaskAgainstEtalonas(VALID_TASK, []);
+  assert.ok(!violations.some((v) => v.ruleId === "failai-path-both-allowed-and-forbidden"));
+});
+
+test("taisyklė 11: tuščias ## Neįtraukta kūnas blokuojamas", () => {
+  const empty = VALID_TASK.replace("## Neįtraukta\nY liks kitam task'ui.\n", "## Neįtraukta\n");
+  assert.ok(validateTaskAgainstEtalonas(empty, []).some((v) => v.ruleId === "neitraukta-empty"));
+});
+
+test("taisyklė 11: ## Neįtraukta su turiniu — praeina", () => {
+  assert.ok(!validateTaskAgainstEtalonas(VALID_TASK, []).some((v) => v.ruleId === "neitraukta-empty"));
+});
+
+const CACHE_VERSION_STEP = "- Pakelti `CONTEXT_CACHE_VERSION`, nes keičiasi pack'o turinys.";
+
+test("taisyklė 12: CONTEXT_CACHE_VERSION be abiejų pinančių testų blokuojamas (138 parkas)", () => {
+  const withCacheVersion = VALID_TASK.replace("- Padaryti X.", CACHE_VERSION_STEP);
+  const found = validateTaskAgainstEtalonas(withCacheVersion, []).find(
+    (v) => v.ruleId === "cache-version-without-pin-tests",
+  );
+  assert.ok(found, "CONTEXT_CACHE_VERSION be pin'ų turi būti pažymėtas");
+  assert.match(found?.detail ?? "", /context-pack-guards\.test\.ts/);
+  assert.match(found?.detail ?? "", /context-pack-code-index-identity\.test\.ts/);
+});
+
+test("taisyklė 12: CONTEXT_CACHE_VERSION su abiem pinančiais testais — praeina", () => {
+  const withPins = VALID_TASK.replace("- Padaryti X.", CACHE_VERSION_STEP).replace(
+    "- `src/tests/example.test.ts`\n",
+    "- `src/tests/example.test.ts`\n" +
+      "- `src/tests/context-pack-guards.test.ts`\n" +
+      "- `src/tests/context-pack-code-index-identity.test.ts`\n",
+  );
+  assert.ok(!validateTaskAgainstEtalonas(withPins, []).some((v) => v.ruleId === "cache-version-without-pin-tests"));
+});
+
+test("taisyklė 12: vien tik ## Failai minintis CONTEXT_CACHE_VERSION nežymimas (taisyklė tekstinė)", () => {
+  const violations = validateTaskAgainstEtalonas(VALID_TASK, []);
+  assert.ok(!violations.some((v) => v.ruleId === "cache-version-without-pin-tests"));
+});
+
+test("taisyklė 13: ## Agentai grandinė ne nuo readme-guard blokuojama", () => {
+  const withoutGuard = VALID_TASK.replace("readme-guard -> coder -> tester", "coder -> reviewer -> tester");
+  const found = validateTaskAgainstEtalonas(withoutGuard, []).find(
+    (v) => v.ruleId === "agentai-readme-guard-not-first",
+  );
+  assert.ok(found, "grandinė be readme-guard priekyje turi būti pažymėta");
+  assert.match(found?.message ?? "", /prasideda "coder"/);
+});
+
+test("taisyklė 13: label'is prieš grandinę toleruojamas — praeina", () => {
+  const labelled = VALID_TASK.replace(
+    "readme-guard -> coder -> tester",
+    "Privaloma grandinė: readme-guard -> coder -> tester",
+  );
+  assert.ok(!validateTaskAgainstEtalonas(labelled, []).some((v) => v.ruleId === "agentai-readme-guard-not-first"));
+});
+
+// --- Korpusas: gyvi queue/human-review task'ai privalo praeiti visas taisykles -----------
+//
+// R5 radinys: domain validatoriui korpuso testo nebuvo, tad task'as, praeinantis loop'ą, bet
+// krentantis hook'e (arba atvirkščiai), likdavo nematomas iki incidento. `done` NEtikrinamas
+// sąmoningai — 300 istorinių task'ų rašyti iki šių taisyklių.
+
+async function markdownStems(bucket: string): Promise<string[]> {
+  try {
+    const entries = await readdir(path.join(TASKS_ROOT, bucket), { withFileTypes: true });
+    return entries.filter((e) => e.isFile() && e.name.endsWith(".md")).map((e) => e.name.replace(/\.md$/, ""));
+  } catch {
+    return [];
+  }
+}
+
+const LIVE_BUCKETS = ["queue", "human-review"] as const;
+const ALL_BUCKETS = ["queue", "active", "delegated", "done", "human-review", "error", "failed"] as const;
+
+test("korpusas: kiekvienas AG/tasks/queue ir AG/tasks/human-review task'as grąžina tuščią Violation[]", async () => {
+  const known = (await Promise.all(ALL_BUCKETS.map(markdownStems))).flat();
+  const failures: string[] = [];
+  for (const bucket of LIVE_BUCKETS) {
+    for (const stem of await markdownStems(bucket)) {
+      const file = path.join(TASKS_ROOT, bucket, `${stem}.md`);
+      const violations = validateTaskAgainstEtalonas(await readFile(file, "utf8"), known);
+      for (const v of violations) failures.push(`${bucket}/${stem}.md :: ${v.ruleId} :: ${v.detail ?? v.message}`);
+    }
+  }
+  assert.deepEqual(failures, [], `gyvi task'ai pažeidžia etaloną:\n${failures.join("\n")}`);
 });

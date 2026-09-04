@@ -27,6 +27,10 @@ openspec/changes/<change-katalogas>
 > requeue. Placeholder'iai („none", „-") draudžiami — arba tikras id, arba
 > sekcijos nėra. Skeliant tėvą, UI vaikas priklauso nuo serverio vaiko, ne
 > atvirkščiai.
+> VYKDOMA (157, deterministinė): placeholder'is → `priklausomybe-placeholder`,
+> prozinis bullet'as („Dalis 1: `failas.ts` privalo egzistuoti") →
+> `priklausomybe-not-a-task-id`, nežinomas id → `priklausomybe-unknown-id`.
+> Vienintelė ne-id išimtis yra šio šablono `<…>` skliaustai.
 > KIEKVIENA priklausomybė kainuoja w2 slot'ą: deklaruok ją TIK realiam
 > tvarkos reikalavimui (kontraktas, kurio antras task'as negali statyti
 > nesulaukęs) arba realiam failų persidengimui — NE „dėl visa ko".
@@ -56,6 +60,9 @@ readme-guard -> <grandinė pagal scope iš .claude/rules/agents.md>
 > UI feature: readme-guard -> architect -> coder -> reviewer -> i18n -> tester
 > Domain/logika: readme-guard -> architect -> schedule-domain -> coder -> reviewer -> tester
 > Klaidos taisymas: readme-guard -> debugger -> coder -> reviewer -> tester
+> VYKDOMA (157, deterministinė): grandinė, kurios pirmas agentas nėra
+> `readme-guard`, yra `agentai-readme-guard-not-first`. Vedantis label'is iki
+> dvitaškio („Privaloma grandinė: …") toleruojamas.
 
 ## Failai
 Leidžiama:
@@ -110,6 +117,18 @@ Draudžiama:
 >    `src/tests/context-pack-guards.test.ts` (task 138, 2026-09-02);
 >    `codeIndexVersion` — tą patį identity testą. Prieš deklaruodamas
 >    Grep'ink keičiamos konstantos vardą per `src/tests/`.
+> 10. ANOTACIJOS VIETA: bet kokia ne-bullet eilutė TARP `Leidžiama:` ir
+>    `Draudžiama:` yra pavojinga — kanoninis parseris VISUS jos backtick'us
+>    paverčia leidžiamais keliais (101-b-03: 8 tikri + 3 iš prozos = 11 →
+>    parkas ties `context-budget.max_files: 8`). Pastabas dėk VIRŠ
+>    `Leidžiama:` arba į patį bullet'ą.
+> 11. Tas pats kelias NEGALI būti ir `Leidžiama:`, ir `Draudžiama:` — tai
+>    dviprasmybė vykdytojui, o riba vis tiek skaičiuojama iš leidžiamų.
+> VYKDOMOS (157, deterministinės): 1 → `failai-wildcard-without-justification`,
+> 2 → `production-file-without-test`, 3 → `ui-file-without-i18n-context` /
+> `ui-file-without-dashboard-css`, 9 → `cache-version-without-pin-tests`
+> (tekstinė: pakanka paminėjimo `## Veiksmas`), 10 →
+> `failai-prose-inside-leidziama`, 11 → `failai-path-both-allowed-and-forbidden`.
 
 ## Veiksmas
 - <žingsnis su vieta kode: failas, funkcija, ką keisti>
@@ -135,3 +154,5 @@ atsiremti į svetimą sprendimą — „stop ir klausk, jei X">
 ## Neįtraukta
 <Kas SĄMONINGAI nedaroma ir kur tai bus daroma (kito task'o id, jei žinomas).
 Bent viena eilutė — tuščia sekcija reiškia neapgalvotą apimtį.>
+
+> VYKDOMA (157, deterministinė): tuščias kūnas yra `neitraukta-empty`.

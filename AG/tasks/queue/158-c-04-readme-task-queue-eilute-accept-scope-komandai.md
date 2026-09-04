@@ -4,8 +4,10 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- Dalis 3: `accept-scope` privalo būti registruotas `src/composition/cli/commands-tasks.ts`.
-  Jei registro įrašo nėra — STOP, nedokumentuok neegzistuojančios komandos.
+- 158-b-03-accept-scope-registravimas-cli-registre-compositio
+
+Prielaida iš Dalies 3: `accept-scope` privalo būti registruotas `src/composition/cli/commands-tasks.ts`.
+Jei registro įrašo nėra — STOP, nedokumentuok neegzistuojančios komandos.
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `README.md` „Task queue" lentelėje jau yra `accept-scope` eilutė — ALREADY_IMPLEMENTED su

@@ -6,7 +6,9 @@
 // reference may point at arrives as a plain argument, never read from disk here.
 
 import { enumerateTaskSections, normalizeTaskHeading, taskBulletItems, type TaskSection } from "./sections.js";
+import { allowedPaths, forbiddenPaths } from "./allowed-paths.js";
 import { isPlaceholderDependency } from "./dependencies.js";
+import { parseAgentChain } from "../policies/agent-selection.js";
 
 const ETALONAS_PATH = "AG/tasks/examples/000-etalonas.md";
 
@@ -60,6 +62,19 @@ const TASK_ID_SHAPE = /^[0-9]{2,4}(-[a-z0-9]+)+$/;
 
 const BULLET_LINE = /^\s*[-*]\s+\S/;
 const BACKTICK_PATH = /`([^`]+)`/;
+
+/** Bullet forma, kuria `allowed-paths.ts` `foldLogicalEntries` pradeda NAUJĄ loginį įrašą. */
+const ENTRY_BULLET = /^\s*[-*+]\s/;
+
+/** Etalono `<pilnas-task-id-be-md>` šablonas: vienintelė ne-id `## Priklausomybės` išimtis. */
+const DEPENDENCY_TEMPLATE = /^<.+>$/;
+
+/** Etalono ## Failai (9): `CONTEXT_CACHE_VERSION` kėlimas VISADA pina šiuos du testus. */
+const CACHE_VERSION_PIN_TESTS: readonly string[] = [
+  "src/tests/context-pack-guards.test.ts",
+  "src/tests/context-pack-code-index-identity.test.ts",
+];
+const CACHE_VERSION_TOKEN = /CONTEXT_CACHE_VERSION/;
 
 /** Backend production file marker (`.ts`/`.tsx`/`.js`/`.jsx`, optional `m`/`c` prefix). */
 const SOURCE_FILE_EXTENSION = /\.(m|c)?[jt]sx?$/i;
@@ -160,12 +175,11 @@ function checkMandatorySectionsOrder(sections: readonly TaskSection[]): Violatio
   return violations;
 }
 
-/** Bullet lines under the `Leidžiama:` sub-list of `## Failai`, verbatim (not stripped of markers). */
-function leidziamaBulletLines(body: string): string[] {
-  const lines = body.split(/\r?\n/);
+/** Visos eilutės TARP `Leidžiama:` ir `Draudžiama:` žymeklių, verbatim (žymekliai atmesti). */
+function leidziamaBlockLines(body: string): string[] {
   const result: string[] = [];
   let active = false;
-  for (const line of lines) {
+  for (const line of body.split(/\r?\n/)) {
     const key = normalizeTaskHeading(line.trim());
     if (key === "leidziama:") {
       active = true;
@@ -175,9 +189,16 @@ function leidziamaBulletLines(body: string): string[] {
       active = false;
       continue;
     }
-    if (active && BULLET_LINE.test(line)) result.push(line.trim());
+    if (active) result.push(line);
   }
   return result;
+}
+
+/** Bullet lines under the `Leidžiama:` sub-list of `## Failai`, verbatim (not stripped of markers). */
+function leidziamaBulletLines(body: string): string[] {
+  return leidziamaBlockLines(body)
+    .filter((line) => BULLET_LINE.test(line))
+    .map((line) => line.trim());
 }
 
 /** `## Failai / Leidžiama` backtick keliai (pirmas backtick tokenas kiekviename bullet'e). */
@@ -218,6 +239,101 @@ function checkFailaiWildcards(failaiSection: TaskSection | undefined): Violation
     }
   }
   return violations;
+}
+
+/**
+ * Ne-bullet eilutė su backtick'ais TARP `Leidžiama:` ir `Draudžiama:`. Kanoninis
+ * `allowed-paths.ts` tokenizatorius tokiai eilutei ima VISUS backtick tokenus (bullet'e — tik
+ * pirmą), tad `> …` anotacija tyliai virsta „keliais": 101-b-03 (2026-09-03) gavo 8 tikrus + 3
+ * iš prozos = 11 ir parkavosi ties `context-budget.max_files: 8`. Įtrauktos tęstinės eilutės
+ * NEžymimos — `foldLogicalEntries` jas prilipdo prie bullet'o (ta pati įrašų riba, ne kopija).
+ */
+function checkFailaiProse(failaiSection: TaskSection | undefined): Violation[] {
+  if (!failaiSection) return [];
+  const message =
+    "Ne-bullet eilutė su backtick'ais tarp `Leidžiama:` ir `Draudžiama:` — kanoninis parseris " +
+    "VISUS jos backtick'us paverčia leidžiamais keliais; anotaciją dėk VIRŠ `Leidžiama:`";
+  const violations: Violation[] = [];
+  let openEntry = false;
+  for (const line of leidziamaBlockLines(failaiSection.body)) {
+    if (line.trim() === "") {
+      openEntry = false;
+      continue;
+    }
+    const isBullet = ENTRY_BULLET.test(line);
+    if (openEntry && !isBullet && /^\s/.test(line)) continue;
+    openEntry = true;
+    if (isBullet || !BACKTICK_PATH.test(line)) continue;
+    const detail = line.trim().slice(0, 160);
+    violations.push(violation("failai-prose-inside-leidziama", "## Failai", message, { detail }));
+  }
+  return violations;
+}
+
+/**
+ * Tas pats kelias ir `Leidžiama:`, ir `Draudžiama:` (101-b-03 turėjo): vykdytojui dviprasmiška,
+ * o diagnozė ribą skaičiuoja iš leidžiamų — draudimas lieka be galios. Abu rinkiniai imami
+ * KANONINIU parseriu, kad riba reikštų tą patį, ką mato scope vartai.
+ */
+function checkFailaiPathConflicts(taskMarkdown: string): Violation[] {
+  const forbidden = new Set(forbiddenPaths(taskMarkdown));
+  if (forbidden.size === 0) return [];
+  const violations: Violation[] = [];
+  for (const path of new Set(allowedPaths(taskMarkdown))) {
+    if (!forbidden.has(path)) continue;
+    const message = `Kelias \`${path}\` yra ir "Leidžiama:", ir "Draudžiama:" sąraše — vykdytojui dviprasmiška`;
+    violations.push(violation("failai-path-both-allowed-and-forbidden", "## Failai", message, { detail: path }));
+  }
+  return violations;
+}
+
+/** `## Neįtraukta` deklaruota, bet be turinio (trūkstamą gaudo `mandatory-section-missing`). */
+function checkNeitraukta(sections: readonly TaskSection[]): Violation[] {
+  const section = findSection(sections, (key) => key === "neitraukta");
+  if (!section || section.body.trim().length > 0) return [];
+  const citation = '000-etalonas.md ## Neįtraukta: "Bent viena eilutė — tuščia sekcija reiškia neapgalvotą apimtį."';
+  const message = "## Neįtraukta kūnas tuščias — apimtis neapgalvota";
+  return [violation("neitraukta-empty", "## Neįtraukta", message, { citation })];
+}
+
+/**
+ * `CONTEXT_CACHE_VERSION` paminėtas `## Veiksmas`, o `Leidžiama:` neturi abiejų jį pinančių
+ * testų. GRYNAI TEKSTINĖ: nesprendžia, ar kėlimas realiai įvyks — tik ar apie jį kalbantis
+ * task'as deklaravo testus, kuriuos vykdytojas neišvengiamai pataisys (138, 2026-09-02:
+ * nedeklaruoti pin'ai → „outside allowed paths" → rollback → parkas).
+ */
+function checkCacheVersionPins(sections: readonly TaskSection[], allowed: readonly string[]): Violation[] {
+  const section = findSection(sections, (key) => key === "veiksmas");
+  if (!section || !CACHE_VERSION_TOKEN.test(section.body)) return [];
+  const declared = new Set(allowed);
+  const missing = CACHE_VERSION_PIN_TESTS.filter((testPath) => !declared.has(testPath));
+  if (missing.length === 0) return [];
+  const detail = missing.join(", ");
+  const citation =
+    '000-etalonas.md ## Failai (9): "`CONTEXT_CACHE_VERSION` kėlimas VISADA liečia ' +
+    '`src/tests/context-pack-code-index-identity.test.ts` ir `src/tests/context-pack-guards.test.ts`."';
+  const message = `## Veiksmas mini CONTEXT_CACHE_VERSION, bet "Leidžiama:" neturi pinančių testų: ${detail}`;
+  return [violation("cache-version-without-pin-tests", "## Failai", message, { citation, detail })];
+}
+
+/**
+ * `## Agentai` grandinė privalo prasidėti `readme-guard` — jis vienintelis skaito README ir
+ * grąžina ribų santrauką likusiems. Imama PIRMA ne tuščia eilutė; vedantį label'į („Privaloma
+ * grandinė: …") nuima pats `parseAgentChain`, tad antros kopijos čia nėra. Tuščia grandinė —
+ * preflight'o (`empty agent chain`) reikalas.
+ */
+function checkAgentaiChain(sections: readonly TaskSection[]): Violation[] {
+  const section = findSection(sections, (key) => key === "agentai");
+  if (!section) return [];
+  const firstLine =
+    section.body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
+  const first = parseAgentChain(firstLine)[0];
+  if (first === undefined || first === "readme-guard") return [];
+  const message = `Grandinė prasideda "${first}", o etalone pirmas visada readme-guard`;
+  return [violation("agentai-readme-guard-not-first", "## Agentai", message, { detail: firstLine.slice(0, 160) })];
 }
 
 /**
@@ -274,36 +390,38 @@ function evaluateUiCoverageRule(paths: readonly string[]): Violation[] {
 
 /**
  * `## Priklausomybės` bullets: a placeholder (`none`/`-`/`TBD`, {@link isPlaceholderDependency})
- * is forbidden outright, and anything shaped like a task id must resolve inside `knownTaskIds`.
- * Free-form text that is neither (e.g. the etalon's own `<pilnas-task-id-be-md>` template) is
- * left alone — it is not a reference this rule can judge.
+ * is forbidden outright, anything shaped like a task id must resolve inside `knownTaskIds`, and
+ * everything else — prose — is `priklausomybe-not-a-task-id`. Etalonas: „arba tikras id, arba
+ * sekcijos nėra"; vienintelė išimtis — paties etalono `<…>` šablonas. Iki 2026-09-03 proza buvo
+ * „left alone": `- 137 pirmoji dalis: …` praeidavo abu validatorius, o `parseTaskDependencies`
+ * ją normalizuodavo į niekada neegzistuosiantį id (16 `gate:missing-dependency` eilučių,
+ * `LOOP STOP: all-blocked` 09-03 09:51). `knownTaskIds === undefined` tikrina TIK id formą.
  */
 function checkPriklausomybes(sections: readonly TaskSection[], knownTaskIds: readonly string[] | undefined): Violation[] {
   const section = findSection(sections, (key) => key === "priklausomybes");
   if (!section) return [];
 
   const known = knownTaskIds === undefined ? undefined : new Set(knownTaskIds);
+  const citation =
+    '000-etalonas.md ## Priklausomybės: "Placeholder\'iai („none", „-") draudžiami — arba tikras id, arba sekcijos nėra."';
   const violations: Violation[] = [];
   for (const item of taskBulletItems(section.body)) {
     const trimmed = item.trim();
     if (isPlaceholderDependency(trimmed)) {
-      violations.push(
-        violation(
-          "priklausomybe-placeholder",
-          "## Priklausomybės",
-          `Placeholder "${trimmed}" draudžiamas — arba tikras task id, arba sekcijos nėra`,
-        ),
-      );
+      const message = `Placeholder "${trimmed}" draudžiamas — arba tikras task id, arba sekcijos nėra`;
+      violations.push(violation("priklausomybe-placeholder", "## Priklausomybės", message));
       continue;
     }
-    if (known !== undefined && TASK_ID_SHAPE.test(trimmed) && !known.has(trimmed)) {
-      violations.push(
-        violation(
-          "priklausomybe-unknown-id",
-          "## Priklausomybės",
-          `Priklausomybė "${trimmed}" nerasta tarp žinomų task id (jokiame bucket'e)`,
-        ),
-      );
+    if (DEPENDENCY_TEMPLATE.test(trimmed)) continue;
+    if (!TASK_ID_SHAPE.test(trimmed)) {
+      const detail = trimmed.slice(0, 160);
+      const message = `Priklausomybė "${detail}" nėra task id — arba tikras id, arba sekcijos nėra`;
+      violations.push(violation("priklausomybe-not-a-task-id", "## Priklausomybės", message, { citation, detail }));
+      continue;
+    }
+    if (known !== undefined && !known.has(trimmed)) {
+      const message = `Priklausomybė "${trimmed}" nerasta tarp žinomų task id (jokiame bucket'e)`;
+      violations.push(violation("priklausomybe-unknown-id", "## Priklausomybės", message));
     }
   }
   return violations;
@@ -359,9 +477,14 @@ export function validateTaskAgainstEtalonas(text: string, knownTaskIds?: readonl
   return [
     ...checkMandatorySectionsOrder(sections),
     ...checkFailaiWildcards(failaiSection),
+    ...checkFailaiProse(failaiSection),
+    ...checkFailaiPathConflicts(text),
     ...evaluateProductionFileTestRule(failaiPaths),
     ...evaluateUiCoverageRule(failaiPaths),
+    ...checkCacheVersionPins(sections, allowedPaths(text)),
     ...checkPriklausomybes(sections, knownTaskIds),
+    ...checkAgentaiChain(sections),
     ...checkPatikra(sections),
+    ...checkNeitraukta(sections),
   ];
 }

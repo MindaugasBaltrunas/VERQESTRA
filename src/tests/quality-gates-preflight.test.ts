@@ -478,7 +478,7 @@ test("splitLeadingFrontmatter/stripVerificationPreamble: frontmatter+preambulė 
 // validateTaskAgainstEtalonas — čia tikrinama TIK projekcija (rule id/citata perduodami nepakitę)
 // ir korpusas; pačias taisykles dengia domain-tasks-etalonas-rules.test.ts.
 const etalonasTask = (failai: string): string =>
-  `# Task\n\n## Spec source\nAG/openspec/changes/demo\n\n## Tikslas\nX.\n\n## Agentai\ncoder\n\n## Failai\nLeidžiama:\n${failai}\n\n## Veiksmas\n- daryk\n\n## Patikra\n- \`pnpm test\`\n\n## Stop\nStop.\n\n## Neįtraukta\n- Kita.\n`;
+  `# Task\n\n## Spec source\nAG/openspec/changes/demo\n\n## Tikslas\nX.\n\n## Agentai\nreadme-guard -> coder\n\n## Failai\nLeidžiama:\n${failai}\n\n## Veiksmas\n- daryk\n\n## Patikra\n- \`pnpm test\`\n\n## Stop\nStop.\n\n## Neįtraukta\n- Kita.\n`;
 test("156-a-02: adapteris perduoda domain rule id ir citatą nepakitusius; VISI queue/*.md švarūs", async () => {
   // Struktūrinė domain taisyklė citatos neturi — adapteris ją pakeičia `message`, ne `undefined`:
   // preflight-validate.ts citatas jungia į reason'ą, ir „undefined" ten būtų matomas tekste.

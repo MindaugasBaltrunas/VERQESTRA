@@ -4,8 +4,10 @@
 openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
-- Dalis 1: `src/domain/tasks/failai-scope-edit.ts` privalo egzistuoti ir eksportuoti
-  `acceptScopePaths`. Jei jo nėra — STOP, nekurk jo čia.
+- 158-accept-scope-komanda-human-review-isejimas-be-requeue
+
+Prielaida iš Dalies 1: `src/domain/tasks/failai-scope-edit.ts` privalo egzistuoti ir eksportuoti
+`acceptScopePaths`. Jei jo nėra — STOP, nekurk jo čia.
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `src/interfaces/cli/task-queue/accept-scope.ts` egzistuoja ir

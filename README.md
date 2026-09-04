@@ -153,6 +153,7 @@ documented here, or is documented but does not exist.
 | `verqestra task-ledger-sync` | Reconciles the task ledger with the real bucket files |
 | `verqestra task-move <task-file> <target-dir>` | Moves a task file to another bucket |
 | `verqestra requeue <task-file-or-name>` | Returns a task from human-review to the queue (ledger and budget reset) |
+| `verqestra accept-scope <task-file-or-name> <path…>` | Accepts paths missing from `## Failai` and moves the task from human-review straight to done (no requeue, no ledger/budget reset); merging the branch stays the operator's job |
 | `verqestra status` | Summary of the queue, current task, tokens and stop evidence |
 | `verqestra process-queued-task <task-file>` | Full cycle of one queued task (the loop's child executor) |
 | `verqestra task-dependencies [list\|route-blocked <task-id>] [--json]` | Task dependencies and routing of blocked tasks |

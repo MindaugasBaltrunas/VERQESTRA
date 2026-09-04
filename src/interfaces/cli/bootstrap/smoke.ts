@@ -39,6 +39,30 @@ export type SmokeCommandDeps = {
 
 const REQUIRED_COMMANDS = ["claude", "git"] as const;
 
+/**
+ * Runtime konfigai, kurių reikalauja `smoke` (keliai — nuo `vq/` šaknies).
+ *
+ * Eksportuojama, nes TĄ PAČIĄ aibę privalo atvežti `install` šablonai (`templates/vq/**`).
+ * Iki 2026-09-04 šablonai vežė `commands.env.example` / `models.env.example`, o `smoke` tikrino
+ * bevardžius variantus — švarus diegimas iškart krisdavo `AG_SMOKE_FAILED`. Sąrašas laikomas
+ * VIENOJE vietoje, kad `gate-install-covers-smoke.test.ts` lygintų su realiu šablonų medžiu.
+ */
+export const SMOKE_REQUIRED_RUNTIME_FILES = ["config/commands.env", "config/models.env"] as const;
+
+/** Projekto šaknies failai, kurių reikalauja `smoke` — tą pačią aibę veža `templates/`. */
+export const SMOKE_REQUIRED_PROJECT_FILES = [
+  "CLAUDE.md",
+  ".claude/settings.json",
+  ".claude/rules/agents.md",
+  ".claude/rules/workflow.md",
+  ".claude/rules/constraints.md",
+] as const;
+
+/** `a/b` → absoliutus kelias po `base`: sąrašai rašomi POSIX forma, FS gauna platformos formą. */
+function underRoot(base: string, relativePosixPath: string): string {
+  return path.join(base, ...relativePosixPath.split("/"));
+}
+
 export async function smokeCommand(deps: SmokeCommandDeps): Promise<number> {
   const io = deps.io ?? consoleCliIo;
   const root = path.resolve(deps.projectRoot);
@@ -49,14 +73,9 @@ export async function smokeCommand(deps: SmokeCommandDeps): Promise<number> {
   let failed = false;
 
   const requiredFiles = [
-    path.join(runtimeRoot, "config", "commands.env"),
-    path.join(runtimeRoot, "config", "models.env"),
+    ...SMOKE_REQUIRED_RUNTIME_FILES.map((relative) => underRoot(runtimeRoot, relative)),
     deps.cliEntry,
-    path.join(root, "CLAUDE.md"),
-    path.join(root, ".claude", "settings.json"),
-    path.join(root, ".claude", "rules", "agents.md"),
-    path.join(root, ".claude", "rules", "workflow.md"),
-    path.join(root, ".claude", "rules", "constraints.md"),
+    ...SMOKE_REQUIRED_PROJECT_FILES.map((relative) => underRoot(root, relative)),
   ];
   const requiredDirs = [
     path.join(agRoot, "tasks", "queue"),

@@ -174,6 +174,7 @@ test("buildCliCommands: registras neša tik REALIAI surištas komandas", () => {
       "task-ledger-sync",
       "task-move",
       "requeue",
+      "accept-scope",
       "status",
       "process-queued-task",
       "task-dependencies",

@@ -15,6 +15,7 @@ import { taskRunPorts } from "../loop/coordinator-execution-adapters.js";
 import { cliChildRunner } from "../loop/coordinator-adapters.js";
 import { printTaskDependencies } from "../../interfaces/cli/task-queue/task-dependencies.js";
 import { requeueTask } from "../../interfaces/cli/task-queue/requeue.js";
+import { acceptScope } from "../../interfaces/cli/task-queue/accept-scope.js";
 import { moveTask } from "../../interfaces/cli/task-queue/task-move.js";
 import { taskLedgerSyncCommand } from "../../interfaces/cli/task-queue/task-ledger-sync.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
@@ -68,6 +69,20 @@ export function tasksCommands(deps: CliRegistryDeps): CliCommand[] {
           store: taskStateStore(deps.roots.agRoot, deps.roots.runtimeRoot),
           ledger: taskLedgerStore(deps.roots.runtimeRoot),
           budget: tokenBudgetPorts(deps.roots.runtimeRoot),
+          isFile,
+          projectRoot: deps.roots.projectRoot,
+          ...(io === undefined ? {} : { io }),
+        }),
+    },
+    {
+      name: "accept-scope",
+      usage: "<task-file-or-name> <path…>",
+      description: "Patvirtina human-review scope praplėtimą ir perkelia task'ą į done (be requeue)",
+      run: (args) =>
+        acceptScope(args, {
+          store: taskStateStore(deps.roots.agRoot, deps.roots.runtimeRoot),
+          readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
+          writeTextFile: (absolutePath, text) => nodeFsAdapter.writeTextFile(absolutePath, text),
           isFile,
           projectRoot: deps.roots.projectRoot,
           ...(io === undefined ? {} : { io }),

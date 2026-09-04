@@ -86,6 +86,39 @@ export function createIntegrationStepRunner(
     return outcome;
   };
 
+  // Atskiras nuo `rebuildDistAfterMerge`, nes UI bundle'as yra STEBĖJIMO paviršius, ne vartas:
+  // nesėkmė čia niekada nepastato task'o į human-review, kitaip žalias merge'as parkuotų dėl
+  // vite klaidos. Neprivalomi portai (senesni/testiniai ports objektai be jų) tiesiog praleidžia
+  // žingsnį — variklio `dist` kelias tuo nepaveikiamas.
+  const rebuildUiBundleAfterMerge = async (
+    taskId: string,
+    branch: string,
+    before: string | undefined,
+    after: string,
+  ): Promise<void> => {
+    if (!ports.integrationTouchedUiSrc || !ports.rebuildUiBundle) return;
+
+    let touched = true;
+    try {
+      touched = await ports.integrationTouchedUiSrc({ before, after });
+    } catch (error) {
+      await ports.safeLog(`INTEGRATION UI BUNDLE DIFF FAILED: task=${taskId}: ${describeError(error)}`);
+    }
+    if (!touched) return;
+
+    let outcome: { ok: boolean; detail: string };
+    try {
+      outcome = await ports.rebuildUiBundle();
+    } catch (error) {
+      outcome = { ok: false, detail: describeError(error) };
+    }
+    await ports.safeLog(
+      outcome.ok
+        ? `INTEGRATION UI BUNDLE REBUILT: task=${taskId} head=${after}`
+        : `INTEGRATION UI BUNDLE REBUILD FAILED: task=${taskId} branch=${branch} head=${after}: ${outcome.detail}`,
+    );
+  };
+
   /** Ar suliejimo baigtis leidžia tęsti. Kiekvienas „ne" turi savo VARDĄ žurnale. */
   const mergeBlocked = async (step: IntegrationStep, branch: string, merge: BranchIntegrationOutcome): Promise<boolean> => {
     if (merge.status === "conflict") {
@@ -193,6 +226,7 @@ export function createIntegrationStepRunner(
         await park(step.task_id, "dist-rebuild-failed", `INTEGRATION DIST REBUILD FAILED: ${rebuild.detail}`);
         return;
       }
+      await rebuildUiBundleAfterMerge(step.task_id, layout.branch, preMergeHead, merge.head);
     }
 
     try {

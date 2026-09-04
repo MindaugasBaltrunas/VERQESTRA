@@ -5,7 +5,7 @@
 
 import path from "node:path";
 import { removeStaleRuntimeRecord } from "../hooks/loop-runtime-store.js";
-import { consoleHookIo } from "../hooks/protocol.js";
+import { consoleHookIo, type HookIo } from "../hooks/protocol.js";
 import {
   projectFingerprint,
   uiUrl,
@@ -16,6 +16,7 @@ import {
   resolveUiPort,
   writeUiServerRecord,
   type UiPortPorts,
+  type UiServerRecord,
 } from "./ui-port-store.js";
 import type { ProcessLifecyclePorts, SpawnedProcess } from "./process-lifecycle-ports.js";
 
@@ -35,7 +36,13 @@ export const UI_AUTOSTART_ENV = "AG_UI_AUTOSTART";
 export const UI_STARTUP_GRACE_MS = 30_000;
 
 export type UiLifecycleDeps = {
-  ports: ProcessLifecyclePorts;
+  ports: ProcessLifecyclePorts & {
+    /**
+     * `dist/.buildstamp` turinys (ISO), kai jį galima perskaityti. Neprivalomas: kvietėjai, kurie
+     * jo nepaduoda (dar), tiesiog negauna pasenimo įspėjimo — nežinia nėra pasenimas.
+     */
+    readBuildStamp?: () => Promise<string | undefined>;
+  };
   /** Porto sprendimo portai (zondas, env, įrašas). */
   portPorts: UiPortPorts;
   projectRoot: string;
@@ -117,8 +124,10 @@ async function startUi(deps: UiLifecycleDeps, requestedPort?: number): Promise<U
     if (resolution.status === "already-running") {
       // Gyvas ŠIO projekto serveris — antro kelti nereikia. PID imamas iš įrašo tik kaip
       // informacija: gyvumą jau įrodė identifikacijos zondas, ne PID.
-      const pid = (await readUiServerRecord(deps.portPorts, stateDir))?.pid;
+      const record = await readUiServerRecord(deps.portPorts, stateDir);
+      const pid = record?.pid;
       io.out(`UI: ${resolution.url} (already running, ${resolution.source})`);
+      await warnIfUiServesStaleDist(deps, io, record);
       return { status: "already-running", ...(pid === undefined ? {} : { pid }), port: resolution.port };
     }
     port = resolution.port;
@@ -150,6 +159,36 @@ async function startUi(deps: UiLifecycleDeps, requestedPort?: number): Promise<U
   child.detach();
   io.out(`UI: ${uiUrl(port)} (started, ${source})`);
   return { status: "started", pid: child.pid, port };
+}
+
+/**
+ * Įspėja, kai gyvas serveris vykdo SENESNĮ kodą nei paskutinis `dist` build'as (audito
+ * `docs/audits/ui-app-overview-2026-09-02.md` §2026-09-03 radinys): autostart'as `already-running`
+ * pripažįsta bet kurį GYVĄ šio projekto serverį, nepaklausdamas apie jo amžių, tad valandų senumo
+ * procesas toliau aptarnauja seną kodą net kai `dist/.buildstamp` jau perrašytas. Tik ĮVARDIJA —
+ * serveris paliekamas gyvas, nes restartas nutrauktų operatoriaus SSE sesiją ir yra atskiras
+ * sprendimas (žr. task 162 „Neįtraukta").
+ *
+ * Be įrašo (naujas startas, dar nėra `ui-server.json`) arba be stamp'o (portas nepaduotas, arba
+ * build'o dar nebuvo) — TYLA: nežinia nėra pasenimas.
+ */
+async function warnIfUiServesStaleDist(
+  deps: UiLifecycleDeps,
+  io: HookIo,
+  record: UiServerRecord | undefined,
+): Promise<void> {
+  if (record === undefined) return;
+  const buildStamp = await deps.ports.readBuildStamp?.();
+  if (buildStamp === undefined) return;
+
+  const buildStampAt = Date.parse(buildStamp.trim());
+  const updatedAt = Date.parse(record.updated_at);
+  if (!Number.isFinite(buildStampAt) || !Number.isFinite(updatedAt) || buildStampAt <= updatedAt) return;
+
+  io.out(
+    `UI SERVES STALE DIST: pid=${record.pid} started=${record.updated_at} buildstamp=${buildStamp.trim()} — ` +
+      "restart the UI (or POST /api/ui/rebuild does NOT reload server code)",
+  );
 }
 
 /**

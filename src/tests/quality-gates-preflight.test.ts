@@ -474,26 +474,27 @@ test("splitLeadingFrontmatter/stripVerificationPreamble: frontmatter+preambulė 
   assert.equal(stripVerificationPreamble(`${FRONTMATTER}${preamble}${CANONICAL_TASK}`), `${FRONTMATTER}${CANONICAL_TASK}`);
 });
 
-// 070-a-02: evaluateEtalonasRuleViolations grąžina pažeidimų sąrašą su citata (single-line
-// fixtures + viena sujungta funkcija taupo eilučių biudžetą — file-length vartas be baseline).
-test("070-a-02: wildcard be pagrindimo, UI be I18nContext, etaloną atitinkantis task'as ir VISI queue/*.md", async () => {
-  const wildcard = evaluateEtalonasRuleViolations("# Task\n\n## Failai\nLeidžiama:\n- `src/tests/**`\n\n## Patikra\n- `pnpm test`\n").find((v) => v.ruleId === "wildcard-scope-without-justification");
-  assert.ok(wildcard, "wildcard pažeidimas privalo būti radinių sąraše");
-  assert.match(wildcard.citation, /Katalogo wildcard'as/);
-  const missingI18n = evaluateEtalonasRuleViolations("# Task\n\n## Failai\nLeidžiama:\n- `ui-app/src/view/components/SomePanel.tsx`\n- `ui-app/src/view/styles/dashboard.css`\n\n## Patikra\n- `pnpm test`\n").find((v) => v.ruleId === "ui-file-without-i18n-context");
-  assert.ok(missingI18n, "trūkstamo I18nContext pažeidimas privalo būti radinių sąraše");
-  assert.match(missingI18n.citation, /I18nContext\.tsx/);
-  const ok = "# Task\n\n## Failai\nLeidžiama:\n- `src/application/quality-gates/preflight-fastpath.ts`\n- `src/tests/quality-gates-preflight.test.ts`\n\n## Patikra\n- `pnpm test`\n";
-  assert.deepEqual(evaluateEtalonasRuleViolations(ok), []);
-  // 2026-09-03: `view/styles/` yra katalogas — taisyklė priima BET KURĮ jo `.css`; kitaip UI
-  // task'as deklaruotų `dashboard.css` (dabar tik `@import` rodyklę), kurio neredaguoja.
-  const uiTask = (css: string): string => `# Task\n\n## Failai\nLeidžiama:\n- \`ui-app/src/view/components/SomePanel.tsx\`\n- \`ui-app/src/i18n/I18nContext.tsx\`\n${css}\n\n## Patikra\n- \`pnpm test\`\n`;
-  for (const css of ["dashboard.css", "13-buttons.css"]) assert.deepEqual(evaluateEtalonasRuleViolations(uiTask(`- \`ui-app/src/view/styles/${css}\``)), [], css);
-  assert.ok(evaluateEtalonasRuleViolations(uiTask("")).some((v) => v.ruleId === "ui-file-without-dashboard-css"), "UI task'as be view/styles/*.css privalo likti pažeidimu");
+// 156-a-02: evaluateEtalonasRuleViolations yra PLONAS adapteris virš domain
+// validateTaskAgainstEtalonas — čia tikrinama TIK projekcija (rule id/citata perduodami nepakitę)
+// ir korpusas; pačias taisykles dengia domain-tasks-etalonas-rules.test.ts.
+const etalonasTask = (failai: string): string =>
+  `# Task\n\n## Spec source\nAG/openspec/changes/demo\n\n## Tikslas\nX.\n\n## Agentai\ncoder\n\n## Failai\nLeidžiama:\n${failai}\n\n## Veiksmas\n- daryk\n\n## Patikra\n- \`pnpm test\`\n\n## Stop\nStop.\n\n## Neįtraukta\n- Kita.\n`;
+test("156-a-02: adapteris perduoda domain rule id ir citatą nepakitusius; VISI queue/*.md švarūs", async () => {
+  // Struktūrinė domain taisyklė citatos neturi — adapteris ją pakeičia `message`, ne `undefined`:
+  // preflight-validate.ts citatas jungia į reason'ą, ir „undefined" ten būtų matomas tekste.
+  const structural = evaluateEtalonasRuleViolations("# Task\n\n## Tikslas\nX.\n").find((v) => v.ruleId === "mandatory-section-missing");
+  assert.ok(structural, "domain rule id privalo pasiekti išvestį nepervadintas");
+  assert.match(structural.citation, /000-etalonas\.md/);
+  assert.equal(structural.detail, structural.citation, "be domain detail abu laukai krenta į message");
+  const noTest = evaluateEtalonasRuleViolations(etalonasTask("- `src/x.ts`")).find((v) => v.ruleId === "production-file-without-test");
+  assert.ok(noTest, "domain taisyklė su citata privalo pasiekti išvestį");
+  assert.match(noTest.citation, /000-etalonas\.md ## Failai \(2\)/, "citata imama iš domain, ne perrašoma");
+  const wildcard = evaluateEtalonasRuleViolations(etalonasTask("- `src/tests/**`")).find((v) => v.ruleId === "failai-wildcard-without-justification");
+  assert.match(wildcard?.citation ?? "", /Katalogo wildcard'as/);
+  assert.deepEqual(evaluateEtalonasRuleViolations(etalonasTask("- `src/x.ts`\n- `src/tests/x.test.ts`")), []);
   const queueDir = "AG/tasks/queue";
   // Tuščia eilė — teisėta sėkmės būsena (2026-08-30); klaidingą kelią tebegaudo readdir ENOENT.
-  const files = (await fs.readdir(queueDir)).filter((name) => name.endsWith(".md"));
-  for (const name of files) {
+  for (const name of (await fs.readdir(queueDir)).filter((n) => n.endsWith(".md"))) {
     assert.deepEqual(evaluateEtalonasRuleViolations(await fs.readFile(`${queueDir}/${name}`, "utf8")), [], name);
   }
 });

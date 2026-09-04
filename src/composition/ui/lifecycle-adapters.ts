@@ -25,6 +25,7 @@ import {
 import type { HookIo } from "../../interfaces/hooks/protocol.js";
 import type { LoopRuntimePorts } from "../../interfaces/hooks/loop-runtime-store.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
+import { buildStampPath } from "../../infrastructure/process/dist-freshness.js";
 import { isProcessAlive } from "../../infrastructure/process/process-tree.js";
 import { packageManagerExecutable } from "../../infrastructure/process/run-process.js";
 import { cliEntryPath } from "../runtime/context.js";
@@ -90,6 +91,17 @@ function spawnDetachedCli(projectRoot: string, args: string[], env?: NodeJS.Proc
   };
 }
 
+/**
+ * `dist/.buildstamp` turinys, virš `dist-freshness.ts#buildStampPath` (task 162): `ui-lifecycle.ts`
+ * gyvena `interfaces` sluoksnyje ir `node:`/infrastructure importuoti negali, tad build stamp'o
+ * skaitymas ateina per šį portą, o ne tiesioginį `fs` kvietimą tenai. Trūkstamas failas (build'o
+ * dar nebuvo) → `undefined`, ne klaida — skirtingai nei `findStaleDistFiles`, čia nereikia sąrašo,
+ * tik VIENO skaičiaus palyginimui.
+ */
+export function readBuildStamp(projectRoot: string): Promise<string | undefined> {
+  return nodeFsAdapter.readTextFileIfExists(buildStampPath(projectRoot)).then((raw) => raw?.trim() || undefined);
+}
+
 export type UiLifecycleAdapterInput = {
   projectRoot: string;
   runtimeRoot: string;
@@ -110,7 +122,9 @@ export type UiLifecycleAdapterInput = {
  * loop'as bandytų pakelti DAR VIENĄ UI, o kiekvienas naujas vaikas kartotų tą patį. Vėliava
  * paveldima toliau, tad ji uždaro visą grandinę, ne vieną pakopą.
  */
-export function processLifecyclePorts(input: UiLifecycleAdapterInput): ProcessLifecyclePorts {
+export function processLifecyclePorts(
+  input: UiLifecycleAdapterInput,
+): ProcessLifecyclePorts & { readBuildStamp: () => Promise<string | undefined> } {
   return {
     fs: processLifecycleFs,
     runtime: loopRuntimePorts,
@@ -126,6 +140,7 @@ export function processLifecyclePorts(input: UiLifecycleAdapterInput): ProcessLi
       ),
     processIsAlive: (pid) => isProcessAlive(pid),
     env: (name) => process.env[name],
+    readBuildStamp: () => readBuildStamp(input.projectRoot),
     ...(input.io === undefined ? {} : { io: input.io }),
   };
 }

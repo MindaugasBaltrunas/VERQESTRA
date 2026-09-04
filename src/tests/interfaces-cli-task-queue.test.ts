@@ -28,6 +28,7 @@ import {
 import { parseTaskGenerateOptions, printTaskGenerate } from "../interfaces/cli/task-queue/task-generate.js";
 import { moveTask } from "../interfaces/cli/task-queue/task-move.js";
 import { requeueTask } from "../interfaces/cli/task-queue/requeue.js";
+import { acceptScope } from "../interfaces/cli/task-queue/accept-scope.js";
 import { printTaskDependencies } from "../interfaces/cli/task-queue/task-dependencies.js";
 import { taskLedgerSyncCommand } from "../interfaces/cli/task-queue/task-ledger-sync.js";
 import { processQueuedTaskCommand } from "../interfaces/cli/task-queue/process-queued-task.js";
@@ -260,6 +261,95 @@ test("requeueTask: usage/ne-failas → 2; sėkmė — ledger clear + biudžeto r
   assert.equal(await requeueTask(["0099-kitas.md"], { ...deps, ledger: empty.store, io: second.io }), 0);
   assert.deepEqual(second.out, ["requeued: 0099-kitas.md", "llm budget reset: 0099-kitas"]);
   assert.equal(await clearTaskLedgerEntry(makeLedgerStore(undefined).store, "bet-kas"), false);
+});
+
+test("acceptScope: usage/ne-human-review/trūkstamas-kelias → 2; sėkmė — redaguoja Failai ir perkelia į done", async () => {
+  const TASK_MD = `# Task
+
+## Spec source
+openspec/changes/example
+
+## Tikslas
+Problema su įrodymu.
+
+## Agentai
+readme-guard -> coder -> tester
+
+## Failai
+Leidžiama:
+- \`src/domain/example.ts\`
+
+Draudžiama:
+- \`dist/**\`
+
+## Veiksmas
+- X.
+
+## Patikra
+- \`pnpm build\`
+- \`pnpm test\`
+
+## Stop
+Commit'ink, kai patikros žalios.
+
+## Neįtraukta
+Y.
+`;
+
+  const calls: MoveCall[] = [];
+  const files = new Map<string, string>([
+    [abs("AG/tasks/human-review/0042-scope.md"), TASK_MD],
+    [abs("src/domain/example-extra.ts"), "export {};\n"],
+  ]);
+  const deps = {
+    store: makeStore(calls),
+    readTextFile: async (p: string): Promise<string> => {
+      const text = files.get(norm(p));
+      if (text === undefined) throw new Error(`missing: ${p}`);
+      return text;
+    },
+    writeTextFile: async (p: string, text: string): Promise<void> => {
+      files.set(norm(p), text);
+    },
+    isFile: async (p: string): Promise<boolean> => files.has(norm(p)),
+    projectRoot: ROOT,
+    nowIso: () => "2026-09-04T10:00:00.000Z",
+  };
+
+  const usageNoArgs = captureIo();
+  assert.equal(await acceptScope([], { ...deps, io: usageNoArgs.io }), 2);
+  assert.match(usageNoArgs.err[0] ?? "", /Usage: verqestra accept-scope/);
+
+  const usageNoPaths = captureIo();
+  assert.equal(await acceptScope(["0042-scope"], { ...deps, io: usageNoPaths.io }), 2);
+  assert.match(usageNoPaths.err[0] ?? "", /Usage: verqestra accept-scope/);
+
+  const notHumanReview = captureIo();
+  assert.equal(
+    await acceptScope(["9999-nera", "src/domain/example-extra.ts"], { ...deps, io: notHumanReview.io }),
+    2,
+  );
+  assert.match(notHumanReview.err[0] ?? "", /Not found in human-review: 9999-nera\.md/);
+
+  const missingPath = captureIo();
+  assert.equal(
+    await acceptScope(["0042-scope", "src/domain/nera.ts"], { ...deps, io: missingPath.io }),
+    2,
+  );
+  assert.match(missingPath.err[0] ?? "", /accept-scope path not found/);
+  assert.equal(calls.length, 0, "iki vartų praėjimo store nekviečiamas");
+
+  const ok = captureIo();
+  assert.equal(await acceptScope(["0042-scope", "src/domain/example-extra.ts"], { ...deps, io: ok.io }), 0);
+  assert.deepEqual(ok.out, ["accepted: 0042-scope.md paths=1"]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.toDir, path.join(AG_ROOT, "tasks", "done"));
+  assert.equal(calls[0]!.taskName, "0042-scope.md");
+  assert.equal(calls[0]!.updateCurrent, false);
+
+  const written = files.get(norm(abs("AG/tasks/human-review/0042-scope.md")))!;
+  assert.match(written, /- `src\/domain\/example-extra\.ts`/);
+  assert.match(written, /> 2026-09-04: accept-scope patvirtinta/);
 });
 
 test("printTaskDependencies: list/route-blocked keliai ir exit kodai 1:1", async () => {

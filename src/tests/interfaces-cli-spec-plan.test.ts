@@ -190,10 +190,10 @@ function reconcileWorld(): FakeWorld {
   return { files, dirs };
 }
 
-test("openSpecReconcileCommand: gyvas paleidimas archyvuoja (tasks.md pirma) ir grąžina 1 dėl likučio", async () => {
+test("openSpecReconcileCommand: --apply archyvuoja (tasks.md pirma) ir grąžina 1 dėl likučio", async () => {
   const { io, out } = captureIo();
   const world = reconcileWorld();
-  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, []);
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--apply"]);
   assert.equal(exit, 1);
   assert.deepEqual(out, [
     "openspec-reconcile: partial (2 done tasks scanned)",
@@ -207,12 +207,12 @@ test("openSpecReconcileCommand: gyvas paleidimas archyvuoja (tasks.md pirma) ir 
   assert.equal(world.files.get(norm(path.join(changeAbs("archive/auto-0042-fix"), "tasks.md"))), "- [x] a\n- [x] b\n");
 });
 
-test("openSpecReconcileCommand: antras paleidimas idempotentiškas (already-archived, nieko nerašo)", async () => {
+test("openSpecReconcileCommand: antras --apply paleidimas idempotentiškas (already-archived, nieko nerašo)", async () => {
   const world = reconcileWorld();
   const fs = makeReconcileFs(world);
-  assert.equal(await openSpecReconcileCommand({ fs, agRoot: AG_ROOT, io: captureIo().io }, []), 1);
+  assert.equal(await openSpecReconcileCommand({ fs, agRoot: AG_ROOT, io: captureIo().io }, ["--apply"]), 1);
   const { io, out } = captureIo();
-  const exit = await openSpecReconcileCommand({ fs, agRoot: AG_ROOT, io }, ["--json"]);
+  const exit = await openSpecReconcileCommand({ fs, agRoot: AG_ROOT, io }, ["--apply", "--json"]);
   assert.equal(exit, 1);
   const report = JSON.parse(out.join("\n")) as OpenSpecReconcileReport;
   assert.equal(report.archived.length, 0);
@@ -220,21 +220,41 @@ test("openSpecReconcileCommand: antras paleidimas idempotentiškas (already-arch
   assert.deepEqual(report.unmatched_auto_changes, ["openspec/changes/auto-0099-orphan"]);
 });
 
-test("openSpecReconcileCommand: --dry-run nieko nerašo ir spausdina would archive", async () => {
+test("openSpecReconcileCommand: numatytasis režimas (be --apply) nieko nerašo ir spausdina would archive", async () => {
   const { io, out } = captureIo();
   const world = reconcileWorld();
-  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--dry-run"]);
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, []);
   assert.equal(exit, 1);
-  assert.equal(out[1], "would archive: 1 of 2 active auto changes");
-  assert.equal(out[2], "  would archive: openspec/changes/auto-0042-fix <- 0042");
+  assert.equal(out[1], "dry run — re-run with --apply to archive");
+  assert.equal(out[2], "would archive: 1 of 2 active auto changes");
+  assert.equal(out[3], "  would archive: openspec/changes/auto-0042-fix <- 0042");
   assert.ok(world.dirs.has(changeAbs("auto-0042-fix")));
   assert.equal(world.files.get(norm(path.join(changeAbs("auto-0042-fix"), "tasks.md"))), "- [ ] a\n- [x] b\n");
 });
 
-test("openSpecReconcileCommand: --json ataskaita su marked_task_lines", async () => {
+test("openSpecReconcileCommand: --dry-run yra numatytosios elgsenos sinonimas", async () => {
   const { io, out } = captureIo();
   const world = reconcileWorld();
-  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--json"]);
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--dry-run"]);
+  assert.equal(exit, 1);
+  assert.equal(out[1], "dry run — re-run with --apply to archive");
+  assert.equal(out[2], "would archive: 1 of 2 active auto changes");
+  assert.ok(world.dirs.has(changeAbs("auto-0042-fix")));
+});
+
+test("openSpecReconcileCommand: --apply su --dry-run — usage klaida, exit 2", async () => {
+  const { io, err } = captureIo();
+  const world = reconcileWorld();
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--apply", "--dry-run"]);
+  assert.equal(exit, 2);
+  assert.match(err[0] ?? "", /--apply and --dry-run are mutually exclusive/);
+  assert.ok(world.dirs.has(changeAbs("auto-0042-fix")));
+});
+
+test("openSpecReconcileCommand: --json ataskaita su marked_task_lines (--apply)", async () => {
+  const { io, out } = captureIo();
+  const world = reconcileWorld();
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--apply", "--json"]);
   assert.equal(exit, 1);
   const report = JSON.parse(out.join("\n")) as OpenSpecReconcileReport;
   assert.equal(report.status, "partial");
@@ -247,11 +267,22 @@ test("openSpecReconcileCommand: --json ataskaita su marked_task_lines", async ()
   assert.deepEqual(report.named_changes_open, [{ change: "openspec/changes/named-change", open_items: 1 }]);
 });
 
+test("openSpecReconcileCommand: --json ataskaita be --apply (dry_run: true)", async () => {
+  const { io, out } = captureIo();
+  const world = reconcileWorld();
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--json"]);
+  assert.equal(exit, 1);
+  const report = JSON.parse(out.join("\n")) as OpenSpecReconcileReport;
+  assert.equal(report.dry_run, true);
+  assert.equal(report.scanned_done_tasks, 2);
+  assert.equal(report.active_auto_changes_before, 2);
+});
+
 test("openSpecReconcileCommand: pilnai suderinta — exit 0", async () => {
   const { io, out } = captureIo();
   const world: FakeWorld = { files: new Map(), dirs: new Set([changeAbs("auto-0042-fix")]) };
   world.files.set(norm(path.join(AG_ROOT, "tasks", "done", "0042.md")), "žr. openspec/changes/auto-0042-fix");
-  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, []);
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--apply"]);
   assert.equal(exit, 0);
   assert.equal(out[0], "openspec-reconcile: reconciled (1 done tasks scanned)");
 });
@@ -263,7 +294,7 @@ test("openSpecReconcileCommand: dvi nuorodos — ambiguous eina operatoriui", as
     norm(path.join(AG_ROOT, "tasks", "done", "0042.md")),
     "openspec/changes/auto-a ir openspec/changes/auto-b",
   );
-  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, []);
+  const exit = await openSpecReconcileCommand({ fs: makeReconcileFs(world), agRoot: AG_ROOT, io }, ["--apply"]);
   assert.equal(exit, 1);
   assert.ok(out.includes("  needs operator: 0042 — ambiguous"));
   assert.ok(out.includes("  no done task: openspec/changes/auto-a"));

@@ -5,6 +5,11 @@
 // Exit kodai: `0` — suderinta; `1` — liko neuždarytų auto change'ų arba operatoriaus
 // sprendimo laukiančių baigčių; `2` — netikėta klaida. `1` čia reiškia „ataskaita
 // paskaičiuota, likutis yra", ne įrankio gedimą — tas pats kontraktas kaip `ag converge`.
+//
+// Numatytasis režimas — dry-run (tik ataskaita, jokio rašymo); archyvuoja TIK su
+// `--apply`. `--dry-run` priimamas kaip aiškus numatytosios elgsenos sinonimas
+// (atgalinis suderinamumas skriptams). `--apply` kartu su `--dry-run` — usage klaida,
+// exit 2.
 
 import {
   reconcileAutoOpenSpecBacklog,
@@ -22,7 +27,12 @@ export type OpenSpecReconcileCommandDeps = {
 export async function openSpecReconcileCommand(deps: OpenSpecReconcileCommandDeps, args: string[]): Promise<number> {
   const io = deps.io ?? consoleCliIo;
   try {
-    const dryRun = args.includes("--dry-run");
+    const apply = args.includes("--apply");
+    if (apply && args.includes("--dry-run")) {
+      io.error("openspec-reconcile: --apply and --dry-run are mutually exclusive");
+      return 2;
+    }
+    const dryRun = !apply;
     const report = await reconcileAutoOpenSpecBacklog(deps.fs, deps.agRoot, { dryRun });
 
     if (args.includes("--json")) {
@@ -30,6 +40,7 @@ export async function openSpecReconcileCommand(deps: OpenSpecReconcileCommandDep
     } else {
       const verb = dryRun ? "would archive" : "archived";
       io.out(`openspec-reconcile: ${report.status} (${report.scanned_done_tasks} done tasks scanned)`);
+      if (dryRun) io.out("dry run — re-run with --apply to archive");
       io.out(`${verb}: ${report.archived.length} of ${report.active_auto_changes_before} active auto changes`);
       for (const entry of report.archived) io.out(`  ${verb}: ${entry.change} <- ${entry.task}`);
       for (const change of report.unmatched_auto_changes) io.out(`  no done task: ${change}`);

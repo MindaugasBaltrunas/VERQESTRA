@@ -1,7 +1,7 @@
-// VQ-305 (2/3-b): preflight kelio unit testai — policy loaderiai per fake portą (default'ai
-// trūkstant failo, fail-fast blogam JSON/nežinomam raktui), architektūros/enforcement vartų
-// matrica ir evaluatePreflight seka su fake portais. FS: viskas per fake portą, IŠSKYRUS
-// config-drift vartą (016-a-02), kuris tikrina realų `vq/`/`templates/vq/` konfigą.
+// VQ-305 (2/3-b): preflight kelio unit testai — policy loaderiai per fake portą (default'ai trūkstant failo,
+// fail-fast blogam JSON/nežinomam raktui), architektūros/enforcement vartų matrica ir evaluatePreflight seka su
+// fake portais. FS: viskas per fake portą, IŠSKYRUS config-drift vartą (016-a-02), kuris tikrina realų
+// `vq/`/`templates/vq/` konfigą.
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -24,8 +24,10 @@ import { loadTokenBudgetConfig } from "../application/token-governance/token-bud
 import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import {
+  CORE_REQUIRED_SECTIONS,
   detectHallucinatedAllowedPaths,
   evaluateArchitectureAndPolicyGates,
+  missingTaskSections,
   splitLeadingFrontmatter,
   stripVerificationPreamble,
   verificationPreamble,
@@ -117,14 +119,13 @@ test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos lar
     "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos",
   );
 });
-// 016-a-02: CONFIG DRIFT VARTAS — realų dispatch langą lemia DISKE gulintis konfigas
-// (`min(turnLimits.large, dispatchMaxTurns)`); tylus `120` prieš `large: 180` anuliuoja kalibraciją.
+// 016-a-02: CONFIG DRIFT VARTAS — realų dispatch langą lemia DISKE gulintis konfigas (`min(turnLimits.large,
+// dispatchMaxTurns)`); tylus `120` prieš `large: 180` anuliuoja kalibraciją.
 const DRIFT_REASON =
-  "dispatchMaxTurns žemiau turnLimits.large tyliai nukerta 0033 kalibruotą large langą " +
-  "(HUMAN-REVIEW-APPROVED 2026-08-08): resolveMaxTurns skaičiuoja min(lentelė, lubos), tad " +
-  "žemesnės lubos anuliuoja kalibraciją be jokio signalo — nukirsta sesija sudegina visą " +
-  "kontekstą ir vis tiek virsta repair/human-review ratu. Taisymas: KELK dispatchMaxTurns " +
-  "(arba 0 = be ribos), o NE mažink turnLimits.large.";
+  "dispatchMaxTurns žemiau turnLimits.large tyliai nukerta 0033 kalibruotą large langą (HUMAN-REVIEW-APPROVED " +
+  "2026-08-08): resolveMaxTurns skaičiuoja min(lentelė, lubos), tad žemesnės lubos anuliuoja kalibraciją be jokio " +
+  "signalo — nukirsta sesija sudegina visą kontekstą ir vis tiek virsta repair/human-review ratu. Taisymas: KELK " +
+  "dispatchMaxTurns (arba 0 = be ribos), o NE mažink turnLimits.large.";
 /** `0` yra dokumentuotas „be ribos" opt-out: jis kalibracijos nekerta, tad varto neliečia. */
 function ceilingCoversLarge(ceiling: number, large: number): boolean {
   return ceiling === 0 || ceiling >= large;
@@ -137,17 +138,10 @@ function assertCeilingCoversLarge(source: string, ceiling: number, large: number
 }
 
 test("preflight-limits: kodo default'ų lubos nekerta kalibruotos turnLimits.large", () => {
-  assertCeilingCoversLarge(
-    "DEFAULT_PREFLIGHT_LIMITS",
-    DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns,
-    DEFAULT_TURN_LIMITS.large,
-  );
+  assertCeilingCoversLarge("DEFAULT_PREFLIGHT_LIMITS", DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns, DEFAULT_TURN_LIMITS.large);
 });
 // `vq/` runtime katalogo git'e gali nebūti (default'ai — ne flaky); `templates/vq/` git'e YRA.
-const RUNTIME_ROOTS_WITH_PREFLIGHT_LIMITS = [
-  path.join(process.cwd(), "vq"),
-  path.join(process.cwd(), "templates", "vq"),
-];
+const RUNTIME_ROOTS_WITH_PREFLIGHT_LIMITS = [path.join(process.cwd(), "vq"), path.join(process.cwd(), "templates", "vq")];
 
 test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.large", async () => {
   for (const runtimeRoot of RUNTIME_ROOTS_WITH_PREFLIGHT_LIMITS) {
@@ -156,8 +150,8 @@ test("preflight-limits: realūs konfigai diske nekerta kalibruotos turnLimits.la
     assert.equal(typeof large, "number", `${runtimeRoot}: loadPreflightLimits privalo užpildyti turnLimits`);
     assertCeilingCoversLarge(`${runtimeRoot} (preflight-limits legacy sluoksnis)`, limits.dispatchMaxTurns, large ?? DEFAULT_TURN_LIMITS.large);
 
-    // KANONINĖ lentelė gyvena `config/token-budget.json` (legacy `turnLimits` realiuose
-    // konfiguose nėra) — dispatch kelias taiko lubas BŪTENT jai, tad vartas tikrina ją.
+    // KANONINĖ lentelė gyvena `config/token-budget.json` (legacy `turnLimits` realiuose konfiguose nėra) —
+    // dispatch kelias taiko lubas BŪTENT jai, tad vartas tikrina ją.
     const limitsFile = await readPreflightLimitsFile(nodeFsAdapter, runtimeRoot);
     const tokenBudget = await loadTokenBudgetConfig(nodeFsAdapter, runtimeRoot, {
       ...(limitsFile.values.turnLimits === undefined ? {} : { legacyTurnLimits: limitsFile.values.turnLimits }),
@@ -195,8 +189,8 @@ test("preflight-limits: config-drift vartas kanda — 120 lubos prieš large=180
   assert.equal(ceilingCoversLarge(drifted.ceiling, drifted.large), false, "120 lubos nukerta large=180 — vartas krenta");
   const optedOut = await withCeiling(0);
   assert.equal(ceilingCoversLarge(optedOut.ceiling, optedOut.large), true, "0 = be ribos: kalibracija nenukertama");
-  // Simetriškas atvejis: lubos NEPAKEISTOS, bet pakelta kanoninė `token-budget.json` lentelė.
-  // Be šio įrodymo vartas tikrintų tik legacy sluoksnį ir pakeltą lentelę praleistų tyliai.
+  // Simetriškas atvejis: lubos NEPAKEISTOS, bet pakelta kanoninė `token-budget.json` lentelė. Be šio įrodymo
+  // vartas tikrintų tik legacy sluoksnį ir pakeltą lentelę praleistų tyliai.
   const raisedTable = fakeFs({
     [`${driftedRoot}/config/preflight-limits.json`]: JSON.stringify({ dispatchMaxTurns: 180 }),
     [`${driftedRoot}/config/token-budget.json`]: JSON.stringify({
@@ -224,10 +218,8 @@ test("architektūros/enforcement vartai: trijų pakopų įrodymai ir enforcement
     specSources: ["openspec/changes/x"],
     classification: CLASSIFICATION_FEATURE,
     enforcementPolicy: {
-      require_tests_for_code_changes: false,
-      max_files_per_task: 10,
-      broad_scope_requires_human_review: true,
-      require_interface_contract_for_public_changes: false,
+      require_tests_for_code_changes: false, max_files_per_task: 10,
+      broad_scope_requires_human_review: true, require_interface_contract_for_public_changes: false,
     },
   };
 
@@ -261,10 +253,8 @@ test("architektūros/enforcement vartai: trijų pakopų įrodymai ir enforcement
     allowedFiles: ["a", "b", "src/**"],
     architectureStylePolicy: { strictness: "advisory", forbidden_dependencies: [] },
     enforcementPolicy: {
-      require_tests_for_code_changes: true,
-      max_files_per_task: 2,
-      broad_scope_requires_human_review: true,
-      require_interface_contract_for_public_changes: true,
+      require_tests_for_code_changes: true, max_files_per_task: 2,
+      broad_scope_requires_human_review: true, require_interface_contract_for_public_changes: true,
     },
     classification: { ...CLASSIFICATION_FEATURE, categories: ["architecture"] },
   });
@@ -301,42 +291,55 @@ Sustoti, kai patikros praeina.
 ## Neįtraukta
 - Kita.
 `;
+// A1 (pilnas auditas 2026-09-05): broad = kelias, kuris per `matchesAllowedPath` dengia KATALOGĄ. Senas regex'as
+// matė tik `**` ir `x/**`, tad `Leidžiama: src/` gaudavo leidimą į visą medį be jokio human-review.
+const BROAD_GATE_ENFORCEMENT = {
+  require_tests_for_code_changes: false, max_files_per_task: 10,
+  broad_scope_requires_human_review: true, require_interface_contract_for_public_changes: false,
+};
+test("broad_scope_requires_human_review: katalogą dengiantys keliai → review, konkretūs failai → ne", () => {
+  const broadPathReasons = (file: string): string[] =>
+    evaluateArchitectureAndPolicyGates({
+      taskText: "# Task\nDaryk.", allowedFiles: [file], checks: ["pnpm test"], specSources: ["openspec/changes/x"],
+      classification: CLASSIFICATION_FEATURE, enforcementPolicy: BROAD_GATE_ENFORCEMENT,
+      architectureStylePolicy: { strictness: "advisory", forbidden_dependencies: [] },
+    }).reviewReasons.filter((reason) => reason.startsWith("policy broad_scope"));
+  for (const broad of ["**", "src/**", "src/", "src/**/*.ts", "ui-app/src/*", "src/a/*.ts"]) {
+    assert.deepEqual(broadPathReasons(broad), [`policy broad_scope_requires_human_review: broad path "${broad}"`], broad);
+  }
+  for (const narrow of ["src/index.ts", "src/a/b.ts", "Dockerfile"]) {
+    assert.deepEqual(broadPathReasons(narrow), [], narrow);
+  }
+});
+
+// QG-2: sekcijos matuojamos TIKSLIA eilute abiejuose keliuose — substring priimdavo `## Tasks` ir fenced pavyzdį.
+test("missingTaskSections: `## Tasks` ir fenced `# Task <x>` NEtenkina `# Task` reikalavimo", () => {
+  const substringOnly = "## Tasks\n- x\n\n```md\n# Task <pavadinimas>\n```\n\n## Stop condition\nStop.\n";
+  assert.deepEqual(missingTaskSections(substringOnly).hard, [...CORE_REQUIRED_SECTIONS]);
+  assert.deepEqual(missingTaskSections(CANONICAL_TASK).hard, []);
+  assert.deepEqual(missingTaskSections(CANONICAL_TASK).soft, []);
+});
+
 const AGENT_POLICY: AgentPolicy = {
-  version: "1",
-  default_role: "coder",
+  version: "1", default_role: "coder",
   roles: { coder: { allowed_adapters: ["claude"], default_model_hint: "sonnet", can_write_code: true } },
 };
-function makePreflightPorts(taskText: string): {
-  ports: PreflightPorts;
-  decisions: PreflightDecision[];
-  policies: PreflightPolicies;
-} {
+function makePreflightPorts(taskText: string): { ports: PreflightPorts; decisions: PreflightDecision[]; policies: PreflightPolicies } {
   const decisions: PreflightDecision[] = [];
   const policies: PreflightPolicies = {
     limits: { ...DEFAULT_PREFLIGHT_LIMITS },
     budget: { max_context_chars: 12000, max_spec_fragments: 8, max_file_fragments: 8, max_files: 8 },
     classificationPolicy: defaultTaskClassificationPolicy,
     agentPolicy: AGENT_POLICY,
-    architectureStylePolicy: {
-      version: "1.0",
-      style: "layered",
-      strictness: "advisory",
-      layers: [],
-      forbidden_dependencies: [],
-    },
+    architectureStylePolicy: { version: "1.0", style: "layered", strictness: "advisory", layers: [], forbidden_dependencies: [] },
     // Visi katalogo principai numatytu `advisory` lygiu — sąrašas seka katalogą, ne testą.
     codingPrinciplesPolicy: codingPrinciplesPolicySchema.parse({ version: "1.0" }),
     enforcementPolicy: {
-      version: "1.0",
-      max_files_per_task: 10,
-      max_lines_per_file: 500,
-      max_responsibilities_per_task: 3,
-      require_tests_for_code_changes: false,
-      require_interface_contract_for_public_changes: false,
-      broad_scope_requires_human_review: true,
-      global_policy_changes_require_human_review: true,
+      version: "1.0", max_files_per_task: 10, max_lines_per_file: 500, max_responsibilities_per_task: 3,
+      require_tests_for_code_changes: false, require_interface_contract_for_public_changes: false,
+      broad_scope_requires_human_review: true, global_policy_changes_require_human_review: true,
     },
-    };
+  };
   const ports: PreflightPorts = {
     resolveTaskFile: async (taskArg) => ({ filePath: `/repo/AG/tasks/queue/${taskArg}`, text: taskText }),
     loadPolicies: async () => policies,
@@ -422,10 +425,7 @@ Leidžiama:
 });
 
 test("detectHallucinatedAllowedPaths: fail-open be `## Failai` sekcijos ir kai visi katalogai egzistuoja", () => {
-  assert.deepEqual(
-    detectHallucinatedAllowedPaths("# Task\n\n## Tikslas\nBe Failai sekcijos.\n", () => false),
-    [],
-  );
+  assert.deepEqual(detectHallucinatedAllowedPaths("# Task\n\n## Tikslas\nBe Failai sekcijos.\n", () => false), []);
   assert.deepEqual(detectHallucinatedAllowedPaths(CANONICAL_TASK, () => true), []);
 });
 
@@ -458,8 +458,8 @@ test("stripVerificationPreamble: tekstas be preambulės grįžta nepakitęs", ()
   assert.equal(stripVerificationPreamble(""), "");
 });
 
-// Task 149: queue failas prasideda YAML frontmatter'iu — preambulė negali jo nuryti grįžtant iš
-// active/delegated lango atgal į queue. `---` vėliau tekste (po `# Task`) NĖRA frontmatter'is.
+// Task 149: queue failas prasideda YAML frontmatter'iu — preambulė negali jo nuryti grįžtant iš active/delegated
+// lango atgal į queue. `---` vėliau tekste (po `# Task`) NĖRA frontmatter'is.
 const FRONTMATTER = "---\nschema_version: 2\nid: demo\nscope:\n  allow:\n    - src/x.ts\n---\n";
 
 test("splitLeadingFrontmatter/stripVerificationPreamble: frontmatter+preambulė simetrija", () => {
@@ -474,9 +474,9 @@ test("splitLeadingFrontmatter/stripVerificationPreamble: frontmatter+preambulė 
   assert.equal(stripVerificationPreamble(`${FRONTMATTER}${preamble}${CANONICAL_TASK}`), `${FRONTMATTER}${CANONICAL_TASK}`);
 });
 
-// 156-a-02: evaluateEtalonasRuleViolations yra PLONAS adapteris virš domain
-// validateTaskAgainstEtalonas — čia tikrinama TIK projekcija (rule id/citata perduodami nepakitę)
-// ir korpusas; pačias taisykles dengia domain-tasks-etalonas-rules.test.ts.
+// 156-a-02: evaluateEtalonasRuleViolations yra PLONAS adapteris virš domain validateTaskAgainstEtalonas — čia
+// tikrinama TIK projekcija (rule id/citata perduodami nepakitę) ir korpusas; pačias taisykles dengia
+// domain-tasks-etalonas-rules.test.ts.
 const etalonasTask = (failai: string): string =>
   `# Task\n\n## Spec source\nAG/openspec/changes/demo\n\n## Tikslas\nX.\n\n## Agentai\nreadme-guard -> coder\n\n## Failai\nLeidžiama:\n${failai}\n\n## Veiksmas\n- daryk\n\n## Patikra\n- \`pnpm test\`\n\n## Stop\nStop.\n\n## Neįtraukta\n- Kita.\n`;
 test("156-a-02: adapteris perduoda domain rule id ir citatą nepakitusius; VISI queue/*.md švarūs", async () => {

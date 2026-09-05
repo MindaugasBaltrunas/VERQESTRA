@@ -43,15 +43,16 @@ Leidžiama:
 - `src/domain/policies/migration-guard.ts`
 - `src/domain/policies/file-classification.ts`
 - `src/domain/policies/check-command-allowlist.ts`
-- `src/tests/quality-gates.test.ts`
-- `src/tests/interfaces-hooks-package-migration.test.ts` (migracijos sakinių testai)
-- `src/tests/interfaces-hooks-pre-hooks.test.ts` (`isGitMutationCommand` :52-62)
-- `src/tests/domain-file-classification.test.ts` (numatomas naujas; nested node_modules atvejai TIK čia — `interfaces-hooks-guards.test.ts` priklauso task 206)
+- `src/tests/quality-gates.test.ts` (bash politika, git verbas, `isDistRebuildCommand` testo trynimas, allowlist `%`/`^`)
+- `src/tests/domain-migration-guard.test.ts` (numatomas naujas; sakinių lygio testai TIK čia — `interfaces-hooks-package-migration.test.ts` priklauso task 238, jo `:179-199` atvejai lieka žali)
+- `src/tests/domain-file-classification.test.ts` (numatomas naujas; nested node_modules atvejai TIK čia — `interfaces-hooks-guards.test.ts` priklauso task 238)
 
 Draudžiama:
 - `src/domain/policies/write-policy.ts` (task 199; `collapseTraversal` importuojamas, nekeičiamas)
 - `src/tests/bash-policy-loop-entrypoint.test.ts` (`normalizeCommand` NEKEIČIAMAS, kad šis liktų žalias be pakeitimų)
-- `src/tests/interfaces-hooks-guards.test.ts` (task 206)
+- `src/tests/interfaces-hooks-pre-hooks.test.ts` (task 238; `:52-62` `isGitMutationCommand` atvejai lieka žali)
+- `src/tests/interfaces-hooks-package-migration.test.ts` (task 238)
+- `src/tests/interfaces-hooks-guards.test.ts` (task 238)
 - `src/interfaces/hooks/pre-hooks.ts`
 - `dist/**`
 - `node_modules/**`
@@ -77,9 +78,11 @@ Draudžiama:
   `isPackageJsonPath`, `isLockfilePath`, `isForeignLockfilePath`.
 - `check-command-allowlist.ts`: `%…%` ir `^` argumentuose atmetami ta pačia priežastimi kaip
   `[;&|`$<>]` (cmd.exe plėtimas); komentaras rodo į `run-process.ts` `.cmd` kelią.
-- Testai: `cat vq/tasks/../state/task-ledger.json` → blocked (`vq/state/`), `cat vq/tasks/x.md` → ne;
-  `git log --grep commit` / `git -C x log --grep=push` → ne mutacija, `git -C x commit -m y` → mutacija;
-  migracija `DELETE FROM t\nWHERE id = 1;` → be bloko, `DELETE FROM t;\n-- WHERE` → BLOCK;
+- Testai (`quality-gates.test.ts`): `cat vq/tasks/../state/task-ledger.json` → blocked (`vq/state/`),
+  `cat vq/tasks/x.md` → ne; `git log --grep commit` / `git -C x log --grep=push` → ne mutacija,
+  `git -C x commit -m y` → mutacija (esami `interfaces-hooks-pre-hooks.test.ts:52-62` atvejai lieka žali);
+  (`domain-migration-guard.test.ts`) `DELETE FROM t\nWHERE id = 1;` → be bloko, `DELETE FROM t;\n-- WHERE` → BLOCK;
+  (`domain-file-classification.test.ts`)
   `apps/x/node_modules/y/package.json` → ne package path, `apps/x/node_modules/y/yarn.lock` → ne lockfile,
   secret-scan skip; `pnpm` args `["run", "build", "%X%"]` → atmesta.
 

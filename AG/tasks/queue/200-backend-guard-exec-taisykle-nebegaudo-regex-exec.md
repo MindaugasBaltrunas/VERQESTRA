@@ -27,9 +27,10 @@ readme-guard -> architect -> security -> coder -> reviewer -> security -> tester
 ## Failai
 Leidžiama:
 - `src/domain/policies/scope-guard-rules.ts` (`backendLineRules` exec taisyklė)
-- `src/tests/interfaces-hooks-scope-guards.test.ts`
+- `src/tests/domain-scope-guard-rules.test.ts` (numatomas naujas; testai rašomi TIK čia — `interfaces-hooks-scope-guards.test.ts` priklauso task 238, jo esami `:62-71` atvejai lieka žali)
 
 Draudžiama:
+- `src/tests/interfaces-hooks-scope-guards.test.ts` (task 238)
 - `src/domain/policies/line-rules.ts` (variklis nekinta)
 - `src/domain/policies/file-classification.ts` (task 205)
 - `src/interfaces/hooks/scope-guards.ts` (adapteris nekinta)
@@ -46,8 +47,9 @@ Draudžiama:
   ARBA (c) eilutė mini `child_process` ir turi `exec(`; user-input alternatyva (`req.`, `body`, `params`,
   `query`, `${`) taikoma TIK (a)/(b) formoms. `x.exec(...)`, `re.exec(req.body.x)`, `pattern.exec(line)` —
   jokio radinio. Žinutė lieka `uses child_process.exec with variable/user-influenced input`.
-- Testai: `pattern.exec(line)` ir `re.exec(req.body.dir)` → be radinių; esamas `:67`
-  `exec(\`ls ${req.body.dir}\`)` → BLOCK; `child_process.exec(cmd)` → BLOCK; `cp.execSync(userCmd)` → BLOCK;
+- Testai (`domain-scope-guard-rules.test.ts`, per `scanLineRules` kaip `interfaces-hooks-scope-guards.test.ts:63`):
+  `pattern.exec(line)` ir `re.exec(req.body.dir)` → be radinių; esamas `interfaces-hooks-scope-guards.test.ts:67`
+  `exec(\`ls ${req.body.dir}\`)` toliau BLOCK (tas failas nekeičiamas, lieka žalias); `child_process.exec(cmd)` → BLOCK; `cp.execSync(userCmd)` → BLOCK;
   `execSync("ls -la")` (literalas) → be bloko; `const { exec } = require("child_process"); exec(cmd)` → BLOCK.
 
 ## Patikra

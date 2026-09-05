@@ -39,11 +39,12 @@ Leidžiama:
 - `src/domain/policies/secret-patterns.ts`
 - `src/interfaces/hooks/post-write.ts` (drop → `session-writes.dropped.json` best-effort įrašas)
 - `src/interfaces/hooks/package-guard.ts` (dropped sąrašas įeina į `sessionWrites` įrodymą)
-- `src/tests/interfaces-hooks-guards.test.ts` (`findSecretsInText` :140 kaimynystė)
+- `src/tests/domain-secret-patterns.test.ts` (numatomas naujas; pattern'ų ir korpuso testai TIK čia — `interfaces-hooks-guards.test.ts` priklauso task 238, jo `:140` AKIA atvejis lieka žalias)
 - `src/tests/interfaces-hooks-post-write.test.ts`
 - `src/tests/interfaces-hooks-package-guard-ledger-drop.test.ts` (numatomas naujas)
 
 Draudžiama:
+- `src/tests/interfaces-hooks-guards.test.ts` (task 238)
 - `src/domain/policies/package-guard.ts` (grynas sprendimas nekinta — dropped keliai įmaišomi adapteryje)
 - `src/domain/policies/file-classification.ts` (task 205)
 - `src/interfaces/hooks/secret-scan.ts` (failų rinkimas nekinta)
@@ -61,7 +62,7 @@ Draudžiama:
   pats neatitinka savo regex'o — `eyJ[` po `eyJ` eina `[`, o schemos dalis regex'e neturi `://`
   literalo greta `user:pass` formos; patikrinti `findSecretsInText("secret-patterns.ts", <šio failo turinys>)`
   testu → `[]`.
-- Korpuso testas: `interfaces-hooks-guards.test.ts` — tikslios 8 failų fixture eilutės (nukopijuotos,
+- Korpuso testas: `domain-secret-patterns.test.ts` — tikslios 8 failų fixture eilutės (nukopijuotos,
   ne skaitomos iš disko) → 0 radinių; realus 3 segmentų JWT (`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`)
   ir `postgres://app:hunter2hunter2@db/x` → radiniai.
 - `post-write.ts`: kai `appendSessionWrite` → `appended:false`, kelias best-effort append'inamas į

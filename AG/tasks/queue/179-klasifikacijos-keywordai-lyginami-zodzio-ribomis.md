@@ -5,9 +5,9 @@ openspec/changes/verqestra-backlog-v1/
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `src/domain/policies/task-classification.ts` `classifyTask` keyword'ų paieška (57 eil.) nebenaudoja
-gryno `textHaystack.includes(...)`, o tikrina žodžio ribas (pvz. `migration-coverage` NEatitinka
-keyword'o `migration`... tiksliau: `migration-coverage.json` neduoda kategorijos `data`, o
-`release-readiness` neduoda `release`) ir `src/tests/domain-policies.test.ts` tai tvirtina —
+gryno `textHaystack.includes(...)`, o tikrina žodžio ribas (tekstas su `migration-coverage.json` neduoda
+kategorijos `data`, tekstas su `release-readiness` neduoda `release`) ir
+`src/tests/domain-policies.test.ts` tai tvirtina —
 ALREADY_IMPLEMENTED: cituok ribų funkciją ir testo pavadinimą.
 
 ## Tikslas

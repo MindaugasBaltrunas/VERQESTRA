@@ -27,7 +27,7 @@ import {
   CORE_REQUIRED_SECTIONS,
   detectHallucinatedAllowedPaths,
   evaluateArchitectureAndPolicyGates,
-  missingTaskSections,
+  missingTaskSections, normalizeLegacyTaskSections,
   splitLeadingFrontmatter,
   stripVerificationPreamble,
   verificationPreamble,
@@ -109,15 +109,8 @@ test("preflight-limits: present/absent, nežinomas raktas = PolicyConfigError, t
 // 016: lubos NEGALI kirsti 0033 kalibracijos — `min(180,120)=120` tyliai anuliavo `large=180`.
 test("preflight-limits: dispatchMaxTurns default nebekerta 0033 kalibracijos large=180", () => {
   assert.equal(DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns, 180);
-  assert.equal(
-    resolveMaxTurns({
-      phase: "implementation",
-      tier: "large",
-      ceiling: DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns,
-    }),
-    DEFAULT_TURN_LIMITS.large,
-    "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos",
-  );
+  const large = resolveMaxTurns({ phase: "implementation", tier: "large", ceiling: DEFAULT_PREFLIGHT_LIMITS.dispatchMaxTurns });
+  assert.equal(large, DEFAULT_TURN_LIMITS.large, "large tier'as gauna pilną kalibruotą langą, lubos saugo tik nuo konfigo klaidos");
 });
 // 016-a-02: CONFIG DRIFT VARTAS — realų dispatch langą lemia DISKE gulintis konfigas (`min(turnLimits.large,
 // dispatchMaxTurns)`); tylus `120` prieš `large: 180` anuliuoja kalibraciją.
@@ -451,6 +444,13 @@ Tai tik pavyzdys šablono dokumentacijoje, ne tikra vedanti antraštė.
 
 ${CANONICAL_TASK}`;
   assert.equal(stripVerificationPreamble(fencedExample), fencedExample);
+});
+
+// P1-Dk3: sintetinis `## Stop` rodo į TIKRĄ Stop hook'o failą; be `vq/` prefikso `on-stop-context.ts` jo neskaito.
+test("deriveMissingHardSections: sintetinis `## Stop` nurodo vq/logs/commit-msg.md, ne kelią be prefikso", () => {
+  const derived = normalizeLegacyTaskSections("# Task\n\n## Tikslas\nX.\n");
+  assert.ok(derived.includes("vq/logs/commit-msg.md"), "Stop default'as rodo į vq/ runtime kelią");
+  assert.doesNotMatch(derived, /(^|[^/])logs\/commit-msg/, "be `vq/` prefikso Stop tekstas meluoja hook'ui");
 });
 
 test("stripVerificationPreamble: tekstas be preambulės grįžta nepakitęs", () => {

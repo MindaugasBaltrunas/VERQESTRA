@@ -48,7 +48,12 @@ const agentRoleConfigSchema = z.object({
 
 const agentPolicySchema = z.object({
   version: z.string().refine((value) => value.trim().length > 0, "version is required"),
-  default_role: z.unknown().transform((value) => (typeof value === "string" ? value : "coder")),
+  // Lauko NĖRA → „coder" (istorinis numatytasis). Bloga reikšmė (skaičius, null, objektas) →
+  // KLAIDA per bendrą konfigo klaidų kelią. Iki 2026-09-05 (pilno audito PG-5) čia stovėjo
+  // `z.unknown().transform(...)`: bet kokia ne-string reikšmė tyliai virsdavo „coder", tad
+  // `"default_role": 42` duodavo konfigą, kuris atrodo pakeistas, bet maršrutizuoja į seną
+  // vaidmenį. Visi kiti policy loader'iai tokiu atveju fail-fast'ina — čia dabar taip pat.
+  default_role: z.string("default_role must be a string").min(1, "default_role must not be empty").default("coder"),
   // Roles are project-local extensions; built-ins are not a closed vocabulary.
   roles: z.record(z.string(), agentRoleConfigSchema).superRefine((roles, ctx) => {
     const invalid = Object.keys(roles).filter((role) => !agentRoleIdSchema.safeParse(role).success);

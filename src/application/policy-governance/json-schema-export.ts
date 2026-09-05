@@ -1,11 +1,25 @@
 // JSON schemų eksportas konfigų kontraktams (etalonas: AG_loop core/schema-export.ts,
-// WBR VQ-501 3/5-a). Schemų turinys — DUOMENYS, laikomi 1:1 su etalonu (įskaitant
-// `ag://schemas/*` $id ir „AG ..." pavadinimus) — juos vartoja išoriniai įrankiai, tad
-// pervadinimas būtų kontrakto lūžis. IO — per portą; numatytasis output katalogas —
+// WBR VQ-501 3/5-a). Schemų VARDAI ir `$id`/`title` — DUOMENYS, laikomi 1:1 su etalonu
+// (`ag://schemas/*`, „AG ..."): juos vartoja išoriniai įrankiai, tad pervadinimas būtų
+// kontrakto lūžis. IO — per portą; numatytasis output katalogas —
 // `vq/generated/json-schema` (VERQESTRA runtime šaknis; etalone — `AG/generated/`).
+//
+// NUKRYPIMAS NUO ETALONO (2026-09-05 pilnas auditas, PG-4): `preflight-limits` ir
+// `context-budget` schemų TURINYS nebeperrašomas ranka — jis generuojamas iš tų pačių zod
+// objektų, kuriuos vykdo loader'iai ({@link preflightLimitsFileSchema},
+// {@link contextBudgetSchema}). Antra ranka rašyta kopija buvo nusidriftavusi į priešingą
+// verdiktą: eksportas reikalavo keturių `preflight-limits` raktų ir leido bet kokius
+// papildomus, o loader'is (`z.strictObject`, visi optional) elgėsi atvirkščiai ir nė
+// nemini `turnLimits`/`fastPath`/`llmMaxTurns`/`dispatchMaxTurns`/`maxSplitDepth`;
+// `context-budget` eksportas reikalavo `max_context_chars`, kurį loader'is užpildo
+// default'u. Operatorius, validuojantis konfigą pagal eksportuotą schemą, gaudavo kitą
+// atsakymą nei realus kelias. Kryptis griežtinanti: eksportas dabar negali nutolti.
 
 import path from "node:path";
+import { z } from "zod";
 import { toPosixPath } from "../../shared/paths.js";
+import { contextBudgetSchema } from "./context-budget.js";
+import { preflightLimitsFileSchema } from "./preflight-limits-policy.js";
 
 export type JsonSchemaDocument = {
   $schema: "https://json-schema.org/draft/2020-12/schema";
@@ -30,6 +44,31 @@ export type JsonSchemaExportPorts = {
 const nonEmptyString = { type: "string", minLength: 1 };
 const stringArray = { type: "array", items: nonEmptyString };
 const positiveInteger = { type: "integer", minimum: 1 };
+
+/**
+ * Loader'io zod objektas → eksportuojamas JSON Schema dokumentas.
+ *
+ * `io: "input"` yra esminis: numatytoji zod reikšmė („output") laiko `.default()` lauką
+ * PRIVALOMU (po parse jis visada yra), tad `context-budget` atsidurtų su `required` visiems
+ * keturiems raktams — būtent ta klaida, kurią čia taisome. Įvesties pusėje `.default()`
+ * laukas yra optional su `default` reikšme, t. y. tiksliai tai, ką priima loader'is.
+ *
+ * `additionalProperties` normalizuojamas į `boolean`, nes {@link JsonSchemaDocument} yra
+ * šio modulio viešas kontraktas (jį rendina CLI) — zod loose objektui grąžina `{}`.
+ */
+function jsonSchemaFromZod(schema: z.ZodType, $id: string, title: string): JsonSchemaDocument {
+  const generated = z.toJSONSchema(schema, { io: "input", target: "draft-2020-12" }) as Record<string, unknown>;
+  const required = generated["required"];
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id,
+    title,
+    type: "object",
+    additionalProperties: generated["additionalProperties"] !== false,
+    ...(Array.isArray(required) && required.length > 0 ? { required: required as string[] } : {}),
+    properties: (generated["properties"] ?? {}) as Record<string, unknown>,
+  };
+}
 
 export const exportedJsonSchemas: Record<string, JsonSchemaDocument> = {
   "project-profile": {
@@ -76,35 +115,12 @@ export const exportedJsonSchemas: Record<string, JsonSchemaDocument> = {
       },
     },
   },
-  "context-budget": {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: "ag://schemas/context-budget.json",
-    title: "AG Context Budget",
-    type: "object",
-    additionalProperties: true,
-    required: ["max_context_chars"],
-    properties: {
-      max_context_chars: positiveInteger,
-      max_spec_fragments: positiveInteger,
-      max_file_fragments: positiveInteger,
-      max_files: positiveInteger,
-    },
-  },
-  "preflight-limits": {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: "ag://schemas/preflight-limits.json",
-    title: "AG Preflight Limits",
-    type: "object",
-    additionalProperties: true,
-    required: ["maxLines", "maxAllowedPaths", "maxDomains", "maxActionBullets"],
-    properties: {
-      maxLines: positiveInteger,
-      maxAllowedPaths: positiveInteger,
-      maxDomains: positiveInteger,
-      maxActionBullets: positiveInteger,
-      autoOpenSpec: { type: "boolean" },
-    },
-  },
+  "context-budget": jsonSchemaFromZod(contextBudgetSchema, "ag://schemas/context-budget.json", "AG Context Budget"),
+  "preflight-limits": jsonSchemaFromZod(
+    preflightLimitsFileSchema,
+    "ag://schemas/preflight-limits.json",
+    "AG Preflight Limits",
+  ),
   "context-pack": {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "ag://schemas/context-pack.json",

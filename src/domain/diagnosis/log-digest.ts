@@ -115,8 +115,21 @@ export function digestQualityGatesLog(
 
 /**
  * Tik šio task'o retry įrašai. Anksčiau į promptą keliaudavo VISAS retry žurnalas (visų
- * task'ų istorija, auganti be ribų), nors sprendimui reikšmingas tik `task:<id>` ir jo klaidų
- * raktai. Neparse'inamas turinys grąžinamas kaip yra — diagnozė neturi nutylėti sugadintos būsenos.
+ * task'ų istorija, auganti be ribų), nors sprendimui reikšmingas tik šio task'o skaitiklis.
+ * Neparse'inamas turinys grąžinamas kaip yra — diagnozė neturi nutylėti sugadintos būsenos.
+ *
+ * Rakto formatas — pagal RAŠYTOJĄ `application/task-execution/retry-counts.ts:63-64`:
+ * `task:<taskId>` (task skaitiklis) ir `error:<retryKey>` (klaidos parašo skaitiklis), plius
+ * legacy formos, kurias migruoja `:51` — `<taskId>` ir `<taskId>:…`.
+ *
+ * Task 193 (auditas 2026-09-05, #32): buvęs `key.includes(taskId)` task'ui `010` įtraukdavo
+ * `task:0100-…` ir `task:1010-…` — svetimą istoriją, klaidinančią diagnozę. Dabar lyginamos
+ * tikslios rašytojo formos.
+ *
+ * `error:<retryKey>` raktai NEĮTRAUKIAMI sąmoningai: `retryKey` yra klaidos parašas, ne task id
+ * (`interfaces/cli/dispatch/retry-guard.ts:109`), tad jis dalijamas tarp task'ų ir čia — turint
+ * tik JSON'ą ir `taskId` — su šiuo task'u nesusiejamas. Substring sutapimas tokį susiejimą tik
+ * imituodavo.
  */
 export function retryCountsForTask(retryCountsJson: string, taskId: string): string {
   const raw = (retryCountsJson ?? "").trim();
@@ -132,7 +145,7 @@ export function retryCountsForTask(retryCountsJson: string, taskId: string): str
 
   const scoped: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (key === taskId || key === `task:${taskId}` || key.includes(taskId)) scoped[key] = value;
+    if (key === `task:${taskId}` || key === taskId || key.startsWith(`${taskId}:`)) scoped[key] = value;
   }
   return JSON.stringify(scoped, null, 2);
 }

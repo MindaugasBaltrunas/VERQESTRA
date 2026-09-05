@@ -2,6 +2,8 @@
 // aritmetika ir kanoninė fazė. Pure — no node imports, no IO, no clock. Behaviour etalon:
 // AG_loop domain/metrics/accepted-change.ts (usage pusė; WBR VQ-204 skaidymas).
 
+import { classifyTaskUsageCall } from "../tokens/usage-ledger.js";
+
 /** Minimal structural stand-in for the token-usage telemetry record. */
 export type BenchmarkUsageEntry = {
   task_id: string;
@@ -94,10 +96,23 @@ export function addUsageTotals(a: BenchmarkUsageTotals, b: BenchmarkUsageTotals)
   };
 }
 
-/** A usage record backed by a real model call — `none` marks deterministic/local work. */
+/**
+ * A usage record backed by a real, chargeable model call.
+ *
+ * Task 193 (auditas 2026-09-05, #28): the benchmark used to have its OWN definition —
+ * "any model name that is not `none`" — so a 429/usage-limit record with zero usage counted
+ * as an `llm_calls` unit while the ledger did not count it. Two definitions of "an LLM call"
+ * in one codebase means the benchmark's cost-per-call figure could not be compared with the
+ * ledger's. The definition source is `domain/tokens/usage-ledger.ts:108-112`
+ * (`classifyTaskUsageCall`) and it is IMPORTED, not copied: a third copy is exactly what the
+ * finding was about. `BenchmarkUsageEntry` satisfies the ledger's `TaskUsageEntry` structurally.
+ *
+ * Both directions of the inherited rule apply: a record with zero usage is `zero-usage` and no
+ * longer counts, and a record with real usage but no model name counts (the ledger refuses to
+ * read a missing model as deterministic — only an explicit `none` is).
+ */
 export function isLlmCall(entry: BenchmarkUsageEntry): boolean {
-  const model = entry.model.trim();
-  return model.length > 0 && model !== "none";
+  return classifyTaskUsageCall(entry) === "model-call";
 }
 
 export function canonicalBenchmarkPhase(phase: string): CanonicalBenchmarkPhase {

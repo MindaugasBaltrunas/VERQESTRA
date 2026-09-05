@@ -16,7 +16,12 @@
 //    gynybinis kontraktas);
 //  - statKind — STAT semantika (seka symlink'us): readiness reikalavimams symlink'intas
 //    realus katalogas YRA katalogas (etalono missingPaths elgesys);
-//  - list* — nesamas katalogas yra tuščias sąrašas (nebuvimas — atsakymas, ne klaida).
+//  - list*/statPath/statKind — NEBUVIMAS yra atsakymas, o VISKAS KITA yra klaida:
+//    `ENOENT`/`ENOTDIR` duoda `[]` / `absent`, o `EACCES`/`EPERM`/`EIO` metami (2026-09-05
+//    audito F15). Iki tol `catch {}` visas tris klases suliedavo į „nieko nėra", ir kvietėjai
+//    (`dist-freshness`, `preserved-ref-retention`, `orphan-worktree-reaper`) iš neperskaitomo
+//    katalogo darydavo sprendimą „tuščia" — t. y. tylią baigtį vietoje gedimo. Kvietėjas,
+//    kuriam tolerancija reikalinga sąmoningai, ją deklaruoja SAVO `try`, ne adapteryje.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -36,6 +41,18 @@ import { isErrnoCode } from "../../shared/errors.js";
 import { isLockDirectoryTaken, withWin32RenameRetry } from "./fs-retry.js";
 
 export type NodeStatPathResult = { kind: "file" | "directory" | "other" | "absent"; size: number };
+
+/**
+ * Ar klaida reiškia „tokio kelio nėra", o ne „kelio perskaityti nepavyko".
+ *
+ * `ENOENT` — vardo nėra; `ENOTDIR` — kelias eina per failą, tad katalogo tame kelyje irgi
+ * nėra. Abu yra ATSAKYMAI. Visa kita (`EACCES`, `EPERM`, `EIO`, `EMFILE`, klaida be kodo)
+ * reiškia, kad atsakymo negavome — ir „nieko nėra" tokiu atveju yra melas, ne numatytoji
+ * reikšmė.
+ */
+function isAbsentPathError(error: unknown): boolean {
+  return isErrnoCode(error, "ENOENT") || isErrnoCode(error, "ENOTDIR");
+}
 
 export const nodeFsAdapter = {
   async exists(absolutePath: string): Promise<boolean> {
@@ -135,8 +152,9 @@ export const nodeFsAdapter = {
   async listDirectory(absoluteDir: string): Promise<string[]> {
     try {
       return (await readdir(absoluteDir)).sort();
-    } catch {
-      return [];
+    } catch (error: unknown) {
+      if (isAbsentPathError(error)) return [];
+      throw error;
     }
   },
 
@@ -144,8 +162,9 @@ export const nodeFsAdapter = {
     try {
       const entries = await readdir(absoluteDir, { withFileTypes: true });
       return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-    } catch {
-      return [];
+    } catch (error: unknown) {
+      if (isAbsentPathError(error)) return [];
+      throw error;
     }
   },
 
@@ -153,8 +172,9 @@ export const nodeFsAdapter = {
     try {
       const entries = await readdir(absoluteDir, { withFileTypes: true });
       return entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
-    } catch {
-      return [];
+    } catch (error: unknown) {
+      if (isAbsentPathError(error)) return [];
+      throw error;
     }
   },
 
@@ -185,8 +205,9 @@ export const nodeFsAdapter = {
         .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
         .map((entry) => path.join(absoluteDir, entry.name))
         .sort();
-    } catch {
-      return [];
+    } catch (error: unknown) {
+      if (isAbsentPathError(error)) return [];
+      throw error;
     }
   },
 
@@ -196,8 +217,9 @@ export const nodeFsAdapter = {
       if (stats.isFile()) return { kind: "file", size: stats.size };
       if (stats.isDirectory()) return { kind: "directory", size: 0 };
       return { kind: "other", size: 0 };
-    } catch {
-      return { kind: "absent", size: 0 };
+    } catch (error: unknown) {
+      if (isAbsentPathError(error)) return { kind: "absent", size: 0 };
+      throw error;
     }
   },
 
@@ -207,8 +229,9 @@ export const nodeFsAdapter = {
       if (stats.isFile()) return "file";
       if (stats.isDirectory()) return "directory";
       return "absent";
-    } catch {
-      return "absent";
+    } catch (error: unknown) {
+      if (isAbsentPathError(error)) return "absent";
+      throw error;
     }
   },
 
@@ -336,6 +359,29 @@ export const nodeFsAdapter = {
       return "created";
     } catch (error: unknown) {
       if (isLockDirectoryTaken(error)) {
+        return "exists";
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Atominis „užimk vardą" katalogui, kur vardas yra TAPATYBĖ, o ne mutex.
+   *
+   * Skiriasi nuo {@link createLockDirectory} vienu dalyku, ir jis esminis: `"exists"` čia
+   * grąžinamas TIK ties `EEXIST`. Lock'ui win32 EPERM/EACCES/EBUSY yra „vardas užimtas
+   * mirštančio lock'o" ir laukimas išsprendžia; tapatybės užėmimui (`createAttempt`) jis
+   * reikštų melagingą `already-exists`, o kvietėjas atsakytų vieninteliu turimu ėjimu —
+   * `nextAttemptId` ir naujas bandymas, kuris gaus tą pačią teisių klaidą. Diagnozė tada
+   * meluoja apie priežastį (2026-09-05 audito F7), tad teisių klaida čia METAMA ir kvietėjas
+   * ją praneša kaip `io`.
+   */
+  async createDirectoryExclusive(absoluteDir: string): Promise<"created" | "exists"> {
+    try {
+      await mkdir(absoluteDir);
+      return "created";
+    } catch (error: unknown) {
+      if (isErrnoCode(error, "EEXIST")) {
         return "exists";
       }
       throw error;

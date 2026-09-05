@@ -16,7 +16,7 @@ import path from "node:path";
 import type { ZodType } from "zod";
 import { formatAttemptId, type AttemptRef } from "../../application/scheduling/worker-limits.js";
 import type { TaskUsageEntry } from "../../domain/tokens/usage-ledger.js";
-import { isAlreadyExistsError, toError } from "../../shared/errors.js";
+import { toError } from "../../shared/errors.js";
 import { toPrettyJson } from "../../shared/json.js";
 import { validateWithSchema } from "../../shared/schema.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
@@ -111,15 +111,16 @@ export async function createAttempt(
 
   try {
     await nodeFsAdapter.makeDirectory(path.dirname(dir.value));
-    // `recursive: false` yra pats užėmimas: EEXIST reiškia, kad id jau kažkam priklauso.
-    const claimed = await nodeFsAdapter.createLockDirectory(dir.value);
+    // `recursive: false` yra pats užėmimas, ir `createDirectoryExclusive` (ne
+    // `createLockDirectory`) — nes „exists" čia privalo reikšti TIK `EEXIST`. Lock'o
+    // klasifikacija win32 EPERM/EACCES laikytų vardą užimtu, ir teisių klaida grįžtų kaip
+    // `already-exists`; kvietėjas (`active-attempt`) tada imtų `nextAttemptId` ir gautų tą
+    // pačią klaidą su tuo pačiu melagingu paaiškinimu (2026-09-05 audito F7).
+    const claimed = await nodeFsAdapter.createDirectoryExclusive(dir.value);
     if (claimed === "exists") {
       return writeFailure("already-exists", [`attempt directory already exists: ${dir.value}`]);
     }
   } catch (error: unknown) {
-    if (isAlreadyExistsError(error)) {
-      return writeFailure("already-exists", [`attempt directory already exists: ${dir.value}`]);
-    }
     return writeFailure("io", [`cannot create ${dir.value}: ${toError(error).message}`]);
   }
 

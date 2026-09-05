@@ -2,6 +2,16 @@
 // `resolveHumanReviewStatus` — FinalAuditPorts.humanReviewResolved tiekėjas: paskutinis
 // task'o įvykis sprendžia statusą ("routed" atveria, "resolved" uždaro; be įvykio —
 // pending). VERQESTRA kelias: vq/state/state-history.json.
+//
+// RAŠYTOJAS yra vienas: `task-state-store` (`moveTaskState`/`finishTaskState`), po sėkmingo
+// `rename` ir `task-move.lock` viduje. Kitos vietos šio failo neliečia, ir tai svarbu:
+// `appendStateHistory` yra read-modify-write BE savo lock'o — jį serializuoja perkėlimo
+// lock'as. Iki 2026-09-05 audito (F4) produkcinio rašytojo nebuvo visai, tad
+// `resolveHumanReviewStatus` niekada negrąžindavo "resolved" ir kanalas buvo miręs.
+//
+// `readStateHistory` sugadintam JSON yra FAIL-CLOSED (meta, o ne grąžina tuščią istoriją):
+// tuščia istorija reikštų "pending", t. y. sugadintas failas tyliai virstų atsakymu. Rašytojas
+// dėl to savo nesėkmės nenutyli — ji eina į `process.stderr`.
 
 import path from "node:path";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";

@@ -18,9 +18,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { isTaskBucket, normalizeTerminalBucket } from "../../domain/tasks/buckets.js";
 import { stealStaleLock } from "../../shared/lock-steal.js";
-import { isAlreadyExistsError, isErrnoCode } from "../../shared/errors.js";
+import { isAlreadyExistsError, isErrnoCode, toError } from "../../shared/errors.js";
 import { toPrettyJson, tryParseJson } from "../../shared/json.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
+import { appendStateHistory, stateHistoryPath } from "./state-history.js";
 
 /**
  * - `staleMs` (30 s): kritinė sekcija yra vienas `rename`, tad 30 s be pažangos praktiškai reiškia
@@ -158,10 +159,22 @@ async function stealStaleTaskMoveLock(lockDir: string): Promise<void> {
  * `unreadable` → `keep`. Neperskaitytas savininkas gali būti tas, kuris mūsų lock'ą ką tik perėmė
  * kaip stale; jo trynimas būtų būtent ta klaida. Neatlaisvintas lock'as nieko neužrakina visam
  * laikui — jį atgaus stale riba (`staleMs`), o klaidingai ištrintas neatgaunamas niekaip.
+ *
+ * `absent` → `keep` (2026-09-05 audito F6). Anksčiau čia buvo `release`, ir tai atrodė nekaltai
+ * („nėra ko trinti"), bet atlaisvinimas yra REKURSINIS katalogo `rm`, o ne failo `unlink`, ir
+ * tarp skaitymo bei trynimo telpa visas perėmimo langas: A stovi ilgiau nei `staleMs` → B perima
+ * lock'ą (`rename` į stale kelią, savo `mkdir`), bet `owner.json` dar neįrašė; A `finally`
+ * perskaito `absent` ir nušluoja B KATALOGĄ; C laimi tuščią vardą, ir kritinėje sekcijoje
+ * atsiduria du. Tai ta pati taisyklė, kurią `shared/owned-lock` formuluoja žodžiais „nežinia NĖRA
+ * leidimas trinti" — čia ji tik nebuvo pritaikyta nesamam vardui.
+ *
+ * Kaina: nepavykęs `owner.json` rašymas palieka tuščią lock'o katalogą iki stale ribos vietoje
+ * greito išvalymo. Tai priimta sąmoningai ir dėl tos pačios priežasties kaip `unreadable`:
+ * pavėluotas atgavimas atsistato pats, klaidingas trynimas — ne.
  */
 export function taskMoveLockReleaseDecision(read: TaskMoveLockRead, ourLockId: string): "release" | "keep" {
   if (read.state === "unreadable") return "keep";
-  if (read.state === "absent") return "release";
+  if (read.state === "absent") return "keep";
   return read.lock.lock_id === ourLockId ? "release" : "keep";
 }
 
@@ -287,16 +300,77 @@ async function clearCurrentTaskFileIfMatches(deps: TaskStateStoreDeps, expectedF
   return true;
 }
 
-async function moveWithUniqueName(deps: TaskStateStoreDeps, from: string, preferredTo: string): Promise<string> {
-  return await withTaskMoveLock(deps, `move ${from} -> ${preferredTo}`, async () => {
+/** Ką rašyti į `state-history.json` po perkėlimo; `reason` be reikšmės — `operationName`. */
+type StateHistoryIntent = { taskId: string; reason?: string };
+
+/**
+ * Perėjimo baigtis bucket'ų kalba. Etalono `resolveHumanReviewStatus` skaito TIK šį lauką:
+ * `"routed"` atveria peržiūrą, `"resolved"` ją uždaro. Todėl abi kryptys privalo būti
+ * rašomos — vien „resolved" paverstų mirusį kanalą meluojančiu: kartą atblokuotas, o paskui
+ * vėl į `human-review` nuleistas task'as amžinai liktų „resolved" ir nustotų blokuoti
+ * `final-audit`.
+ */
+function stateHistoryResult(previousFolder: string, nextFolder: string): string {
+  if (nextFolder === "human-review") return "routed";
+  if (previousFolder === "human-review") return "resolved";
+  return "moved";
+}
+
+/**
+ * Įvykio įrašas PO sėkmingo `rename` ir dar LOCK'O VIDUJE: `appendStateHistory` yra
+ * read-modify-write be savo lock'o, tad serializuoja jį būtent `task-move.lock`.
+ *
+ * Bucket'ai imami iš REALIŲ kelių, ne iš prašyto `toDir`: `normalizeTerminalTaskDir`
+ * perrašo `failed` → `human-review`, ir prašymu paremtas įrašas prarastų būtent tą
+ * `"routed"` įvykį, dėl kurio kanalas ir egzistuoja.
+ *
+ * Nesėkmė perkėlimo NEATŠAUKIA: failas jau perkeltas, o istorija yra stebėjimo kanalas.
+ * Bet ji ir nenutylima — `readStateHistory` sugadintam JSON yra fail-closed (meta), tad
+ * tylus praleidimas paliktų visą kanalą užsivėrusį be nė vieno pėdsako.
+ */
+async function recordStateHistoryMove(
+  deps: TaskStateStoreDeps,
+  from: string,
+  to: string,
+  intent: StateHistoryIntent,
+  operationName: string,
+): Promise<void> {
+  const previousFolder = path.basename(path.dirname(from));
+  const nextFolder = path.basename(path.dirname(to));
+  try {
+    await appendStateHistory(stateHistoryPath(deps.runtimeRoot), {
+      task_id: intent.taskId,
+      previous_folder: previousFolder,
+      next_folder: nextFolder,
+      result: stateHistoryResult(previousFolder, nextFolder),
+      reason: intent.reason ?? operationName,
+    });
+  } catch (error: unknown) {
+    process.stderr.write(`[task-state-store] state-history append failed: ${toError(error).message}\n`);
+  }
+}
+
+async function moveWithUniqueName(
+  deps: TaskStateStoreDeps,
+  from: string,
+  preferredTo: string,
+  history?: StateHistoryIntent,
+): Promise<string> {
+  const operationName = `move ${from} -> ${preferredTo}`;
+  return await withTaskMoveLock(deps, operationName, async () => {
     if (!(await nodeFsAdapter.exists(from))) throw new Error(`Unique move source file does not exist: ${from}`);
     const target = await uniquePathUnderLock(preferredTo);
     await nodeFsAdapter.renamePath(from, target);
+    if (history !== undefined) await recordStateHistoryMove(deps, from, target, history, operationName);
     return target;
   });
 }
 
-export type MoveTaskOptions = { updateCurrent?: boolean };
+export type MoveTaskOptions = {
+  updateCurrent?: boolean;
+  /** `state-history` įrašo priežastis; be jos — perkėlimo operacijos vardas. */
+  reason?: string;
+};
 
 /** `TaskStateStorePort` realizacija: perkėlimai, užvėrimas ir aktyvavimas. */
 export function createTaskStateStore(deps: TaskStateStoreDeps): {
@@ -320,19 +394,31 @@ export function createTaskStateStore(deps: TaskStateStoreDeps): {
 
   return {
     async moveTaskState(from, toDir, taskName, options = {}) {
-      await assertAuthority(taskIdFromName(taskName));
+      const taskId = taskIdFromName(taskName);
+      await assertAuthority(taskId);
       const targetDir = normalizeTerminalTaskDir(toDir);
       await nodeFsAdapter.makeDirectory(targetDir);
-      const to = await moveWithUniqueName(deps, from, path.join(targetDir, taskName));
+      const to = await moveWithUniqueName(deps, from, path.join(targetDir, taskName), {
+        taskId,
+        ...(options.reason === undefined ? {} : { reason: options.reason }),
+      });
       if (options.updateCurrent ?? true) await setCurrentTaskFile(deps, to);
       return to;
     },
 
+    // Istorija rašoma ir ČIA, ne tik `moveTaskState`: būtent šiuo keliu task'as ĮEINA į
+    // `human-review` (koordinatoriaus finish, tuščios eilės ir bangos integracijos adapteriai).
+    // Rašant tik išėjimą, kartą atblokuotas ir vėl nuleistas task'as liktų „resolved" ir
+    // nustotų blokuoti `final-audit` — kanalas ne miręs, o meluojantis.
     async finishTaskState(from, toDir, taskName, cleanupFiles = [], options = {}) {
-      await assertAuthority(taskIdFromName(taskName));
+      const taskId = taskIdFromName(taskName);
+      await assertAuthority(taskId);
       const targetDir = normalizeTerminalTaskDir(toDir);
       await nodeFsAdapter.makeDirectory(targetDir);
-      const to = await moveWithUniqueName(deps, from, path.join(targetDir, taskName));
+      const to = await moveWithUniqueName(deps, from, path.join(targetDir, taskName), {
+        taskId,
+        ...(options.reason === undefined ? {} : { reason: options.reason }),
+      });
       for (const cleanupFile of cleanupFiles) {
         // Šaltinio ir taikinio NIEKADA nevalome: pirmasis jau perkeltas, antrasis yra rezultatas.
         if (cleanupFile !== from && cleanupFile !== to) await nodeFsAdapter.removeIfExists(cleanupFile);

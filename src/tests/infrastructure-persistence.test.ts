@@ -3,7 +3,7 @@
 // ir state-history.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -32,6 +32,7 @@ import {
   resolveHumanReviewStatus,
   stateHistoryPath,
 } from "../infrastructure/state/state-history.js";
+import { createTaskStateStore } from "../infrastructure/state/task-state-store.js";
 
 const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-persist-"));
 const runtimeRoot = path.join(projectRoot, "vq");
@@ -191,4 +192,51 @@ test("state-history: append/read roundtrip, o resolveHumanReviewStatus sprendži
   assert.equal(resolveHumanReviewStatus(history, "t1"), "resolved");
   assert.equal(resolveHumanReviewStatus(history, "t2"), "pending");
   assert.equal(resolveHumanReviewStatus([...history].reverse(), "t1"), "pending");
+});
+
+// F4 (2026-09-05): kanalas turi PRODUKCINĮ rašytoją. Iki tol `appendStateHistory` kvietė tik
+// testas viršuje, tad `resolveHumanReviewStatus` produkcijoje niekada negrąžindavo "resolved".
+// NUOSAVAS runtimeRoot: bendras įleistų įrašų į aukštesnį testą ir sugriautų jo `length`.
+test("perkėlimai rašo state-history: įėjimas į human-review — routed, išėjimas — resolved", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "vq-state-history-"));
+  try {
+    const agRoot = path.join(root, "AG");
+    const moveRuntimeRoot = path.join(root, "vq");
+    const queueDir = path.join(agRoot, "tasks", "queue");
+    await mkdir(queueDir, { recursive: true });
+    const source = path.join(queueDir, "0203-task.md");
+    await writeFile(source, "# 0203", "utf8");
+
+    const store = createTaskStateStore({ agRoot, runtimeRoot: moveRuntimeRoot });
+    const historyFile = stateHistoryPath(moveRuntimeRoot);
+
+    // ĮĖJIMAS eina per `finishTaskState` (koordinatoriaus finish kelias), o prašomas `failed`
+    // normalizuojamas į `human-review`. Įrašas todėl imamas iš REALAUS kelio: prašymu paremtas
+    // duotų `next_folder: "failed"` ir prarastų būtent tą "routed" įvykį.
+    const parked = await store.finishTaskState(source, path.join(agRoot, "tasks", "failed"), "0203-task.md", [], {
+      updateCurrent: false,
+      reason: "vartai raudoni",
+    });
+    assert.equal(path.basename(path.dirname(parked)), "human-review");
+
+    const afterPark = await readStateHistory(historyFile);
+    assert.deepEqual(
+      afterPark.map((entry) => [entry.task_id, entry.previous_folder, entry.next_folder, entry.result, entry.reason]),
+      [["0203-task", "queue", "human-review", "routed", "vartai raudoni"]],
+    );
+    assert.equal(resolveHumanReviewStatus(afterPark, "0203-task"), "pending");
+
+    // IŠĖJIMAS (requeue) — human-review → queue.
+    await store.moveTaskState(parked, queueDir, "0203-task.md", { updateCurrent: false });
+    const afterRequeue = await readStateHistory(historyFile);
+    assert.equal(afterRequeue.length, 2);
+    assert.equal(afterRequeue[1]?.previous_folder, "human-review");
+    assert.equal(afterRequeue[1]?.result, "resolved");
+    assert.equal(resolveHumanReviewStatus(afterRequeue, "0203-task"), "resolved");
+    // Be `reason` priežastis yra pati operacija: validatorius tuščio lauko nepriimtų, o
+    // nutylėtas įrašas grąžintų kanalą į mirusią būseną.
+    assert.match(afterRequeue[1]?.reason ?? "", /^move /);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

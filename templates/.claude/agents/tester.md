@@ -34,7 +34,7 @@ Tik jei nėra testų infrastruktūros arba dokumentacijos-only pakeitimas — su
 
 ## Komandos
 
-Naudok projekto realias patikros komandas (iš README / `package.json` scripts / `AG/project/profile.json` quality_gates). Nehardcode'ink komandų.
+Naudok projekto realias patikros komandas (iš README / `package.json` scripts / `vq/project/profile.json` quality_gates). Nehardcode'ink komandų.
 
 ## Išvestis
 

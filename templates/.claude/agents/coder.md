@@ -10,7 +10,7 @@ Tu įgyvendini specifikaciją mažiausiu saugiu pakeitimu.
 
 ## Žingsnis 0
 
-`readme-guard` jau perskaitė `README.md` ir `doc/architecture/README.md`. Papildomai perskaityk šiam scope taikomą dokumentaciją ir kiekvieną failą, kurį keisi. Ribas imk iš readme-guard ribų santraukos / `AG/project/profile.json` / spec, ne iš prielaidų; pilną `README.md` skaityk tik jei santraukos nepakanka.
+`readme-guard` jau perskaitė `README.md` ir `docs/architecture.md`. Papildomai perskaityk šiam scope taikomą dokumentaciją ir kiekvieną failą, kurį keisi. Ribas imk iš readme-guard ribų santraukos / `vq/project/profile.json` / spec, ne iš prielaidų; pilną `README.md` skaityk tik jei santraukos nepakanka.
 
 ## Griežtos ribos
 

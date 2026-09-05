@@ -170,22 +170,25 @@ test("planSlotProvisioning: hard-cap detail names the real reason, not a fabrica
 });
 
 test("resolveWorkerOutcomes: a missing outcome means still running (fail-closed)", () => {
-  const primary = candidate("0001", "src/a/", { lease: lease("0001", "w1", { worktreePath: "worktrees/w1" }), worktree: "worktrees/w1" });
-  const second = candidate("0002", "src/b/", { lease: lease("0002", "w2", { worktreePath: "worktrees/w2" }), worktree: "worktrees/w2" });
+  const firstLease = lease("0001", "w1", { worktreePath: "worktrees/w1" });
+  const secondLease = lease("0002", "w2", { worktreePath: "worktrees/w2" });
+  const primary = candidate("0001", "src/a/", { lease: firstLease, worktree: "worktrees/w1" });
+  const second = candidate("0002", "src/b/", { lease: secondLease, worktree: "worktrees/w2" });
   const plan = planWorkerPool({ run_id: "r1", candidates: [primary, second], requested_workers: 2, now: NOW });
 
+  // Be rezultato slot'as laikomas DIRBANČIU: jo lease neatlaisvinamas, o priežastis sako, kad
+  // integracija laukia. Abu tvirtinimai yra vienintelis šio invarianto matomas paviršius.
   const partial = resolveWorkerOutcomes(plan, [{ worker_id: "w1", task_id: "0001", status: "succeeded" }]);
-  assert.equal(partial.integration_ready, false);
-  assert.deepEqual(partial.continuing.map((slot) => slot.worker_id), ["w2"]);
+  assert.deepEqual(partial.release_lease_ids, [firstLease.lease_id], "dirbančio slot'o lease lieka neatlaisvintas");
+  assert.match(partial.reason, /dar dirba/);
 
   const done = resolveWorkerOutcomes(plan, [
     { worker_id: "w1", task_id: "0001", status: "succeeded" },
     { worker_id: "w2", task_id: "0002", status: "failed" },
   ]);
-  assert.equal(done.integration_ready, true);
-  assert.deepEqual(done.succeeded_task_ids, ["0001"]);
-  assert.deepEqual(done.failed_task_ids, ["0002"]);
-  assert.equal(done.release_lease_ids.length, 2);
+  assert.deepEqual(done.release_lease_ids, [firstLease.lease_id, secondLease.lease_id].sort());
+  // Žlugęs slot'as yra terminalinis lygiai taip pat, kaip sėkmingas: abu skaičiuojami priežastyje.
+  assert.match(done.reason, /visi 2 slot'ai terminaliniai: 1 sėkmingi, 1 žlugę/);
 });
 
 // ---------------------------------------------------------------------------

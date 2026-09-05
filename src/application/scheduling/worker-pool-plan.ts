@@ -290,14 +290,14 @@ export type WorkerOutcome = {
   detail?: string;
 };
 
+// 2026-09-05 (auditas): iš čia PAŠALINTI `continuing`, `succeeded_task_ids`, `failed_task_ids`
+// ir `integration_ready`. Vienintelis produkcinis kvietėjas —
+// `worker-integration.evaluateIntegrationCheckpoint` — ėmė TIK `release_lease_ids` ir `reason`; užimtumo
+// autoritetas ten yra gyvi slot'ai, ne šis planas, o žlugusių šakų blokas eina per
+// `wave-outcome`/`wave-scheduler` task id'us, ne per šį rezultatą. `failed_task_ids` doc'as
+// žadėjo `collectBlockedBranch` maitinimą, kurio niekada nebuvo. Skaičiavimas gyvas viduje:
+// jis suformuoja `reason` eilutę.
 export type WorkerPoolResolution = {
-  /** Slot'ai, kurie vis dar dirba ir gali užbaigti savo nepriklausomą task'ą. */
-  continuing: WorkerSlot[];
-  succeeded_task_ids: string[];
-  /** Žlugę task'ai — jų šaka blokuojama wave scheduler'yje (`collectBlockedBranch`). */
-  failed_task_ids: string[];
-  /** `true` tik kai KIEKVIENAS slot'as pasiekė terminalinę būseną. */
-  integration_ready: boolean;
   /** Lease'ai, kuriuos galima atlaisvinti kartu su jų scope lock'ais. */
   release_lease_ids: string[];
   reason: string;
@@ -308,8 +308,8 @@ export type WorkerPoolResolution = {
  *
  * Esminis dalykas: vieno slot'o lūžis NEnutraukia kito. Slot'ai paleisti tik įrodžius, kad
  * jų write set'ai nesikerta, todėl žlugęs workeris fiziškai negalėjo paliesti gyvo workerio
- * failų — jo šaka blokuojama, o kitas slot'as baigia darbą. Integracija vis tiek laukia:
- * slot'as be rezultato laikomas dirbančiu (fail-closed).
+ * failų — kitas slot'as ramiai baigia darbą. Integracija vis tiek laukia: slot'as be rezultato
+ * laikomas dirbančiu (fail-closed), tad jo lease į `release_lease_ids` nepatenka.
  */
 export function resolveWorkerOutcomes(
   plan: WorkerPoolPlan,
@@ -340,10 +340,6 @@ export function resolveWorkerOutcomes(
     : `${continuing.length} slot'as(-ai) dar dirba — integracija laukia bangos vartų`;
 
   return {
-    continuing,
-    succeeded_task_ids: [...succeeded].sort(),
-    failed_task_ids: [...failed].sort(),
-    integration_ready: integrationReady,
     release_lease_ids: [...new Set(releaseLeaseIds)].sort(),
     reason,
   };

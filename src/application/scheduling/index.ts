@@ -20,8 +20,9 @@ export * from "./worker-pool-admission.js";
 export * from "./worker-pool-plan.js";
 export * from "./slot-refill.js";
 export * from "./worker-integration.js";
-// E4 VQ-402 (1/2): worktree policy + izoliuotos kopijos planas (GitCommandPlan sudaromas
-// čia, vykdo infrastructure/git runGitPlan).
+// E4 VQ-402 (1/2): worktree politika — ar izoliuotos darbo kopijos įjungtos. Git komandas
+// stato ir vykdo pats infrastructure/git/worktrees kelias (tarpinis plano tipas ir jo
+// vykdytojas pašalinti 2026-08-24, žr. worktree-policy.ts).
 export * from "./worktree-policy.js";
 // E5 VQ-501 (2/5-a): pre-loop vartai per LoopPreconditionPorts (etalono loop-preconditions;
 // higienos reaper'is injektuojamas — realų suriša VQ-504 kompozicija).

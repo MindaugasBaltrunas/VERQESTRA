@@ -86,23 +86,26 @@ export function coordinatorCliPort(input: CoordinatorAdapterInput): CliPort {
   };
 }
 
-/** Gedimų klasifikacija: infrastruktūros exit kodai ir dispatch spawn požymiai. */
-export function coordinatorFailurePort(runtimeRoot: string): FailurePort {
+/** Gedimų klasifikacija: TIK infrastruktūros exit kodai (task 241). */
+export function coordinatorFailurePort(): FailurePort {
   return {
     isInfrastructureExit: (code) => isInfrastructureExitCode(code),
     /**
-     * Ne kiekvienas ne-nulinis dispatch kodas yra task'o kaltė. `claude-last.log` spawn/ENOENT
-     * požymis reiškia, kad modelis NIEKADA nebuvo paleistas — toks bandymas neturi degti kaip
-     * nesėkmingas retry, nes task'as dar nė karto nebuvo bandytas.
+     * Sprendžia VIEN exit kodas. Teksto skenavimo čia nebėra ir jo grąžinti negalima.
+     *
+     * Iki 2026-09-05 ši funkcija dar skaitydavo `vq/logs/claude-last.log` ir ieškodavo
+     * `spawn … ENOENT|ENOENT|command not found|is not recognized as`. Tas žurnalas yra VISAS
+     * sesijos stream-json transkriptas su tool rezultatais, tad šablonas gaudydavo ne aplinką,
+     * o vykdytojo darbą: task'as, kurio faile guli `new Error("ENOENT: …")`, kiekvieną savo
+     * ne-nulinę baigtį paversdavo „infrastruktūra". Realus padarinys — 166 dukart (08:21 ir
+     * 18:02) nutraukė VISĄ bangą su `LOOP ABORT (infrastruktura) exit=1`, nors tai buvo paprasta
+     * turn'ų lubų nesėkmė, kuriai priklausė diagnozė, o ne abort'as.
+     *
+     * Teksto nebereikia: trūkstamą vykdytoją `claude-launcher.ts` nuo 2026-08-09 praneša
+     * deterministiniu `EXECUTOR_UNAVAILABLE_EXIT_CODE = 69`, kurį gaudo `isInfrastructureExitCode`.
      */
-    isDispatchInfrastructureFailure: async (exitCode) => {
-      if (exitCode === 0) return false;
-      if (isInfrastructureExitCode(exitCode)) return true;
-      // Žurnalas skaitomas GLOBALUS ir be task filtro sąmoningai: spawn gedimas įvyksta
-      // PRIEŠ tai, kai procesas apskritai sužino task'o id, tad jo žinutėje jo ir nebus.
-      const log = await readOptionalFile(path.join(runtimeRoot, "logs", "claude-last.log"));
-      return /spawn \S+ ENOENT|ENOENT|command not found|is not recognized as/i.test(log);
-    },
+    isDispatchInfrastructureFailure: (exitCode) =>
+      Promise.resolve(exitCode !== 0 && isInfrastructureExitCode(exitCode)),
     infrastructureError: (message, options) => new WorkflowInfrastructureError(message, options),
   };
 }

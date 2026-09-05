@@ -3,9 +3,6 @@
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 
-## Priklausomybės
-- 173-composition-p2-partija-sprendimo-nuosavybe-ir-statinis-git-importas
-
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `src/composition/loop/coordinator-adapters.ts` `coordinatorFailurePort.isDispatchInfrastructureFailure`
 grąžina TIK `isInfrastructureExitCode(exitCode)` (be `claude-last.log` teksto skaitymo ir be

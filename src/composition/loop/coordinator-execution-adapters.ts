@@ -438,7 +438,7 @@ export function taskRunPorts(input: CoordinatorAdapterInput): TaskRunPorts {
   return {
     log: coordinatorLogPort(input.runtimeRoot),
     cli: verifyStopBridgeWaitCliPort(input, coordinatorCliPort(input)),
-    failure: coordinatorFailurePort(input.runtimeRoot),
+    failure: coordinatorFailurePort(),
     tasks: coordinatorTaskFilePort(input),
     repairPrompt: coordinatorRepairPromptPort(input.runtimeRoot),
     ledger: coordinatorLedgerPort(input.runtimeRoot),

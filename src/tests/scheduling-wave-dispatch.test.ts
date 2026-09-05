@@ -189,6 +189,29 @@ test("baigtys fiksuojamos po VIENĄ, net kai slot'ai baigia kartu", async () => 
   assert.equal(overlapped, false);
 });
 
+test("antro slot'o `beginTask` metimas nepalieka pirmo „running“ be `runTask`", async () => {
+  const ran: string[] = [];
+  await assert.rejects(
+    () =>
+      dispatchWaveSlots([slot("w1", "0001"), slot("w2", "0002")], {
+        beginTask: (entry) => {
+          if (entry.task_id === "0002") return Promise.reject(new Error("lease claim atmestas"));
+          return Promise.resolve();
+        },
+        runTask: async (entry) => {
+          ran.push(entry.task_id);
+          return SUCCEEDED;
+        },
+        recordOutcome: () => Promise.resolve(),
+      }),
+    /lease claim atmestas/,
+  );
+  // 174: anksčiau visi `beginTask` buvo suvaromi viename cikle prieš bet kurį `runTask` — antro
+  // slot'o metimas nutraukdavo funkciją PRIEŠ Promise.all, ir pirmas slot'as likdavo „running"
+  // niekada nepaleidus jo `runTask`. Dabar pirmo lane'o klaida antram įtakos neturi.
+  assert.deepEqual(ran, ["0001"]);
+});
+
 test("vieno lane'o metimas NUTRAUKIA run'ą, bet tik palaukus kitų", async () => {
   const finished: string[] = [];
   await assert.rejects(

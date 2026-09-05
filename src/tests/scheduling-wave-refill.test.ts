@@ -11,6 +11,7 @@ import type { WavePlan, WaveReadyTask } from "../application/scheduling/schedule
 import type { WorkerCandidate } from "../application/scheduling/worker-pool-admission.js";
 import { computeTaskWriteSet } from "../application/scheduling/conflict-detector.js";
 import type { SlotProvisionTarget } from "../application/scheduling/wave-pool-planning.js";
+import type { WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
 
 function writeSet(taskId: string): WorkerCandidate["write_set"] {
   return computeTaskWriteSet({ task_id: taskId, allowed_paths: [`src/${taskId}.ts`] });
@@ -168,4 +169,47 @@ test("papildymas perskaičiuoja bangą IŠ NAUJO", async () => {
   await createWaveRefillCoordinator(world.deps).refillSlot("w2", { kind: "none" });
   // Per tą laiką kiti slot'ai jau galėjo užimti kelius — senas planas būtų melagingas.
   assert.equal(world.recorded.replans, 1);
+});
+
+test("po aprūpinimo įsimintas kandidatas turi LAIMĖTOJO lease/worktree, ne pasenusius", async () => {
+  // 174: pirmas planas atmeta abu kandidatus dėl `missing-lease`, lease'as išduodamas
+  // laimėtojui (0001, seklesnis task_id laimi tvarką), o antras planas jį jau mato su lease'u
+  // ir darbo kopija. `rememberCandidate` privalo gauti BŪTENT šitą — atnaujintą — kandidatą, o
+  // ne pradinį (be lease'o), kuris po perplanavimo laimi.
+  const winningLease: WorkerLease = {
+    schema_version: 1,
+    lease_id: "lease-0001",
+    status: "held",
+    owner_id: "owner-1",
+    run_id: "r1",
+    worker_id: "w2",
+    task_id: "0001",
+    attempt: 1,
+    fencing_token: 1,
+    worktree_path: ".worktrees/w2",
+    acquired_at: "2026-08-21T12:00:00.000Z",
+    heartbeat_at: "2026-08-21T12:00:00.000Z",
+    expires_at: "2026-08-21T15:00:00.000Z",
+  };
+
+  let call = 0;
+  const remembered: WorkerCandidate[] = [];
+  const world = coordinator({
+    toWorkerCandidates: (tasks) => {
+      call += 1;
+      return tasks.map((task) =>
+        call >= 2 && task.task_id === winningLease.task_id
+          ? { ...candidateOf(task), lease: winningLease, worktree_path: ".worktrees/w2" }
+          : candidateOf(task),
+      );
+    },
+    rememberCandidate: (candidate) => remembered.push(candidate),
+  });
+
+  const result = await createWaveRefillCoordinator(world.deps).refillSlot("w2", { kind: "none" });
+
+  assert.equal(result?.slot.task_id, "0001");
+  assert.equal(remembered.length, 1);
+  assert.equal(remembered[0]?.lease?.lease_id, "lease-0001", "įsimintas kandidatas turi laimėtojo lease'ą");
+  assert.equal(remembered[0]?.worktree_path, ".worktrees/w2", "įsimintas kandidatas turi laimėtojo darbo kopiją");
 });

@@ -128,8 +128,13 @@ export type WaveDispatchDeps = {
  * Paleidžia visus suteiktus slot'us LYGIAGREČIAI ir grąžina jų baigtis.
  *
  * Kas lygiagretu ir kas ne — tyčia:
- *   - `beginTask` kviečiamas NUOSEKLIAI ir plano tvarka: jis rašo bendrą snapshot'ą bei
- *     checkpoint'ą, tad lygiagretus kvietimas duotų dvi to paties failo versijas;
+ *   - `beginTask` kviečiamas NUOSEKLIAI ir plano tvarka (per `beginInOrder` grandinę), bet
+ *     KIEKVIENAM slot'ui TIESIOG PRIEŠ jo paties `runTask`, ne visiems iš anksto vienu `for`
+ *     ciklu prieš `Promise.all`: anksčiau antro slot'o `beginTask` metimas nutraukdavo VISĄ
+ *     funkciją dar prieš startuojant bet kurį `runTask`, o pirmas slot'as likdavo pažymėtas
+ *     „running" (startas įrašytas, lease atnaujintas) niekada nepaleidus jo `runTask`. Grandinė
+ *     lieka nuoseklu, nes ji rašo bendrą snapshot'ą bei checkpoint'ą, tad lygiagretus kvietimas
+ *     duotų dvi to paties failo versijas;
  *   - `runTask` kviečiamas visiems vienu metu — tai ir yra visa šios funkcijos prasmė;
  *   - `recordOutcome` serializuojamas: jis keičia bendrą bangos būseną ir persistuoja snapshot'ą.
  *     Fiksuojama vis tiek TADA, kai slot'as realiai baigia, o ne po visų — todėl „vienas dar
@@ -143,7 +148,19 @@ export async function dispatchWaveSlots(
   slots: readonly WaveDispatchSlot[],
   deps: WaveDispatchDeps,
 ): Promise<WaveSlotResult[]> {
-  for (const slot of slots) await deps.beginTask(slot);
+  // `beginTask` grandinė: kiekvienas kvietimas laukia ANKSTESNIO, tad tvarka lieka plano tvarka
+  // net kai jį kviečia skirtingi lane'ai. Grandinė niekada neužstringa ties viena klaida — kitaip
+  // vieno slot'o metimas užkirstų kelią VISŲ vėlesnių `beginTask` kvietimams (įskaitant papildymo
+  // metu paleidžiamus).
+  let beginChain: Promise<void> = Promise.resolve();
+  const beginInOrder = (slot: WaveDispatchSlot): Promise<void> => {
+    const started = beginChain.then(() => deps.beginTask(slot));
+    beginChain = started.then(
+      () => undefined,
+      () => undefined,
+    );
+    return started;
+  };
 
   // Nuoseklinimo grandinė. Ankstesnio įrašo KLAIDA neužkerta kelio kito slot'o rezultatui:
   // priešingu atveju vienas nepavykęs snapshot'o rašymas paslėptų antro slot'o baigtį, ir banga
@@ -166,6 +183,17 @@ export async function dispatchWaveSlots(
   await Promise.all(
     slots.map(async (first, lane): Promise<void> => {
       const settlements = laneSettlements[lane] ?? [];
+
+      try {
+        await beginInOrder(first);
+      } catch (error) {
+        // Šis lane'as niekada nepaleido `runTask` — kitiems lane'ams tai jokios įtakos neturi.
+        if (deps.onLaneError !== undefined) await deps.onLaneError(first, error).catch(() => undefined);
+        settlements.push({ slot: first, error });
+        active -= 1;
+        return;
+      }
+
       let current: WaveDispatchSlot | undefined = first;
 
       while (current !== undefined) {
@@ -201,8 +229,10 @@ export async function dispatchWaveSlots(
             if (active === 0 || deps.refill === undefined) return undefined;
             const candidate = await deps.refill(running);
             if (candidate === undefined) return undefined;
-            // Skaitiklis didinamas TIK po sėkmingo `beginTask`.
-            await deps.beginTask(candidate);
+            // Skaitiklis didinamas TIK po sėkmingo `beginTask`. Ta pati `beginInOrder` grandinė
+            // kaip pradiniams slot'ams — kitaip papildymo `beginTask` galėtų susikirsti su kito
+            // lane'o dar nespėtu pradiniu `beginTask`.
+            await beginInOrder(candidate);
             active += 1;
             return candidate;
           });

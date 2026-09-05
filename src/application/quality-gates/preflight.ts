@@ -29,7 +29,12 @@ import type {
   CodingPrinciplesPolicy,
   EnforcementPolicy,
 } from "../policy-governance/architecture-policies.js";
-import { ALL_REQUIRED_HEADINGS, evaluateArchitectureAndPolicyGates, parseBacktickChecks } from "./preflight-rules.js";
+import {
+  ALL_REQUIRED_HEADINGS,
+  evaluateArchitectureAndPolicyGates,
+  hasHeadingLine,
+  parseBacktickChecks,
+} from "./preflight-rules.js";
 
 export type PreflightVerdict = "pass" | "review-needed" | "invalid";
 export type PreflightDecision = {
@@ -107,7 +112,7 @@ export async function evaluatePreflight(
   const invalidReasons: string[] = [];
 
   for (const heading of requiredHeadings) {
-    if (!hasHeading(taskText, heading)) invalidReasons.push(`missing required heading: ${heading}`);
+    if (!hasHeadingLine(taskText, heading)) invalidReasons.push(`missing required heading: ${heading}`);
   }
   if (!firstNonEmptyLine(extractSection(taskText, "## Tikslas"))) invalidReasons.push("goal is empty");
   if (allowedFiles.length === 0) invalidReasons.push("allowed files are missing");
@@ -120,7 +125,7 @@ export async function evaluatePreflight(
   // Agentų kontraktas: jei task'as turi `## Agentai` — vaidmenys validuojami pagal
   // agents.json registrą (nežinomas role → invalid). Jei sekcijos nėra — numatytasis
   // vaidmuo (default_role) taikomas tyliai (ne-lūžtantis suderinamumas).
-  if (hasHeading(taskText, "## Agentai")) {
+  if (hasHeadingLine(taskText, "## Agentai")) {
     invalidReasons.push(...validateAgentSelection(agents, policies.agentPolicy));
   }
 
@@ -148,8 +153,11 @@ export async function evaluatePreflight(
   if (splitPlan?.required) {
     reviewReasons.push(`split plan generated: ${splitPlan.parts} parts`);
   }
+  // `task chars`, ne `context chars` (CP-2, 2026-09-05): čia matuojamas TASK FAILO tekstas, o pack'o dar nėra.
+  // Enforcement (`token-governance/tool-budget-gates`) tuo pačiu biudžetu matuoja jau surinktą context pack'ą ir
+  // praneša `context chars` — tas pats slenkstis, DU skirtingi dydžiai, todėl ir priežasčių tekstai skirtingi.
   if (taskText.length > tokenBudget.max_context_chars) {
-    reviewReasons.push(`context chars ${taskText.length} > ${tokenBudget.max_context_chars}`);
+    reviewReasons.push(`task chars ${taskText.length} > ${tokenBudget.max_context_chars}`);
   }
   if (allowedFiles.length > tokenBudget.max_files) {
     reviewReasons.push(`context files ${allowedFiles.length} > ${tokenBudget.max_files}`);
@@ -176,10 +184,6 @@ export async function evaluatePreflight(
   };
   await ports.writeDecision(decision);
   return decision;
-}
-
-function hasHeading(text: string, heading: string): boolean {
-  return text.split(/\r?\n/).some((line) => line.trim() === heading);
 }
 
 function nonEmptyLines(text: string): string[] {

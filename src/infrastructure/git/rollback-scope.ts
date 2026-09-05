@@ -17,6 +17,7 @@ import { parseJsonStringArray, tryParseJson } from "../../shared/json.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { run, type CommandResult } from "../process/run-process.js";
 import { gitCurrentBranch, gitHead } from "./git-client.js";
+import { isPreservedRefTaskId } from "./preserved-ref-record-model.js";
 
 async function git(root: string, args: string[]): Promise<CommandResult> {
   return await run("git", ["-C", root, ...args]);
@@ -24,6 +25,30 @@ async function git(root: string, args: string[]): Promise<CommandResult> {
 
 /** GC apsaugos ref'ų šaknis (žr. `preserveTaskScope`) — 075-a-02 retencijos modulis skaito šį patį prefiksą. */
 export const PRESERVED_REF_PREFIX = "refs/verqestra/preserved/";
+
+/** Preserved commit'o žinutės pastovi dalis; `task=<id>` prikabinamas TIK kai id žinomas. */
+const PRESERVED_COMMIT_SUBJECT = "verqestra: preserved task scope";
+
+/**
+ * 197: iki šiol žinutė buvo fiksuota, tad vienintelis `refs/verqestra/preserved/*` gamintojas
+ * kiekvieną našlaitį paversdavo `task-id-not-found` sutaikinime (`preserved-ref-reconcile.ts`).
+ * Žyma rašoma ta pačia `task=<id>` gramatika, kurią skaito AG žurnalas ir sutaikinimas.
+ */
+function preservedCommitMessage(taskId: string | undefined): string {
+  return taskId === undefined ? PRESERVED_COMMIT_SUBJECT : `${PRESERVED_COMMIT_SUBJECT} task=${taskId}`;
+}
+
+/**
+ * Tapatybės šaltinis tas pats, kurį šis failas jau naudoja `readTaskScopePaths` filtrui —
+ * `<root>/vq/state/current-task-id`. Eksplicitinis `options.taskId` jį aplenkia; neatitinkantis
+ * gramatikos id atmetamas tyliai, ir žinutė lieka be žymos (elgesys kaip iki 197).
+ */
+async function resolvePreservedTaskId(root: string, explicitTaskId: string | undefined): Promise<string | undefined> {
+  const candidate =
+    explicitTaskId?.trim() ||
+    ((await nodeFsAdapter.readTextFileIfExists(path.join(root, "vq", "state", "current-task-id"))) ?? "").trim();
+  return candidate && isPreservedRefTaskId(candidate) ? candidate : undefined;
+}
 
 /** `rev-list --count` nesėkmė ant push'inimo varto yra fail-closed, ne tylus 0/NaN „leidžiama". */
 function revListCountFailure(command: string, result: CommandResult): PushedRollbackDecision {
@@ -88,7 +113,12 @@ type PreserveOutcome = { ok: true; preserved?: PreservedTaskScope } | { ok: fals
  * Bet kuri git nesėkmė šioje grandinėje yra fail-closed — kvietėjas gauna `ok:false` ir
  * atstatymo kilpa NEPALEIDŽIAMA, kad purvinas medis niekada netaptų tyliai sunaikintu.
  */
-async function preserveTaskScope(root: string, stableRef: string, paths: readonly string[]): Promise<PreserveOutcome> {
+async function preserveTaskScope(
+  root: string,
+  stableRef: string,
+  paths: readonly string[],
+  taskId: string | undefined,
+): Promise<PreserveOutcome> {
   const indexPath = path.join(tmpdir(), `verqestra-preserve-${process.pid}.index`);
   const env = { ...process.env, GIT_INDEX_FILE: indexPath };
   const runGit = async (args: string[]): Promise<CommandResult> => await run("git", ["-C", root, ...args], { env });
@@ -121,7 +151,7 @@ async function preserveTaskScope(root: string, stableRef: string, paths: readonl
       .map((line) => line.trim())
       .filter(Boolean);
 
-    const commitTree = await runGit(["commit-tree", tree, "-p", stableRef, "-m", "verqestra: preserved task scope"]);
+    const commitTree = await runGit(["commit-tree", tree, "-p", stableRef, "-m", preservedCommitMessage(taskId)]);
     if (commitTree.code !== 0) return failure("commit-tree", commitTree);
     const commit = commitTree.stdout.trim();
     const ref = `${PRESERVED_REF_PREFIX}${commit}`;
@@ -167,13 +197,21 @@ export async function committedTaskWorkSince(
  * checkout'inamas iš jo; task'o sukurtas (nesantis `stableRef`) — unstage'inamas ir
  * šalinamas iš worktree. Bet kokia git nesėkmė nutraukia su `ok:false`, kad kvietėjas
  * eskaluotų į human-review, o ne griebtųsi repo-wide reset'o.
+ *
+ * `options.taskId` (197) yra NEPRIVALOMAS: jį perdavus, preserved commit'as pasirašo `task=<id>`
+ * žyma; be jo tapatybė skaitoma iš `<root>/vq/state/current-task-id`. Portas
+ * (`rollback-stable.ts` `restoreTaskScope(root, ref, paths)`) dėl to nekinta.
  */
 export async function restoreTaskScope(
   root: string,
   stableRef: string,
   paths: readonly string[],
+  options: { taskId?: string } = {},
 ): Promise<TaskScopeRestoreResult> {
-  const preserve: PreserveOutcome = paths.length === 0 ? { ok: true } : await preserveTaskScope(root, stableRef, paths);
+  const preserve: PreserveOutcome =
+    paths.length === 0
+      ? { ok: true }
+      : await preserveTaskScope(root, stableRef, paths, await resolvePreservedTaskId(root, options.taskId));
   if (!preserve.ok) return { ok: false, failures: preserve.failures };
 
   const restored: string[] = [];

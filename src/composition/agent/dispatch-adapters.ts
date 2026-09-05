@@ -44,6 +44,7 @@ import { ensureRuntimeDirs } from "../../infrastructure/state/runtime-dirs.js";
 import { recordResumeCheckpoint } from "../../infrastructure/state/resume-checkpoint.js";
 import type { AttemptResolutionPort } from "../../infrastructure/state/attempt-resolution.js";
 import { taskLedgerKey } from "../../domain/tasks/identity.js";
+import { decisionOwnership } from "../../domain/tasks/decision-ownership.js";
 import { tryParseJson } from "../../shared/json.js";
 import type {
   ClaudeDispatchPorts,
@@ -158,10 +159,15 @@ export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDi
       return { warnings: [attemptChannelWarning(attemptInput.taskFile, resolved.reason)] };
     },
 
-    // Nuosavybės taisyklė ta pati kaip `coordinator-adapters.readDecision`, bet griežtesnė
-    // kryptimi: veidrodis be `task_id` čia NEPRIIMAMAS (preflight jį rašo visada, tad jo
-    // nebuvimas reiškia ne mūsų rašytą failą), o svetimas `task_id` yra pasenęs įrašas —
-    // `foreign`, ne klaida.
+    // Nuosavybės taisyklė yra TA PATI kaip `coordinator-adapters.readDecision` — nuo 2026-09-05
+    // ne „tokia pati", o fiziškai viena: `domain/tasks/decision-ownership`. Iki tol abu
+    // skaitytojai turėjo savo kopiją, ir jos išsiskyrė (raidžių dydis, trūkstamo `task_id`
+    // reikšmė), tad tas pats failas vienam buvo svetimas, kitam savas.
+    //
+    // Griežtoji kryptis išlaikyta: veidrodis be `task_id` NEPRIIMAMAS (preflight jį rašo visada,
+    // tad jo nebuvimas reiškia ne mūsų rašytą failą), o svetimas `task_id` yra pasenęs įrašas —
+    // `foreign`, ne klaida. `kind: "missing"` žemiau lieka apie FAILĄ (nėra/tuščias), ne apie
+    // nuosavybę.
     readSupervisorDecision: async (taskId) => {
       const raw = await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "supervisor", "decision.json"));
       if (raw === undefined || raw.trim() === "") return { kind: "missing" };
@@ -170,8 +176,7 @@ export function claudeDispatchPorts(input: ClaudeDispatchAdapterInput): ClaudeDi
         return { kind: "invalid", errors: [parsed.ok ? "decision.json is not a JSON object" : parsed.error.message] };
       }
       const decision = parsed.value as DispatchDecision;
-      const owner = typeof decision.task_id === "string" ? decision.task_id.trim() : "";
-      if (owner === "" || owner.toLowerCase() !== taskId.trim().toLowerCase()) return { kind: "foreign" };
+      if (decisionOwnership({ decisionTaskId: decision.task_id, taskId }) !== "own") return { kind: "foreign" };
       return { kind: "ok", decision };
     },
 

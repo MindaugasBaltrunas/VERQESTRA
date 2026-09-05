@@ -9,9 +9,16 @@
 // Kaina, kai kelio nėra: `claude-last` gyvena tik globaliame `vq/logs` veidrodyje, kurį
 // perrašo bet kuris lygiagretus worker'is, ir `readClaudeSessionLog` grąžina `legacy` —
 // SVETIMO task'o tekstą — vietoj `attempt`.
+//
+// Task 173 pridėjo ANTRĄ šio failo temą — `readSupervisorDecision` nuosavybės vartus. Priežastis
+// ta pati, kaip ir `resolveAttempt` atveju: čia yra vienintelė vieta, kur dispatch'o portai eina
+// per REALŲ kompozicijos adapterį, o ne per fake'us (`interfaces-cli-dispatch-command.test.ts`
+// `readSupervisorDecision` paduoda gatavą rezultatą, tad taisyklės nemato). Poros pusė —
+// `task-execution-run-claude-log.test.ts`: abu failai tikrina TĄ PAČIĄ funkciją per skirtingus
+// adapterius, ir būtent tų dviejų kopijų išsiskyrimas ir buvo taisomas defektas.
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -96,6 +103,47 @@ test("resolveAttempt: nepavykusi rezoliucija — be kelio, su įvardyta priežas
     assert.match(resolved.warnings[0] ?? "", /runtime attempt namespace unavailable/);
     assert.match(resolved.warnings[0] ?? "", /reason=no-runtime/);
     assert.match(resolved.warnings[0] ?? "", /artifacts fall back to global mirrors/);
+  } finally {
+    await rm(world.projectRoot, { recursive: true, force: true });
+  }
+});
+
+/** Sprendimo veidrodis su duotu turiniu; `undefined` — failo nerašome visai. */
+async function writeDecision(runtimeRoot: string, body: string | undefined): Promise<void> {
+  const decisionPath = path.join(runtimeRoot, "supervisor", "decision.json");
+  await mkdir(path.dirname(decisionPath), { recursive: true });
+  if (body !== undefined) await writeFile(decisionPath, body, "utf8");
+}
+
+// Task 173: nuosavybės taisyklė yra viena funkcija (`domain/tasks/decision-ownership`), tad
+// dispatch'as ir koordinatorius tą PATĮ failą privalo vertinti vienodai. Poros antra pusė —
+// `task-execution-run-claude-log.test.ts` „viena nuosavybės taisyklė" testas; abu tikrina tuos
+// pačius tris įvesties atvejus per savo adapterį.
+test("readSupervisorDecision: raidžių dydžio nesutapimas ir sprendimas be task_id — abu `foreign` (task 173)", async () => {
+  const world = await workspace();
+  try {
+    const ports = claudeDispatchPorts({ ...world, resolution: noRuntimeAttemptResolution });
+
+    // (1) Savas sprendimas kita raidžių forma — nuosavybės NEPRARANDA.
+    await writeDecision(world.runtimeRoot, JSON.stringify({ task_id: TASK.toUpperCase(), verdict: "delegate" }));
+    assert.deepEqual(await ports.readSupervisorDecision(TASK), {
+      kind: "ok",
+      decision: { task_id: TASK.toUpperCase(), verdict: "delegate" },
+    });
+
+    // (2) Ranka redaguotas / legacy sprendimas BE `task_id` — preflight jį rašo visada, tad
+    // jo nebuvimas reiškia ne mūsų rašytą failą.
+    await writeDecision(world.runtimeRoot, JSON.stringify({ verdict: "delegate" }));
+    assert.deepEqual(await ports.readSupervisorDecision(TASK), { kind: "foreign" });
+
+    // (3) Svetimas task'as — `foreign`, ne `invalid`: failas tvarkingas, tik ne mūsų.
+    await writeDecision(world.runtimeRoot, JSON.stringify({ task_id: "kitas-task", verdict: "delegate" }));
+    assert.deepEqual(await ports.readSupervisorDecision(TASK), { kind: "foreign" });
+
+    // Kontrolė: `kind: "missing"` čia lieka apie FAILĄ, o ne apie nuosavybę — tuščias turinys
+    // nėra „svetimas sprendimas", ir šitos ribos sujungimas nepajudino.
+    await writeDecision(world.runtimeRoot, "   \n");
+    assert.deepEqual(await ports.readSupervisorDecision(TASK), { kind: "missing" });
   } finally {
     await rm(world.projectRoot, { recursive: true, force: true });
   }

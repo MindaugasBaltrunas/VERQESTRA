@@ -34,12 +34,14 @@ import { shouldResetSessionWriteLedger } from "../../application/task-execution/
 import { clearSessionWriteLedger } from "../../interfaces/hooks/session-write-ledger.js";
 import type { TaskLedgerEntry } from "../../application/task-execution/task-ledger-rules.js";
 import { taskFileStem, taskLedgerKey } from "../../domain/tasks/identity.js";
+import { decisionOwnership } from "../../domain/tasks/decision-ownership.js";
 import { buildTaskStartStatus } from "../../domain/git/rollback-rules.js";
 
 import { isInfrastructureExitCode } from "../../shared/exit-codes.js";
 import { WorkflowInfrastructureError } from "../../shared/errors.js";
 import { toPrettyJson, tryParseJson } from "../../shared/json.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
+import { gitHead, gitStatusPorcelain } from "../../infrastructure/git/git-client.js";
 import { sha256Hex } from "../../shared/hash.js";
 import { readTaskRepairPrompt, removeTaskRepairPrompt } from "../../infrastructure/state/task-repair-store.js";
 import { recordResumeCheckpoint } from "../../infrastructure/state/resume-checkpoint.js";
@@ -259,8 +261,19 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
       // Svetimo task'o sprendimas irgi yra `invalid`: jis galioja, bet ne šiam task'ui.
       // `cause: "foreign"` neša rastą task_id, kad priežastis operatoriui įvardytų NUOSAVYBĖS,
       // o ne failo turinio gedimą (task 041-a — iki tol abu virsdavo corrupted_decision_json=1).
-      if (decision.task_id !== undefined && decision.task_id.trim() !== "" && decision.task_id !== taskId) {
-        return { status: "invalid", cause: "foreign", decisionTaskId: decision.task_id };
+      //
+      // Taisyklė yra ta pati funkcija, kurią kviečia `dispatch-adapters.readSupervisorDecision`
+      // (`domain/tasks/decision-ownership`). Nuo 2026-09-05 ji čia GRIEŽTESNĖ dviem taškais:
+      // palyginimas nebejautrus raidžių dydžiui, o sprendimas BE `task_id` nebėra „savas".
+      // Preflight `task_id` rašo visada, tad jo nebuvimas reiškia ranka redaguotą ar legacy
+      // failą — `<missing>` markeryje pasako operatoriui būtent tai, o ne tylų verdiktą.
+      const ownership = decisionOwnership({ decisionTaskId: decision.task_id, taskId });
+      if (ownership !== "own") {
+        return {
+          status: "invalid",
+          cause: "foreign",
+          decisionTaskId: ownership === "missing" ? "<missing>" : (decision.task_id ?? ""),
+        };
       }
       return { status: "ok", decision };
     },
@@ -286,7 +299,6 @@ export function coordinatorStatePort(input: CoordinatorAdapterInput): RuntimeSta
      * saugo bendras tipas, ne sutapimas.
      */
     recordTaskStartStatus: async (taskId) => {
-      const { gitHead, gitStatusPorcelain } = await import("../../infrastructure/git/git-client.js");
       const payload = buildTaskStartStatus({
         taskId,
         baseHead: (await gitHead(input.projectRoot)) ?? "",

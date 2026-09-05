@@ -212,3 +212,50 @@ test("coordinatorStatePort.readDecision: corrupted / foreign / savas — trys sk
     await rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+// Task 173: nuosavybės taisyklė sujungta į `domain/tasks/decision-ownership`, ir sujungiant
+// laimėjo GRIEŽTESNĖ dispatch'o pusė. Šis testas fiksuoja abu pakitusius taškus koordinatoriaus
+// pusėje; poros antra pusė — `composition-dispatch-attempt-channel.test.ts` tokio pat pavadinimo
+// testas, einantis per dispatch'o adapterį su TOMIS PAČIOMIS trimis įvestimis.
+test("coordinatorStatePort.readDecision: viena nuosavybės taisyklė su dispatch'u (task 173)", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "vq-173-ownership-"));
+  const runtimeRoot = path.join(projectRoot, "vq");
+  const decisionPath = path.join(runtimeRoot, "supervisor", "decision.json");
+  try {
+    await mkdir(path.dirname(decisionPath), { recursive: true });
+    const state = coordinatorStatePort(adapterInput(projectRoot, runtimeRoot, noRuntimeAttemptResolution));
+
+    // (1) BUVO `foreign` (case-sensitive palyginimas), dabar — savas. Ta pati byla, kurią
+    // dispatch'as visada laikė sava; būtent šis nesutapimas ir buvo defektas.
+    await writeFile(decisionPath, JSON.stringify({ task_id: TASK.toUpperCase(), verdict: "delegate" }), "utf8");
+    assert.equal((await state.readDecision(TASK)).status, "ok");
+    await writeFile(decisionPath, JSON.stringify({ task_id: `  ${TASK}\n`, verdict: "delegate" }), "utf8");
+    assert.equal((await state.readDecision(TASK)).status, "ok");
+
+    // (2) BUVO `ok` (sprendimas be `task_id` laikytas savu), dabar — `invalid`. Griežtinimas:
+    // legacy ar ranka redaguotas veidrodis be tapatybės nebeturi teisės vesti task'o, o
+    // `<missing>` markeryje pasako operatoriui, kad gedimas yra NUOSAVYBĖS, ne turinio.
+    await writeFile(decisionPath, JSON.stringify({ verdict: "delegate" }), "utf8");
+    assert.deepEqual(await state.readDecision(TASK), {
+      status: "invalid",
+      cause: "foreign",
+      decisionTaskId: "<missing>",
+    });
+    await writeFile(decisionPath, JSON.stringify({ task_id: "   ", verdict: "delegate" }), "utf8");
+    assert.deepEqual(await state.readDecision(TASK), {
+      status: "invalid",
+      cause: "foreign",
+      decisionTaskId: "<missing>",
+    });
+
+    // (3) Svetimas task'as — nepakitęs kelias: `invalid` su rastu id, ne `corrupted` (041-a).
+    await writeFile(decisionPath, JSON.stringify({ task_id: "kitas-task", verdict: "delegate" }), "utf8");
+    assert.deepEqual(await state.readDecision(TASK), {
+      status: "invalid",
+      cause: "foreign",
+      decisionTaskId: "kitas-task",
+    });
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});

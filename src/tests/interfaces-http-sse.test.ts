@@ -278,6 +278,36 @@ test("miręs klientas išmetamas, o keepalive teka net be pokyčių", async () =
   client.fail = true;
   keepalive?.handler();
   assert.equal(hub.clientCount(), 0);
+  // Task 232 (auditas 2026-09-05, P3): numestas klientas gali būti PASKUTINIS. `close`/`error`
+  // įvykis ateina tik tada, kai socket'as apie save praneša, tad sinchroniškai metęs `write` be šio
+  // varto palikdavo abu taimerius suktis su 0 klientų — 1,5 s `stat` praėjimai iki kito
+  // prisijungimo.
+  assert.deepEqual(world.timers.map((timer) => timer.cleared), [true, true]);
+});
+
+test("paskutiniam klientui numirus per `write`, naujas klientas taimerius atstato", async () => {
+  const world = sseWorld();
+  const hub = createSseHub(world.ports);
+  const dying = fakeClient();
+  await hub.addClient(dying.client);
+
+  dying.fail = true;
+  world.timers.find((timer) => timer.ms === SSE_KEEPALIVE_INTERVAL_MS)?.handler();
+  assert.equal(hub.clientCount(), 0);
+
+  // Sustabdymas negali būti negrįžtamas: `ensureTimers` naudoja `??=`, tad išvalyti taimeriai
+  // privalo būti ir NUNULINTI — kitaip antras operatoriaus langas gautų tik pirmą snapshot'ą ir
+  // amžiną tylą.
+  const revived = fakeClient();
+  await hub.addClient(revived.client);
+  assert.deepEqual(
+    world.timers.filter((timer) => !timer.cleared).map((timer) => timer.ms),
+    [SSE_POLL_INTERVAL_MS, SSE_KEEPALIVE_INTERVAL_MS],
+  );
+
+  world.mtimes.set("/vq/logs/claude-last.log", 7);
+  await hub.checkAndBroadcast();
+  assert.equal(revived.written.length, 2, "atgijęs srautas transliuoja pokytį");
 });
 
 // 2026-08-24 auditas, P0. Šaltinių skaitymas krisdavo pro `checkAndBroadcast` į taimerio

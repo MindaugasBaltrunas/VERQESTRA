@@ -16,7 +16,7 @@ import type { SseActiveAttempt, SseLiveSlotSource, SsePorts } from "../../interf
 import { waveSnapshotSchema } from "../../application/scheduling/wave-snapshot.js";
 import { listWorkerLeases } from "../../application/scheduling/worker-lease-store.js";
 import { formatAttemptId, type AttemptRef } from "../../application/scheduling/worker-limits.js";
-import { attemptArtifactPath, attemptLogPath } from "../../infrastructure/runtime-paths.js";
+import { attemptArtifactPath, attemptLogPath, type RuntimePathResult } from "../../infrastructure/runtime-paths.js";
 import { resolveActiveAttempt } from "../../infrastructure/state/active-attempt.js";
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { tryParseJson } from "../../shared/json.js";
@@ -24,6 +24,21 @@ import { schedulingFs } from "../loop/adapters.js";
 
 /** Claude srauto kanalas bandymo viduje — tas pats vardas kaip globaliame veidrodyje. */
 const CLAUDE_LOG_CHANNEL = "claude-last";
+
+/**
+ * Bandymo rezoliucija plius vienintelė papildoma žinia, kurios reikia ABIEM srauto keliams:
+ * ar tėvo srauto kanalas jau egzistuoja diske.
+ */
+type AttemptLogState =
+  | { resolved: false }
+  | {
+      resolved: true;
+      /** Iš MANIFESTO išvestas ref — iš jo skaičiuojamas ir stop įrodymo kelias. */
+      ref: AttemptRef;
+      claudeLog: RuntimePathResult<string>;
+      /** Bandymas rezoliuotas, bet tėvo `claude-last` kanalo dar nėra = worktree dispatch'as. */
+      parentLogMissing: boolean;
+    };
 
 export type SseAdapterInput = {
   projectRoot: string;
@@ -80,6 +95,37 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
     }
   };
 
+  /**
+   * Task 232 (auditas 2026-09-05, F9): VIENA rezoliucija abiem srauto keliams. `readActiveAttempt`
+   * sprendžia, ką STEBĖTI, `readGlobalActivity` — ką RODYTI, ir iki šio task'o jos matė skirtingą
+   * būseną: pirmoji atpažindavo „bandymas rezoliuotas, bet tėvo `claude-last` kanalo dar nėra"
+   * (worktree dispatch'as) ir sekė kopijos veidrodį, o antroji tą patį atvejį atiduodavo globaliam
+   * veidrodžiui — t. y. srautas reaguodavo į kopijos log'ą, o rodydavo ankstesnio NE-worktree
+   * paleidimo fosiliją.
+   *
+   * `parentLogMissing` yra `claudeLog.ok && !exists`, o NE `!claudeLog.ok || !exists`: neišvedamas
+   * kelias (svetimos formos segmentas) nėra įrodymas, kad srautas gyvena kopijoje, ir abu keliai
+   * tokiu atveju lieka prie esamo elgesio — kaip `readActiveAttempt` darė nuo task 139.
+   */
+  const resolveAttemptLog = async (taskId: string): Promise<AttemptLogState> => {
+    const resolved = await resolveActiveAttempt({ taskId, projectRoot, runtimeRoot });
+    if (!resolved.ok) return { resolved: false };
+
+    const ref: AttemptRef = {
+      runId: resolved.attempt.manifest.run_id,
+      workerId: resolved.attempt.manifest.worker_id,
+      taskId: resolved.attempt.manifest.task_id,
+      attemptId: resolved.attempt.manifest.attempt_id,
+    };
+    const claudeLog = attemptLogPath(runtimeRoot, ref, CLAUDE_LOG_CHANNEL);
+    return {
+      resolved: true,
+      ref,
+      claudeLog,
+      parentLogMissing: claudeLog.ok && !(await nodeFsAdapter.exists(claudeLog.value)),
+    };
+  };
+
   return {
     fileMtimeMs: async (absolutePath) => (await nodeFsAdapter.fileMtimeMs(absolutePath)) ?? 0,
 
@@ -90,17 +136,23 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
      * tada tėvas jį rašo pats, tad jis šviežias). Kai gyvas slot'as yra, bet tėvo bandymo
      * rezoliucija nepavyksta (worktree dispatch), tas pats failas yra ANKSTESNIO NE-worktree
      * paleidimo fosilija — jis rodomas kaip veiklos turinys, nors su šiuo vykdymu neturi nieko
-     * bendro. Todėl čia PAKARTOJAMA ta pati rezoliucija kaip `readActiveAttempt`: radus gyvą
-     * worktree lease, turinys imamas iš JO srauto; nesant lease ar failo — grąžinama TUŠČIA
-     * veikla (žinomas tik `taskId`/`status`, jokio spėjamo turinio), o ne fosilija.
+     * bendro. Todėl čia naudojama ta PATI rezoliucija kaip `readActiveAttempt` ({@link
+     * resolveAttemptLog}): radus gyvą worktree lease, turinys imamas iš JO srauto; nesant lease ar
+     * failo — grąžinama TUŠČIA veikla (žinomas tik `taskId`/`status`, jokio spėjamo turinio), o ne
+     * fosilija.
+     *
+     * Task 232: rezoliuotas bandymas VIENAS savaime veidrodžio nepateisina. Worktree dispatch'e
+     * tėvo bandymo kopija egzistuoja (manifestas rašomas tėvo pusėje), o jos `claude-last` kanalas
+     * — ne, nes vaikas rašo su savo runtimeRoot. Būtent tas atvejis anksčiau iškrisdavo pro
+     * `if (resolved.ok)` tiesiai į fosiliją.
      */
     async readGlobalActivity(): Promise<AgentActivity> {
       const snapshot = await readWaveSnapshotLiveSlots(runtimeRoot);
       const taskId = snapshot?.live_slots[0]?.task_id;
       if (taskId === undefined) return readAgentActivity({ fs }, runtimeRoot);
 
-      const resolved = await resolveActiveAttempt({ taskId, projectRoot, runtimeRoot });
-      if (resolved.ok) return readAgentActivity({ fs }, runtimeRoot);
+      const attempt = await resolveAttemptLog(taskId);
+      if (attempt.resolved && !attempt.parentLogMissing) return readAgentActivity({ fs }, runtimeRoot);
 
       const worktree = await worktreeLiveSources(taskId);
       if (worktree === undefined) {
@@ -169,8 +221,8 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
       const taskId = snapshot?.live_slots[0]?.task_id;
       if (taskId === undefined) return undefined;
 
-      const resolved = await resolveActiveAttempt({ taskId, projectRoot, runtimeRoot });
-      if (!resolved.ok) {
+      const attempt = await resolveAttemptLog(taskId);
+      if (!attempt.resolved) {
         // Bandymo kopijos dar nėra: stebimas worktree veidrodis (task 139), jei gyvas lease jį
         // turi — kitaip rodomas globalus, ir tai PASAKOMA (`legacy`), o ne pateikiama kaip
         // bandymo įrodymas.
@@ -182,19 +234,14 @@ export function ssePorts(input: SseAdapterInput): Omit<SsePorts, "setInterval"> 
         };
       }
 
-      const ref: AttemptRef = {
-        runId: resolved.attempt.manifest.run_id,
-        workerId: resolved.attempt.manifest.worker_id,
-        taskId: resolved.attempt.manifest.task_id,
-        attemptId: resolved.attempt.manifest.attempt_id,
-      };
-      const stopStatus = attemptArtifactPath(runtimeRoot, ref, "stop-state");
-      const claudeLog = attemptLogPath(runtimeRoot, ref, CLAUDE_LOG_CHANNEL);
-      const watchFiles = [stopStatus, claudeLog].filter((result) => result.ok).map((result) => (result.ok ? result.value : ""));
+      const stopStatus = attemptArtifactPath(runtimeRoot, attempt.ref, "stop-state");
+      const watchFiles = [stopStatus, attempt.claudeLog]
+        .filter((result) => result.ok)
+        .map((result) => (result.ok ? result.value : ""));
 
       // Task 139: kol tėvo attempt log'as neegzistuoja (worktree dispatch'as rašo kopijoje),
       // stebimas kopijos veidrodis — kitaip SSE neturi kam reaguoti visą dispatch'ą.
-      if (claudeLog.ok && !(await nodeFsAdapter.exists(claudeLog.value))) {
+      if (attempt.parentLogMissing) {
         const worktree = await worktreeLiveSources(taskId);
         if (worktree) watchFiles.push(worktree.logPath);
       }

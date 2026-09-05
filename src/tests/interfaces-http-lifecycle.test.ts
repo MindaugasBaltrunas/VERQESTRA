@@ -20,7 +20,6 @@ import {
   UI_STARTUP_GRACE_MS,
   ensureUiRunning,
   resetUiLifecycleStateForTests,
-  uiPidFile,
   type UiLifecycleDeps,
 } from "../interfaces/http/ui-lifecycle.js";
 import type { ProcessLifecyclePorts, SpawnedProcess } from "../interfaces/http/process-lifecycle-ports.js";
@@ -278,17 +277,20 @@ test("ensureUiRunning: autostart išjungtas duoda `disabled`", async () => {
   assert.deepEqual(world.spawned, []);
 });
 
-test("ensureUiRunning: laisvas portas paleidžia serverį ir įrašo abu įrašus", async () => {
+test("ensureUiRunning: laisvas portas paleidžia serverį ir įrašo VIENĄ įrašą", async () => {
   resetUiLifecycleStateForTests();
   const world = lifecycleWorld();
 
   const result = await ensureUiRunning(uiDeps(world));
   assert.equal(result.status, "started");
   assert.equal(world.spawned.length, 1);
-  assert.equal(world.store.get(uiPidFile(STATE)), "4242\n");
   // Įrašas rašomas NELAUKIANT vaiko: jei jis nepakiltų, diske negali likti įrašo į portą, kurio
   // niekas neklauso — tik su REALIU portu jį perrašo pakilęs serveris.
   assert.match(world.store.get(uiServerRecordFile(STATE)) ?? "", /"project_fingerprint": "/);
+  // Task 232 (auditas 2026-09-05, F10): `ui.pid` nebekuriamas. Jis buvo rašomas kaip plikas pid, o
+  // skaitomas kaip JSON runtime įrašas, tad kiekvienas startas jį trynė ir rašė iš naujo, o jokio
+  // kito skaitytojo neturėjo. Vienintelis UI proceso įrašas yra `ui-server.json`.
+  assert.equal(world.store.has(path.join(STATE, "ui.pid")), false, "antro įrašo apie tą patį procesą nėra");
 });
 
 test("ensureUiRunning: starto malonės langas neleidžia antro to paties projekto UI", async () => {

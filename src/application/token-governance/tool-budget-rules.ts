@@ -3,6 +3,12 @@
 // Vienas ledger'io vartų skaičiavimas, kurį dalinasi pilnas dispatch enforcement'as ir
 // plonas prieš-kvietimo autorizavimas — be bendros funkcijos šios dvi vietos neišvengiamai
 // išsiskirtų fazių limitų semantika.
+//
+// TG-1 (auditas 2026-09-05): soft priežastys turi DVI rūšis, ir jos nesumaišomos. TOKENŲ
+// spaudimas (`softReasons`) reiškia „numesk žemo prioriteto kontekstą" — tai vienintelis
+// dalykas, kurį konteksto mažinimas realiai pataiso. KVIETIMŲ spaudimas
+// (`callPressureReasons`) prompto dydžiu neišsprendžiamas, tad jis lieka ataskaita ir
+// nebeverčia `reduce_context` į `true`.
 import {
   TASK_PHASES,
   canonicalTaskPhase,
@@ -73,7 +79,21 @@ export type LedgerGateResult = {
   billableTokens: number;
   phaseStatus: BudgetPhaseStatus[];
   hardReasons: string[];
+  /**
+   * Soft TOKENŲ spaudimas — VIENINTELĖ `reduce_context` bazė (auditas 2026-09-05, TG-1).
+   * Kvietimų skaičiaus artėjimas prie lubų čia NEPATENKA: žr. {@link callPressureReasons}.
+   */
   softReasons: string[];
+  /**
+   * Soft KVIETIMŲ spaudimas: `max_llm_calls`, `max_total_llm_calls` ir fazių kvietimų ribos.
+   * Informacinis — kvietimo neblokuoja ir konteksto NEMAŽINA (prompto karpymas kvietimų
+   * neprideda, o paskutinį bandymą tik nuskurdina).
+   *
+   * Šių eilučių iškėlimas į `LlmCallAuthorization` / `BudgetEnforcementStatus` priklauso
+   * `tool-budget-gates.ts` — task 190 (CP-2). Kol tai nepadaryta, kvietimų spaudimas lieka
+   * matomas per fazių `soft_ok`, `llm_calls`/`max_llm_calls` ir `remaining_total_llm_calls`.
+   */
+  callPressureReasons: string[];
   /** RAW perviršis be billable perviršio; niekada nepatenka į hard/soft priežastis. */
   rawNotices: string[];
   remainingTotalLlmCalls: number | null;
@@ -102,6 +122,12 @@ function rawTokenNotice(scope: string, raw: number, billable: number, ceiling: n
  * Soft riba: `used` PASIEKĖ `SOFT_BUDGET_RATIO` dalį `limit` (įskaitytinai), bet dar telpa į
  * hard ribą. Įskaitytinai sąmoningai — prie mažų ribų griežta nelygybė reikštų, kad soft
  * signalas neįvyksta niekada iki paskutinio kvietimo.
+ *
+ * Praktinė pasekmė kvietimų riboms: prie šablono `max_llm_calls: 3` (0,8 × 3 = 2,4) soft
+ * signalas suveikia TREČIAM — paskutiniam leistinam — kvietimui, t. y. būtent tam dispatch'ui,
+ * kurį `model-policy.json` `defer_steps: 1` pirmą kartą eskaluotų. Todėl kvietimų soft signalas
+ * atskirtas nuo tokenų ({@link LedgerGateResult.callPressureReasons}): kitaip eskalacija su
+ * numatytuoju konfigu būtų struktūriškai nepasiekiama (auditas 2026-09-05, TG-1).
  */
 export function softExceeded(used: number, limit: number | undefined | null): boolean {
   return typeof limit === "number" && used <= limit && used >= limit * SOFT_BUDGET_RATIO;
@@ -128,17 +154,18 @@ export function evaluateLedgerGate(
 
   const hardReasons: string[] = [];
   const softReasons: string[] = [];
+  const callPressureReasons: string[] = [];
   const rawNotices: string[] = [];
 
   if (profile.max_llm_calls !== undefined && llmCalls > profile.max_llm_calls) {
     hardReasons.push(`LLM calls ${llmCalls} > ${profile.max_llm_calls}`);
   } else if (softExceeded(llmCalls, profile.max_llm_calls)) {
-    softReasons.push(`LLM calls ${llmCalls} near ${profile.max_llm_calls}`);
+    callPressureReasons.push(`LLM calls ${llmCalls} near ${profile.max_llm_calls}`);
   }
   if (profile.max_total_llm_calls !== undefined && totalLlmCalls > profile.max_total_llm_calls) {
     hardReasons.push(`task LLM calls ${totalLlmCalls} > ${profile.max_total_llm_calls}`);
   } else if (softExceeded(totalLlmCalls, profile.max_total_llm_calls)) {
-    softReasons.push(`task LLM calls ${totalLlmCalls} near ${profile.max_total_llm_calls}`);
+    callPressureReasons.push(`task LLM calls ${totalLlmCalls} near ${profile.max_total_llm_calls}`);
   }
   if (maxBillableTokens !== undefined && billableTokens > maxBillableTokens) {
     hardReasons.push(`task tokens ${billableTokens} > ${maxBillableTokens}`);
@@ -153,7 +180,7 @@ export function evaluateLedgerGate(
     if (phase.max_llm_calls !== null && phase.llm_calls > phase.max_llm_calls) {
       hardReasons.push(`phase ${phase.phase} LLM calls ${phase.llm_calls} > ${phase.max_llm_calls}`);
     } else if (softExceeded(phase.llm_calls, phase.max_llm_calls)) {
-      softReasons.push(`phase ${phase.phase} LLM calls ${phase.llm_calls} near ${phase.max_llm_calls}`);
+      callPressureReasons.push(`phase ${phase.phase} LLM calls ${phase.llm_calls} near ${phase.max_llm_calls}`);
     }
     if (phase.max_tokens !== null && phase.billable_tokens > phase.max_tokens) {
       hardReasons.push(`phase ${phase.phase} tokens ${phase.billable_tokens} > ${phase.max_tokens}`);
@@ -177,6 +204,7 @@ export function evaluateLedgerGate(
     phaseStatus,
     hardReasons,
     softReasons,
+    callPressureReasons,
     rawNotices,
     remainingTotalLlmCalls:
       profile.max_total_llm_calls === undefined ? null : Math.max(0, profile.max_total_llm_calls - totalLlmCalls),

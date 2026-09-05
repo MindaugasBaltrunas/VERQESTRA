@@ -327,9 +327,20 @@ function exitStatusesOf(toolResponse: unknown): number[] {
  * segment has no class word at all (`pnpm test && node scripts/report.js`) still classifies as
  * a single class — and its second program's output would be digested by a parser that has
  * never seen that format.
+ *
+ * Task 193 (auditas 2026-09-05, #30): a descriptor MERGE (`2>&1`, `>&2`) is not a chain — it
+ * redirects one program's streams. The old `/[;|&]/` read it as one, so `pnpm test 2>&1` —
+ * the single most common real form of the command this path exists for — could never be
+ * shortened. The `&` that follows `>` is stripped before the separator test, which is exactly
+ * the rule the segment tokenizer in `domain/policies/bash-command-policy.ts:277` already
+ * applies (that module is the hook author's and stays untouched; this only agrees with it).
+ *
+ * `&>file` still reads as a chain: there the `&` PRECEDES the `>`, and the policy tokenizer
+ * likewise treats a bare leading `&` as a separator. Conservative — the output is kept.
  */
 function isChainedCommand(command: string): boolean {
-  return /[;|&]/.test(command);
+  const withoutDescriptorMerges = command.replace(/>\s*&/g, ">");
+  return /[;|&]/.test(withoutDescriptorMerges);
 }
 
 /**

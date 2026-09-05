@@ -68,13 +68,46 @@ export function isForbiddenPath(relPath: string): boolean {
   return FORBIDDEN_PATTERNS.some((p) => p.test(normalized));
 }
 
-/** Extract every `import ... from "..."` specifier in `content` that points into a dist/ path. */
+/**
+ * Every module specifier in `content` that points into a `dist/` path, in source order.
+ *
+ * Task 193 (auditas 2026-09-05, #31): anksčiau čia buvo TIK `^import … from "…"`, tad
+ * `export … from "…/dist/…"`, dinaminis `import("…/dist/…")` ir `require("…/dist/…")`
+ * prasprūsdavo — mazgo verifikacija dist importų nematė pusėje realiai naudojamų formų.
+ * Visos formos sujungtos į VIENĄ alternatyvą su vienu `exec` ciklu: taip radiniai lieka
+ * šaltinio tvarka, o dvi formas atitinkanti eilutė nepatenka du kartus.
+ *
+ * NUKRYPIMAS NUO UŽDUOTIES APIMTIES (griežtinantis): be trijų audite išvardintų formų
+ * atpažįstamas ir šalutinio efekto `import "…/dist/…"` (be `from`, be skliaustų) — ta pati
+ * gedimo klasė, ir palikta ji būtų kitas to paties audito radinys.
+ *
+ * `from` formų kelias imamas per `[^'"]*?` (ne `.`) — būtent tai leidžia daugiaeilį
+ * `import {\n a\n} from "…"` ir kartu neleidžia `export const distPath = "…"` palaikyti importu.
+ * Statinės formos lieka pririštos prie eilutės pradžios (`^\s*`), tad užkomentuotas statinis
+ * importas neatpažįstamas — kaip ir iki šio pakeitimo.
+ *
+ * SĄMONINGAI konservatyvu ties dinaminėmis formomis: jos gali stovėti bet kur išraiškoje, tad
+ * užkomentuota `// require("../dist/x.js")` bus pranešta. Verifikacija klysta flag'inimo
+ * kryptimi — pusinis komentarų skeneris (suprantantis `//`, bet ne blokinius komentarus ar
+ * eilučių literalus) būtų kita spraga, ne pataisymas.
+ */
+const DIST_SPECIFIER_FORMS = [
+  // `import … from "x"` / `export … from "x"` — daugiaeilė sąrašo forma įskaitytinai.
+  String.raw`^\s*(?:import|export)\s+[^'"]*?from\s*['"]([^'"]+)['"]`,
+  // `import("x")` — dinaminis; skliaustas atskiria jį nuo statinės formos.
+  String.raw`(?:^|[^\w.$])import\s*\(\s*['"]([^'"]+)['"]`,
+  // `require("x")` — CJS.
+  String.raw`(?:^|[^\w.$])require\s*\(\s*['"]([^'"]+)['"]`,
+  // `import "x"` — šalutinio efekto importas be `from`.
+  String.raw`^\s*import\s+['"]([^'"]+)['"]`,
+].join("|");
+
 export function findForbiddenDistImports(content: string): string[] {
-  const importRegex = /^import\s+[^'"]*from\s+['"]([^'"]+)['"]/gm;
+  const specifierRegex = new RegExp(DIST_SPECIFIER_FORMS, "gm");
   const hits: string[] = [];
   let m: RegExpExecArray | null;
-  while ((m = importRegex.exec(content)) !== null) {
-    const importPath = m[1];
+  while ((m = specifierRegex.exec(content)) !== null) {
+    const importPath = m[1] ?? m[2] ?? m[3] ?? m[4];
     if (importPath !== undefined && /(?:^|\/)dist\//.test(importPath)) {
       hits.push(importPath);
     }

@@ -36,7 +36,7 @@ import {
   digestQualityGatesLog,
   retryCountsForTask,
 } from "../domain/diagnosis/log-digest.js";
-import { canonicalBenchmarkPhase, usageTotalsFromEntry } from "../domain/metrics/usage.js";
+import { canonicalBenchmarkPhase, isLlmCall, usageTotalsFromEntry } from "../domain/metrics/usage.js";
 import { matchesTaskIdPattern } from "../domain/metrics/cases.js";
 import { computeTaskMetrics, parseOutOfScopeFiles } from "../domain/metrics/task-metrics.js";
 import { classifyBashCommand } from "../domain/tool-results/bash-command-class.js";
@@ -230,6 +230,24 @@ test("node verification rules: test candidates, forbidden paths, export detectio
   assert.ok(isForbiddenPath("apps\\web\\dist\\x.ts"));
   assert.ok(!isForbiddenPath("src/distX/a.ts"), "segmento riba: dist tik kaip pilnas segmentas");
   assert.deepEqual(findForbiddenDistImports('import { x } from "../dist/x.js";\nimport y from "./y.js";'), ["../dist/x.js"]);
+  // Auditas 2026-09-05 #31: statinis `import … from` buvo VIENINTELĖ atpažįstama forma.
+  assert.deepEqual(
+    findForbiddenDistImports(
+      [
+        'import { a } from "../dist/a.js";',
+        'export { b } from "./dist/b.js";',
+        'const c = await import("../dist/c.js");',
+        'const d = require("../dist/d.js");',
+        'import "../dist/e.js";',
+        "// dist yra tik žodis komentare, ne importas",
+        '// import { f } from "../dist/f.js";',
+        'import ok from "./src/ok.js";',
+      ].join("\n"),
+    ),
+    ["../dist/a.js", "./dist/b.js", "../dist/c.js", "../dist/d.js", "../dist/e.js"],
+    "visos formos, šaltinio tvarka, be dublių; užkomentuotas statinis importas neskaičiuojamas",
+  );
+  assert.deepEqual(findForbiddenDistImports('export const distPath = "x/dist/y";'), [], "priskyrimas nėra importas");
   assert.ok(contentExportsSymbol("export async function runIt() {}", "runIt"));
   assert.ok(contentExportsSymbol('export { a, mano, b } from "./x.js";', "mano"));
   assert.ok(!contentExportsSymbol("function slaptas() {}", "slaptas"));
@@ -300,6 +318,17 @@ test("diagnosis log digest: result envelope + error lines, quality-gates context
   assert.equal(retryCountsForTask("", "t1"), "{}");
   assert.equal(retryCountsForTask("ne json", "t1"), "ne json", "sugadinta būsena nenutylima");
   assert.deepEqual(JSON.parse(retryCountsForTask('{"task:t1": 2, "task:kitas": 9}', "t1")), { "task:t1": 2 });
+  // Auditas 2026-09-05 #32: `includes(taskId)` task'ui 010 atiduodavo 0100 ir 1010 istoriją.
+  assert.deepEqual(
+    JSON.parse(retryCountsForTask('{"task:010": 1, "task:0100-x": 5, "task:1010-y": 3, "error:sig-010": 7}', "010")),
+    { "task:010": 1 },
+    "prefiksą turintis svetimas task id nebėra sutapimas; error: raktas nėra task-scoped",
+  );
+  assert.deepEqual(
+    JSON.parse(retryCountsForTask('{"010": 2, "010:build-fail": 1, "0100": 9}', "010")),
+    { "010": 2, "010:build-fail": 1 },
+    "legacy formos (retry-counts.ts:51) lieka atpažįstamos",
+  );
 });
 
 test("metrics units: canonical phase, task-id globs, out-of-scope parsing, task metrics", () => {
@@ -333,6 +362,13 @@ test("metrics units: canonical phase, task-id globs, out-of-scope parsing, task 
     usage: [usageEntry],
     events: [{ task_id: "t", to_state: "done", reason: "ok" }],
   });
+  // Auditas 2026-09-05 #28: `llm_calls` perima ledger'io apibrėžimą (usage-ledger.ts:108-112).
+  assert.ok(isLlmCall(usageEntry), "reali usage + modelis = model-call");
+  const zeroUsage = { ...usageEntry, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  assert.ok(!isLlmCall(zeroUsage), "429/zero-usage įrašas nedega LLM kvietimo");
+  assert.ok(!isLlmCall({ ...usageEntry, model: "none" }), "aiškus none = deterministinis");
+  assert.ok(isLlmCall({ ...usageEntry, model: "" }), "trūkstamas modelis su realia usage vis tiek yra kvietimas");
+
   assert.equal(metrics.turns, 12);
   assert.equal(metrics.turns_source, "recorded");
   assert.equal(metrics.terminal_state, "done");
@@ -351,6 +387,30 @@ test("bash replacement gates: chained command, unknown fields and text payloads 
   });
   assert.equal(chained.action, "keep");
   assert.equal(chained.action === "keep" ? chained.keepReason : "", "command_is_chained");
+
+  const piped = decideBashOutputReplacement({
+    toolName: "Bash",
+    command: "pnpm test | tee log.txt",
+    toolResponse: { stdout: "ℹ pass 1", stderr: "", exit_code: 0 },
+  });
+  assert.equal(piped.action === "keep" ? piped.keepReason : "", "command_is_chained", "pipe lieka grandine");
+
+  // Auditas 2026-09-05 #30: `2>&1` yra deskriptoriaus sulietis, ne grandinė. Buvęs /[;|&]/
+  // laikė ją grandine, tad dažniausia reali komandos forma niekada nebūdavo trumpinama.
+  // Ta pati semantika kaip domain/policies/bash-command-policy.ts:277.
+  const longTap = `${"ok 1 - a\n".repeat(120)}# pass 120\n# fail 0\n`;
+  const redirected = decideBashOutputReplacement({
+    toolName: "Bash",
+    command: "pnpm test 2>&1",
+    toolResponse: { stdout: longTap, stderr: "", exit_code: 0 },
+  });
+  assert.equal(redirected.action, "replace", "redirect'as nebeblokuoja perrašymo — radinys buvo „niekada nekeičiama\"");
+  const withoutRedirect = decideBashOutputReplacement({
+    toolName: "Bash",
+    command: "pnpm test",
+    toolResponse: { stdout: longTap, stderr: "", exit_code: 0 },
+  });
+  assert.equal(redirected.action, withoutRedirect.action, "2>&1 sprendimo nekeičia");
 
   const unknownField = decideBashOutputReplacement({
     toolName: "Bash",

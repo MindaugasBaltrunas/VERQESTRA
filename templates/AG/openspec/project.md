@@ -4,16 +4,16 @@ Describe the target product here.
 
 ## Purpose
 
-TODO: write the product purpose.
+Užpildo projekto komanda: šio produkto paskirtis ir ribos.
 
 ## Architecture
 
-TODO: describe the architecture, ownership boundaries and non-negotiable rules.
+Užpildo projekto komanda: architektūra, nuosavybės ribos ir nekeičiamos taisyklės.
 
 ## Conventions
 
-TODO: list naming, testing, API, data and UI conventions.
+Užpildo projekto komanda: pavadinimų, testų, API, duomenų ir UI konvencijos.
 
 ## Acceptance Gates
 
-TODO: list commands or checks required before work is considered done.
+Užpildo projekto komanda: komandos ar patikros, būtinos prieš laikant darbą baigtu.

@@ -31,7 +31,13 @@ import { classifyDispatchWriteOutcome, extractDispatchToolUsage } from "../../in
 import { loadProjectProfile } from "../agent/preflight-adapters.js";
 import { buildTaskUsageLedger, parseTaskUsageEntries } from "../../domain/tokens/usage-ledger.js";
 import { logHasAlreadyImplementedMarker, logHasAuditCompleteMarker } from "../../domain/diagnosis/stream-log.js";
-import { resolveNoCommitDisposition, resolveNoCommitReviewReason } from "../../domain/diagnosis/dispositions.js";
+import {
+  resolveDispatchSessionNonce,
+  resolveNoCommitDisposition,
+  resolveNoCommitReviewReason,
+  type StopEvidenceOrigin,
+} from "../../domain/diagnosis/dispositions.js";
+import { sessionStartStatusPath, type SessionStartBaseline } from "../../application/task-execution/session-baseline.js";
 import { nonRuntimeDirtyEntriesFromStatus } from "../../domain/git/changes.js";
 import {
   mergeStopBridgeSources,
@@ -59,7 +65,7 @@ import {
 import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { isGitRepository } from "../../infrastructure/git/git-client.js";
 import { stopBridgePath, stopStateSchema } from "../../infrastructure/state/stop-bridge.js";
-import { toPrettyJson } from "../../shared/json.js";
+import { toPrettyJson, tryParseJson } from "../../shared/json.js";
 import { assembleContextPackDeps } from "../quality/architecture-adapters.js";
 import {
   blockedTaskRoutingPorts,
@@ -330,6 +336,48 @@ function ownStopBridgeProbe(input: CoordinatorAdapterInput, taskId: string, disp
 }
 
 /**
+ * Task 163 — koordinatoriaus PROCESAS niekada negauna `AG_DISPATCH_NONCE`: launcher jį rašo
+ * TIK dispatch vaiko env, kuris koordinatoriui nematomas. Rezoliucija ta pačia tvarka kaip
+ * `resolveDispatchSessionNonce` (F7/0049, `domain/diagnosis/dispositions.ts`): gyvas env →
+ * SessionStart baseline (last-writer-wins veidrodis, tad traktuojamas kaip `legacy` stop
+ * įrodymas — `task_id` turi sutapti su `current-task-id`) → tuščia.
+ *
+ * Baseline papildomai atmetamas (origin `none`), jei jis SENESNIS už ŠIO attempt'o pradžią
+ * (`manifest.created_at`) — kitaip ankstesnio, jau baigto bandymo nonce būtų tyliai
+ * paveldėtas naujo bandymo laukimui. Kai attempt'as neišsprendžiamas (`no-runtime`/`disabled`
+ * ir pan. — normali būsena be runtime namespace'o), palyginti nėra su kuo, tad amžiaus vartai
+ * NEVEIKIA ir sprendžia vien `task_id` sutapimas.
+ */
+async function resolveCoordinatorDispatchNonce(input: CoordinatorAdapterInput, taskId: string): Promise<string> {
+  const envNonce = (process.env["AG_DISPATCH_NONCE"] ?? "").trim();
+  if (envNonce !== "") return envNonce;
+
+  const baselineRaw = await nodeFsAdapter.readTextFileIfExists(
+    sessionStartStatusPath(path.join(input.runtimeRoot, "state")),
+  );
+  const parsed = baselineRaw === undefined ? undefined : tryParseJson<SessionStartBaseline>(baselineRaw);
+  const baseline: SessionStartBaseline =
+    parsed?.ok && parsed.value !== null && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? parsed.value
+      : {};
+
+  const resolved = await input.resolution.resolveActiveAttempt(taskId);
+  const attemptStartMs = resolved.ok ? Date.parse(resolved.attempt.manifest.created_at) : Number.NaN;
+  const baselineUpdatedMs = Date.parse(baseline.updated_at ?? "");
+  const notOlderThanAttempt =
+    !Number.isFinite(attemptStartMs) || (Number.isFinite(baselineUpdatedMs) && baselineUpdatedMs >= attemptStartMs);
+  const origin: StopEvidenceOrigin = notOlderThanAttempt ? "legacy" : "none";
+
+  return resolveDispatchSessionNonce({
+    envNonce,
+    origin,
+    recordNonce: baseline.dispatch_nonce ?? "",
+    recordTaskId: baseline.task_id ?? "",
+    taskId,
+  });
+}
+
+/**
  * 021-d-05 (C4) — antras laukimo taškas: prieš `verifyTask` iškvietimą (jos pirmas veiksmas
  * yra `cli.run(["quality-gates"])`) coordinator laukia SAVO stop-bridge įrodymo ribotą langą.
  *
@@ -340,21 +388,21 @@ function ownStopBridgeProbe(input: CoordinatorAdapterInput, taskId: string, disp
  * NIEKO nekeičia — tik nebeleidžia verify aplenkti hook'o (žr.
  * docs/audits/021-rollback-preserve-design-2026-08-25.md, C4).
  *
- * Vartai — `AG_DISPATCH_NONCE` netuščias: tuščias reiškia interaktyvią/be-nonce sesiją, ir
- * elgesys lieka baitas-į-baitą nepakitęs. Skip-dispatch (`skip-dispatch.ts`) kviečia TĄ PATĮ
- * `cli.run(["quality-gates"])` PRIEŠ bet kokį dispatch'ą — tas pats vartas jį irgi apsaugo, nes
- * nonce iš to paties šaltinio ten tokiu pat būdu tuščias.
+ * Vartai — rezoliucijos rezultatas netuščias: tuščias reiškia interaktyvią/be-nonce sesiją be
+ * galiojančio baseline, ir elgesys lieka baitas-į-baitą nepakitęs. Skip-dispatch
+ * (`skip-dispatch.ts`) kviečia TĄ PATĮ `cli.run(["quality-gates"])` PRIEŠ bet kokį dispatch'ą —
+ * tas pats vartas jį irgi apsaugo, nes nonce iš to paties šaltinio ten tokiu pat būdu tuščias.
  */
 function verifyStopBridgeWaitCliPort(input: CoordinatorAdapterInput, basePort: CliPort): CliPort {
   return {
     ...basePort,
     run: async (args) => {
       if (args.length === 1 && args[0] === "quality-gates") {
-        const dispatchNonce = (process.env["AG_DISPATCH_NONCE"] ?? "").trim();
+        const taskId = (
+          (await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "state", "current-task-id"))) ?? ""
+        ).trim();
+        const dispatchNonce = await resolveCoordinatorDispatchNonce(input, taskId);
         if (dispatchNonce !== "") {
-          const taskId = (
-            (await nodeFsAdapter.readTextFileIfExists(path.join(input.runtimeRoot, "state", "current-task-id"))) ?? ""
-          ).trim();
           const waited = await waitForOwnStopBridgeDone({
             probe: ownStopBridgeProbe(input, taskId, dispatchNonce),
             timeoutMs: stopBridgeWaitMs(),

@@ -96,7 +96,7 @@ test("runtime šiukšlės kopijoje: remove praeina su runtime-junk fallback'u", 
 
     // Runtime pėdsakai, kuriuos palieka orkestratorius/stop bridge — ne task'o darbas.
     await nodeFsAdapter.writeTextFile(path.join(wt, "vq", "logs", "orchestrator.log"), "log\n");
-    await nodeFsAdapter.writeTextFile(path.join(wt, "AG", "state", "claude-stop-status.json"), "{}\n");
+    await nodeFsAdapter.writeTextFile(path.join(wt, "vq", "state", "claude-stop-status.json"), "{}\n");
     await nodeFsAdapter.writeTextFile(path.join(wt, "logs", "tasks", "junk-commit-msg.md"), "msg\n");
 
     const removed = await removeWorktreeDirectory(run, dir, wt, undefined, { runtimeJunkForce: true });
@@ -137,6 +137,44 @@ test("mišrus nešvarumas (šiukšlės + produkto kelias): force nebandomas", as
     const removed = await removeWorktreeDirectory(run, dir, wt, undefined, { runtimeJunkForce: true });
     assert.equal(removed.status, "infrastructure", JSON.stringify(removed));
     assert.equal(await nodeFsAdapter.exists(path.join(wt, "src", "liko.ts")), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
+test("build/deps artefaktai (node_modules + vq/logs) kopijoje: remove praeina su runtime-junk fallback'u", async () => {
+  const dir = await initRepo("vq-wtdeps-");
+  try {
+    const wt = await addWorktreeWithCommit(dir, "ag/test/deps", "deps");
+    assert.equal((await integrateWorktreeBranch({ projectRoot: dir, branch: "ag/test/deps" })).status, "integrated");
+
+    // node_modules/.pnpm-store — build/deps artefaktai (isBuildArtifactPath), ne orkestratoriaus
+    // runtime prefiksas — turi būti traktuojami kaip junk lygiai taip pat kaip vq/*.
+    await nodeFsAdapter.writeTextFile(path.join(wt, "vq", "logs", "y.log"), "log\n");
+    await nodeFsAdapter.writeTextFile(path.join(wt, "node_modules", "pkg", "index.js"), "module.exports = {};\n");
+
+    const removed = await removeWorktreeDirectory(run, dir, wt, undefined, { runtimeJunkForce: true });
+    assert.equal(removed.status, "removed", JSON.stringify(removed));
+    if (removed.status === "removed") assert.equal(removed.fallback, "runtime-junk");
+    assert.equal(await nodeFsAdapter.exists(wt), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
+test("storage/ (taikinio projekto produkto kelias) kopijoje: force nebandomas, RESIDUE lieka", async () => {
+  const dir = await initRepo("vq-wtstorage-");
+  try {
+    const wt = await addWorktreeWithCommit(dir, "ag/test/storage", "storage");
+    assert.equal((await integrateWorktreeBranch({ projectRoot: dir, branch: "ag/test/storage" })).status, "integrated");
+
+    // `storage/` NEBĖRA junk sąraše: taikinio (Laravel) projekte tai produkto kelias, kurį
+    // RESIDUE doktrina žada palikti žmogui, ne dingdinti tyliai su --force.
+    await nodeFsAdapter.writeTextFile(path.join(wt, "storage", "app", "x"), "produktas\n");
+
+    const removed = await removeWorktreeDirectory(run, dir, wt, undefined, { runtimeJunkForce: true });
+    assert.equal(removed.status, "infrastructure", JSON.stringify(removed));
+    assert.equal(await nodeFsAdapter.exists(path.join(wt, "storage", "app", "x")), true);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }

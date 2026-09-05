@@ -250,11 +250,12 @@ export async function reapOrphanWorktree(input: {
   // matomas tam skenui Windows'e (FS metaduomenų/AV-indexer vėlavimas) — tada šis kvietimas
   // praeina BE --force ir žemiau grąžinamas grynas `reaped` (be `archive=`), o ne laukiamas
   // `kept`. Tai NĖRA turinio praradimas: `reapTreeState` (5 žingsnis) tokį turinį jau laiko
-  // "švariu" per `nonRuntimeDirtyEntriesFromStatus` (tas pats runtime-prefix'ų sąrašas kaip
-  // `worktree-removal.ts` RUNTIME_JUNK_PREFIXES) — jis niekada nebuvo laikomas darbu, kurio
-  // reikia archyvuoti. Jei ši lenktynė kada nors pasireikštų su NE-runtime (produkto) turiniu,
-  // tai būtų realus defektas — bet `reapTreeState` jį būtų pažymėjęs `dirty` jau anksčiau ir
-  // sustabdęs prieš pasiekiant šią eilutę, nepriklausomai nuo šios lenktynės.
+  // "švariu" per `nonRuntimeDirtyEntriesFromStatus` (VIENAS runtime prefiksų sąrašas — domain
+  // `isRuntimePath`, tas pats, kurį `worktree-removal.ts` `isRuntimeJunkPath` importuoja) — jis
+  // niekada nebuvo laikomas darbu, kurio reikia archyvuoti. Jei ši lenktynė kada nors pasireikštų
+  // su NE-runtime (produkto) turiniu, tai būtų realus defektas — bet `reapTreeState` jį būtų
+  // pažymėjęs `dirty` jau anksčiau ir sustabdęs prieš pasiekiant šią eilutę, nepriklausomai nuo
+  // šios lenktynės.
   if (directoryPresent) {
     const removal = await removeWorktreeDirectory(input.runner ?? run, projectRoot, worktreePath, input.remover);
     if (removal.status !== "removed") return kept(`check-failed:${reapDetail(removal.message)}`);

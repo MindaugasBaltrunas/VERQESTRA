@@ -28,7 +28,10 @@ export function windowsTreeKillWorstCaseMs(): number {
   let total = 0;
   for (let attempt = 0; attempt < treeKillMaxAttempts; attempt += 1) {
     const budgetMs = helperKillTimeoutMs * 2 ** attempt;
-    total += 2 * (budgetMs + helperCloseGraceMs);
+    // Kiekvienas bandymas dabar spawn'ina iki trijų helper'ių: PowerShell tree-kill ir
+    // taskkill fallback (abu su close grace), PLIUS survivors patikrai re-listinamas
+    // medis (`runCapturingProcess`, be grace — jo timeout'as baigiasi iškart `finish("")`).
+    total += 2 * (budgetMs + helperCloseGraceMs) + budgetMs;
   }
   return total;
 }
@@ -203,6 +206,16 @@ while ($queue.Count -gt 0) {
  * gimęs PO sąrašo surinkimo, čia nebus pastebėtas. Bet tylus nepavykimas tampa MATOMAS —
  * grąžintas sąrašas keliauja į timeout/abort žinutę, tad operatorius mato konkrečius PID'us,
  * o ne tuščią „nužudyta".
+ *
+ * PID pernaudojimas (2026-09-05): `alive(pid)` viena nepakankama — Windows PID'us pernaudoja
+ * greitai, tad "gyvas" PID iš pradinio sąrašo gali priklausyti VISIŠKAI kitam, vėliau
+ * paleistam procesui. Kiekvieno bandymo pabaigoje `alive` sankertinama su medžio PERSKAIČIAVIMU
+ * (`listTree(rootPid)`): PID, kurio naujame medyje nebėra, nelaikomas išgyvenusiu, net jei
+ * `alive` grąžina true dėl pernaudojimo. Jei PATS re-listinimas nepavyksta (WMI laikinai
+ * neprieinamas), tuščias sąrašas NĖRA laikomas „medis miręs" — tai skirtinga reikšmė nei
+ * „medyje nieko nėra", tad tą bandymą sprendžiama grynai per `alive` (kaip iki šio pakeitimo),
+ * o ne tyliai atmetant visus palikuonis. Lenktynė tarp perskaičiavimo ir tikro palikuonio
+ * lieka (žr. aukščiau) — čia mažinamas tik melagingas „dar gyvas" signalas, ne visos lenktynės.
  */
 export async function runWindowsProcessTreeKill(
   rootPid: number,
@@ -221,7 +234,13 @@ export async function runWindowsProcessTreeKill(
     if (!powershellOk) {
       await runWindowsTaskKill(rootPid, runner, budgetMs);
     }
-    survivors = targets.filter((pid) => alive(pid));
+    let stillInTree: Set<number> | undefined;
+    try {
+      stillInTree = new Set([rootPid, ...(await listTree(rootPid, budgetMs))]);
+    } catch {
+      stillInTree = undefined;
+    }
+    survivors = targets.filter((pid) => alive(pid) && (stillInTree === undefined || stillInTree.has(pid)));
     if (survivors.length === 0) {
       return [];
     }

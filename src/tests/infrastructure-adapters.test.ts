@@ -227,6 +227,41 @@ test("adapter runtime: prielaidų vartai (context-pack + budget_enforcement.ok) 
   assert.equal(normalizeAdapterProcessResult("codex", { code: 124, stdout: "", stderr: "" }, "x").status, "timed_out");
 });
 
+test("ClaudeAdapter + runtime: ilgas validus JSON su mažu maxOutputBytes vis tiek parsinamas (F14)", async () => {
+  const smallOutputRuntime = new AdapterRuntime(root, { maxOutputBytes: 8 });
+  const longPayload = "x".repeat(2000);
+  const longJson = JSON.stringify({ result: "ok", padding: longPayload });
+  const cwd = path.join(root, "darbo");
+
+  const claude = new ClaudeAdapter({
+    enabled: true,
+    runtime: smallOutputRuntime,
+    // Fake runner'is išvesties NEAPKIRPO (`stdoutTruncated` neteikiama) — apkirpimą daro
+    // TIK `AdapterRuntime.normalize` per mažą `maxOutputBytes`. structuredOutput turi eiti
+    // iš pilno, neapkirpto stdout.
+    runner: async () => ({ code: 0, stdout: longJson, stderr: "" }),
+  });
+  const completed = await claude.execute({ taskId: "t1", contextPack: { x: 1 }, model: "sonnet", cwd });
+  assert.equal(completed.status, "completed");
+  assert.ok(Buffer.byteLength(completed.stdout, "utf8") <= 8, "grąžintas stdout laiko runtime apkirpimą");
+  assert.deepEqual(completed.structuredOutput, { result: "ok", padding: longPayload });
+});
+
+test("ClaudeAdapter + runtime: runner'io apkirptas stdout — structuredOutput neteikiamas, reason su sufiksu (F14)", async () => {
+  const runtime = new AdapterRuntime(root, { maxOutputBytes: 1024 });
+  const cwd = path.join(root, "darbo");
+
+  const claude = new ClaudeAdapter({
+    enabled: true,
+    runtime,
+    runner: async () => ({ code: 0, stdout: '{"result":"ok"', stderr: "", stdoutTruncated: true }),
+  });
+  const completed = await claude.execute({ taskId: "t1", contextPack: { x: 1 }, model: "sonnet", cwd });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.structuredOutput, undefined);
+  assert.equal(completed.reason, "claude_completed_claude_output_truncated");
+});
+
 test("integration reviewer tiltas: nepavykęs kvietimas NIEKADA nėra patvirtinimas", async () => {
   const failing: ExecutionAdapter = {
     kind: "claude",

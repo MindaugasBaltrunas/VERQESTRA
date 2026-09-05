@@ -71,6 +71,20 @@ test("loadModelsEnv: be failo — einamosios kartos default'ai; su failu — ove
   assert.equal(values["B"], "plain");
 });
 
+test("parseEnv/loadModelsEnv: vedantis UTF-8 BOM nenugriauna PIRMO rakto (F9)", async () => {
+  const bom = String.fromCharCode(0xfeff);
+  const withBom = parseEnv(`${bom}CLAUDE_HAIKU_MODEL=x\nB=y`);
+  assert.equal(withBom["CLAUDE_HAIKU_MODEL"], "x");
+  assert.equal(withBom["B"], "y");
+
+  const bomProjectRoot = await mkdtemp(path.join(tmpdir(), "vq-launcher-bom-"));
+  const bomRuntimeRoot = path.join(bomProjectRoot, "vq");
+  await nodeFsAdapter.writeTextFile(path.join(bomRuntimeRoot, "config", "models.env"), `${bom}CLAUDE_HAIKU_MODEL=x\n`);
+  const loaded = await loadModelsEnv(bomRuntimeRoot);
+  assert.equal(loaded.claudeHaikuModel, "x");
+  await rm(bomProjectRoot, { recursive: true, force: true });
+});
+
 test("tier mapping'as: round-trip, eskalacijos lubos opus, explicit fable išlaikomas, ID validacija", () => {
   for (const tier of modelTiers) {
     assert.equal(modelTierOfRoutingTier(routingTierOfModelTier(tier)), tier);

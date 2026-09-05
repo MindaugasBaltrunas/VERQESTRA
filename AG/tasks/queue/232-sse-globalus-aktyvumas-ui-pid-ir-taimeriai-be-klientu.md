@@ -66,4 +66,4 @@ klaidingas `removeStaleRuntimeRecord` kvietimas šalinamas.
 ## Neįtraukta
 - `readActiveAttempt` ir `readLiveSlotSources` — jau teisingi (task 139), nekeičiami.
 - SSE keepalive/poll intervalų kalibravimas — ne šio audito radinys.
-- `WavesPanel` ISO žymų formatavimas, `fixRate: 1` — task 233.
+- `WavesPanel` ISO žymų formatavimas — task 231; `ReliabilityPage` `fixRate: 1` — task 233 Neįtraukta (P3).

@@ -8,7 +8,7 @@ Jei `src/domain/tasks/human-review/evidence.ts` `securityEvidence` (45 eil.) ir
 `outboundCommunicationEvidence` (106 eil.) kelio substring'us lygina segmentų ribomis (kelias
 `.claude/agents/task-author.md` NEduoda `path:` įrodymo, `src/oracle.ts` NEduoda, `git-push-helper.ts`
 NEduoda) IR `src/domain/tasks/human-review/gates.ts` `HUMAN_REVIEW_APPROVED_RE` taikomas per
-`markdownFenceMask` (šablono citata ```` ``` ```` bloke NEsuveikia kaip patvirtinimas) —
+`markdownFenceMask` (šablono citata trijų backtick'ų fence'e NEsuveikia kaip patvirtinimas) —
 ALREADY_IMPLEMENTED: cituok abu regex'us / mask'o kvietimą ir testų pavadinimus.
 Jei tik viena pusė padaryta — daryti likusią; ataskaitoje įvardyti, kuri jau buvo.
 
@@ -53,7 +53,7 @@ Draudžiama:
   `markdownFenceMask` (kaip daro `extractSection`), kad fenced blokų eilutės žymos neduotų.
 - Testai `domain-human-review.test.ts`: (D4) `.claude/agents/task-author.md`, `src/oracle.ts`,
   `git-push-helper.ts` NEduoda `path:` įrodymų; `src/auth/token.ts`, `services/push-notifications.ts`,
-  `lib/acl/rules.ts` — duoda. (D7) task'as su ```` ```text ```` bloku, kuriame yra
+  `lib/acl/rules.ts` — duoda. (D7) task'as su trijų backtick'ų `text` fence bloku, kuriame yra
   `HUMAN-REVIEW-APPROVED: <kas> <data>`, ir security keyword'u tekste → `requires_human_review: true`,
   be `approved_marker`; ta pati žyma ne fence'e (su `-` prefiksu ir be) → suveikia kaip iki šiol.
 - Korpuso patikra: Grep'u per `AG/tasks/queue/*.md` ir `AG/tasks/done/*.md` surasti task'us, kurių

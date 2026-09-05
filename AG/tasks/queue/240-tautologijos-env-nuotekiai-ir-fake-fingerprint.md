@@ -3,12 +3,14 @@
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 
+## Priklausomybės
+- 165-runtime-oversize-skelimas-nekaskaduoja-vaiku-po-done
+
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `src/tests/infrastructure-resume-checkpoint.test.ts` nebeturi `assert.ok(true)` (118 eil.),
 `scheduling-safe-telemetry.test.ts:27-33` turi asercijas, `infrastructure-work-evidence.test.ts:151,190`
-vietoje tylaus `return` naudoja `t.skip` su priežastimi, `quality-gates-preflight.test.ts:147` neskaito
-`path.join(process.cwd(), "vq")`, o `helpers/fake-task-run-ports.ts:128` fingerprint'as nėra `fp:<length>`
-— ALREADY_IMPLEMENTED: cituok kiekvieną vietą.
+vietoje tylaus `return` naudoja `t.skip` su priežastimi, o `helpers/fake-task-run-ports.ts:128`
+fingerprint'as nėra `fp:<length>` — ALREADY_IMPLEMENTED: cituok kiekvieną vietą.
 
 ## Tikslas
 Pilnas auditas 2026-09-05 (`docs/audits/full-audit-2026-09-05.md`, „Testai" P2; `scratchpad/audit-tests.md`
@@ -33,7 +35,6 @@ Leidžiama:
 - `src/tests/infrastructure-resume-checkpoint.test.ts` (118 eil.)
 - `src/tests/scheduling-safe-telemetry.test.ts` (27-33, 101-115 eil.)
 - `src/tests/infrastructure-work-evidence.test.ts` (100-199 eil.)
-- `src/tests/quality-gates-preflight.test.ts` (147-180 eil.)
 - `src/tests/domain-tasks-etalonas-rules.test.ts` (321-344 eil.)
 - `src/tests/markdown-readers-real-corpus.test.ts` (26, 60, 76 eil.)
 - `src/tests/helpers/fake-task-run-ports.ts` (128 eil.)
@@ -41,6 +42,7 @@ Leidžiama:
 Draudžiama:
 - `src/infrastructure/**`, `src/application/**`, `src/domain/**` (tik testai; rasta klaida → ataskaita)
 - `src/tests/interfaces-hooks-pre-hooks.test.ts` (korpuso vartas — task 238)
+- `src/tests/quality-gates-preflight.test.ts` (task'ai 183, 195, 219 jį liečia lygiagrečiai — realaus `vq/config` atsiejimas atidėtas, žr. Neįtraukta)
 - `vq/**` (runtime — testai nuo jo ATSIEJAMI, ne jį keičia)
 - `dist/**`
 - `node_modules/**`
@@ -53,8 +55,6 @@ Draudžiama:
 - `work-evidence`: tylų `return` keisti `t.skip("git nepasiekiamas: …")`; realų `process.cwd()` repo
   keisti `mkdtemp` git repo su vienu commit'u (`user.name`, `commit.gpgsign=false`, `core.autocrlf=false`
   — kaip 11 kitų git testų) — „neegzistuojantis" SHA tada tikrai neegzistuoja.
-- `quality-gates-preflight:147`: `runtimeRoot` → `mkdtemp` su nukopijuotais `templates/vq/config/*.json`
-  (šablonas yra kontraktas, lokalus `vq/` — ne).
 - Korpuso sargai: `domain-tasks-etalonas-rules` — `assert.ok(stems.length > 0)` bent `done` bucket'ui;
   `markdown-readers-real-corpus` — kiekvienai šakniai (`docs`, `.claude`, `templates`) atskiras
   `length > 0`, ne bendras `>= 10`.
@@ -77,4 +77,6 @@ Commit'ink, kai patikros žalios. Jei `work-evidence` tmp git repo Windows'e nep
   `code`, `infrastructure-dispatch-flow:33`/`interfaces-cli-dispatch-command:30` `process.env` top-level,
   `composition-loop-command:129` laikrodis, `worktree-runtime-bootstrap:118` mtime, `orphan-reaper:72`
   polling, `discovered-docs` fiksuotas tmpdir — §3 likučiai, antra partija.
+- `quality-gates-preflight.test.ts:147-180` realus `vq/config/*` (→ `mkdtemp` su `templates/vq/config/*.json`
+  kopija) — failą lygiagrečiai keičia 183, 195 ir 219; taisoma atskiru task'u, kai jie bus `done`.
 - `pre-hooks:427` realus `vq/` — task 238; vartų sargai (`gate-*`, CSS, i18n) — task 236.

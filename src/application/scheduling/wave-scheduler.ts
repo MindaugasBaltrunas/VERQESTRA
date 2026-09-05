@@ -29,6 +29,7 @@ import { createLiveSlotRegistry, candidateWriteSet } from "./wave-live-slots.js"
 import { createWaveGraphCoordinator } from "./wave-graph.js";
 import type { ReadySetBudget } from "./build-ready-set.js";
 import { createWaveIntegrationCoordinator } from "./wave-integration-coordinator.js";
+import { integrateRestoredSlots, startedOrFinishedTaskIds } from "./wave-resume-integration.js";
 import { createWaveOutcomeRecorder } from "./wave-outcome.js";
 import { createWaveRefillCoordinator, workerIndexOf } from "./wave-refill.js";
 import { createWaveSchedulerState } from "./wave-scheduler-state.js";
@@ -212,6 +213,7 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
     const result = await planWavePool({
       runId: deps.runId,
       current,
+      excludedTaskIds: startedOrFinishedTaskIds(state.started, state.finishedSlots),
       requestedWorkers: state.requestedWorkers,
       primaryClaimSupported: false,
       now: deps.now,
@@ -388,15 +390,13 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
       if (decision.action !== "no-checkpoint") {
         await safeLog(`WAVE RESUME: ${decision.action} task=${decision.task_id ?? "none"} (${decision.reason})${describeStrandedStaleResume(decision, checkpointLocation)}`);
         await safeEvent({
-          run_id: deps.runId,
-          wave_id: state.waveId,
-          graph_hash: current.graph_hash,
-          event: "resume_decision",
-          ...(decision.task_id === undefined ? {} : { task_id: decision.task_id }),
-          reason: decision.reason,
+          run_id: deps.runId, wave_id: state.waveId, graph_hash: current.graph_hash, event: "resume_decision",
+          ...(decision.task_id === undefined ? {} : { task_id: decision.task_id }), reason: decision.reason,
         });
       }
 
+      // Atkurtas slot'as suliejamas/parkuojamas/152-requeue'inamas ČIA, PRIEŠ pirmą `nextTask`.
+      await integrateRestoredSlots(state.finishedSlots, { runId: deps.runId, waveId: () => state.waveId, graphHash: current.graph_hash, describe, liveSlotList, integrateFinishedSlots: integration.integrateFinishedSlots, safeLog, safeEvent });
       await persist();
       return decision;
     },
@@ -407,10 +407,10 @@ export function createWaveScheduler(deps: WaveSchedulerDeps): WaveScheduler {
 
       if (current.ready.length === 0 && current.blocked.length === 0) return { kind: "empty" };
 
-      // Atkurtas finished slot'as blokuoja dispatch'ą TA PAČIA priemone kaip `started`, kol
-      // koordinatorius jo neišima iš `finishedSlots` (audito P1, 2026-08-29).
+      // Atkurtas slot'as blokuoja dispatch'ą kaip `started`, kol koordinatorius jo neišima iš
+      // `finishedSlots` (audito P1, 2026-08-29); TĄ PATĮ rinkinį gauna ir `planPool` (2026-09-05).
       const selected = selectNextWaveTask(current, {
-        startedTaskIds: new Set([...state.started, ...state.finishedSlots.keys()]),
+        startedTaskIds: startedOrFinishedTaskIds(state.started, state.finishedSlots),
       });
       if (selected === undefined) {
         const reason = current.blocked.length > 0 ? "all-blocked" : "already-started";

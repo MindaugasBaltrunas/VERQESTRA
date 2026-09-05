@@ -43,6 +43,10 @@ export type PlanWavePoolInput = {
   /** Ar pirminis slot'as gali būti „claim'intas" (platformos galimybė). */
   primaryClaimSupported: boolean;
   now: () => string;
+  /** Kandidatai, kurie NEGALI gauti pool slot'o (jau `started` arba turi neišspręstą finished
+   * slot'ą) — audito P1, 2026-09-05: be šio filtro `selectNextWaveTask` galėjo atmesti kandidatą,
+   * kurį `planWorkerPool` vis tiek priimtų kaip ANTRĄ, lygiagretų slot'ą TAM PAČIAM task'ui. */
+  excludedTaskIds?: ReadonlySet<string>;
   log: (message: string) => Promise<void>;
   recordEvent: (event: WavePoolEvent) => Promise<void>;
   readIsolationInputs: (requested: number) => Promise<{ leases: WorkerLease[] }>;
@@ -62,9 +66,13 @@ export async function planWavePool(input: PlanWavePoolInput): Promise<WavePoolPl
   // ir pasibaigęs kitame.
   const plannedAt = new Date(input.now());
 
+  const excluded = input.excludedTaskIds;
+  const readyForPool =
+    excluded === undefined || excluded.size === 0 ? input.current.ready : input.current.ready.filter((t) => !excluded.has(t.task_id));
+
   const initial = await input.readIsolationInputs(requested);
   let planLeases: readonly WorkerLease[] = initial.leases;
-  const candidates = input.toWorkerCandidates(input.current.ready, initial.leases);
+  const candidates = input.toWorkerCandidates(readyForPool, initial.leases);
   for (const candidate of candidates) input.rememberCandidate(candidate);
 
   let pool = planWorkerPool({
@@ -85,7 +93,7 @@ export async function planWavePool(input: PlanWavePoolInput): Promise<WavePoolPl
   if (provisioned.length > 0) {
     const retry = await input.readIsolationInputs(requested);
     planLeases = retry.leases;
-    const retryCandidates = input.toWorkerCandidates(input.current.ready, retry.leases);
+    const retryCandidates = input.toWorkerCandidates(readyForPool, retry.leases);
     for (const candidate of retryCandidates) input.rememberCandidate(candidate);
     pool = planWorkerPool({
       run_id: input.runId,

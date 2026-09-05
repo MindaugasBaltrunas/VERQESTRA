@@ -403,13 +403,16 @@ const resumeProvisioning: WaveProvisioningCoordinator = {
   releaseWaveProvisionLease: () => Promise.resolve(),
 };
 
-function resumeSchedulerDeps(snapshot: WaveSnapshot | undefined): WaveSchedulerDeps {
+function resumeSchedulerDeps(snapshot: WaveSnapshot | undefined, options: { logs?: string[] } = {}): WaveSchedulerDeps {
   const taskList = resumeSchedulerTasks();
   return {
     projectRoot: "D:/repo",
     runId: "r1",
     now: () => NOW.toISOString(),
-    log: () => Promise.resolve(),
+    log: (message) => {
+      options.logs?.push(message);
+      return Promise.resolve();
+    },
     absolutePath: (file) => `D:/repo/${file}`,
     readTasks: () => Promise.resolve(taskList),
     locateTask: () => Promise.resolve("queue"),
@@ -462,31 +465,30 @@ function resumeSnapshotWith(taskId: string): WaveSnapshot {
   };
 }
 
-test("resume su persistintu finished slot'u NEdispatch'ina task'o, kol jo šaka neišspręsta", async () => {
-  const scheduler = createWaveScheduler(resumeSchedulerDeps(resumeSnapshotWith("0001")));
+// Audito P1 (2026-09-05, task 166): anksčiau `recoverFromCrash` niekada nekvietė
+// `integrateFinishedSlots` — vienintelis kvietėjas buvo `wave-outcome.ts` po KITO task'o
+// baigties. Vienos likusios eilutės banga po crash'o tokio kito task'o niekada nesulaukdavo,
+// tad kiekvienas restartas baigdavosi `exhausted`/`already-started` be jokio išėjimo, kol
+// operatorius rankomis netrindavo snapshot'o. Dabar atkurtas slot'as išsprendžiamas (čia —
+// parkuojamas, nes `resumeIntegrationIo.locateTask` grąžina "terminal-bucket", ne "queue", tad
+// 152 `restored-requeued` šaka neįsijungia) PAČIAME `recoverFromCrash`, PRIEŠ pirmą `nextTask`.
+test("resume PARKUOJA atkurtą finished slot'ą recoverFromCrash viduje, ne laukdamas kito task'o baigties", async () => {
+  const logs: string[] = [];
+  const scheduler = createWaveScheduler(resumeSchedulerDeps(resumeSnapshotWith("0001"), { logs }));
   await scheduler.recoverFromCrash();
 
-  const blocked = await scheduler.nextTask();
-  assert.equal(blocked.kind, "exhausted");
-  if (blocked.kind !== "exhausted") return;
-  // 0001 turi finished slot'ą (neintegruota šaka), 0002 laukia 0001 — banga negali pasiūlyti nė
-  // vieno, nors 0001 pačiam planui atrodo „ready".
-  assert.equal(blocked.reason, "all-blocked");
+  assert.ok(
+    logs.some((line) => line.includes("WORKER INTEGRATION PARKED: task=0001")),
+    "parkavimas įvyksta recoverFromCrash viduje, ne vėliau laukiant kito task'o rezultato",
+  );
 });
 
-test("po koordinatoriaus sprendimo (parkinimo) dispatch'as tam pačiam task_id vėl leidžiamas", async () => {
+test("po recoverFromCrash dispatch'as tam pačiam task_id vėl leidžiamas BE jokio kito task'o rezultato", async () => {
   const scheduler = createWaveScheduler(resumeSchedulerDeps(resumeSnapshotWith("0001")));
   await scheduler.recoverFromCrash();
 
-  assert.equal((await scheduler.nextTask()).kind, "exhausted", "0001 blokuojamas kol šaka neišspręsta");
-
-  // Bet koks kito task'o rezultatas suveda integracijos tikrinimą: `succeeded: false` restore'o
-  // metu reiškia, kad tyloje slot'as parkuojamas, o ne suliejamas — tai IŠSPRENDŽIA jo likimą ir
-  // pašalina iš `finishedSlots`. Įrašas turi ir `restored: true` (152, baigtis nežinoma, ne
-  // nesėkmė), bet šis koordinatorius dar neduoda `planWorkerIntegration` `queue` bucket'o
-  // sąrašo, tad `restored-requeued` šaka čia neįsijungia — parkas lieka toks pat kaip anksčiau.
-  await scheduler.recordOutcome("does-not-exist", { status: "succeeded" });
-
+  // Nė vieno `scheduler.recordOutcome(...)` kvietimo — anksčiau būtent JIS suveikdavo integracijos
+  // tikrinimą (žr. git istoriją); dabar atkurtas slot'as jau išspręstas pačiame `recoverFromCrash`.
   const unblocked = await scheduler.nextTask();
   assert.equal(unblocked.kind, "task");
   if (unblocked.kind !== "task") return;

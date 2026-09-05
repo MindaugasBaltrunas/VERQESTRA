@@ -10,8 +10,11 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { benchmarkLoopCellCommand } from "../interfaces/cli/benchmark/benchmark-loop-cell.js";
-import type { LoopCellPorts } from "../interfaces/cli/benchmark/benchmark-loop-cell.js";
+import {
+  benchmarkLoopCellCommand,
+  parseLoopCellArgs,
+} from "../interfaces/cli/benchmark/benchmark-loop-cell.js";
+import type { LoopCellPorts, ParsedLoopCellArgs } from "../interfaces/cli/benchmark/benchmark-loop-cell.js";
 import { USAGE_ERROR_EXIT_CODE } from "../shared/exit-codes.js";
 
 const ARGS = [
@@ -111,4 +114,85 @@ test("aprūpinimas įvyksta PRIEŠ ciklą, ne po jo", async () => {
     "užduotis parašoma prieš atsisakymą — atsisakymas yra dėl roster'io, ne dėl argumentų",
   );
   assert.equal(recorded.cycles, 0);
+});
+
+// --- parseLoopCellArgs: vienaskaitos aliasai (full-audit-2026-09-05, P1-C6) -------------------
+//
+// README:219 ir registro usage skelbė `--allowed-path <p> [--check <cmd>]`, o parseris priėmė
+// tik daugiskaitą. Benchmark paketas veikė (jo šablonas rašo daugiskaitą), tad spragą matė tik
+// rankinis operatorius — ir tiksliai tai čia ir tikrinama.
+
+const BASE = ["--workdir", "/tmp/cell", "--model", "claude-sonnet-5", "--step-limit", "12", "--timeout-ms", "600000"];
+
+function parsed(...tail: readonly string[]): ParsedLoopCellArgs {
+  const result = parseLoopCellArgs([...BASE, ...tail]);
+  assert.equal(result.kind, "ok", result.kind === "error" ? result.message : "");
+  if (result.kind !== "ok") throw new Error("unreachable");
+  return result.args;
+}
+
+function rejected(...tail: readonly string[]): string {
+  const result = parseLoopCellArgs([...BASE, ...tail]);
+  assert.equal(result.kind, "error");
+  return result.kind === "error" ? result.message : "";
+}
+
+test("parseLoopCellArgs: kartojama vienaskaita ≡ daugiskaitos | sąrašas", () => {
+  const singular = parsed("--allowed-path", "src/a.js", "--allowed-path", "src/b.js");
+  const plural = parsed("--allowed-paths", "src/a.js|src/b.js");
+  assert.deepEqual(singular.allowedPaths, ["src/a.js", "src/b.js"]);
+  assert.deepEqual(singular.allowedPaths, plural.allowedPaths);
+});
+
+test("parseLoopCellArgs: mišri forma sudedama argumentų tvarka, be dedup", () => {
+  const args = parsed(
+    "--allowed-paths",
+    "src/a.js|src/b.js",
+    "--allowed-path",
+    "src/c.js",
+    "--allowed-path",
+    "src/a.js",
+  );
+  assert.deepEqual(args.allowedPaths, ["src/a.js", "src/b.js", "src/c.js", "src/a.js"]);
+});
+
+test("parseLoopCellArgs: --check veikia be --checks ir kartojasi", () => {
+  const args = parsed(
+    "--allowed-path",
+    "src/a.js",
+    "--check",
+    "node --test test/a.test.mjs",
+    "--check",
+    "node --test test/b.test.mjs",
+  );
+  assert.deepEqual(args.checks, ["node --test test/a.test.mjs", "node --test test/b.test.mjs"]);
+});
+
+test("parseLoopCellArgs: kiti raktai lieka „paskutinis laimi\"", () => {
+  // Kaupimas įjungtas TIK dviem sąrašo vėliavoms — `--model` semantika nepakitusi.
+  const args = parsed("--allowed-path", "src/a.js", "--model", "claude-opus-5");
+  assert.equal(args.model, "claude-opus-5");
+});
+
+test("parseLoopCellArgs: esami klaidų atvejai nepakitę", () => {
+  assert.match(rejected("--checks", "node --test"), /must name at least one path/);
+  // Tuščias alias'as po trim'o lieka tuščiu sąrašu, o ne „viskas leidžiama".
+  assert.match(rejected("--allowed-path", "  "), /must name at least one path/);
+  const negativeStep = parseLoopCellArgs([
+    "--workdir",
+    "/tmp/cell",
+    "--model",
+    "claude-sonnet-5",
+    "--step-limit",
+    "-3",
+    "--timeout-ms",
+    "600000",
+    "--allowed-path",
+    "src/a.js",
+  ]);
+  assert.equal(negativeStep.kind, "error");
+  assert.match(
+    negativeStep.kind === "error" ? negativeStep.message : "",
+    /--step-limit must be a positive integer/,
+  );
 });

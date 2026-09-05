@@ -20,7 +20,12 @@ import {
   type RetryCountsStorePort,
 } from "../application/task-execution/retry-counts.js";
 import { defaultAgentPolicy } from "../domain/policies/agent-policy-defaults.js";
-import type { ExecutionAdapter, ExecutionAdapterKind, ExecutionResult } from "../domain/agents/execution-port.js";
+import type {
+  ExecutionAdapter,
+  ExecutionAdapterKind,
+  ExecutionRequest,
+  ExecutionResult,
+} from "../domain/agents/execution-port.js";
 import type { CliIo } from "../interfaces/cli/registry.js";
 import { dispatch, printDispatch, type ExecutionDispatchResult } from "../interfaces/cli/dispatch/dispatch.js";
 import { printCodexDispatch } from "../interfaces/cli/dispatch/codex-dispatch.js";
@@ -227,8 +232,10 @@ function fakeAdapter(kind: ExecutionAdapterKind, result: Partial<ExecutionResult
 
 test("dispatch: usage → 2, dry-run sėkmė → 0, parked claude gauna DUP-09 guidance ir → 1", async () => {
   const created: string[] = [];
+  const dispatchedTaskFiles: string[] = [];
   const runResults = new Map<string, ExecutionDispatchResult>([
     ["dry-run", { adapter: "dry-run", status: "completed", task_id: "0001-a", summary: "dry_run_completed", result_path: "vq/state/r.json" }],
+    ["codex", { adapter: "codex", status: "completed", task_id: "0001-a", summary: "codex_completed", result_path: "vq/state/r.json" }],
     ["claude", { adapter: "claude", status: "failed", task_id: "0001-a", summary: "claude_adapter_not_implemented", result_path: "" }],
   ]);
   const deps = {
@@ -238,7 +245,10 @@ test("dispatch: usage → 2, dry-run sėkmė → 0, parked claude gauna DUP-09 g
       created.push(kind);
       return fakeAdapter(kind);
     },
-    runDispatch: async (_taskFile: string, adapter: ExecutionAdapter) => runResults.get(adapter.kind)!,
+    runDispatch: async (taskFile: string, adapter: ExecutionAdapter) => {
+      dispatchedTaskFiles.push(taskFile);
+      return runResults.get(adapter.kind)!;
+    },
   };
 
   const usage = captureIo();
@@ -255,14 +265,24 @@ test("dispatch: usage → 2, dry-run sėkmė → 0, parked claude gauna DUP-09 g
   assert.match(parked.summary, /use 'verqestra claude-dispatch <task-file>'/);
   const parkedPrint = captureIo();
   assert.equal(await printDispatch(["AG/tasks/queue/0001-a.md", "--adapter=claude"], { ...deps, io: parkedPrint.io }), 1);
+
+  // 210 / F4: `--adapter <kind>` tarpo forma abiem tvarkomis — taskFile lieka kelias, ne flag'o
+  // reikšmė (anksčiau `--adapter codex task.md` paversdavo "codex" pačiu taskFile'u).
+  assert.equal((await dispatch(["AG/tasks/queue/0001-a.md", "--adapter", "codex"], deps)).adapter, "codex");
+  assert.equal(dispatchedTaskFiles.at(-1), "AG/tasks/queue/0001-a.md");
+  assert.equal((await dispatch(["--adapter", "codex", "AG/tasks/queue/0001-a.md"], deps)).adapter, "codex");
+  assert.equal(dispatchedTaskFiles.at(-1), "AG/tasks/queue/0001-a.md");
 });
 
 test("codex-dispatch: ne-codex → dry-run kelias; codex be context-pack → 2; codex kelias įjungia adapterį", async () => {
   const calls: Array<{ kind: ExecutionAdapterKind; enabled: boolean | undefined }> = [];
+  const requestedTaskIds: string[] = [];
   const deps = {
-    createAdapter: (kind: ExecutionAdapterKind, options?: { enabled?: boolean }) => {
+    createAdapter: (kind: ExecutionAdapterKind, options?: { enabled?: boolean }): ExecutionAdapter => {
       calls.push({ kind, enabled: options?.enabled });
-      return fakeAdapter(kind, { exitCode: kind === "codex" ? 0 : 3, reason: `${kind}_done` });
+      const adapter = fakeAdapter(kind, { exitCode: kind === "codex" ? 0 : 3, reason: `${kind}_done` });
+      const execute = (request: ExecutionRequest) => (requestedTaskIds.push(request.taskId), adapter.execute(request));
+      return { kind, execute };
     },
     readContextPack: async () => ({ task_id: "0007" }),
     resolvePath: (candidate: string) => `/abs/${candidate}`,
@@ -272,6 +292,7 @@ test("codex-dispatch: ne-codex → dry-run kelias; codex be context-pack → 2; 
   const dry = captureIo();
   assert.equal(await printCodexDispatch(["0007"], { ...deps, io: dry.io }), 3);
   assert.deepEqual(calls[0], { kind: "dry-run", enabled: undefined });
+  assert.equal(requestedTaskIds.at(-1), "0007");
 
   const noPack = captureIo();
   assert.equal(await printCodexDispatch(["0007", "--adapter=codex"], { ...deps, io: noPack.io }), 2);
@@ -281,6 +302,7 @@ test("codex-dispatch: ne-codex → dry-run kelias; codex be context-pack → 2; 
   assert.equal(await printCodexDispatch(["0007", "--adapter=codex", "--context-pack=cp.json"], { ...deps, io: okIo.io }), 0);
   assert.deepEqual(calls.at(-1), { kind: "codex", enabled: true });
   assert.equal(okIo.out[1], "status: completed");
+  assert.equal(requestedTaskIds.at(-1), "0007");
 
   const broken = captureIo();
   assert.equal(
@@ -294,13 +316,24 @@ test("codex-dispatch: ne-codex → dry-run kelias; codex be context-pack → 2; 
     2,
   );
   assert.equal(broken.err[0], "bad json");
+
+  // 210: tarpo forma `--adapter codex --context-pack <file>` prieš arba po pozicinio taskId.
+  const spaceForm = captureIo();
+  assert.equal(
+    await printCodexDispatch(["--adapter", "codex", "--context-pack", "cp.json", "0007"], { ...deps, io: spaceForm.io }),
+    0,
+  );
+  assert.deepEqual(calls.at(-1), { kind: "codex", enabled: true });
+  assert.equal(spaceForm.out[1], "status: completed");
+  // F14: `--adapter codex ... 0007` anksčiau paversdavo "codex" pačiu taskId — dabar 0007 lieka.
+  assert.equal(requestedTaskIds.at(-1), "0007");
 });
 
 // ---------------------------------------------------------------------------
 // on-stop-bridge / loop-guard / retry-guard
 // ---------------------------------------------------------------------------
 
-test("on-stop-bridge: argv default'ai ir taskId iš current-task-id keliauja į no-clobber rašytoją", async () => {
+test("on-stop-bridge: taskId iš current-task-id keliauja į no-clobber rašytoją; be args → usage 2, rašytojas nekviestas", async () => {
   const writes: Array<{ status: string; reason: string; taskId: string }> = [];
   const deps = {
     readCurrentTaskId: async () => "0042-x",
@@ -309,11 +342,12 @@ test("on-stop-bridge: argv default'ai ir taskId iš current-task-id keliauja į 
     },
   };
   assert.equal(await onStopBridge(["done", "committed"], deps), 0);
-  assert.equal(await onStopBridge([], { ...deps, readCurrentTaskId: async () => "" }), 0);
-  assert.deepEqual(writes, [
-    { status: "done", reason: "committed", taskId: "0042-x" },
-    { status: "unknown", reason: "", taskId: "" },
-  ]);
+  assert.deepEqual(writes, [{ status: "done", reason: "committed", taskId: "0042-x" }]);
+
+  const usage = captureIo();
+  assert.equal(await onStopBridge([], { ...deps, io: usage.io }), 2);
+  assert.match(usage.err[0] ?? "", /Usage: verqestra on-stop-bridge <status> \[reason\]/);
+  assert.deepEqual(writes, [{ status: "done", reason: "committed", taskId: "0042-x" }], "writeStopBridge nekviestas");
 });
 
 test("loop-guard: ensureDirs prieš vartus, render eilutės, exit 0/1 pagal report.ok", async () => {
@@ -426,6 +460,11 @@ test("retry-guard: ne-repair skip, trūkstamas taskId → 1, skaitiklis+parašai
   });
   assert.equal(await retryGuard(["--task-id", "0099"], flagged.deps), 0);
   assert.match(flagged.agLines[0] ?? "", /task=0099 .*retry_key=sig-x/);
+
+  // 210: `--task-id=<id>` inline forma laimi prieš decision.task_id taip pat, kaip tarpo forma.
+  const flaggedInline = retryGuardDeps({ readDecision: () => flagged.deps.readDecision() });
+  assert.equal(await retryGuard(["--task-id=0042"], flaggedInline.deps), 0);
+  assert.match(flaggedInline.agLines[0] ?? "", /task=0042 .*retry_key=sig-x/);
 
   const limited = retryGuardDeps();
   await limited.deps.counts.update((counts) => {

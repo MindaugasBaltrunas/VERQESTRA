@@ -10,15 +10,24 @@
 // PRIDĖTA — privalo eiti PO jo: nonce-carrying `done` prieš vartus/commit'ą nužudytų
 // sesiją įpusėjus (launcher watchdog).
 
+import { consoleCliIo, type CliIo } from "../registry.js";
+
 export type OnStopBridgeCommandDeps = {
   /** Aktyvaus task'o id iš `vq/state/current-task-id`; `""` kai failo nėra. */
   readCurrentTaskId(): Promise<string>;
   /** `stopBridgeForProject` — attempt-first tvarka ir no-clobber vartai gyvena jame. */
   writeStopBridge(status: string, reason: string, taskId: string): Promise<void>;
+  io?: CliIo;
 };
 
 export async function onStopBridge(args: string[], deps: OnStopBridgeCommandDeps): Promise<number> {
-  const status = args[0] ?? "unknown";
+  const io = deps.io ?? consoleCliIo;
+  const status = args[0];
+  if (!status) {
+    io.error("Usage: verqestra on-stop-bridge <status> [reason]");
+    return 2;
+  }
+
   const reason = args[1] ?? "";
   const taskId = await deps.readCurrentTaskId();
 

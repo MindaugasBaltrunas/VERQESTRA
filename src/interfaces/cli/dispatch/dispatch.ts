@@ -11,7 +11,29 @@
 import { resolveDispatchAdapter } from "../../../application/task-execution/adapter-routing.js";
 import type { AgentPolicy } from "../../../domain/policies/agent-selection.js";
 import type { ExecutionAdapter, ExecutionAdapterKind } from "../../../domain/agents/execution-port.js";
+import { flagValue } from "../spec/flag-value.js";
 import { consoleCliIo, type CliIo } from "../registry.js";
+
+/**
+ * Pozicinių token'ų atranka (bendra `dispatch`/`codex-dispatch` komandoms): praleidžia
+ * `--flag`/`--flag=value` token'us ir, jei `--flag` išvardytas `valueFlags`, jo atskirą
+ * (tarpo formos) reikšmės token'ą — kad ta reikšmė nebūtų palaikoma pozicine (task-file/task-id).
+ */
+export function positionalArgs(args: string[], valueFlags: readonly string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (!arg.startsWith("--")) {
+      result.push(arg);
+      continue;
+    }
+    if (valueFlags.includes(arg)) {
+      i++;
+    }
+  }
+  return result;
+}
 
 /** Etalono `DispatchResult` forma 1:1 — ją grąžina composition paduotas vykdytojas. */
 export type ExecutionDispatchResult = {
@@ -40,19 +62,19 @@ const PRODUCTION_ADAPTER_COMMAND: Record<string, string> = {
 const ADAPTER_NOT_IMPLEMENTED_REASONS = new Set(["claude_adapter_not_implemented", "codex_adapter_not_implemented"]);
 
 export async function dispatch(args: string[], deps: DispatchCommandDeps): Promise<ExecutionDispatchResult> {
-  const taskFile = args.find((arg) => !arg.startsWith("--"))?.trim();
+  const taskFile = positionalArgs(args, ["--adapter"])[0]?.trim();
   if (!taskFile) {
     throw new Error(
-      "Usage: verqestra dispatch <task-file> [--adapter=dry-run|auto|codex|claude] " +
+      "Usage: verqestra dispatch <task-file> [--adapter=dry-run|auto|codex|claude | --adapter <kind>] " +
         "(only dry-run executes; codex/claude are parked/reference — use codex-dispatch/claude-dispatch for production execution)",
     );
   }
 
   // Kanoninė routing paslauga (etalono task 889): numatytasis lieka dry-run (saugu);
-  // `--adapter=auto` parenka pagal vaidmenį.
+  // `--adapter auto`/`--adapter=auto` parenka pagal vaidmenį.
   const taskText = await deps.readTaskText(taskFile);
   const policy = await deps.loadAgentPolicy();
-  const requestedAdapter = args.find((arg) => arg.startsWith("--adapter="))?.slice("--adapter=".length) ?? "dry-run";
+  const requestedAdapter = flagValue(args, "--adapter") ?? "dry-run";
   const decision = resolveDispatchAdapter(taskText, policy, requestedAdapter);
 
   const result = await deps.runDispatch(taskFile, deps.createAdapter(decision.adapter));

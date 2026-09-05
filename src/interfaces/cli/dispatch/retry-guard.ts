@@ -11,6 +11,7 @@ import {
   type RetryCountsStorePort,
   type SupervisorRetryDecision,
 } from "../../../application/task-execution/retry-counts.js";
+import { flagValue } from "../spec/flag-value.js";
 
 export type RetryGuardCommandDeps = {
   ensureDirs(): Promise<void>;
@@ -47,20 +48,12 @@ export type RetryGuardCommandDeps = {
   now?: () => Date;
 };
 
-function argValue(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index === -1) {
-    return undefined;
-  }
-  return args[index + 1]?.trim() || undefined;
-}
-
 async function resolveTaskId(
   args: string[],
   decision: SupervisorRetryDecision,
   deps: RetryGuardCommandDeps,
 ): Promise<string | undefined> {
-  return (argValue(args, "--task-id") ?? decision.task_id ?? (await deps.readCurrentTaskId()))?.trim();
+  return (flagValue(args, "--task-id") ?? decision.task_id ?? (await deps.readCurrentTaskId()))?.trim();
 }
 
 export async function retryGuard(args: string[], deps: RetryGuardCommandDeps): Promise<number> {

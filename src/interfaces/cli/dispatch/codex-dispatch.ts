@@ -10,7 +10,9 @@ import type {
   ExecutionRequest,
   ExecutionResult,
 } from "../../../domain/agents/execution-port.js";
+import { flagValue } from "../spec/flag-value.js";
 import { consoleCliIo, type CliIo } from "../registry.js";
+import { positionalArgs } from "./dispatch.js";
 
 export type CodexDispatchOptions = ExecutionRequest & {
   adapter?: ExecutionAdapterKind;
@@ -40,7 +42,7 @@ export async function codexDispatch(
 export async function printCodexDispatch(args: string[], deps: CodexDispatchCommandDeps): Promise<number> {
   const io = deps.io ?? consoleCliIo;
   const selected = flagValue(args, "--adapter");
-  const taskId = args.find((arg) => !arg.startsWith("--")) ?? "unknown-task";
+  const taskId = positionalArgs(args, ["--adapter", "--context-pack"])[0] ?? "unknown-task";
   if (selected !== "codex") {
     const result = await codexDispatch({ taskId, adapter: "dry-run" }, deps);
     return printResult(result, io);
@@ -48,7 +50,10 @@ export async function printCodexDispatch(args: string[], deps: CodexDispatchComm
 
   const contextPackArg = flagValue(args, "--context-pack");
   if (!contextPackArg) {
-    io.error("Usage: verqestra codex-dispatch <task-id> --adapter=codex --context-pack=<file>");
+    io.error(
+      "Usage: verqestra codex-dispatch <task-id> --adapter codex --context-pack <file> " +
+        "(--adapter=codex --context-pack=<file> also works)",
+    );
     return 2;
   }
 
@@ -64,13 +69,6 @@ export async function printCodexDispatch(args: string[], deps: CodexDispatchComm
     io.error(error instanceof Error ? error.message : String(error));
     return 2;
   }
-}
-
-function flagValue(args: string[], name: string): string | undefined {
-  const inline = args.find((arg) => arg.startsWith(name + "="));
-  if (inline) return inline.slice(name.length + 1).trim() || undefined;
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1]?.trim() || undefined : undefined;
 }
 
 function printResult(result: ExecutionResult, io: CliIo): number {

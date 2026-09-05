@@ -27,6 +27,7 @@ maksimalų išvestą timeout'ą surišti vienu invariantu su testu — ne trys l
 readme-guard -> debugger -> coder -> reviewer -> tester
 
 ## Failai
+> 2026-09-05: accept-scope patvirtinta (žmogaus peržiūra, be requeue)
 Leidžiama:
 - `src/application/token-governance/turn-budget.ts` (eksportas: didžiausias leidžiamas dispatch langas)
 - `src/application/token-governance/token-budget-config.ts` (95: `MAX_DERIVED_DISPATCH_TIMEOUT_MS` ima iš `turn-budget`)
@@ -36,6 +37,7 @@ Leidžiama:
 - `src/tests/token-governance-turn-budget.test.ts`
 - `src/tests/scheduling-loop-runtime-config.test.ts` (numatomas naujas; invariantas tarp trijų konstantų)
 
+- `src/tests/infrastructure-orphan-reaper.test.ts`
 Draudžiama:
 - `src/application/scheduling/worker-lease-store.ts` (171 scope)
 - `src/interfaces/cli/dispatch/claude-dispatch/dispatch-timeout.ts` (vartotojas, nekinta)

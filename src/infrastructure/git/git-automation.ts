@@ -38,9 +38,20 @@ function isIndexLockError(result: CommandResult): boolean {
 /**
  * Pašalina pasenusį `.git/index.lock`. True tik kai realiai pasenęs lock'as pašalintas —
  * tikrai lygiagreti git operacija niekada netrikdoma.
+ *
+ * Lock'o kelias sprendžiamas per `git rev-parse --absolute-git-dir`, ne
+ * `path.join(projectRoot, ".git", "index.lock")`: linked worktree'e (`.ag/worktrees/...`)
+ * `.git` yra failas (gitdir rodyklė), o tikras lock'as gyvena
+ * `<main>/.git/worktrees/<name>/index.lock`. Git nesėkmė ar tuščias stdout → `false`
+ * (fail-closed, nieko netrinama).
  */
-export function clearStaleIndexLock(projectRoot: string): boolean {
-  const lockPath = path.join(projectRoot, ".git", "index.lock");
+export async function clearStaleIndexLock(projectRoot: string, runner: GitRunner = run): Promise<boolean> {
+  const gitDirResult = await runner("git", ["-C", projectRoot, "rev-parse", "--absolute-git-dir"]);
+  if (gitDirResult.code !== 0) return false;
+  const gitDir = gitDirResult.stdout.trim();
+  if (!gitDir) return false;
+
+  const lockPath = path.join(path.normalize(gitDir), "index.lock");
   if (!existsSync(lockPath)) {
     return false;
   }
@@ -112,14 +123,14 @@ async function addAndCommit(
   paths?: readonly string[],
 ): Promise<{ step: "add" | "commit"; result: CommandResult }> {
   let add = await runAddBatches(projectRoot, paths, runner);
-  if (isIndexLockError(add) && clearStaleIndexLock(projectRoot)) {
+  if (isIndexLockError(add) && (await clearStaleIndexLock(projectRoot, runner))) {
     add = await runAddBatches(projectRoot, paths, runner);
   }
   if (add.code !== 0) return { step: "add", result: add };
 
   let commit = await runner("git", ["-C", projectRoot, "commit", "-m", commitMessage]);
 
-  if (isIndexLockError(commit) && clearStaleIndexLock(projectRoot)) {
+  if (isIndexLockError(commit) && (await clearStaleIndexLock(projectRoot, runner))) {
     add = await runAddBatches(projectRoot, paths, runner);
     if (add.code !== 0) return { step: "add", result: add };
     commit = await runner("git", ["-C", projectRoot, "commit", "-m", commitMessage]);

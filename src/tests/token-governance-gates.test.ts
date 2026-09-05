@@ -1,6 +1,8 @@
 // VQ-305 (3/3-a): usage-ledger grynųjų taisyklių, route-model matricos ir tool-budget vartų
 // unit testai. Fake portai — jokio realaus FS; ledger'is maitinamas sintetiniu JSONL.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
   buildTaskUsageLedger,
@@ -23,7 +25,8 @@ import {
   recordLlmCallReset,
   type TokenBudgetGatePorts,
 } from "../application/token-governance/tool-budget-gates.js";
-import { SOFT_BUDGET_RATIO } from "../application/token-governance/tool-budget-rules.js";
+import { evaluateLedgerGate, SOFT_BUDGET_RATIO } from "../application/token-governance/tool-budget-rules.js";
+import { loadToolBudget, selectToolBudget } from "../application/policy-governance/tool-budget-config.js";
 
 test("usage-ledger: fazių normalizacija, repair išvedimas ir kvietimų klasifikacija", () => {
   assert.equal(canonicalTaskPhase("dispatch"), "implementation");
@@ -328,6 +331,96 @@ test("enforceExecutionBudget: billable lubos, raw notice ir soft slenkstis", asy
   assert.ok(status.soft_reasons.some((reason) => reason.startsWith("task tokens 800 near 1000")), "soft >= 80%");
   assert.equal(status.reduce_context, true);
   assert.equal(SOFT_BUDGET_RATIO, 0.8);
+});
+
+// TG-1 MATAVIMAS (pilnas auditas 2026-09-05, `docs/audits/full-audit-2026-09-05.md`, A4).
+// Šablonų reikšmės skaitomos iš disko ir NEKEIČIAMOS: testas fiksuoja, kad būtent su jomis
+// (`max_llm_calls: 3`, `defer_steps: 1`, `freeze_escalation_under_budget_pressure: true`)
+// trečias dispatch'as po dviejų nesėkmių pasiekia `retry-escalation`. Iki TG-1 pataisymo tas
+// pats trečias dispatch'as uždegdavo `softExceeded(3, 3)` → `reduce_context` → `budget-freeze`,
+// tad eskalacija su numatytuoju konfigu neįvykdavo NIEKADA.
+const TEMPLATE_CONFIG_ROOT = path.resolve(process.cwd(), "templates", "vq", "config");
+const TEMPLATE_TOOL_BUDGET = readFileSync(path.join(TEMPLATE_CONFIG_ROOT, "tool-budget.json"), "utf8");
+const TEMPLATE_MODEL_POLICY = readFileSync(path.join(TEMPLATE_CONFIG_ROOT, "model-policy.json"), "utf8");
+
+const TWO_FAILED_DISPATCHES = [
+  usageLine({ task_id: "0186", phase: "dispatch", ts: "2026-09-05T01:00:00Z", input_tokens: 1000, output_tokens: 500 }),
+  usageLine({
+    task_id: "0186",
+    phase: "dispatch",
+    ts: "2026-09-05T02:00:00Z",
+    attempt: 2,
+    retry_reason: "tests",
+    input_tokens: 1000,
+    output_tokens: 500,
+  }),
+].join("\n");
+
+test("TG-1: su ŠABLONO biudžetu trečias dispatch'as pasiekia retry eskalaciją", async () => {
+  const templateFs = fakeConfigFs({
+    "/repo/vq/config/tool-budget.json": TEMPLATE_TOOL_BUDGET,
+    "/repo/vq/config/model-policy.json": TEMPLATE_MODEL_POLICY,
+  });
+  const profile = selectToolBudget(await loadToolBudget(templateFs, "/repo/vq"), "default");
+  const routingPolicy = await loadRoutingPolicy(templateFs, "/repo/vq");
+  assert.equal(profile.max_llm_calls, 3, "šablono prielaida: tool-budget.json max_llm_calls");
+  assert.equal(routingPolicy.escalation.defer_steps, 1, "šablono prielaida: model-policy.json defer_steps");
+  assert.equal(routingPolicy.freeze_escalation_under_budget_pressure, true, "šablono prielaida: freeze įjungtas");
+
+  // Du nesėkmingi dispatch'ai (implementation + repair); trečiasis — projektuojamas.
+  const ledger = buildTaskUsageLedger("0186", parseTaskUsageEntries(TWO_FAILED_DISPATCHES));
+  const gate = evaluateLedgerGate({ full: ledger, chargeable: ledger }, profile, "repair");
+  assert.equal(gate.llmCalls, 3, "trečias dispatch'as");
+  assert.deepEqual(gate.hardReasons, [], "trečias kvietimas dar leidžiamas");
+  assert.ok(
+    gate.callPressureReasons.includes("LLM calls 3 near 3"),
+    `kvietimų spaudimas lieka matomas: ${gate.callPressureReasons.join("; ")}`,
+  );
+  assert.deepEqual(gate.softReasons, [], "kvietimų spaudimas nėra TOKENŲ spaudimas");
+
+  // Produkcinė grandinė: `reduce_context` gimsta `tool-budget-gates.ts` iš `softReasons`.
+  const { ports } = makeGatePorts({
+    configs: {
+      "/repo/vq/config/tool-budget.json": TEMPLATE_TOOL_BUDGET,
+      "/repo/vq/config/model-policy.json": TEMPLATE_MODEL_POLICY,
+    },
+    usageLog: TWO_FAILED_DISPATCHES,
+  });
+  const authorization = await authorizeLlmCall(ports, "/repo/vq", { taskId: "0186", phase: "repair" });
+  assert.equal(authorization.allowed, true, `hard: ${authorization.hard_reasons.join("; ")}`);
+  assert.equal(authorization.reduce_context, false, "paskutinis leistinas bandymas nebekarpo savo konteksto");
+
+  // Tie patys įėjimai, kuriuos surenka `dispatch-routing-plan.ts` ir `coordinator-execution-adapters.ts`.
+  const routing = routeModel({
+    phase: "repair",
+    taskText: "typo",
+    failedAttempts: 2,
+    size: SIZE_SMALL,
+    budget: {
+      reduceContext: authorization.reduce_context,
+      remainingTotalLlmCalls: authorization.remaining_total_llm_calls,
+      remainingTotalTokens: authorization.remaining_total_tokens,
+      totalLlmCalls: authorization.total_llm_calls,
+    },
+    policy: routingPolicy,
+  });
+  assert.ok(routing.reason_codes.includes("retry-escalation"), `reason: ${routing.reason}`);
+  assert.ok(!routing.reason_codes.includes("budget-freeze"), `reason: ${routing.reason}`);
+  assert.equal(routing.escalation_steps, 1);
+  assert.equal(routing.tier, "standard");
+});
+
+test("TG-1: tokenų soft spaudimas eskalaciją vis dar užšaldo", () => {
+  const frozen = routeModel({
+    phase: "repair",
+    taskText: "typo",
+    failedAttempts: 2,
+    size: SIZE_SMALL,
+    // Tokenų soft priežastis (`task tokens N near M`) → `reduce_context`; ji lieka stop-kranu.
+    budget: { reduceContext: true, remainingTotalLlmCalls: 9, remainingTotalTokens: 2000, totalLlmCalls: 3 },
+  });
+  assert.equal(frozen.tier, "routine");
+  assert.ok(frozen.reason_codes.includes("budget-freeze"), `reason: ${frozen.reason}`);
 });
 
 test("authorizeLlmCall: fazės rezervas projektuojamai fazei ir failsafe be konfigo", async () => {

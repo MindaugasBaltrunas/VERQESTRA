@@ -4,6 +4,22 @@
 // operuoja provider-neutraliomis pakopomis (`domain/tokens/routing-tier.ts`). Provider
 // vardai atsiranda tik adapteryje (E4), o IO — tik `loadRoutingPolicy` failsafe krautuve
 // (konfigo skaitymas per PolicyConfigFileSystemPort).
+//
+// TG-1 SPRENDIMAS (auditas 2026-09-05, `docs/audits/full-audit-2026-09-05.md`, A4).
+// Su šablono reikšmėmis (`tool-budget.json` `max_llm_calls: 3`, `model-policy.json`
+// `defer_steps: 1`, `freeze_escalation_under_budget_pressure: true`) retry eskalacija buvo
+// STRUKTŪRIŠKAI nepasiekiama: trečiam dispatch'ui `softExceeded(3, 3)` uždegdavo
+// `reduce_context`, o `budget-freeze` tą patį dispatch'ą, kurį `defer_steps: 1` pirmą kartą
+// eskaluoja, nuleisdavo į `steps = 0`. Eskalacija įvykdavo lygiai 0 kartų.
+//
+// Pasirinkta taisyti PRIEŽASTĮ, ne `budget-freeze` sąlygą: `reduceContext` reikšmė susiaurinta
+// prie šaltinio (`tool-budget-rules.evaluateLedgerGate`) iki TOKENŲ spaudimo, o kvietimų
+// artėjimas prie `max_llm_calls` iškeltas į `callPressureReasons`. Taip čia esanti sąlyga
+// išlieka tokia, kokia buvo parašyta prasme („biudžetas dega → nebrangink modelio"), o
+// atmesti buvo du alternatyvūs keliai: (a) naujas neprivalomas `RouteModelInput.budget`
+// laukas — jo neužpildo nė vienas kvietėjas (`coordinator-execution-adapters.ts:165`,
+// `dispatch-routing-plan.ts:58`), tad produkcijoje niekas nepasikeistų; (b) `reduceContext`
+// išbraukimas iš užšaldymo sąlygos — tai nutildytų ir TIKRĄ tokenų spaudimą.
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { canonicalJsonStringify } from "../../shared/json.js";
@@ -98,6 +114,11 @@ export type RoutingReasonCode =
 
 /** Biudžeto signalai iš `authorizeLlmCall` (jau apskaičiuoti — čia jokio IO). */
 export type RoutingBudgetSignals = {
+  /**
+   * Soft TOKENŲ spaudimas. TG-1: kvietimų skaičiaus artėjimas prie `max_llm_calls` čia
+   * NEBEPATENKA (`tool-budget-rules.callPressureReasons`), todėl `true` reiškia realų
+   * tokenų degimą, o ne tai, kad tai paskutinis leistinas bandymas.
+   */
   reduceContext: boolean;
   remainingTotalLlmCalls: number | null;
   remainingTotalTokens: number | null;
@@ -259,7 +280,9 @@ export function routeModel(input: RouteModelInput): RouteModelDecision {
     (budget.reduceContext || budget.remainingTotalTokens === 0 || budget.remainingTotalLlmCalls === 0)
   ) {
     // Išsemiamas biudžetas yra bloga vieta brangesniam modeliui: eskalacija čia pagreitintų
-    // būtent tą degimą, kurį biudžetas bando stabdyti.
+    // būtent tą degimą, kurį biudžetas bando stabdyti. `reduceContext` čia gali reikšti TIK
+    // tokenų spaudimą (TG-1, žr. failo antraštę): kvietimų skaitiklio artėjimas prie lubų
+    // užšaldymo nebekelia, nes tą signalą uždega pats bandomas dispatch'as.
     steps = 0;
     reasonCodes.push("budget-freeze");
   }

@@ -1,6 +1,6 @@
 ---
 name: readme-guard
-description: Privalomas pirmasis agentas visose grandinėse. Per Read tool perskaito README.md ir doc/architecture/README.md (PostToolUse Read hook užfiksuoja juos vq/state/readme-read-events.json), patikrina ribas. Be šio skaitymo pre-write hook blokuoja visus source pakeitimus.
+description: Privalomas pirmasis agentas visose grandinėse. Per Read tool perskaito README.md ir docs/architecture.md (PostToolUse Read hook užfiksuoja juos vq/state/readme-read-events.json), patikrina ribas. Be šio skaitymo pre-write hook blokuoja visus source pakeitimus.
 tools: Read, Glob, Grep
 ---
 
@@ -11,12 +11,12 @@ tools: Read, Glob, Grep
 ## Žingsnis 1 — Skaityk (per Read tool)
 
 1. `README.md`
-2. `doc/architecture/README.md`
+2. `docs/architecture.md`
 3. Scope-specifinė dokumentacija (paketo / app / modulio / DB README), jei projektas tokią turi.
 
 ## Žingsnis 2 — Nustatyk scope
 
-Pagal projekto `README.md` / `AG/project/profile.json` nustatyk, kuris source vienetas keičiamas (paketas / app / modulis / worker / DB) ir kuri jo dokumentacija yra autoritetinga. Nedaryk prielaidų apie struktūrą — remkis tuo, ką projektas realiai turi.
+Pagal projekto `README.md` / `vq/project/profile.json` nustatyk, kuris source vienetas keičiamas (paketas / app / modulis / worker / DB) ir kuri jo dokumentacija yra autoritetinga. Nedaryk prielaidų apie struktūrą — remkis tuo, ką projektas realiai turi.
 
 ## Žingsnis 3 — Tikrink ribas (bet kuris „taip" = ❌ BLOKUOK)
 
@@ -31,7 +31,7 @@ Pagal projekto `README.md` / `AG/project/profile.json` nustatyk, kuris source vi
 ## Žingsnis 4 — Leidimas suteikiamas automatiškai
 
 Leidimą source rašymui suteikia NE flagas, o pats README skaitymas: kai per **Read tool**
-perskaitai `README.md` ir `doc/architecture/README.md`, PostToolUse `Read` hook'as juos
+perskaitai `README.md` ir `docs/architecture.md`, PostToolUse `Read` hook'as juos
 užfiksuoja `vq/state/readme-read-events.json`, ir pre-write hook'as atrakina rašymą.
 
 **NERAŠYK** `logs/.readme-guard-ok` ar `vq/state/readme-read-events.json` rankiniu būdu —
@@ -44,7 +44,7 @@ paminėjimą komandoje. Užtenka tiesiog per Read tool perskaityti reikiamus REA
 kad jiems nereikėtų iš naujo skaityti README (hook'o leidimas jau galioja visai sesijai):
 
 ```text
-readme-guard: ✅ | Scope: <scope> | Perskaityta: README.md, doc/architecture/README.md
+readme-guard: ✅ | Scope: <scope> | Perskaityta: README.md, docs/architecture.md
 Ribų santrauka:
 - Scope vienetas: <paketas / app / modulis / worker / DB>
 - Leistini failai/katalogai: ...

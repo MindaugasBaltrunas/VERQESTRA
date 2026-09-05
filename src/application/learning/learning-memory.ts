@@ -110,7 +110,7 @@ export async function queryLearningMemory(
 export async function summarizeLearningMemory(fs: LearningFsPort, runtimeRoot: string): Promise<LearningMemorySummary> {
   const records = await readLearningMemoryRecords(fs, runtimeRoot);
   const summary: LearningMemorySummary = {
-    records: records.length,
+    records: 0,
     by_type: {
       task_outcome: 0,
       failure_pattern: 0,
@@ -122,17 +122,17 @@ export async function summarizeLearningMemory(fs: LearningFsPort, runtimeRoot: s
     rejected_recommendations: 0,
   };
 
-  // Rekomendacijos statusas — PASKUTINIS to paties id įrašas: decide append'ina naują
-  // eilutę tuo pačiu id, tad Map perrašymas natūraliai realizuoja "latest wins".
-  const latestRecommendations = new Map<string, LearningMemoryRecord>();
-  for (const record of records) {
-    summary.by_type[record.type] += 1;
-    if (record.type === "policy_recommendation") {
-      latestRecommendations.set(record.id, record);
-    }
-  }
+  // Žurnalas yra append-only, o `decideLearningRecommendation` prirašo NAUJĄ eilutę tuo pačiu id,
+  // tad eilučių skaičius nėra įrašų skaičius: iki 2026-09-05 `records`/`by_type` kiekvieną sprendimą
+  // skaičiavo kaip papildomą rekomendaciją (AN-1), nors UI tą patį id rodo vieną kartą. Suvestinė
+  // dedup'inama pagal id — PASKUTINIS įrašas laimi, kaip ir rekomendacijos statuse.
+  const latestById = new Map<string, LearningMemoryRecord>();
+  for (const record of records) latestById.set(record.id, record);
 
-  for (const record of latestRecommendations.values()) {
+  for (const record of latestById.values()) {
+    summary.records += 1;
+    summary.by_type[record.type] += 1;
+    if (record.type !== "policy_recommendation") continue;
     if (record.recommendation_status === "approved") summary.approved_recommendations += 1;
     else if (record.recommendation_status === "rejected") summary.rejected_recommendations += 1;
     else summary.pending_recommendations += 1;

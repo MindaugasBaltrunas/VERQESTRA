@@ -7,14 +7,15 @@
 import path from "node:path";
 import { resolveProjectPath } from "../../shared/paths.js";
 import type { ArchitectureGraph, ArchitectureProgress } from "../../domain/architecture/graph.js";
+import type { EvidenceEntry } from "../../domain/architecture/evidence.js";
 import { classifyInputSourceNodes } from "../../domain/architecture/input-source-classification.js";
 import { computeReadiness } from "../../domain/architecture/readiness.js";
 import { inferInterfaceContract } from "../../domain/architecture/interface-inference.js";
-import { readEvidenceLedger } from "./evidence-ledger.js";
+import { readEvidenceLedgerWithSkipped } from "./evidence-ledger.js";
 import { detectNodeImplementation, readNodeImplementationMap } from "./implementation-detector.js";
 import { synthesizeTask, writeSynthesisOutput } from "./task-synthesizer.js";
 import { verifyNode } from "./node-verifier.js";
-import type { ArchitectureWavePorts } from "./ports.js";
+import type { ArchitectureWaveFsPort, ArchitectureWavePorts } from "./ports.js";
 import { reconcileArchitectureProgress } from "./task-sync.js";
 import {
   architectureStateDir,
@@ -47,6 +48,15 @@ export type ArchitectureWaveResult = {
   /** Ready mazgai be jokio evidence įrašo — taskas neblokuojamas fabrikuotu scope, o praleidžiamas su priežastimi (895). */
   no_evidence: number;
   nodeResults: WaveNodeResult[];
+};
+
+export type ArchitectureWaveOptions = {
+  /**
+   * Kanoninė spec nuoroda visiems šios bangos task'ams (pvz. `openspec/changes/<id>/proposal.md`),
+   * kai ją žino kvietėjas. Be jos nuoroda išvedama iš paties mazgo įrodymų — žr.
+   * {@link resolveNodeSpecSource}.
+   */
+  specSource?: string;
 };
 
 export type AlreadyImplementedMarkResult = {
@@ -162,9 +172,75 @@ export async function markAlreadyImplementedNodes(
   return { progress: updated, markedDone };
 }
 
+/** `README.md#Skyrius` → `README.md`: preflight `specSourceExists` tikrina PLIKĄ kelią, be fragmento. */
+function normalizeEvidenceSource(source: string): string {
+  const withoutFragment = source.split("#")[0] ?? "";
+  return withoutFragment.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+/**
+ * Archyvuota arba šablono OpenSpec nuoroda: dispatch preflight tokią DEKLARUOTĄ nuorodą blokuoja
+ * (`is archived` / `is a template`, openspec-context.ts). Toks šaltinis egzistuoja diske, bet
+ * spec nuoroda būti negali — jį deklaravęs task'as būtų parkuotas ten, kur anksčiau praeidavo
+ * per `architecture-node/…`, tad pataisymas liktų vienakryptis tik su šia išimtimi.
+ */
+function isDeadOpenSpecRef(source: string): boolean {
+  return source.includes("openspec/changes/archive/") || source.includes("openspec/changes/_template");
+}
+
+/**
+ * Absoliutūs kandidatai vienam spec-source keliui: santykinis kelias projekto šaknyje ir
+ * (`openspec/` atveju) `AG/` prefikso variantas — tas pats poaibis, kurį tikrina manual preflight
+ * `specSourceCandidates`. Iš šaknies išeinantys ar absoliutūs šaltiniai atmetami.
+ */
+function specSourceCandidatePaths(projectRoot: string, source: string): string[] {
+  const relatives = source.startsWith("openspec/") ? [source, `AG/${source}`] : [source];
+  const resolved: string[] = [];
+  for (const relative of relatives) {
+    try {
+      resolved.push(
+        resolveProjectPath(projectRoot, relative, { allowAbsoluteInsideRoot: false }, "architecture spec source"),
+      );
+    } catch {
+      // Ne projekto viduje esantis šaltinis nėra spec nuoroda — tyliai praleidžiamas.
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Mazgo `## Spec source` nuoroda iš jo paties įrodymų (AR-1, 2026-09-05). Iki tol wave sintezuoti
+ * task'ai turėjo TIK `architecture-node/<id> (run: …)` eilutę, kurios manual preflight
+ * `specSourceExists` neatpažįsta — verdiktas `invalid` („spec source not found"), o loop kelias
+ * išgyvendavo tik per `autoOpenSpec`. Grąžinamas realiai diske esantis dokumentas, kuris tą mazgą
+ * pagrindė: OpenSpec change dokumentas pirmiausia (kanoninė nuoroda, kaip queue-synth kelyje),
+ * kitaip — pirmas egzistuojantis įrodymo šaltinis (README, `.mmd`). Katalogas NIEKADA
+ * negrąžinamas: `## Spec source` eilutė yra skaitoma failo keliu (retrieval `readFile`).
+ */
+async function resolveNodeSpecSource(
+  fs: ArchitectureWaveFsPort,
+  projectRoot: string,
+  evidence: readonly EvidenceEntry[],
+): Promise<string | undefined> {
+  const sources = evidence
+    .map((entry) => normalizeEvidenceSource(entry.source))
+    .filter((source) => source.length > 0 && !isDeadOpenSpecRef(source));
+  const openSpecFirst = [
+    ...sources.filter((source) => source.includes("openspec/changes/")),
+    ...sources.filter((source) => !source.includes("openspec/changes/")),
+  ];
+  for (const source of openSpecFirst) {
+    for (const candidate of specSourceCandidatePaths(projectRoot, source)) {
+      if (await fs.exists(candidate)) return source;
+    }
+  }
+  return undefined;
+}
+
 export async function synthesizeReadyArchitectureWave(
   ports: ArchitectureWavePorts,
   projectRoot: string,
+  options: ArchitectureWaveOptions = {},
 ): Promise<ArchitectureWaveResult> {
   const stateDir = architectureStateDir(projectRoot);
   const progressPath = path.join(stateDir, "progress.json");
@@ -201,7 +277,12 @@ export async function synthesizeReadyArchitectureWave(
   // Idempotentiška apsauga, jei graph.json persistencija nepavyko — klasifikacija pigi.
   const graph = classifyInputSourceNodes(rawGraph);
 
-  const evidence = await readEvidenceLedger(ports.fs, path.join(stateDir, "evidence.jsonl"));
+  // Sugadintos `evidence.jsonl` eilutės praleidžiamos, o ne nuverčia bangą (AR-2); jų skaičius
+  // keliauja į „be įrodymų" priežastį, kad tylus žurnalo gedimas neatrodytų kaip tuščias mazgas.
+  const { entries: evidence, skipped: skippedEvidenceLines } = await readEvidenceLedgerWithSkipped(
+    ports.fs,
+    path.join(stateDir, "evidence.jsonl"),
+  );
   let updated = computeReadiness(graph, progress);
 
   // Skip code that the target project already implements, avoiding empty run-tree cycles
@@ -256,18 +337,29 @@ export async function synthesizeReadyArchitectureWave(
     if (nodeEvidence.length === 0) {
       blocked += 1;
       no_evidence += 1;
+      const corrupted =
+        skippedEvidenceLines > 0 ? ` (${skippedEvidenceLines} unreadable evidence.jsonl line(s) skipped)` : "";
       nodeResults.push({
         nodeId,
         action: "no-evidence",
         status,
-        reason: "No README/.mmd/OpenSpec evidence for this node; refusing to fabricate a task.",
+        reason: `No README/.mmd/OpenSpec evidence for this node; refusing to fabricate a task.${corrupted}`,
       });
       continue;
     }
 
     const runId = `run-tree-${nodeId}-${nowMs()}`;
     const contract = inferInterfaceContract(nodeId, graph, updated, evidence);
-    const result = synthesizeTask({ nodeId, graph, progress: updated, evidence: nodeEvidence, contract, runId });
+    const specSource = options.specSource ?? (await resolveNodeSpecSource(ports.fs, projectRoot, nodeEvidence));
+    const result = synthesizeTask({
+      nodeId,
+      graph,
+      progress: updated,
+      evidence: nodeEvidence,
+      contract,
+      runId,
+      ...(specSource === undefined ? {} : { specSource }),
+    });
     const queuePath = path.join(projectRoot, "AG", "tasks", "queue", `${runId}.md`);
     await ports.fs.writeTextFile(queuePath, result.markdown);
     await writeSynthesisOutput(ports.fs, path.join(stateDir, "task-synthesis"), result);

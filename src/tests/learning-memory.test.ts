@@ -81,8 +81,12 @@ test("query filtruoja pagal task/type/label ir riboja kiekį; summarize skaičiu
 
   await decideLearningRecommendation(fs, RUNTIME_ROOT, recommendation.id, "approved", ["review:ok"]);
   const summary = await summarizeLearningMemory(fs, RUNTIME_ROOT);
-  assert.equal(summary.records, 3);
-  assert.equal(summary.by_type.policy_recommendation, 2);
+  // AN-1 (auditas 2026-09-05): sprendimas yra NAUJA to paties id eilutė, ne antra rekomendacija —
+  // suvestinė dedup'ina pagal id (paskutinis laimi), kaip UI ją ir rodo. Žurnale eilučių trys.
+  assert.equal((await readLearningMemoryRecords(fs, RUNTIME_ROOT)).length, 3);
+  assert.equal(summary.records, 2);
+  assert.equal(summary.by_type.policy_recommendation, 1);
+  assert.equal(summary.by_type.task_outcome, 1);
   assert.equal(summary.approved_recommendations, 1);
   assert.equal(summary.pending_recommendations, 0);
 
@@ -90,6 +94,29 @@ test("query filtruoja pagal task/type/label ir riboja kiekį; summarize skaičiu
     () => decideLearningRecommendation(fs, RUNTIME_ROOT, "nesamas-id", "rejected"),
     /Learning recommendation not found/,
   );
+});
+
+test("summarize: du įrašai tuo pačiu id — vienas įrašas suvestinėje", async () => {
+  const fs = fakeFs();
+  const base = {
+    type: "task_outcome" as const,
+    task_id: "T-9",
+    summary: "done: ok",
+    labels: [],
+    evidence: [],
+  };
+  const first = await appendLearningMemoryRecord(fs, RUNTIME_ROOT, { ...base, ts: "2026-08-01T00:00:00.000Z" });
+  const second = await appendLearningMemoryRecord(fs, RUNTIME_ROOT, {
+    ...base,
+    id: first.id,
+    labels: ["pataisyta"],
+    ts: "2026-08-01T00:05:00.000Z",
+  });
+  assert.equal(second.id, first.id);
+
+  const summary = await summarizeLearningMemory(fs, RUNTIME_ROOT);
+  assert.equal(summary.records, 1);
+  assert.equal(summary.by_type.task_outcome, 1);
 });
 
 test("failureSignature normalizuoja skaitiklius ir grupuoja pagal fazę", () => {

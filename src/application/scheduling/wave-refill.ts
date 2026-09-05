@@ -162,6 +162,10 @@ export function createWaveRefillCoordinator(deps: WaveRefillDeps): {
 
       const firstDecision = decide(candidates);
       let decision = firstDecision;
+      // Kandidatų sąrašas, kuriame IEŠKOMA laimėtojo `rememberCandidate` reikmėms — po sėkmingo
+      // aprūpinimo perjungiamas į ATNAUJINTĄ (su laimėtojo lease/worktree), kitaip įsimintas
+      // kandidatas liktų pasenęs net tada, kai jis realiai laimėjo su nauju lease'u.
+      let rememberFrom = candidates;
 
       if (firstDecision.slot === undefined) {
         // Išduodama TIK tada, kai kandidatas atmestas BŪTENT dėl trūkstamo lease'o. Bet kuri
@@ -178,9 +182,11 @@ export function createWaveRefillCoordinator(deps: WaveRefillDeps): {
           (await deps.provisionSlotLease({ worker_index: freedSlot.worker_index, task_id: target.task_id }))
         ) {
           const refreshed = await deps.readIsolationInputs(context.requestedWorkers);
-          const replanned = decide(deps.toWorkerCandidates(candidateTasks, refreshed.leases));
+          const refreshedCandidates = deps.toWorkerCandidates(candidateTasks, refreshed.leases);
+          const replanned = decide(refreshedCandidates);
           if (replanned.slot?.task_id === target.task_id) {
             decision = replanned;
+            rememberFrom = refreshedCandidates;
           } else {
             // Lease išduotas, bet laimėjo kas kita (arba niekas) — atlaisviname, kad jis
             // nekabotų visą TTL. Sprendimas imamas tas, kuris realiai turi slot'ą.
@@ -198,7 +204,7 @@ export function createWaveRefillCoordinator(deps: WaveRefillDeps): {
       }
 
       deps.rememberCandidate(
-        candidates.find((entry) => entry.task_id === winner.task_id) ?? {
+        rememberFrom.find((entry) => entry.task_id === winner.task_id) ?? {
           task_id: winner.task_id,
           file: winner.file,
           write_set: deps.candidateWriteSet(winner.task_id, context.canonicalGraph),

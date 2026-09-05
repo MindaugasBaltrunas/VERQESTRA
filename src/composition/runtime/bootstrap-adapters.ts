@@ -4,6 +4,7 @@
 // Atskiras modulis nuo `node-adapters.ts` dėl dydžio vartų ir dėl temos: šie adapteriai liečia
 // PROCESUS (git, PATH) ir šablonų medį — paviršių, kurio kitos komandos neturi.
 
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { ProfileDetectionPorts } from "../../application/project-bootstrap/detect-profile.js";
 import type { ProjectModeDetectionPorts } from "../../application/project-bootstrap/detect-mode.js";
@@ -26,11 +27,15 @@ import {
   restoreTaskScope,
 } from "../../infrastructure/git/rollback-scope.js";
 import { loadStableRef } from "../../infrastructure/git/stable-ref.js";
-import { run } from "../../infrastructure/process/run-process.js";
+// `commandExists` — VIENA realizacija visam produktui. Lokali kopija čia zondavo per
+// `sh -c "command -v ${command}"`, t. y. interpoliavo vardą į shell eilutę; bendroji paduoda jį
+// atskiru argumentu (`command -v "$1"`), tad tarpas ar `;` komandos varde nebeįvykdo nieko.
+import { commandExists, run } from "../../infrastructure/process/run-process.js";
 import { ensureRuntimeDirs } from "../../infrastructure/state/runtime-dirs.js";
 import { createBootstrapSpecPorts } from "../../infrastructure/bootstrap/bootstrap-spec-ports.js";
 import { detectBootstrapEligibility } from "../../infrastructure/bootstrap/bootstrap-detector.js";
 import { extractExplicitStackChoice } from "../../infrastructure/bootstrap/readme-intent.js";
+import { parseEnvFile } from "../../interfaces/http/ui-port-store.js";
 import { architectureWaveFs, architectureWavePorts } from "../quality/architecture-adapters.js";
 import { resolveModelForTier } from "../quality/adapters.js";
 import { appendLogLine } from "../loop/adapters.js";
@@ -151,23 +156,6 @@ export const installPorts: InstallPorts = {
   readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
 };
 
-/**
- * Ar vykdomasis failas randamas PATH'e. Naudojamas `where` (win32) / `command -v`.
- *
- * Nulinis exit kodas yra vienintelis „taip": tuščia išvestis su kodu 0 čia neįmanoma, o
- * nepavykęs paleidimas (nėra shell'o) reiškia „ne", ne klaidą — smoke patikra dėl savo
- * zondavimo įrankio negriūva.
- */
-async function commandExists(command: string, projectRoot: string): Promise<boolean> {
-  const probe = process.platform === "win32" ? { bin: "where", args: [command] } : { bin: "sh", args: ["-c", `command -v ${command}`] };
-  try {
-    const result = await run(probe.bin, probe.args, { cwd: projectRoot });
-    return result.code === 0;
-  } catch {
-    return false;
-  }
-}
-
 /** `smoke`: aplinkos ir eilės patikra; NIEKO nekeičia, išskyrus katalogų paruošimą. */
 export function smokePorts(agRoot: string, runtimeRoot: string): SmokePorts {
   return {
@@ -236,15 +224,43 @@ async function snapshotCopy(source: string, destination: string): Promise<void> 
   await nodeFsAdapter.writeFileExclusive(destination, await nodeFsAdapter.readTextFile(source));
 }
 
+/** Ar `1`/`true`; bet kokia kita reikšmė (ir nesama) — „ne". */
+function isEnabled(raw: string | undefined): boolean {
+  const value = raw?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+/**
+ * `vq/config/commands.env` turinys SINCHRONIŠKAI.
+ *
+ * Sinchroniškai, nes `rollbackStablePorts` yra sinchroninis konstruktorius, o `cleanUntracked`
+ * porte yra reikšmė, ne funkcija (`interfaces/cli/bootstrap/rollback-stable.ts`). Neperskaitytas
+ * failas duoda `undefined`, o ne klaidą: nesamas operatoriaus konfigas reiškia „nieko neįjungta",
+ * ir atkūrimo kelias dėl jo negriūva.
+ */
+function readCommandsEnvSync(runtimeRoot: string): string | undefined {
+  try {
+    return readFileSync(path.join(runtimeRoot, "config", "commands.env"), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * `AG_ROLLBACK_CLEAN` — ar po reset'o šalinti untracked failus.
  *
  * Default'as NE: `git clean -fd` naikina ir tai, ko niekas nefotografavo. Įjungiama tik
  * eksplicitiškai, ir tik reikšme `1`/`true` — bet kokia kita reikšmė laikoma „ne".
+ *
+ * Du šaltiniai, aplinka PIRMA: šablonas `templates/vq/config/commands.env` šį raktą vežė nuo
+ * pradžių („set to 1"), bet iki šiol jį skaitė tik `process.env`, tad operatoriaus įrašas faile
+ * nedarė NIEKO. TUŠČIA env reikšmė laikoma nenustatyta ir leidžia nuspręsti failui — kitaip
+ * `AG_ROLLBACK_CLEAN=` shell'e tyliai anuliuotų konfigą.
  */
-export function rollbackCleanUntracked(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env["AG_ROLLBACK_CLEAN"]?.trim().toLowerCase();
-  return raw === "1" || raw === "true";
+export function rollbackCleanUntracked(env: NodeJS.ProcessEnv = process.env, commandsEnvText?: string): boolean {
+  const fromEnv = env["AG_ROLLBACK_CLEAN"]?.trim();
+  if (fromEnv !== undefined && fromEnv !== "") return isEnabled(fromEnv);
+  return isEnabled(parseEnvFile(commandsEnvText ?? "")["AG_ROLLBACK_CLEAN"]);
 }
 
 /** `rollback-stable`: git, failai, untracked snapshot'as ir task scope atkūrimas. */
@@ -271,7 +287,7 @@ export function rollbackStablePorts(runtimeRoot: string, env: NodeJS.ProcessEnv 
     restoreTaskScope: async (projectRoot, ref, paths): Promise<TaskScopeRestoreOutcome> =>
       await restoreTaskScope(projectRoot, ref, paths),
     agLog: (line) => appendLogLine(runtimeRoot, "orchestrator.log", line),
-    cleanUntracked: rollbackCleanUntracked(env),
+    cleanUntracked: rollbackCleanUntracked(env, readCommandsEnvSync(runtimeRoot)),
   };
 }
 

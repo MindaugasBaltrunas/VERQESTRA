@@ -116,8 +116,13 @@ export function auditDirectorPorts(projectRoot: string, runtimeRoot: string, agR
  * MEMO paduodamas (63/N): identiško medžio pertikrinimas neduoda informacijos, tad suite
  * praleidžiamas. Tapatybė apima medį, `dist` turinį IR vartų politiką — neapskaičiuota tapatybė
  * (`null`) reiškia „nežinome", ir tada suite bėga. Nežinia niekada nevirsta praleidimu.
+ *
+ * `projectRoot` yra PRIVALOMAS, be `process.cwd()` default'o: šaknis skaitoma vienoje vietoje
+ * (`composition/runtime/context.ts` `resolveRuntimeRoots`), o visi kiti gauna ją parametru. Hook'as
+ * ar worktree slot'as bėga iš nenuspėjamo katalogo, tad tylus `cwd` default'as ten memo tapatybę
+ * skaičiuotų svetimam medžiui.
  */
-export function qualityGatesPorts(runtimeRoot: string, projectRoot: string = process.cwd()): QualityGatesPorts {
+export function qualityGatesPorts(runtimeRoot: string, projectRoot: string): QualityGatesPorts {
   return {
     loadPolicy: () => loadQualityPolicy(policyConfigFs, runtimeRoot),
     commandContext: (policy) => checkCommandContext(runtimeRoot, policy),

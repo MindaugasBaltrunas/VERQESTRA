@@ -165,6 +165,9 @@ test("stealStaleLock: perimtas JAU NAUJO savininko lock'as grąžinamas, o ne su
     createStealPath: () => "/lock.stale-1",
     readIdentity: async (p) => store.get(p),
     isStale: () => true,
+    // `StealStaleLockOptions.isForeign` kontraktas: nepatvirtinta nuosavybė = svetima. Taisyklė
+    // užrašyta ta pačia forma kaip produkcijoje (`interfaces/hooks/ledger-lock.ts`) — fake'as,
+    // griežtesnis už produkciją, testą paverčia melu apie tai, ką kodas realiai daro.
     isForeign: (observed, stolen) => Boolean(stolen) && stolen !== observed,
     rename: async (from, to) => {
       renames += 1;

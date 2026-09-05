@@ -43,7 +43,20 @@ export type StealStaleLockOptions<TIdentity> = {
    * `return` išlaiko grąžindamas `false` neperskaitytai tapatybei (`identity === undefined`).
    */
   isStale: (identity: TIdentity | undefined, mtimeMs: number) => boolean;
-  /** Ar perėmėme JAU KITO savininko lock'ą (tada jį reikia grąžinti, o ne sunaikinti). */
+  /**
+   * Ar perėmėme JAU KITO savininko lock'ą (tada jį reikia grąžinti, o ne sunaikinti).
+   *
+   * KONTRAKTAS: **nepatvirtinta nuosavybė = svetima.** Realizacija privalo grąžinti `true`, kai
+   * `stolen` turi tapatybę, o `observed` jos neturi. Priešingu atveju atsiveria langas, kuriame
+   * naikinamas gyvas lock'as: `observed` lieka `undefined`, kai savininkas dar nespėjo įsirašyti
+   * arba jo įrašas laikinai neįskaitomas, o `isStale` tada sprendžia pagal katalogo mtime. Tarp
+   * `readIdentity` ir `rename` lock'ą teisėtai perima kitas, dar kitas sukuria savo katalogą — ir
+   * `rename` paima JAU jo tapatybę. Sąlyga „observed !== undefined && …" tokį perėmimą palaiko
+   * savu, `remove` sunaikina svetimą lock'ą, o į kritinę sekciją įeina du procesai.
+   *
+   * Kai abi tapatybės neapibrėžtos (katalogas be savininko įrašo abu kartus), `false` yra
+   * teisingas atsakymas: tai pakibęs lock'as, kurio niekas nebeturi, ir jį reikia išvalyti.
+   */
   isForeign: (observed: TIdentity | undefined, stolen: TIdentity | undefined) => boolean;
   /** `rename` — su arba be platformos contention retry (žr. kvietėją). */
   rename: (from: string, to: string) => Promise<void>;

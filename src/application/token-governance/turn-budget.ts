@@ -94,6 +94,24 @@ export const DISPATCH_TIMEOUT_OVERHEAD_MS = 40 * 60 * 1000;
  */
 export const MIN_DISPATCH_TIMEOUT_MS = DISPATCH_TIMEOUT_OVERHEAD_MS;
 
+/**
+ * VIENINTELĖ viršutinė riba, kurią bet kuris dispatch'o wall-clock langas gali pasiekti — nei
+ * konfigo raktų kombinacija, nei kodo default'ai už jos nenueina. Numatytas `tier=large` langas
+ * (180 * 20 s + 40 min = 100 min) yra tik ŠIANDIENOS reikšmė; ši konstanta sako, ką operatorius
+ * dar gali teisėtai išvesti (task 0033-03 kompozicinės lubos: 4 h).
+ *
+ * Ji yra tų pačių trijų faktų šaltinis, kurie anksčiau gyveno trimis nesuderintais literalais
+ * (pilnas auditas 2026-09-05): kompozicinės konfigo lubos
+ * (`token-budget-config.ts#MAX_DERIVED_DISPATCH_TIMEOUT_MS`), dispatch checkpoint'o
+ * gyvumo langas (`task-execution/session-baseline.ts#LIVE_DISPATCH_MAX_AGE_MS`) ir bangos slot'o
+ * lease TTL (`scheduling/loop-runtime-config.ts#WAVE_SLOT_LEASE_TTL_MS`). Abu vartotojai prideda
+ * SAVO atsargą virš šios ribos — mažesnė už ją reikšmė reikštų, kad vartai užsidaro ant TEISĖTAI
+ * dar dirbančio vaiko. Invariantą saugo `src/tests/scheduling-loop-runtime-config.test.ts`.
+ *
+ * Kelti šią ribą galima tik kartu su abiem atsargomis: ji nėra langas, ji yra jų tvarka.
+ */
+export const MAX_DISPATCH_WALL_CLOCK_MS = 4 * 60 * 60 * 1000;
+
 export type DispatchTimeoutInput = {
   tier: TokenBudgetTier;
   /** Nenurodžius — "implementation". */

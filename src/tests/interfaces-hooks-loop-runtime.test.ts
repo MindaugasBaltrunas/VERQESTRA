@@ -266,8 +266,12 @@ test("dispatchAttemptIsLive: tik `dispatch`+`started` to paties task'o ir tik re
   assert.equal(dispatchAttemptIsLive({ ...live, status: "finished" }, "890", nowMs), false);
   assert.equal(dispatchAttemptIsLive({ ...live, phase: "verify" }, "890", nowMs), false);
   assert.equal(dispatchAttemptIsLive(undefined, "890", nowMs), false);
-  // Per senas checkpoint'as = nužudytas orkestratorius, o ne dirbantis dispatch'as.
-  assert.equal(dispatchAttemptIsLive({ ...live, updated_at: "2026-08-21T09:00:00.000Z" }, "890", nowMs), false);
+  // Konfigo lubomis (4 h) besinaudojantis dispatch'as VIS DAR gyvas — 3 h senumo checkpoint'as
+  // buvo nurašomas, kol langas buvo 90 min literalas (pilnas auditas 2026-09-05).
+  assert.equal(dispatchAttemptIsLive({ ...live, updated_at: "2026-08-21T09:00:00.000Z" }, "890", nowMs), true);
+  // Per senas checkpoint'as = nužudytas orkestratorius, o ne dirbantis dispatch'as: net
+  // plačiausias išvedamas langas plius atsarga (4 h 10 min) čia jau išsekęs.
+  assert.equal(dispatchAttemptIsLive({ ...live, updated_at: "2026-08-21T06:00:00.000Z" }, "890", nowMs), false);
   // Į ATEITĮ datuotas įrašas (atsuktas laikrodis, VM snapshot) duotų neigiamą amžių, kuris
   // viršutinę ribą tenkina VISADA — vartai liktų atviri neribotai.
   assert.equal(dispatchAttemptIsLive({ ...live, updated_at: "2026-08-21T13:00:00.000Z" }, "890", nowMs), false);

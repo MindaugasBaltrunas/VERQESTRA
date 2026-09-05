@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { WAVE_SLOT_LEASE_TTL_MS } from "../application/scheduling/loop-runtime-config.js";
 import type { WorkerLease } from "../domain/scheduling/worker-lease-rules.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
 import { run } from "../infrastructure/process/run-process.js";
@@ -121,7 +122,10 @@ test("orphan reap: runtime-only untracked failas nebelieka amžinu KEPT - preser
     assert.equal(await nodeFsAdapter.exists(created.layout.path), true);
 
     // Praėjus lease TTL (task VIS DAR eilėje!) - amžiaus vartas vienas pats jau užtenka.
-    const laterNow = new Date(Date.now() + 4 * 60 * 60 * 1000);
+    // Riba IŠVEDAMA, o ne pinama literalu: `PRESERVE_FORCE_MIN_AGE_MS` yra pats
+    // `WAVE_SLOT_LEASE_TTL_MS`, tad čia gulėjęs „4 h" tyliai nustojo galioti, kai TTL buvo
+    // surištas su dispatch lango riba (task 170).
+    const laterNow = new Date(Date.now() + WAVE_SLOT_LEASE_TTL_MS + 60 * 60 * 1000);
     const lines = await reapOrphanWorktrees({ projectRoot: spiralRoot, runtimeRoot, agRoot, leases: [], now: laterNow });
 
     assert.ok(

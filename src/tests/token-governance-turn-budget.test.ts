@@ -7,7 +7,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
+import {
+  DEFAULT_TURN_LIMITS,
+  MAX_DISPATCH_WALL_CLOCK_MS,
+  resolveDispatchTimeoutMs,
+  resolveMaxTurns,
+} from "../application/token-governance/turn-budget.js";
+import { MAX_DERIVED_DISPATCH_TIMEOUT_MS } from "../application/token-governance/token-budget-config.js";
 import { resolveDispatchTurnTier } from "../application/token-governance/token-budget-optimizer.js";
 import { DEFAULT_PREFLIGHT_LIMITS } from "../application/policy-governance/preflight-limits-policy.js";
 import { resolveDispatchBudgetPlan } from "../interfaces/cli/dispatch/claude-dispatch/dispatch-budget-plan.js";
@@ -30,6 +36,20 @@ test("turn-budget: 2026-09-03 kalibracija — medium 90, repair 45, likusios pak
   assert.equal(resolveMaxTurns({ phase: "repair", tier: "medium" }), 45);
   // Fazė nugali tier'ą: repair ant `large` lieka repair langas.
   assert.equal(resolveMaxTurns({ phase: "repair", tier: "large" }), 45);
+});
+
+test("turn-budget: MAX_DISPATCH_WALL_CLOCK_MS yra viršutinė riba, o ne numatytasis langas", () => {
+  // 4 h pinama literalu: ši riba yra kompozicinės konfigo lubos, ir jos nutylėtas nuleidimas
+  // paskelbtų negyvais dispatch'us, kuriuos konfigas leidžia (pilnas auditas 2026-09-05).
+  assert.equal(MAX_DISPATCH_WALL_CLOCK_MS, 4 * 60 * 60 * 1000);
+  // Konfigo lubos nebeturi savo literalo — vienas faktas, vienas šaltinis.
+  assert.equal(MAX_DERIVED_DISPATCH_TIMEOUT_MS, MAX_DISPATCH_WALL_CLOCK_MS);
+
+  // Numatytasis `tier=large` langas (180 * 20 s + 40 min = 100 min) yra ŽEMIAU ribos: riba sako,
+  // ką operatorius dar gali išvesti, o ne ką ciklas sukasi šiandien.
+  const defaultLarge = resolveDispatchTimeoutMs({ tier: "large" });
+  assert.equal(defaultLarge, 100 * 60 * 1000);
+  assert.ok(defaultLarge < MAX_DISPATCH_WALL_CLOCK_MS, "numatytasis langas telpa po riba");
 });
 
 test("turn-budget: template konfigas skelbia TĄ PAČIĄ lentelę kaip kodo fail-safe bazė", () => {

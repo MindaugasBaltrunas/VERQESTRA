@@ -9,6 +9,7 @@
 
 import path from "node:path";
 import { normalizeGitPath, type DirtyEntry } from "../../domain/git/changes.js";
+import { MAX_DISPATCH_WALL_CLOCK_MS } from "../token-governance/turn-budget.js";
 
 export type SessionStartBaseline = {
   dispatch_nonce?: string;
@@ -71,12 +72,19 @@ export function sessionStartIsSameAttempt(baseline: SessionStartBaseline, dispat
 /**
  * Kiek laiko dispatch checkpoint'o „started" įrašas dar laikomas GYVU dispatch'u.
  *
- * Riba trumpa sąmoningai: ji yra vienintelis dalykas, skiriantis „dispatch tebedirba" nuo
- * „orkestratorius nužudytas ir checkpoint'as liko gulėti". Per ilga riba paliktų interaktyvias
- * sesijas amžinai su pasenusia readme evidencija; per trumpa grąžintų klaidą, kurią vartai
- * ir turi uždaryti. 90 min = numatytas dispatch wall-clock langas plius atsarga.
+ * Riba skiria „dispatch tebedirba" nuo „orkestratorius nužudytas ir checkpoint'as liko gulėti",
+ * ir abi klaidos kainuoja skirtingai. Per ilga riba palieka interaktyvią sesiją su pasenusia
+ * readme evidencija tol, kol langas neišseks. Per trumpa daro BLOGIAU: ji paskelbia negyvu
+ * vaiką, kuris dar dirba, ir atrakina jo įrodymus svetimai sesijai. Todėl kryptis viena — langas
+ * privalo padengti ILGIAUSIĄ dispatch'ą, kurį konfigas apskritai gali išvesti
+ * ({@link MAX_DISPATCH_WALL_CLOCK_MS}), o ne šios dienos numatytąjį.
+ *
+ * Iki 2026-09-05 čia gulėjo 90 min literalas su prierašu „numatytas dispatch wall-clock langas
+ * plius atsarga": jau numatytas `tier=large` langas yra 100 min, tad prierašas melavo, o gyvas
+ * large dispatch'as po 90 min buvo laikomas negyvu. Dabar riba išvedama, o +10 min dengia
+ * checkpoint'o rašymo ir proceso užbaigimo liekaną po paties timeout'o.
  */
-export const LIVE_DISPATCH_MAX_AGE_MS = 90 * 60 * 1000;
+export const LIVE_DISPATCH_MAX_AGE_MS = MAX_DISPATCH_WALL_CLOCK_MS + 10 * 60 * 1000;
 
 /**
  * Minimalus resume checkpoint'o pjūvis, kurio reikia gyvumo sprendimui.

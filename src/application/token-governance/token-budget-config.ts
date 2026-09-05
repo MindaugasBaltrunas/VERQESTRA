@@ -12,6 +12,7 @@ import type { PolicyConfigFileSystemPort } from "../policy-governance/ports.js";
 import {
   DEFAULT_TURN_LIMITS,
   DISPATCH_TIMEOUT_OVERHEAD_MS,
+  MAX_DISPATCH_WALL_CLOCK_MS,
   PER_TURN_WALLCLOCK_ALLOWANCE_MS,
   resolveDispatchTimeoutMs,
   type TurnLimits,
@@ -91,8 +92,13 @@ export type ResolvedTokenBudget = {
 export const MAX_CONFIGURABLE_TURNS = 300;
 export const MAX_CONFIGURABLE_PER_TURN_WALLCLOCK_MS = 120_000;
 export const MAX_CONFIGURABLE_OVERHEAD_MS = 3_600_000;
-/** Kompozicinės lubos IŠVEDAMAM langui (4 h) — raktai atskirai legalūs, sandauga ne. */
-export const MAX_DERIVED_DISPATCH_TIMEOUT_MS = 14_400_000;
+/**
+ * Kompozicinės lubos IŠVEDAMAM langui (4 h) — raktai atskirai legalūs, sandauga ne.
+ *
+ * Reikšmė nekinta, keičiasi ŠALTINIS: ta pati riba nurodo, kiek laiko gyvumo langas ir lease TTL
+ * privalo padengti, tad ji gyvena vienoje vietoje (`turn-budget.ts`), o ne trijuose literaluose.
+ */
+export const MAX_DERIVED_DISPATCH_TIMEOUT_MS = MAX_DISPATCH_WALL_CLOCK_MS;
 
 /** Lygus tool-budget default max_total_billable_tokens (10 M) — watchdog'as pats savaime
  * neuždraudžia sesijos, kurią post-hoc vartai leistų. */

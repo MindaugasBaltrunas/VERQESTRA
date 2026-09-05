@@ -28,6 +28,7 @@ būsena pasikeis ar bus išvalyta.
 | [model-efficiency-audit-2026-09-03.md](model-efficiency-audit-2026-09-03.md) | Modeliai: opus 22 % dispatch'ų = 42 % išlaidų, nesėkmės be lubų 1,5 % vs 2,3 %; 17 iš 21 nesėkmių — turn'ų lubos; vienintelė eskalacija nukirsta lubų; preflight LLM 85/125 opus'e be priežasties; haiku pakopa negyva | 2026-09-03 |
 | [optimization-audit-2026-09-03.md](optimization-audit-2026-09-03.md) | Kur eina ≈ 43 $/d. ir ≈ 3,9 h/d. vartų: medium turn lubos 60 nužudo 13/15 pasiektų runų (≈ 46 $), klasifikacijos žodynas = projekto kalba → 45 % opus/large, 26 skėlimai su vienu vaiku, cache 2 hit/307 miss | 2026-09-03 |
 | [etalonas-tests-audit-2026-09-03.md](etalonas-tests-audit-2026-09-03.md) | Etalono vartai: du validatoriai su skirtingais taisyklių rinkiniais (loop'ui — silpnesnis), trys `## Failai` skaitytojai su trimis skaičiais, prozinės priklausomybės praeina; 3 parkai per 2 paras iš neprižiūrimų taisyklių | 2026-09-03 |
+| [full-audit-2026-09-05.md](full-audit-2026-09-05.md) | Pilnas auditas 10 sričių: 1 × P0 (`rollback-stable --ref` ignoruojamas → pilnas reset), 58 × P1 — stop-bridge laukimas per 1360 dispatch'ų nesuveikė nė karto, `loop` nebėga prielaidų, `**/` glob'as reikalauja katalogo, worktree vaiko ledger'is išmetamas, dead-export vartas nemato `export { }` ir laiko testą kvietėju; ~140 P2 ir 25+ nesuvielintų mechanizmų | 2026-09-05 |
 
 Paskutinis įrašas nėra epiko verdiktas, o PALEIDIMO auditas: jis rašomas tada, kai produktas
 tikrinamas taip, kaip jį paleidžia operatorius. Toks auditas pagavo tai, ko 1473 + 393 žali

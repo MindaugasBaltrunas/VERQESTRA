@@ -18,21 +18,13 @@ import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { gitRefExists } from "./git-client.js";
 import { run } from "../process/run-process.js";
 import { PRESERVED_REF_PREFIX } from "./rollback-scope.js";
+import { PRESERVED_REF_RECORD_DIRNAME, type PreservedRefRecord } from "./preserved-ref-record-model.js";
+import {
+  reconcilePreservedRefs,
+  type PreservedRefReconcileResult,
+} from "./preserved-ref-reconcile.js";
 
 export const PRESERVED_REF_RETENTION_DEFAULT_DAYS = 14;
-
-const PRESERVED_REF_RECORD_DIRNAME = "rollback-preserved";
-
-export type PreservedRefRecord = {
-  task_id: string;
-  ref: string;
-  commit: string;
-  base_ref: string;
-  paths: string[];
-  recorded_at: string;
-  /** `false` — recovery review baigėsi be atkūrimo; ref lieka vienintelis darbo pėdsakas. */
-  recovered?: boolean;
-};
 
 export type PreservedRefTaskStatus = "done" | "not-done" | "unknown";
 
@@ -157,6 +149,8 @@ export type PreservedRefKeptOutcome = { taskId: string; ref: string; reason: str
 export type PreservedRefRetentionResult = {
   expired: PreservedRefExpiryOutcome[];
   kept: PreservedRefKeptOutcome[];
+  /** 197: šio bėgimo sutaikinimo rezultatas; nėra tik tada, kai sutaikinimas metė klaidą. */
+  reconciled?: PreservedRefReconcileResult;
 };
 
 export type PreservedRefRetentionOptions = {
@@ -169,6 +163,11 @@ export type PreservedRefRetentionOptions = {
  * `refs/verqestra/preserved/<sha>` kartu su jų įrašais. Kiekvienas žingsnis fail-closed:
  * dingęs ref'as arba nepavykęs `update-ref -d`/failo trynimas palieka įrašą kitam bėgimui,
  * o ne trina tyliai iš dalies.
+ *
+ * PIRMAS žingsnis (197) — sutaikinimas: be jo našlaitis ref'as (be `.json`) šiai retencijai
+ * apskritai neegzistuoja, tad kauptųsi amžinai. Sutaikinimas įrašą atkuria dar prieš
+ * `readPreservedRefRecords`, tad TAS PATS bėgimas jį jau įvertina. Sutaikinimo nesėkmė
+ * retencijos nestabdo: senesnis kelias veikė ir be jo.
  */
 export async function expirePreservedRefs(
   projectRoot: string,
@@ -178,6 +177,8 @@ export async function expirePreservedRefs(
   const root = path.resolve(projectRoot);
   const runtimeRoot = options.runtimeRoot ?? path.join(root, "vq");
   const now = ports.now?.() ?? new Date();
+
+  const reconciled = await reconcileBeforeExpiry(root, runtimeRoot, ports);
 
   const expired: PreservedRefExpiryOutcome[] = [];
   const kept: PreservedRefKeptOutcome[] = [];
@@ -219,5 +220,29 @@ export async function expirePreservedRefs(
     expired.push({ taskId: record.task_id, ref: record.ref, ageDays: decision.ageDays });
   }
 
-  return { expired, kept };
+  return { expired, kept, ...(reconciled === undefined ? {} : { reconciled }) };
+}
+
+/**
+ * Sutaikinimas yra retencijos paruošiamasis žingsnis, o ne jos sąlyga. Git nesėkmes
+ * `reconcilePreservedRefs` jau nuryja pats; čia lieka failų sistemos ir `agLog` klaidos —
+ * jos nutildomos, o pranešimas apie tai savo ruožtu negali griūti antrą kartą (jei metė
+ * būtent `agLog`, retencija vis tiek privalo tęsti).
+ */
+async function reconcileBeforeExpiry(
+  root: string,
+  runtimeRoot: string,
+  ports: PreservedRefRetentionPorts,
+): Promise<PreservedRefReconcileResult | undefined> {
+  try {
+    return await reconcilePreservedRefs(root, { agLog: async (line) => await ports.agLog(line) }, { runtimeRoot });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    try {
+      await ports.agLog(`PRESERVED REF RECONCILE FAILED: ${detail} — retention continues`);
+    } catch {
+      // Jei būtent žurnalas ir buvo tai, kas nulūžo, retencija vis tiek tęsiasi.
+    }
+    return undefined;
+  }
 }

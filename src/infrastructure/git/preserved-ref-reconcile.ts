@@ -21,9 +21,11 @@ import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
 import { run } from "../process/run-process.js";
 import { gitResolveCommit } from "./git-client.js";
 import { PRESERVED_REF_PREFIX } from "./rollback-scope.js";
-import type { PreservedRefRecord } from "./preserved-ref-retention.js";
-
-const PRESERVED_REF_RECORD_DIRNAME = "rollback-preserved";
+import {
+  isPreservedRefTaskId,
+  PRESERVED_REF_RECORD_DIRNAME,
+  type PreservedRefRecord,
+} from "./preserved-ref-record-model.js";
 
 /** `task=<id>` — ta pati gramatika kaip visose AG žurnalo `task=` eilutėse. */
 const TASK_ID_PATTERN = /\btask=([^\s,;)]+)/i;
@@ -126,6 +128,9 @@ async function reconcileOneRef(root: string, runtimeRoot: string, ref: string): 
   const message = await readCommitMessage(root, commit);
   const taskId = message === undefined ? undefined : parseTaskIdFromCommitMessage(message);
   if (!taskId) return { status: "unattributed", ref, reason: "task-id-not-found" };
+  // Ta pati sanitizacija kaip gamintojo pusėje (`rollback-scope.ts`): žyma ateina iš commit'o
+  // žinutės, tad be jos svetimas ar sugadintas tekstas nurodytų, KUR rašyti `.json` failą.
+  if (!isPreservedRefTaskId(taskId)) return { status: "unattributed", ref, reason: "task-id-invalid" };
 
   const targetPath = recordPathFor(runtimeRoot, taskId);
   if (await nodeFsAdapter.exists(targetPath)) {

@@ -21,6 +21,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date("2026-08-30T00:00:00.000Z");
 const OLD_RECORDED_AT = new Date(NOW.getTime() - (PRESERVED_REF_RETENTION_DEFAULT_DAYS + 1) * DAY_MS).toISOString();
 const YOUNG_RECORDED_AT = new Date(NOW.getTime() - 1 * DAY_MS).toISOString();
+const OLD_GIT_DATE = OLD_RECORDED_AT.replace(/\.\d+Z$/, "Z");
 
 test("done + amžius > riba -> expire su tikslia log eilute", () => {
   const decision = evaluatePreservedRefRetention({
@@ -252,4 +253,54 @@ test("nežinoma task būsena (jokiame bucket'e nerastas) + senas: paliekama", as
   assert.ok(result.kept.some((entry) => entry.taskId === taskId && entry.reason === "unknown-task-status"));
   assert.equal(await gitRefExists(ref, root), true);
   assert.equal(await nodeFsAdapter.exists(recordPath), true);
+});
+
+/**
+ * 197: našlaitis ref'as (be `.json`), kurio žinutėje yra `task=<id>` žyma. Datos atsukamos
+ * per `GIT_COMMITTER_DATE`, nes sutaikinimas `recorded_at` ima iš paties commit'o (`%cI`), o
+ * šis failas laiką pina prie `NOW` — su realia „dabar" įrašas visada būtų `too-young`.
+ * Gamintojas (`restoreTaskScope`) datos rinktis neleidžia, tad čia commit'as fabrikuojamas.
+ */
+async function makeOrphanPreservedRef(taskId: string, content: string): Promise<string> {
+  await nodeFsAdapter.writeTextFile(path.join(root, "src", "a.ts"), content);
+  await git("add", "--", "src/a.ts");
+  const tree = (await git("write-tree")).stdout.trim();
+  await git("reset", "--hard", commit as string);
+
+  const backdated = await run(
+    "git",
+    ["-C", root, "commit-tree", tree, "-p", commit as string, "-m", `verqestra: preserved task scope task=${taskId}`],
+    // git datos parseris milisekundžių nelaukia — `.000Z` nukerpamas iki gryno UTC ISO.
+    { env: { ...process.env, GIT_AUTHOR_DATE: OLD_GIT_DATE, GIT_COMMITTER_DATE: OLD_GIT_DATE } },
+  );
+  assert.equal(backdated.code, 0, `commit-tree failed: ${backdated.stderr || backdated.stdout}`);
+
+  const orphanCommit = backdated.stdout.trim();
+  const ref = `${PRESERVED_REF_PREFIX}${orphanCommit}`;
+  await git("update-ref", ref, orphanCommit);
+  return ref;
+}
+
+test("nasslaitis ref su task= zyma: tas pats begimas ji sutaiko IR ivertina", async () => {
+  const taskId = "recon-old";
+  await writeTaskInBucket("done", taskId);
+  const ref = await makeOrphanPreservedRef(taskId, "nasslaitis darbas\n");
+  const recordPath = path.join(runtimeRoot, "state", "rollback-preserved", `${taskId}.json`);
+  assert.equal(await nodeFsAdapter.exists(recordPath), false, "irasso pries begima but negali");
+
+  const logs: string[] = [];
+  const result = await expirePreservedRefs(root, { agLog: async (line) => void logs.push(line), now: () => NOW }, { runtimeRoot });
+
+  assert.ok(
+    result.reconciled?.restored.some((entry) => entry.ref === ref),
+    `sutaikinimas turejo atkurti irasa: ${JSON.stringify(result.reconciled)}`,
+  );
+  assert.ok(
+    result.expired.some((entry) => entry.taskId === taskId && entry.ref === ref),
+    `tas pats begimas turejo ji nurasyti: ${JSON.stringify(result.expired)}`,
+  );
+  assert.equal(await gitRefExists(ref, root), false);
+  assert.equal(await nodeFsAdapter.exists(recordPath), false, "nurasytas irasas paskui pasalinamas");
+  assert.ok(logs.some((line) => line.startsWith("PRESERVED REF RECONCILED") && line.includes(ref)));
+  assert.ok(logs.some((line) => line.startsWith("PRESERVED REF EXPIRED") && line.includes(ref)));
 });

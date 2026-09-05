@@ -23,15 +23,8 @@ import {
 import { loadTokenBudgetConfig } from "../application/token-governance/token-budget-config.js";
 import { DEFAULT_TURN_LIMITS, resolveMaxTurns } from "../application/token-governance/turn-budget.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
-import {
-  CORE_REQUIRED_SECTIONS,
-  detectHallucinatedAllowedPaths,
-  evaluateArchitectureAndPolicyGates,
-  missingTaskSections,
-  splitLeadingFrontmatter,
-  stripVerificationPreamble,
-  verificationPreamble,
-} from "../application/quality-gates/preflight-rules.js";
+import { CORE_REQUIRED_SECTIONS, detectHallucinatedAllowedPaths, evaluateArchitectureAndPolicyGates, missingTaskSections,
+  normalizeLegacyTaskSections, splitLeadingFrontmatter, stripVerificationPreamble, verificationPreamble } from "../application/quality-gates/preflight-rules.js";
 import {
   evaluatePreflight,
   requiresFreshCodeIndex,
@@ -472,6 +465,13 @@ test("splitLeadingFrontmatter/stripVerificationPreamble: frontmatter+preambulė 
 
   const preamble = verificationPreamble(VERIFICATION_COMMANDS);
   assert.equal(stripVerificationPreamble(`${FRONTMATTER}${preamble}${CANONICAL_TASK}`), `${FRONTMATTER}${CANONICAL_TASK}`);
+});
+
+// 219-b-03 (Dk3): sintetinis `## Stop` rodo į TIKRĄ Stop hook'o kelią (`on-stop-context.ts` skaito `vq/logs/commit-msg.md`) — be `vq/` prefikso agentas rašytų žinutę į repo šaknį ir autorinis commit tekstas dingtų.
+test("normalizeLegacyTaskSections: išvestas Stop nurodo vq/logs/commit-msg.md, ne bare logs/", () => {
+  const derived = normalizeLegacyTaskSections("# Task\n\n## Tikslas\nSutvarkyk X.\n");
+  assert.match(derived, /vq\/logs\/commit-msg\.md/);
+  assert.doesNotMatch(derived, new RegExp("(^|[^/])logs/commit-msg"));
 });
 
 // 156-a-02: evaluateEtalonasRuleViolations yra PLONAS adapteris virš domain validateTaskAgainstEtalonas — čia

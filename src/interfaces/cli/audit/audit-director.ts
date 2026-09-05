@@ -135,7 +135,7 @@ function auditPrompt(iteration: number, report: string): string {
     "- Nenaudok @ts-ignore ar eslint-disable",
     "- Nekeisk business logikos, DB schemos ar public API",
     "",
-    "Kai visos klaidos pataisytos, įrašyk commit žinutę į logs/commit-msg.md ir sustok.",
+    "Kai visos klaidos pataisytos, įrašyk commit žinutę į vq/logs/commit-msg.md ir sustok.",
   ].join("\n");
 }
 

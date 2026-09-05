@@ -280,7 +280,7 @@ function deriveMissingHardSections(taskText: string): string {
   // `## Stop` kanoninis default — tik kai task'as turi realų Tikslą (kitaip jis vis tiek parkinamas ir sintetinis
   // Stop tik maskuotų problemą).
   if (!hasHeadingLine(text, "## Stop") && tikslas) {
-    text = `${text.trimEnd()}\n\n## Stop\nKai patikros žalios, įrašyk commit žinutę į logs/commit-msg.md ir sustok.\n`;
+    text = `${text.trimEnd()}\n\n## Stop\nKai patikros žalios, įrašyk commit žinutę į vq/logs/commit-msg.md ir sustok.\n`;
   }
 
   // `## Spec source` iš inline nuorodos: openspec change arba architecture-node.

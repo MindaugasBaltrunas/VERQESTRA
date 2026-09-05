@@ -4,6 +4,7 @@
 
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { isBuildArtifactPath, isRuntimePath } from "../../../domain/git/changes.js";
 import {
   isLeaseActive,
   type WorkerLease,
@@ -22,29 +23,17 @@ import type { WorktreeQuarantineReason } from "./worktree-state-classifier.js";
 export type WorktreeRemovalFallback = "fallback-1" | "fallback-2" | "fallback-3" | "runtime-junk";
 
 /**
- * Kelio prefiksai, kuriuos kopijoje palieka pats runtime, o ne task'o darbas: orkestratoriaus
- * žurnalai/būsena (`vq/`), stop bridge (`AG/state/`, `AG/logs/`), build/deps artefaktai ir
- * failinė saugykla. Kiekvienas GeoGravity merge (14/14 iki 2026-09-01) palikdavo RESIDUE būtent
- * dėl jų: `git worktree remove` be `--force` atsisako, nors integruotas darbas jau pirminiame
- * medyje, o šie keliai jokio neintegruoto turinio neturi. `AG/tasks/**` čia SĄMONINGAI nėra —
- * neperkeltas task failo judesys yra realus pėdsakas, kurį privalo pamatyti žmogus.
+ * Kelias, kurį kopijoje palieka pats runtime, o ne task'o darbas: orkestratoriaus žurnalai/
+ * būsena (domain `isRuntimePath` — vienintelis runtime prefiksų sąrašas, žr.
+ * `domain/git/changes.ts`) arba build/deps artefaktai (`isBuildArtifactPath`). Kiekvienas
+ * GeoGravity merge (14/14 iki 2026-09-01) palikdavo RESIDUE būtent dėl jų: `git worktree remove`
+ * be `--force` atsisako, nors integruotas darbas jau pirminiame medyje, o šie keliai jokio
+ * neintegruoto turinio neturi. `AG/tasks/**` čia SĄMONINGAI nėra — neperkeltas task failo
+ * judesys yra realus pėdsakas, kurį privalo pamatyti žmogus. Task 198: `storage/` čia BUVO,
+ * bet dingo — taikinio projekte tai produkto kelias, kurį RESIDUE doktrina žada palikti žmogui.
  */
-const RUNTIME_JUNK_PREFIXES = [
-  "vq/",
-  "AG/state/",
-  "AG/logs/",
-  "logs/",
-  "dist/",
-  "node_modules",
-  ".pnpm-store/",
-  "storage/",
-] as const;
-
 function isRuntimeJunkPath(entry: string): boolean {
-  const normalized = entry.replace(/\\/g, "/").replace(/^"|"$/g, "");
-  return RUNTIME_JUNK_PREFIXES.some(
-    (prefix) => normalized.startsWith(prefix) || normalized === prefix.replace(/\/$/, ""),
-  );
+  return isRuntimePath(entry) || isBuildArtifactPath(entry);
 }
 
 /**
@@ -111,10 +100,11 @@ export async function removeWorktreeDirectory(
   remover: (target: string) => Promise<void> = defaultLongPathRemover,
   options: {
     /**
-     * Leisti `--force`, kai kopija nešvari VIEN runtime šiukšlėmis (RUNTIME_JUNK_PREFIXES).
-     * Įjungiama TIK po-integracinio valymo kelyje (removeTaskWorktree): ten darbas jau
-     * pirminiame medyje. Orphan reaper'is šito NENAUDOJA — jo force eina per savo
-     * amžiaus vartą ir archyvavimą, ir ankstyvas šalinimas be archyvo čia būtų regresija.
+     * Leisti `--force`, kai kopija nešvari VIEN runtime šiukšlėmis (`isRuntimeJunkPath`,
+     * domain `isRuntimePath` + `isBuildArtifactPath`). Įjungiama TIK po-integracinio valymo
+     * kelyje (removeTaskWorktree): ten darbas jau pirminiame medyje. Orphan reaper'is šito
+     * NENAUDOJA — jo force eina per savo amžiaus vartą ir archyvavimą, ir ankstyvas
+     * šalinimas be archyvo čia būtų regresija.
      */
     runtimeJunkForce?: boolean;
   } = {},
@@ -124,7 +114,7 @@ export async function removeWorktreeDirectory(
   if (first.code === 0) return { status: "removed" };
   if (!looksLikeLongPathFailure(first)) {
     // Atsisakymo priežastis tikrinama FAKTU, ne git teksto atpažinimu: jei kopijos nešvarumas
-    // yra VIEN runtime šiukšlės (žr. RUNTIME_JUNK_PREFIXES), `--force` nieko nepraranda —
+    // yra VIEN runtime šiukšlės (žr. `isRuntimeJunkPath` aukščiau), `--force` nieko nepraranda —
     // integruotas darbas jau pirminiame medyje, o šiukšles paliko pats runtime. Bet koks
     // kitas nešvarus kelias (arba neįvykusi patikra) palieka ankstesnę elgseną: RESIDUE.
     if (options.runtimeJunkForce === true) {

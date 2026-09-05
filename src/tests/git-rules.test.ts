@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   changedFilesFromStatus,
+  isBuildArtifactPath,
   isOutsideProjectPath,
   isRuntimePath,
   normalizeGitPath,
@@ -52,6 +53,14 @@ test("isRuntimePath: vq/* ir AG/tasks bucket'ai — runtime; produkto src — ne
   assert.equal(isRuntimePath("AG/tasks/queue/001-x.md"), true);
   assert.equal(isRuntimePath("AG/openspec/changes/x/tasks.md"), true);
   assert.equal(isRuntimePath("src/application/x.ts"), false);
+});
+
+test("isBuildArtifactPath: node_modules ir .pnpm-store — taip; node_modules_backup ir storage — ne", () => {
+  assert.equal(isBuildArtifactPath("node_modules/x/index.js"), true);
+  assert.equal(isBuildArtifactPath("node_modules"), true);
+  assert.equal(isBuildArtifactPath(".pnpm-store/x"), true);
+  assert.equal(isBuildArtifactPath("node_modules_backup/x"), false);
+  assert.equal(isBuildArtifactPath("storage/x"), false);
 });
 
 test("sessionScopedChangedFiles: išmeta runtime, už-repo kelius ir dublikatus", () => {

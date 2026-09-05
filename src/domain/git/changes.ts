@@ -95,6 +95,17 @@ export function isRuntimePath(filePath: string): boolean {
   return runtimePrefixes.some((prefix) => normalized === prefix.slice(0, -1) || normalized.startsWith(prefix));
 }
 
+// Build/deps artefaktai — atskira taisyklė nuo orkestratoriaus runtime prefiksų: šie keliai
+// egzistuoja bet kuriame node projekte, ne tik VERQESTRA valdomoje kopijoje. Task 198: anksčiau
+// šie prefiksai gyveno atskirai `worktree-removal.ts` faile kaip antra, nesuderinta runtime
+// sąvoka; `node_modules_backup/` nėra `node_modules/` (tikslus segmentas, ne prefiksas be `/`).
+const buildArtifactPrefixes = ["node_modules/", ".pnpm-store/"];
+
+export function isBuildArtifactPath(filePath: string): boolean {
+  const normalized = normalizeGitPath(filePath);
+  return normalized === "node_modules" || buildArtifactPrefixes.some((prefix) => normalized.startsWith(prefix));
+}
+
 // Session-writes ledger'yje repo failai yra repo-relative, o rašymai UŽ repo ribų lieka
 // absoliutūs arba prasideda "../" (pvz. Claude atminties failai). Tokie rašymai nėra
 // produkto scope ir negali būti diagnozės out-of-scope pažeidimu (etalono 2026-07-22

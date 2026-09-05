@@ -82,6 +82,15 @@ test("firstHeading: fenced bloko `#` nėra antraštė", () => {
   assert.equal(firstHeading("```\n# ne antraštė\n```\n# Tikra"), "Tikra");
 });
 
+test("extractSection: įtraukta kita antraštė vis tiek baigia sekciją", () => {
+  const doc = ["## Patikra", "- pnpm build", "- pnpm test", "  ## Stop", "pabaiga"].join("\n");
+  assert.equal(
+    extractSection(doc, "## Patikra"),
+    "- pnpm build\n- pnpm test",
+    "pabaigos riba turi trim'inti eilutę taip pat, kaip pradžios atitikimas",
+  );
+});
+
 test("markdownFenceMask seka CommonMark uždarymo taisyklę", () => {
   const lines = splitLines(
     ["prieš", "~~~yaml", "# pastaba", "~~~", "tarp", "````", "```", "# vis dar viduje", "````", "po"].join("\n"),

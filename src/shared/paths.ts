@@ -47,7 +47,7 @@ export function normalizeProjectPath(projectRoot: string, filePath: string): str
     return "";
   }
   if (comparable.startsWith(`${comparableRoot}/`)) {
-    normalized = normalized.slice(normalizedRoot.length + 1);
+    normalized = normalized.slice(comparableRoot.length + 1);
   }
   return stripLeadingDotSlash(normalized);
 }
@@ -92,7 +92,8 @@ export function resolveProjectPath(
   const resolvedRoot = path.resolve(projectRoot);
   const resolved = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(resolvedRoot, trimmed);
   const relative = path.relative(resolvedRoot, resolved);
-  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+  const relativePosix = toPosixPath(relative);
+  if (relative === "" || relativePosix === ".." || relativePosix.startsWith("../") || path.isAbsolute(relative)) {
     throw new Error(`${label} escapes project root`);
   }
 

@@ -39,6 +39,10 @@ export function parseJsonStringArray(raw: string | undefined): string[] {
  * Array order is meaningful and preserved; `undefined` object properties are dropped and
  * `null` is kept, exactly like `JSON.stringify`. Values that cannot round-trip
  * (non-finite numbers, functions, symbols, bigints) throw instead of silently becoming null.
+ *
+ * Objects with a callable `toJSON` (e.g. `Date`) are replaced by its result first, exactly
+ * like `JSON.stringify`. `Map`/`Set` have no `toJSON` and no own enumerable properties, so —
+ * again matching `JSON.stringify` — they render as `{}`.
  */
 export function canonicalJsonStringify(value: unknown): string {
   const rendered = canonicalJsonValue(value);
@@ -63,6 +67,11 @@ function canonicalJsonValue(value: unknown): string | undefined {
   }
   if (kind === "function" || kind === "symbol" || kind === "bigint") {
     throw new Error(`canonical JSON: unsupported value of type ${kind}`);
+  }
+
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === "function") {
+    return canonicalJsonValue(toJSON.call(value));
   }
 
   if (Array.isArray(value)) {

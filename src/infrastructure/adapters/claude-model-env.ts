@@ -151,6 +151,11 @@ export async function loadModelsEnv(runtimeRoot: string): Promise<ModelsEnv> {
   };
 }
 
+// Windows Notepad ir kai kurie kiti redaktoriai .env failą išsaugo su vedančiu UTF-8 BOM
+// (U+FEFF). Nenuimtas jis prilimpa prie pirmo rakto vardo, ir pirma eilutė tyliai
+// nebeatitinka rakto regex'o — pirmas modelio ID (pvz. CLAUDE_HAIKU_MODEL) grįžta į default.
+const BOM = String.fromCharCode(0xfeff);
+
 /** `.env` stiliaus teksto parseris (etalono core/config.ts `parseEnv` 1:1). */
 export function parseEnv(env: string | undefined): Record<string, string> {
   const values: Record<string, string> = {};
@@ -158,7 +163,8 @@ export function parseEnv(env: string | undefined): Record<string, string> {
     return values;
   }
 
-  for (const rawLine of env.split(/\r?\n/)) {
+  const withoutBom = env.startsWith(BOM) ? env.slice(BOM.length) : env;
+  for (const rawLine of withoutBom.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) {
       continue;

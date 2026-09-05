@@ -149,9 +149,12 @@ function runProcess(command: string, args: string[], options: RunProcessOptions 
   return new Promise((resolve) => {
     // Node ≥18.20/20.12/22 (CVE-2024-27980) atsisako spawn'inti Windows .cmd/.bat
     // tiesiogiai ir meta EINVAL; o shell:true savo ruožtu kelia DEP0190 (args
-    // neescape'inami). Saugiausia .cmd/.bat (pnpm.cmd/npm.cmd) paleisti per cmd.exe
-    // (.exe — spawn'inamas tiesiogiai, args lieka atskiri argv elementai, be shell
-    // sluoksnio).
+    // neescape'inami). Saugiausia .cmd/.bat (pnpm.cmd/npm.cmd) paleisti per cmd.exe:
+    // .exe kelias spawn'inamas tiesiogiai, be shell sluoksnio; .cmd/.bat kelias PATS
+    // yra cmd.exe /d /s /c su command+args argv elementais, o cmd.exe savo ruožtu
+    // interpretuoja `%VAR%` ir `^` juose — tai NĖRA „be shell'o" kelias. Argumentų
+    // higiena dėl to gyvena allowlist'e (domain/policies/check-command-allowlist.ts),
+    // ne čia.
     const isWindowsBatch = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
     const spawnCommand = isWindowsBatch ? "cmd.exe" : command;
     const spawnArgs = isWindowsBatch ? ["/d", "/s", "/c", command, ...args] : args;

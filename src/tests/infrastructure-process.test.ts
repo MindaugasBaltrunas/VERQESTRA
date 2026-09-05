@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  helperKillTimeoutMs,
   isProcessAlive,
   runWindowsProcessTreeKill,
   treeKillMaxAttempts,
@@ -134,6 +135,50 @@ test("tree-kill: nepavykęs medžio SĄRAŠAS nenutraukia žudymo — lieka bent
     () => Promise.reject(new Error("WMI neprieinamas")),
   );
   assert.deepEqual(survivors, [4321]);
+});
+
+// 2026-09-05 (P2 F11): `alive(pid)` viena nepakankama — Windows pernaudoja PID'us greitai,
+// tad "gyvas" palikuonio PID gali priklausyti visiškai kitam, vėliau paleistam procesui.
+test("tree-kill: pernaudotas PID (alive, bet nebe medyje) nepatenka į survivors, tikras palikuonis — patenka", async () => {
+  const ROOT = 4321;
+  const REUSED = 4322;
+  const REAL_SURVIVOR = 4323;
+  let listCalls = 0;
+
+  const survivors = await runWindowsProcessTreeKill(
+    ROOT,
+    () => Promise.resolve(true),
+    // Abu PID'ai "gyvi" pagal process.kill patikrą — bet REUSED priklauso naujam procesui.
+    (pid) => pid === REUSED || pid === REAL_SURVIVOR,
+    // Pirmas kvietimas (prieš žudymą) dar mato REUSED kaip tikrą palikuonį. Po žudymo
+    // REUSED procesas mirė, o jo PID'ą pernaudojo nesusijęs procesas — perskaičiuotame
+    // medyje jo nebelieka, lieka tik tikras palikuonis.
+    () => {
+      listCalls += 1;
+      return Promise.resolve(listCalls === 1 ? [REUSED, REAL_SURVIVOR] : [REAL_SURVIVOR]);
+    },
+  );
+
+  assert.deepEqual(survivors, [REAL_SURVIVOR], "pernaudotas PID negali apsimesti likusiu palikuoniu");
+});
+
+// Re-listinimo NESĖKMĖ (WMI laikinai neprieinamas TARP bandymų) skiriasi nuo „medyje nieko
+// nėra" — pirmoji reiškia „nežinome", antroji — „tikrai tuščia". Tikras gyvas palikuonis,
+// žinomas iš pradinio sąrašo, negali dingti vien todėl, kad VIENAS re-list bandymas sugriuvo.
+test("tree-kill: re-list nesėkmė TARP bandymų netampa tylia palikuonio mirtimi", async () => {
+  const ROOT = 4321;
+  const CHILD = 4322;
+
+  const survivors = await runWindowsProcessTreeKill(
+    ROOT,
+    () => Promise.resolve(true),
+    (pid) => pid === CHILD,
+    // Pradinis sąrašas (prieš žudymą) pavyksta — CHILD žinomas. Kiekvienas VĖLESNIS
+    // re-list bandymas (žudymo cikle) sugriūva.
+    (_pid, timeoutMs) => (timeoutMs === helperKillTimeoutMs ? Promise.resolve([CHILD]) : Promise.reject(new Error("WMI"))),
+  );
+
+  assert.deepEqual(survivors, [CHILD], "re-list klaida negali nutylėti žinomo gyvo palikuonio");
 });
 
 test("withSurvivorNote: tuščias sąrašas žinutės nekeičia, likę — įvardijami", () => {

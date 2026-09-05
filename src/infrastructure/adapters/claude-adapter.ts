@@ -54,7 +54,15 @@ export class ClaudeAdapter implements ExecutionAdapter {
     const result = await this.#runner("claude", args, JSON.stringify(request.contextPack), cwd, this.#timeoutMs);
     if (this.#runtime) {
       const normalized = this.#runtime.normalize(this.kind, result, "claude_completed");
-      return { ...normalized, ...parseStructuredOutput(normalized.stdout) };
+      // `normalized.stdout` gali būti nukirptas (`AdapterRuntime.normalize` riboja
+      // `maxOutputBytes`); JSON parsinamas iš NEAPKIRPTO `result.stdout`, kad validus CLI
+      // atsakymas tyliai nedingtų vien dėl to, kad viršija runtime limitą. Jei apkirpo pats
+      // runner'is (`result.stdoutTruncated`), stdout jau NEPILNAS ir jame — reikšmė ar ne —
+      // negali būti pasitikima, tad structuredOutput neteikiamas ir priežastis pažymima.
+      if (result.stdoutTruncated) {
+        return { ...normalized, reason: `${normalized.reason}_claude_output_truncated` };
+      }
+      return { ...normalized, ...parseStructuredOutput(result.stdout) };
     }
     const timedOut = result.code === 124;
     return {

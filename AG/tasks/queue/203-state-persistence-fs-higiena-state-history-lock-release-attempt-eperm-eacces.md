@@ -43,9 +43,10 @@ Leidžiama:
 - `src/tests/infrastructure-persistence.test.ts`
 - `src/tests/infrastructure-task-move-lock-contention.test.ts`
 - `src/tests/infrastructure-task-state-store.test.ts`
-- `src/tests/infrastructure-fs.test.ts`
+- `src/tests/infrastructure-node-fs-adapter-errors.test.ts` (numatomas naujas; fs adapterio testai rašomi TIK čia — `infrastructure-fs.test.ts` priklauso task 194)
 
 Draudžiama:
+- `src/tests/infrastructure-fs.test.ts` (task 194)
 - `src/shared/owned-lock.ts` (etalonas, nekinta)
 - `src/composition/quality/final-audit-adapters.ts` (skaitytojas nekinta)
 - `src/infrastructure/fs/project-containment.ts` (F8 PLAUSIBLE — žr. Neįtraukta)
@@ -72,8 +73,9 @@ Draudžiama:
   ne adapterio ryjimą.
 - Testai: persistence — `moveTaskState` roundtrip palieka `state-history.json` įrašą, o
   `resolveHumanReviewStatus` po `human-review → queue` grąžina `"resolved"`; lock contention — `absent` →
-  `keep`; fs — `createDirectoryExclusive` EEXIST vs kita klaida; `listFiles` ant failo (ENOTDIR) → `[]`,
-  ant neprieinamo katalogo (chmod 000, praleidžiamas win32) → meta.
+  `keep`; fs (`infrastructure-node-fs-adapter-errors.test.ts`) — `createDirectoryExclusive` EEXIST vs kita
+  klaida; `listFiles` ant failo (ENOTDIR) → `[]`, ant neprieinamo katalogo (chmod 000, praleidžiamas
+  win32) → meta; esami `infrastructure-fs.test.ts` testai lieka žali be pakeitimų.
 
 ## Patikra
 - `pnpm build`

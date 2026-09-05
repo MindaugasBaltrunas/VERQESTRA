@@ -5,7 +5,7 @@ openspec/changes/verqestra-backlog-v1/
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei VISI keturi: `src/infrastructure/adapters/claude-model-env.ts` `parseEnv` nuima UTF-8 BOM
-(`﻿`) prieš pirmą eilutę; `src/infrastructure/process/run-process.ts:150-157` komentaras
+(U+FEFF) prieš pirmą eilutę; `src/infrastructure/process/run-process.ts:150-157` komentaras
 įvardija `cmd.exe /d /s /c` kelią `.cmd/.bat` formoms (ne „jokio shell'o"); `src/infrastructure/process/
 process-tree.ts` `runWindowsProcessTreeKill` survivors sąrašą pertikrina per pakartotinį medžio
 sąrašą; `src/infrastructure/adapters/claude-adapter.ts:55-57,67` `parseStructuredOutput` gauna
@@ -48,7 +48,7 @@ Draudžiama:
 - `node_modules/**`
 
 ## Veiksmas
-- F9: `parseEnv` — `env.replace(/^﻿/, "")` prieš skaidymą; testas: `"﻿CLAUDE_HAIKU_MODEL=x\nB=y"`
+- F9: `parseEnv` — nukirpti vedantį U+FEFF simbolį (regex `^` + BOM, TS šaltinyje rašomas escape forma, ne literalu) prieš skaidymą; testas: eilutė `BOM + "CLAUDE_HAIKU_MODEL=x\nB=y"`
   → abu raktai; `loadModelsEnv` su BOM failu → `claudeHaikuModel === "x"`.
 - F10: komentaras `:150-157` sako: `.exe` — tiesioginis spawn be shell'o; `.cmd/.bat` — per `cmd.exe`, kur
   `%VAR%` ir `^` interpretuojami, todėl argumentų higiena gyvena allowlist'e (nuoroda į

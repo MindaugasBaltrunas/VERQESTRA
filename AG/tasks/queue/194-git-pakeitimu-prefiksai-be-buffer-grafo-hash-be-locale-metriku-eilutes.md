@@ -3,6 +3,9 @@
 ## Spec source
 openspec/changes/verqestra-backlog-v1/
 
+## Priklausomybės
+- 198-vienas-runtime-prefiksu-sarasas-domain-worktree-removal-ji-importuoja
+
 ## Žingsnis 0 — ar jau įgyvendinta?
 Tikrinti po punktą: (1) `src/domain/git/changes.ts:59-80` be `Buffer`; (2) `changes.ts:22-32`
 `runtimePrefixes` turi `vq/generated/` ir `vq/config/` (arba doc'e pagrįsta, kodėl ne);
@@ -21,7 +24,8 @@ Pilnas auditas 2026-09-05 (`docs/audits/full-audit-2026-09-05.md`, P2 Domain ir 
   tapti „uncommitted product state"/out-of-scope. Pradėti nuo testo: pakeitimas `vq/generated/x.json`
   → runtime, ne produkto pakeitimas. `vq/config/` — atsargiai: politikos failai YRA commit'inami
   (git-automation-policy.json), tad `vq/config/` prefiksas į runtime sąrašą NEdedamas; įrašyti doc'e.
-  `worktree-removal.ts` antras prefiksų sąrašas (I3) — infra autorius; čia keičiamas tik domain.
+  `worktree-removal.ts` antras prefiksų sąrašas (I3) — task 198, nuo kurio šis priklauso: po jo
+  `runtimePrefixes` yra VIENINTELIS sąrašas, tad `vq/generated/` papildymas veikia ir worktree valymą.
 - #13 `graph-hash.ts:28-31` hash payload'o tvarka per `localeCompare` (ICU priklausoma) → snapshot'as
   kitoje mašinoje gali gauti `graph-hash-mismatch`. Kryptis: kodo taškų palyginimas, kaip
   `domain/tasks/graph/model.ts` (task 187).
@@ -72,6 +76,6 @@ pokytis reikalauja keisti `compression-quality-evidence.ts` ar `analytics` kviet
 tada išlaikyti seną formą ir sugadintas eilutes tik praleisti (skaičių rašyti į log portą).
 
 ## Neįtraukta
-- `worktree-removal.ts` vs `changes.ts` prefiksų sąrašų suvienijimas (I3) — infra autorius.
+- `worktree-removal.ts` vs `changes.ts` prefiksų sąrašų suvienijimas (I3) — task 198 (priklausomybė).
 - `architecture-gates.test.ts` `Buffer`/`process` globalų gaudymas domain'e — testų autorius.
 - `domain/tasks/graph/model.ts` `localeCompare` — task 187.

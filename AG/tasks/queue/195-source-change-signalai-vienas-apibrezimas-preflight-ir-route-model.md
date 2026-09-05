@@ -5,7 +5,7 @@ openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
 - 183-broad-scope-vartas-naudoja-matchesallowedpath-semantika
-- 186-retry-eskalacija-pasiekiama-su-sablono-biudzetu
+- 190-context-pack-biudzeto-dydziai-vienodi-llm-calls-is-konfigo-kopecios-be-flag
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Jei `src/application/token-governance/route-model.ts` `SOURCE_CHANGE_PATTERN` (144-145 eil.) ir

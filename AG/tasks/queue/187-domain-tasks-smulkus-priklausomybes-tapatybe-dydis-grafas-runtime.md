@@ -5,6 +5,7 @@ openspec/changes/verqestra-backlog-v1/
 
 ## Priklausomybės
 - 181-etalonas-rules-skaito-leidziama-bloka-kanoniniu-zymekliu
+- 170-dispatch-gyvumo-langas-ir-lease-ttl-vedami-is-turn-budget
 
 ## Žingsnis 0 — ar jau įgyvendinta?
 Tikrinti po punktą (dalis galėjo būti padaryta anksčiau): (1) `src/domain/tasks/dependencies.ts`

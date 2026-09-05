@@ -21,11 +21,13 @@ import {
   type PolicyProposalServicePorts,
 } from "../application/policy-governance/policy-proposal-service.js";
 import {
+  appendPolicyDecision,
   appendPolicyProposal,
   countPendingProposals,
   policyProposalsDir,
   resolveProposalStatus,
   type PolicyDecision,
+  type PolicyProposal,
 } from "../application/policy-governance/policy-proposals-log.js";
 
 const ROOT = path.resolve("/repo");
@@ -333,6 +335,93 @@ test("cancel: konfliktas iš applied ir iš rejected — žurnalas nesikeičia",
     () => decidePolicyProposal(ports, RUNTIME_ROOT, "cancel", rejectRef),
     ProposalCancelConflictError,
   );
+});
+
+// 2026-09-05 pilno audito A2: sprendimai buvo rišami prie (policy_file, setting_id), ne prie
+// pasiūlymo. Pasiūlymai čia kuriami RANKA, o ne per `buildPolicyProposal`: pastarasis žymi
+// `new Date()`, tad du to paties ref pasiūlymai vienoje in-memory transakcijoje gautų tą pačią
+// milisekundę ir `timestamp` nustotų būti tapatybė.
+const SETTING = "max_files_per_task";
+
+function makeProposal(requested_value: unknown, timestamp: string): PolicyProposal {
+  return {
+    policy_file: ENFORCEMENT_FILE,
+    setting_id: SETTING,
+    requested_value,
+    reason: "",
+    timestamp,
+    routing: "queue",
+  };
+}
+
+const SETTING_REF = { policy_file: ENFORCEMENT_FILE, setting_id: SETTING, actor: "operator", reason: "review" };
+
+test("tapatybė: reject X nedažo naujo Y, Y lieka pending ir jį galima atšaukti", async () => {
+  const ports = makePorts();
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, makeProposal(5, "2026-09-05T10:00:00.000Z"));
+
+  const afterReject = await decidePolicyProposal(ports, RUNTIME_ROOT, "reject", SETTING_REF);
+  assert.equal(afterReject.proposals[0]?.status, "rejected");
+
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, makeProposal(7, "2026-09-05T10:00:01.000Z"));
+  const listed = await listPolicyProposals(ports, RUNTIME_ROOT);
+  assert.equal(listed.proposals[0]?.status, "rejected");
+  assert.equal(listed.proposals[1]?.status, "pending");
+  // Y sprendimų istorija TUŠČIA: X atmetimas nėra sprendimas apie Y.
+  assert.equal(listed.proposals[1]?.history.length, 0);
+  // Ir final audito `unresolved-proposal` tiekėjas Y mato.
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 1);
+
+  // Anksčiau ref lygio `rejected` čia mesdavo ProposalCancelConflictError.
+  const afterCancel = await decidePolicyProposal(ports, RUNTIME_ROOT, "cancel", {
+    ...SETTING_REF,
+    reason: "persigalvota",
+  });
+  assert.equal(afterCancel.proposals[0]?.status, "rejected");
+  assert.equal(afterCancel.proposals[1]?.status, "cancelled");
+  assert.equal(await countPendingProposals(ports.fs, RUNTIME_ROOT), 0);
+});
+
+test("tapatybė: patvirtintas A nepritaiko naujesnio B — apply reikalauja sprendimo apie B", async () => {
+  const ports = makePorts();
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, makeProposal(5, "2026-09-05T10:00:00.000Z"));
+  await decidePolicyProposal(ports, RUNTIME_ROOT, "approve", SETTING_REF);
+
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, makeProposal(7, "2026-09-05T10:00:01.000Z"));
+  const listed = await listPolicyProposals(ports, RUNTIME_ROOT);
+  assert.equal(listed.proposals[0]?.status, "approved");
+  assert.equal(listed.proposals[1]?.status, "pending");
+
+  await assert.rejects(
+    () => decidePolicyProposal(ports, RUNTIME_ROOT, "apply", SETTING_REF),
+    ProposalNotApprovedError,
+  );
+  // Nė viena reikšmė nepasiekė policy failo.
+  assert.equal(ports.files.has(norm(path.join(ROOT, ENFORCEMENT_FILE))), false);
+});
+
+test("senas žurnalas be proposal_timestamp: laiko langas duoda tą patį rezultatą", async () => {
+  const ports = makePorts();
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, makeProposal(5, "2026-09-05T10:00:00.000Z"));
+  await appendPolicyDecision(ports.fs, RUNTIME_ROOT, {
+    policy_file: ENFORCEMENT_FILE,
+    setting_id: SETTING,
+    actor: "operator",
+    reason: "senas įrašas",
+    timestamp: "2026-09-05T10:00:05.000Z",
+    decision: "approved",
+  });
+
+  // Vienas pasiūlymas — langas atviras į abi puses, elgesys nepakitęs.
+  const listed = await listPolicyProposals(ports, RUNTIME_ROOT);
+  assert.equal(listed.proposals[0]?.status, "approved");
+  assert.equal(listed.proposals[0]?.history.length, 1);
+
+  // Ir langą uždaro kitas to paties ref pasiūlymas: senas sprendimas prie jo nepriskiriamas.
+  await appendPolicyProposal(ports.fs, RUNTIME_ROOT, makeProposal(7, "2026-09-05T10:00:10.000Z"));
+  const after = await listPolicyProposals(ports, RUNTIME_ROOT);
+  assert.equal(after.proposals[0]?.status, "approved");
+  assert.equal(after.proposals[1]?.status, "pending");
 });
 
 async function readResolvedProposalsDecisionCount(

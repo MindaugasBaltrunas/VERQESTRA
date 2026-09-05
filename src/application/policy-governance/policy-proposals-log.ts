@@ -39,6 +39,15 @@ export const policyDecisionSchema = z.strictObject({
   reason: z.string(),
   timestamp: z.string().min(1),
   decision: z.enum(["approved", "rejected", "applied", "cancelled"]),
+  /**
+   * Pasiūlymo, kuriam šis sprendimas priklauso, `timestamp` — pasiūlymo tapatybė.
+   *
+   * NEPRIVALOMAS, nes `decisions.jsonl` yra append-only: seni įrašai lauko neturi ir atgal
+   * jo neįgyja. Naujos rašymo operacijos (`decidePolicyProposal`) jį užpildo VISADA, kai
+   * pasiūlymas tam nustatymui egzistuoja; seniems įrašams tapatybę atstato laiko langas
+   * (`decisionBelongsToProposal`).
+   */
+  proposal_timestamp: z.string().min(1).optional(),
 });
 
 export type PolicyDecision = z.infer<typeof policyDecisionSchema>;
@@ -99,6 +108,8 @@ export interface PolicyDecisionInput {
   actor: string;
   reason: string;
   timestamp: string;
+  /** Pasiūlymo `timestamp`; praleidžiamas tik kai sprendimas priimamas be jokio pasiūlymo. */
+  proposal_timestamp?: string;
 }
 
 export async function appendPolicyDecision(
@@ -155,8 +166,15 @@ function matchesRef(
   return record.policy_file === ref.policy_file && record.setting_id === ref.setting_id;
 }
 
-// Dabartinis lifecycle statusas — PASKUTINIS append'intas sprendimas (policy_file,
-// setting_id) nuorodai, arba "pending", kai sprendimo neįrašyta.
+/**
+ * Statusas iš PADUOTŲ sprendimų: paskutinis append'intas, arba "pending", kai jų nėra.
+ *
+ * Tai (policy_file, setting_id) lygio SUTRUMPINIMAS: nuoroda į nustatymą nėra nuoroda į
+ * pasiūlymą, o tam pačiam nustatymui pasiūlymų būna daug. Paduodant visą žurnalą, ši funkcija
+ * atsako „koks paskutinis sprendimas šiam nustatymui", o ne „kokia šio pasiūlymo būsena".
+ * Tikroji per-pasiūlymo tiesa — `resolveProposals`, kuri istoriją pirma susiaurina iki vieno
+ * pasiūlymo tapatybės ir tik tada kviečia šitą.
+ */
 export function resolveProposalStatus(
   decisions: PolicyDecision[],
   ref: { policy_file: string; setting_id: string },
@@ -176,11 +194,40 @@ export interface ResolvedProposal {
   history: PolicyDecision[];
 }
 
+/**
+ * Ar sprendimas priklauso BŪTENT šitam pasiūlymui (nuoroda jau patikrinta `matchesRef`).
+ *
+ * Dvi tapatybės pakopos:
+ * 1. `proposal_timestamp` — tikslus ryšys, kurį rašo visos naujos operacijos.
+ * 2. Laiko langas — fallback seniems įrašams be lauko: sprendimas priklauso pasiūlymui, kurio
+ *    `timestamp <= decision.timestamp < kito to paties ref pasiūlymo timestamp`.
+ *
+ * Žinomas lango limitas: du to paties ref pasiūlymai, sukurti tą pačią milisekundę, duoda
+ * tuščią langą pirmajam — `timestamp` tada tapatybės nebeskiria. UUID `proposal_id` tai
+ * uždarytų, bet kainuotų `policyProposalSchema` ir visų rašytojų (HTTP/CLI) keitimą; naujiems
+ * įrašams pakopa 1 šios spragos neturi, tad langas lieka tik istorijos skaitytuvu.
+ */
+function decisionBelongsToProposal(
+  decision: PolicyDecision,
+  proposal: PolicyProposal,
+  nextProposalTimestamp: string | undefined,
+): boolean {
+  if (decision.proposal_timestamp !== undefined) return decision.proposal_timestamp === proposal.timestamp;
+  if (decision.timestamp < proposal.timestamp) return false;
+  return nextProposalTimestamp === undefined || decision.timestamp < nextProposalTimestamp;
+}
+
 // Kiekvienas pasiūlymas prieš sprendimų žurnalą: ir dabartinis statusas, ir pilna
 // append-only istorija, kad kvietėjai (pvz. final audit) atskirtų pending nuo nuspręstų.
+// Istorija rišama prie PASIŪLYMO, ne prie nustatymo: kitaip „propose X → reject → propose Y"
+// paverstų Y iškart atmestu, nors jo niekas nematė.
 export function resolveProposals(proposals: PolicyProposal[], decisions: PolicyDecision[]): ResolvedProposal[] {
-  return proposals.map((proposal) => {
-    const history = decisions.filter((decision) => matchesRef(decision, proposal));
+  return proposals.map((proposal, index) => {
+    // Kitas TO PATIES ref pasiūlymas append tvarka — jis uždaro šio pasiūlymo laiko langą.
+    const next = proposals.slice(index + 1).find((candidate) => matchesRef(candidate, proposal));
+    const history = decisions.filter(
+      (decision) => matchesRef(decision, proposal) && decisionBelongsToProposal(decision, proposal, next?.timestamp),
+    );
     return {
       proposal,
       history,

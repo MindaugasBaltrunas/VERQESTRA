@@ -220,6 +220,22 @@ export async function listPolicyProposals(
   return { proposals: await readResolvedProposals(ports.fs, runtimeRoot) };
 }
 
+/**
+ * Pasiūlymas, kurį adresuoja (policy_file, setting_id) nuoroda — NAUJAUSIAS to ref'o pasiūlymas.
+ *
+ * Verbai atkeliauja iš HTTP/CLI su nustatymo nuoroda, ne su pasiūlymo tapatybe, tad „šis
+ * nustatymas" reiškia paskutinį apie jį pasakytą žodį. Visi keturi verbai naudoja TĄ PATĮ
+ * pasirinkimą — kitaip `cancel` ir `apply` galėtų kalbėti apie skirtingus pasiūlymus.
+ */
+function findLatestProposal(
+  resolved: ResolvedProposal[],
+  ref: { policy_file: string; setting_id: string },
+): ResolvedProposal | undefined {
+  return [...resolved]
+    .reverse()
+    .find(({ proposal }) => proposal.policy_file === ref.policy_file && proposal.setting_id === ref.setting_id);
+}
+
 /** Įrašo approve/reject/apply sprendimą ir grąžina atnaujintą resolved sąrašą. */
 export async function decidePolicyProposal(
   ports: PolicyProposalServicePorts,
@@ -233,16 +249,20 @@ export async function decidePolicyProposal(
   // pritaikyti, nei paneigti.
   requirePolicyFileEntry(input.policy_file);
 
-  const decisionInput: PolicyDecisionInput = { ...input, timestamp: new Date().toISOString() };
+  const resolved = await readResolvedProposals(ports.fs, runtimeRoot);
+  const latest = findLatestProposal(resolved, input);
+  // Sprendimas rišamas prie pasiūlymo tapatybės. `proposal_timestamp` praleidžiamas TIK kai
+  // pasiūlymo apskritai nėra — toks sprendimas lieka senos, ref lygio formos.
+  const decisionInput: PolicyDecisionInput = {
+    ...input,
+    timestamp: new Date().toISOString(),
+    ...(latest ? { proposal_timestamp: latest.proposal.timestamp } : {}),
+  };
   if (verb === "approve") {
     await approvePolicyProposal(ports.fs, runtimeRoot, decisionInput);
   } else if (verb === "reject") {
     await rejectPolicyProposal(ports.fs, runtimeRoot, decisionInput);
   } else if (verb === "cancel") {
-    const resolved = await readResolvedProposals(ports.fs, runtimeRoot);
-    const latest = [...resolved]
-      .reverse()
-      .find(({ proposal }) => proposal.policy_file === input.policy_file && proposal.setting_id === input.setting_id);
     const status: PolicyProposalStatus = latest?.status ?? "pending";
     // Atšaukti leidžiama tik dar nepritaikytam pasiūlymui: `pending` arba `approved`.
     // Iš `applied`/`rejected`/jau `cancelled` — konfliktas, nes žurnalas negrįžta atgal.
@@ -251,17 +271,14 @@ export async function decidePolicyProposal(
     }
     await cancelPolicyProposal(ports.fs, runtimeRoot, decisionInput);
   } else {
-    const resolved = await readResolvedProposals(ports.fs, runtimeRoot);
-    const approved = [...resolved]
-      .reverse()
-      .find(
-        ({ proposal, status }) =>
-          proposal.policy_file === input.policy_file && proposal.setting_id === input.setting_id && status === "approved",
-      );
-    if (!approved) {
+    // Patvirtintas turi būti BŪTENT adresuojamas pasiūlymas. Anksčiau ieškota bet kurio
+    // `approved` to ref'o pasiūlymo, tad naujesnis, dar niekieno nespręstas pasiūlymas
+    // pritaikydavo senesnio patvirtinimo teisę — arba, kai statusas krisdavo nuo nustatymo,
+    // savo paties reikšmę be jokio sprendimo.
+    if (!latest || latest.status !== "approved") {
       throw new ProposalNotApprovedError(input.policy_file, input.setting_id);
     }
-    if (approved.proposal.routing === "human-review") {
+    if (latest.proposal.routing === "human-review") {
       // Tikrinama ABSOLIUČIU keliu, o pranešama REPO-RELIATYVIU: patikrai reikia tikslaus kelio,
       // o žinutė keliauja į naršyklę.
       const markerPath = humanReviewApprovalMarkerPath(runtimeRoot, input.policy_file, input.setting_id);
@@ -273,7 +290,7 @@ export async function decidePolicyProposal(
         );
       }
     }
-    await applyApprovedProposal(ports, runtimeRoot, approved.proposal);
+    await applyApprovedProposal(ports, runtimeRoot, latest.proposal);
     await applyPolicyProposal(ports.fs, runtimeRoot, decisionInput);
   }
   return await listPolicyProposals(ports, runtimeRoot);

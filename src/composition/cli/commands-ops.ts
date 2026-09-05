@@ -128,7 +128,12 @@ export function opsCommands(deps: CliRegistryDeps): CliCommand[] {
       description: "Įdiegia šablonus į projektą (esamų failų neperrašo)",
       run: (args) =>
         installCommand(
-          { ports: installPorts, templatesRoot: templatesRoot(), ...(io === undefined ? {} : { io }) },
+          {
+            ports: installPorts,
+            templatesRoot: templatesRoot(),
+            projectRoot: deps.roots.projectRoot,
+            ...(io === undefined ? {} : { io }),
+          },
           args,
         ),
     },

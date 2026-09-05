@@ -39,6 +39,8 @@ export type InstallCommandDeps = {
   ports: InstallPorts;
   /** Šablonų katalogas su savo `VERSION` failu (paduoda kompozicija). */
   templatesRoot: string;
+  /** Numatytasis taikinys, kai komanda paleidžiama be pozicinio argumento. */
+  projectRoot: string;
   io?: CliIo;
 };
 
@@ -112,10 +114,10 @@ export async function installCommand(deps: InstallCommandDeps, args: string[] = 
   try {
     const dryRun = args.includes("--dry-run");
     const positional = args.filter((arg) => arg !== "--dry-run");
-    const target = positional[0];
-    if (positional.length !== 1 || target === undefined) {
-      throw new Error("Usage: verqestra install <target-project-dir> [--dry-run]");
+    if (positional.length > 1) {
+      throw new Error("Usage: verqestra install [<target-project-dir>] [--dry-run]");
     }
+    const target = positional[0] ?? deps.projectRoot;
 
     const targetRoot = path.resolve(target);
     const result = await installTemplates(deps.ports, target, deps.templatesRoot, dryRun);

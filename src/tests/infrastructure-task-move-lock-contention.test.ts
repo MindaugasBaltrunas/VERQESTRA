@@ -56,11 +56,18 @@ test("atlaisvinimas: NEŽINIA niekada nevirsta trynimu", () => {
   assert.equal(taskMoveLockReleaseDecision({ state: "unreadable" }, "ours"), "keep");
 });
 
-test("atlaisvinimas: trinama TIK savo arba jau nesamas lock'as", () => {
+test("atlaisvinimas: trinamas TIK lock'as, kurio savininkas ĮRODYTAS mūsų", () => {
   assert.equal(taskMoveLockReleaseDecision(OWNED, "ours"), "release");
-  assert.equal(taskMoveLockReleaseDecision({ state: "absent" }, "ours"), "release");
   // Svetimas savininkas — ta pati taisyklė, kurią modulis turėjo ir iki pataisos.
   assert.equal(taskMoveLockReleaseDecision(OWNED, "kito-proceso-id"), "keep");
+});
+
+test("atlaisvinimas: NESAMAS savininkas irgi nevirsta trynimu (F6)", () => {
+  // Iki 2026-09-05 čia buvo „release", ir tai atrodė nekaltai: nėra ko trinti. Bet trynimas
+  // yra rekursinis KATALOGO `rm`, o tarp skaitymo ir jo telpa perėmimo langas — B perėmė
+  // mūsų stale lock'ą ir savo `owner.json` dar neįrašė. `absent` tada reiškia ne „nieko
+  // nėra", o „B katalogas be tapatybės", ir jo trynimas įleidžia TREČIĄ rašytoją.
+  assert.equal(taskMoveLockReleaseDecision({ state: "absent" }, "ours"), "keep");
 });
 
 test("neįskaitomo lock'o atlaisvinimas atidedamas, o ne prarandamas: jį atgauna stale riba", () => {

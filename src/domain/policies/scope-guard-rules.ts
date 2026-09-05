@@ -14,6 +14,62 @@ import { hasDisableReason } from "./file-classification.js";
 // backend (Express API)
 // ---------------------------------------------------------------------------
 
+/**
+ * Shell vykdymas per `child_process` modulio receiverį: `child_process.exec(...)`,
+ * `cp.execSync(...)` arba `require("child_process").exec(...)` — pastarojo receiveris yra `)`,
+ * tad plikos formos regex'as jo nemato.
+ */
+const MODULE_EXEC_CALL =
+  /(?:\b(?:child_process|childProcess|cp)|["']child_process["']\s*\))\.exec(?:Sync|FileSync|File)?\s*\(([^)]*)/;
+
+/**
+ * Plika `exec(...)` forma. Prieš `exec` reikalaujamas ne `\w$.` simbolis turi vieną tikslą:
+ * NEgaudyti metodo kvietimo `pattern.exec(line)` (RegExp.prototype.exec). Etalono `\bexec\s*\(`
+ * čia klydo — `\b` tarp `.` ir `e` YRA žodžio riba, tad kiekvienas regex'ą naudojantis backend
+ * failas gaudavo BLOCK'ą (pilnas auditas 2026-09-05, D3).
+ */
+const BARE_EXEC_CALL = /(?:^|[^\w$.])exec(?:Sync|FileSync|File)?\s*\(([^)]*)/;
+
+/** Naudotojo įtakos pėdsakas argumentų lange (etalono sąrašas 1:1). */
+const USER_INFLUENCED_ARGUMENT = /req\.|request\.|body|params|query|\$\{/;
+
+/** Ar `child_process` minimas toje pačioje eilutėje (`require`, `import` ar `node:` forma). */
+const MENTIONS_CHILD_PROCESS = /child_process/;
+
+/**
+ * Pirmas argumentas nėra fiksuota komanda. Eilutės literalas (`"ls -la"`) saugus; template
+ * literalas — tik jei jame nėra interpoliacijos; visa kita (kintamasis, konkatenacija) yra
+ * kintamas įėjimas. Tuščias argumentų langas laikomas saugiu: be įėjimo nėra ir injekcijos.
+ */
+function hasVariableFirstArgument(callArguments: string): boolean {
+  const trimmed = callArguments.trimStart();
+  const opening = trimmed[0];
+  if (opening === undefined) return false;
+  if (opening === '"' || opening === "'") return false;
+  if (opening === "`") return trimmed.includes("${");
+  return true;
+}
+
+/**
+ * Taisyklė šauna TIK shell vykdymo kontekste. Trys formos: (a) plika `exec(`/`execSync(`/
+ * `execFile(` su ne-literaliu pirmu argumentu arba naudotojo įtakotais argumentais;
+ * (b) `child_process`/`childProcess`/`cp` receiveris — besąlygiškai, nes tai jau vienareikšmis
+ * shell kvietimas; (c) eilutė mini `child_process`, tad literalo išimtis nebegalioja nė (a)
+ * formai. `x.exec(...)` su bet kokiu kitu receiveriu — niekada, ir tai galioja net tada, kai
+ * `child_process` minimas komentare toje pačioje eilutėje: (c) reikalauja exec KVIETIMO formos,
+ * ne vien žodžio.
+ */
+function usesShellExecWithVariableInput(line: string): boolean {
+  if (MODULE_EXEC_CALL.test(line)) return true;
+
+  const bare = BARE_EXEC_CALL.exec(line);
+  if (!bare) return false;
+  if (MENTIONS_CHILD_PROCESS.test(line)) return true;
+
+  const callArguments = bare[1] ?? "";
+  return hasVariableFirstArgument(callArguments) || USER_INFLUENCED_ARGUMENT.test(callArguments);
+}
+
 export const backendLineRules: readonly LineRule[] = Object.freeze([
   {
     matches: ({ line }) => /\beval\s*\(/.test(line),
@@ -21,8 +77,7 @@ export const backendLineRules: readonly LineRule[] = Object.freeze([
     blocks: true,
   },
   {
-    matches: ({ line }) =>
-      /\bexec\s*\([^"']/.test(line) || /exec\s*\([^)]*(req\.|request\.|body|params|query|\$\{)/.test(line),
+    matches: ({ line }) => usesShellExecWithVariableInput(line),
     findings: (context) => [
       numberedLine(context),
       `BLOCK: ${context.file} uses child_process.exec with variable/user-influenced input`,

@@ -13,7 +13,7 @@ Tu patvirtini arba blokuoji. **Tu niekada netaisai.**
 readme-guard leidimą enforce'ina pats pre-write hook'as (per `vq/state/readme-read-events.json`,
 kurį užpildo PostToolUse `Read` hook'as) — atskiro flago tikrinti nereikia ir `logs/.readme-guard-ok`
 nebenaudojamas. Jei reikia įrodymo, per **Read tool** perskaityk `vq/state/readme-read-events.json`
-ir patikrink, ar jame yra `README.md` ir `doc/architecture/README.md`.
+ir patikrink, ar jame yra `README.md` ir `docs/architecture.md`.
 
 ## Tikrink
 
@@ -32,7 +32,7 @@ Scope neaiškus · daugiau nei vienas izoliuotas vienetas be architekto spec · 
 
 ## Komandos
 
-Naudok projekto realias patikros komandas (iš README / `package.json` scripts / `AG/project/profile.json` quality_gates) bei read-only git (`git status`, `git diff --stat`). Nehardcode'ink konkrečių script vardų.
+Naudok projekto realias patikros komandas (iš README / `package.json` scripts / `vq/project/profile.json` quality_gates) bei read-only git (`git status`, `git diff --stat`). Nehardcode'ink konkrečių script vardų.
 
 ## Išvestis
 

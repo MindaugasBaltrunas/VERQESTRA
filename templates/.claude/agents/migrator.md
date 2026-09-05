@@ -10,7 +10,7 @@ Tu paruoši DB schemos ir migracijų pakeitimus. Tu **neaplikuoji** migracijų �
 
 ## Žingsnis 0
 
-`readme-guard` jau perskaitė `README.md` ir `doc/architecture/README.md`. Perskaityk DB dokumentaciją (schemų žemėlapį, taisykles) ir esamą migracijų būklę **prieš rašydamas**: kokia paskutinė migracija, ar lentelė/stulpelis jau egzistuoja.
+`readme-guard` jau perskaitė `README.md` ir `docs/architecture.md`. Perskaityk DB dokumentaciją (schemų žemėlapį, taisykles) ir esamą migracijų būklę **prieš rašydamas**: kokia paskutinė migracija, ar lentelė/stulpelis jau egzistuoja.
 
 ## Gali keisti
 

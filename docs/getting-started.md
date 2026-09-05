@@ -80,10 +80,14 @@ seka praktikoje:
 | `PostToolUse` | rašymų ledger'is, KPI įvykiai, guard'ų fan-out (neblokuoja niekada) |
 | `Stop` | kokybės vartai → guard'ai → **commit** |
 
-**Auto-push šiame repo IŠJUNGTAS** (`vq/config/git-automation-policy.json`,
-`auto_push_enabled: false`). Commit'as yra lokalus ir atšaukiamas (`git reset`), o push yra
-išorinis veiksmas, tad jis paliktas eksplicitiniam operatoriaus sprendimui — vienos eilutės
-pakeitimas tame pačiame faile.
+**Auto-push pagal nutylėjimą ĮJUNGTAS**: `auto_push_enabled: true` yra ir diegimo šablone
+(`templates/vq/config/git-automation-policy.json`), ir kodo default'e
+(`src/application/policy-governance/git-automation-policy.ts`). Stop hook'as po commit'o iškart
+push'ina į remote. Vadinasi, commit'as NĖRA vien lokalus: `git reset` atsuka tik tavo medį, o
+remote'e pakeitimas jau yra ir atšaukiamas tik atskiru veiksmu.
+
+Kad Stop tik commit'intų lokaliai, `vq/config/git-automation-policy.json` įrašyk
+`"auto_push_enabled": false` — vienos eilutės pakeitimas tame faile.
 
 Kaip išjungti visus hook'us: ištrinti `.claude/settings.json`. Kaip išjungti vieną — pašalinti jo
 įvykio bloką. Failas yra konfigas, ne kodas.

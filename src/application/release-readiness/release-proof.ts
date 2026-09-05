@@ -136,6 +136,20 @@ export type ReleaseProofFreshness = {
   stale: boolean;
   reason?: string;
   proof?: ReleaseProofData;
+  /**
+   * Ar SHA patikra šiame bėgime REALIAI įvyko. `skipped` = `currentGitSha` neprieinamas
+   * (ne-git aplinka), tad proof'o `git_sha` nebuvo su kuo palyginti.
+   *
+   * Praleista patikra NEVIRSTA `stale: true` — tai sąmoningas fail-open, tokios pačios
+   * semantikos kaip `milestone-check` „skipped" dalis, kuri neįeina į `failed_parts`.
+   * Priežastis: ne-git aplinkoje SHA nėra iš principo, tad nuolatinis „stale" verdiktas
+   * meluotų apie proof'o būklę. Kaina — ten proof'as atrodo šviežias net pasikeitus medžiui;
+   * todėl praleidimas yra AIŠKUS laukas, o ne tyli `if` šaka (iki 2026-09-05 pilno audito
+   * RR-1 jis buvo neužfiksuotas niekur).
+   */
+  gitShaCheck: "verified" | "skipped";
+  /** Priežastis, kai `gitShaCheck === "skipped"`. */
+  gitShaCheckReason?: string;
 };
 
 /**
@@ -144,20 +158,30 @@ export type ReleaseProofFreshness = {
  * git'o sekamas bucket'as (kiti — gitignore'inta lokali runtime būsena): sutampantis SHA
  * įrodo tik paskutinį COMMIT'ą, o ne necommit'intus queue pakeitimus — be šios patikros
  * tuščioje eilėje užfiksuotas proof'as liktų „šviežias" amžinai, kol nauji taskai kaupiasi.
+ *
+ * `currentGitSha === undefined` (ne-git aplinka) SHA patikros neatlieka: fail-open, kurį
+ * rezultatas deklaruoja per {@link ReleaseProofFreshness.gitShaCheck} — žr. jo komentarą.
  */
 export async function checkReleaseProofFreshness(
   ports: ReleaseProofPorts,
   currentGitSha: string | undefined,
 ): Promise<ReleaseProofFreshness> {
+  // Praleista SHA patikra keliauja į KIEKVIENĄ šios funkcijos grąžinimą — kitaip „skipped"
+  // matytųsi tik šviežiame kelyje, o stale verdiktai tylėtų apie tai, ko nebuvo patikrinta.
+  const gitShaCheck: Pick<ReleaseProofFreshness, "gitShaCheck" | "gitShaCheckReason"> =
+    currentGitSha === undefined
+      ? { gitShaCheck: "skipped", gitShaCheckReason: "git sha unavailable" }
+      : { gitShaCheck: "verified" };
+
   const proof = await ports.readSummary();
   if (!proof) {
-    return { stale: true, reason: "final-audit-summary.json is missing" };
+    return { stale: true, reason: "final-audit-summary.json is missing", ...gitShaCheck };
   }
   if (proof.final_audit_status !== "complete") {
-    return { stale: true, reason: "recorded final_audit_status is not complete", proof };
+    return { stale: true, reason: "recorded final_audit_status is not complete", proof, ...gitShaCheck };
   }
   if (currentGitSha !== undefined && proof.git_sha !== currentGitSha) {
-    return { stale: true, reason: "recorded git_sha does not match current HEAD", proof };
+    return { stale: true, reason: "recorded git_sha does not match current HEAD", proof, ...gitShaCheck };
   }
   const recordedQueueCount = proof.task_bucket_counts?.queue;
   if (recordedQueueCount !== undefined) {
@@ -167,8 +191,9 @@ export async function checkReleaseProofFreshness(
         stale: true,
         reason: `recorded queue task count (${recordedQueueCount}) does not match current queue count (${currentQueueCount})`,
         proof,
+        ...gitShaCheck,
       };
     }
   }
-  return { stale: false, proof };
+  return { stale: false, proof, ...gitShaCheck };
 }

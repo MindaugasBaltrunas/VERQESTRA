@@ -312,6 +312,36 @@ test("release-proof: generavimas, rendinimas ir šviežumo matrica", async () =>
   );
   assert.equal(queueDrift.stale, true, "necommit'inti queue pakeitimai daro proof'ą pasenusį");
   assert.match(queueDrift.reason ?? "", /queue task count/);
+  assert.equal(fresh.gitShaCheck, "verified", "su HEAD SHA patikra realiai įvyko");
+  assert.equal(fresh.gitShaCheckReason, undefined);
+});
+
+test("release-proof: be HEAD SHA patikra žymima 'skipped', o ne tyliai praleidžiama", async () => {
+  const proof: ReleaseProofData = {
+    git_sha: "abc123",
+    generated_at: "2026-08-20T09:00:00.000Z",
+    final_audit_status: "complete",
+    converge_status: "converged",
+    release_check_status: "ok",
+    architecture_boundary_status: "ok",
+    task_bucket_counts: { queue: 0, active: 0, delegated: 0, done: 0, "human-review": 0, error: 0, failed: 0 },
+  };
+
+  // Ne-git aplinka: SHA nėra su kuo lyginti. Verdiktas lieka fail-open (`stale: false`, kaip
+  // `milestone-check` „skipped" dalis neįeina į `failed_parts`), bet praleidimas dabar yra
+  // deklaruotas laukas, ne nematoma `if` šaka (pilnas auditas 2026-09-05, RR-1).
+  const noSha = await checkReleaseProofFreshness(makeProofPorts({ queueCount: 0, summary: proof }).ports, undefined);
+  assert.equal(noSha.stale, false, "praleista SHA patikra nedaro proof'o pasenusiu");
+  assert.equal(noSha.gitShaCheck, "skipped");
+  assert.equal(noSha.gitShaCheckReason, "git sha unavailable");
+
+  // Praleidimas matomas ir tada, kai proof'as pasensta dėl KITOS priežasties.
+  const alsoStale = await checkReleaseProofFreshness(
+    makeProofPorts({ summary: { ...proof, final_audit_status: "not_complete" } }).ports,
+    undefined,
+  );
+  assert.equal(alsoStale.stale, true);
+  assert.equal(alsoStale.gitShaCheck, "skipped", "stale verdiktas neslepia, kad SHA nebuvo tikrintas");
 });
 
 function makeFinalAuditPorts(overrides: Partial<FinalAuditPorts> = {}): {

@@ -4,6 +4,7 @@
 // skaitymas, changed-files surinkimas ir spec politikos vartas — per `SpecDriftPorts`.
 // Vartoja milestone-check use case'as (release-readiness, VQ-305 3/3).
 import path from "node:path";
+import { matchesAllowedPath } from "../../domain/tasks/allowed-paths.js";
 import { toComparablePosixPath as normalizeToken } from "../../shared/paths.js";
 
 export type SpecDriftStatus = "ok" | "warning" | "review-required";
@@ -112,17 +113,21 @@ export function isFileInScope(filePath: string, scope: string[]): boolean {
   return scope.some((entry) => matchesScope(file, entry));
 }
 
+/**
+ * Kelio formos scope (turi `/` arba žvaigždutę) tikrinamas KANONINIU allowed-path glob
+ * matcher'iu. Sava prefikso logika glob'o su žvaigždute kelio VIDURYJE nemokėjo: scope su
+ * dvigubos žvaigždutės segmentu ir `*.ts` sufiksu turi `/`, bet nesibaigia `/**`, tad
+ * krisdavo į prefikso palyginimą ir neatitikdavo NĖ VIENO failo — visi pakeitimai virsdavo
+ * `outside_scope`, o verdiktas `review-required` (2026-09-05 pilnas auditas, SD-1).
+ * `docs/spec-workflow.md` scope vadina glob'ais, tad glob semantika ir yra teisinga.
+ *
+ * Fragmentinis token'as be `/` ir be žvaigždutės (pvz. `task-split`) NĖRA kelias — tai spec
+ * change darbo kategorijos vardas; jam lieka sena taisyklė „visi brūkšnio fragmentai turi
+ * būti kelyje".
+ */
 function matchesScope(file: string, scope: string): boolean {
-  if (scope === "**" || scope === "*") return true;
-  if (scope.endsWith("/**")) {
-    const prefix = scope.slice(0, -3);
-    return file === prefix || file.startsWith(`${prefix}/`);
-  }
-  if (scope.includes("/")) {
-    const prefix = scope.replace(/\/$/, "");
-    return file === prefix || file.startsWith(`${prefix}/`);
-  }
+  if (scope.includes("/") || scope.includes("*")) return matchesAllowedPath(file, scope);
 
   const fragments = scope.split("-").filter(Boolean);
-  return fragments.every((fragment) => file.includes(fragment));
+  return fragments.length > 0 && fragments.every((fragment) => file.includes(fragment));
 }

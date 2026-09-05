@@ -315,6 +315,28 @@ test("specDrift: scope formos ir verdiktai — ok / review-required / warning", 
   assert.equal(isFileInScope("bet/koks.ts", ["**"]), true);
 });
 
+test("specDrift: glob su žvaigždute scope viduryje atitinka failus (SD-1)", async () => {
+  // Iki 2026-09-05 audito toks scope turėjo '/', bet nesibaigė '/**', tad krisdavo į prefikso
+  // palyginimą ir NIEKADA neatitikdavo — kiekvienas pakeitimas virsdavo `review-required`.
+  const globScope = ["src/**/*.ts"];
+  assert.equal(isFileInScope("src/a/b.ts", globScope), true);
+  assert.equal(isFileInScope("src/a.ts", globScope), true, "'**/' reiškia ir nulį katalogų");
+  assert.equal(isFileInScope("src/a/b.tsx", globScope), false, "sufiksas vis dar riboja");
+  assert.equal(isFileInScope("docs/a.ts", globScope), false);
+  assert.equal(isFileInScope("ui-app/src/x.tsx", ["ui-app/src/**/*.tsx"]), true);
+  assert.equal(isFileInScope("src/application/x.ts", ["src/application/*"]), true, "'/*' — vienas lygis");
+  assert.equal(isFileInScope("src/application/a/x.ts", ["src/application/*"]), false);
+
+  const scoped = makeSpecPorts({ scope: globScope, changed: ["src/a/b.ts", "src/c.ts"] });
+  const result = await specDrift(scoped.ports, ["ch-1"], "/repo");
+  assert.equal(result.status, "ok");
+  assert.deepEqual(result.outside_scope, []);
+
+  // Prefikso forma (be žvaigždutės) elgiasi kaip iki šiol.
+  assert.equal(isFileInScope("docs/spec-workflow.md", ["docs/"]), true);
+  assert.equal(isFileInScope("docsy/x.md", ["docs/"]), false);
+});
+
 test("specDrift: --files= argumentai nugali git sąrašą; trūkstamas change meta klaidą", async () => {
   const { ports } = makeSpecPorts({ scope: ["src/**"], changed: ["kitas/is-git.ts"] });
   const result = await specDrift(ports, ["ch-1", "--files=src/a.ts,src/b.ts"], "/repo");

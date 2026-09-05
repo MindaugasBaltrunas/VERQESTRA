@@ -33,6 +33,19 @@ function readSource(relativePath: string): string {
   return readFileSync(absoluteSource(relativePath), "utf8");
 }
 
+/**
+ * Dokumentuotos komandos, kurių registre nėra.
+ *
+ * Iki 2026-09-05 vartas tikrino, kad sankirta NETUŠČIA. Bet lūžis, dėl kurio jis gimė, buvo
+ * „sąrašas matė 4 komandas iš 53" — ten sankirta irgi buvo netuščia. `> 0` praeina ir tada, kai
+ * `commandSources` rodo į vieną teisingą failą iš aštuonių, tad vartas matuoja tai, kas nelūžo.
+ * Matuoti reikia SPRAGĄ: kiekviena README dokumentuota komanda privalo rastis registre — būtent
+ * tokį verdiktą `readiness-audit` ir skelbia (`implementation:<komanda>`).
+ */
+function missingFromRegistry(documented: readonly string[], implemented: readonly string[]): string[] {
+  return documented.filter((command) => !implemented.includes(command)).sort();
+}
+
 test("kiekvienas commandSources kelias egzistuoja realiame repo", () => {
   assert.ok(readinessRequirements.commandSources.length > 0, "commandSources sąrašas tuščias — auditas nieko nematuoja");
 
@@ -61,15 +74,24 @@ test("commandSources realiai duoda registruotas komandas", () => {
   );
 });
 
-test("dokumentuotų ir implementuotų komandų sankirta netuščia", () => {
+test("KIEKVIENA dokumentuota komanda randama registre, ne tik kelios", () => {
   const documented = parseReadmeMainCommands(readSource("README.md"));
   const implemented = parseRegisteredCommands(readinessRequirements.commandSources.map(readSource));
 
   assert.ok(documented.length > 0, "README `## Main Commands` sekcija neduoda nė vienos komandos");
 
-  const shared = documented.filter((command) => implemented.includes(command));
-  assert.ok(
-    shared.length > 0,
-    `README dokumentuoja ${documented.length} komandų, registras registruoja ${implemented.length}, bet sankirta tuščia — auditas lygina su ne ta aibe`,
+  const missing = missingFromRegistry(documented, implemented);
+  assert.deepEqual(
+    missing,
+    [],
+    `README dokumentuoja ${documented.length} komandų, o registras per commandSources duoda ` +
+      `${implemented.length}: šių nerado nė viename sąrašo faile — ${missing.join(", ")}. ` +
+      "Arba sąrašas nerodo į visą registrą, arba README žada komandą, kurios nėra",
   );
+});
+
+test("apėjimas, kurį šis vartas privalo pagauti, yra raudonas", () => {
+  // Fixture'as, ne repo: „4 komandos iš 53" forma — sankirta netuščia, bet spraga didžiulė.
+  assert.deepEqual(missingFromRegistry(["loop", "status", "smoke"], ["loop"]), ["smoke", "status"]);
+  assert.deepEqual(missingFromRegistry(["loop", "status"], ["status", "loop", "ui"]), []);
 });

@@ -24,6 +24,26 @@ import {
 
 const TEMPLATES_ROOT = path.resolve(process.cwd(), "templates");
 
+/**
+ * Runtime konfigų sąrašas, užrašytas ČIA, o ne importuotas.
+ *
+ * Iki 2026-09-05 visi šio failo testai suko `SMOKE_REQUIRED_RUNTIME_FILES` — TESTUOJAMO modulio
+ * eksportą. Tai reiškė, kad `config/models.env` išbraukimas iš smoke sąrašo padarydavo abi puses
+ * žalias vienu redagavimu: reikalavimas dingdavo kartu su jo tikrinimu. Vartas, kurio apimtį
+ * nustato tikrinamasis, nėra vartas. Sąrašo dubliavimas yra to kaina ir sąmoningas.
+ */
+const EXPECTED_RUNTIME_FILES = ["config/commands.env", "config/models.env"] as const;
+
+/** Env priskyrimo pažeidimai. Grynas, kad taisyklę matytų ir korpusas, ir fixture'as. */
+function envAssignmentViolations(line: string): string[] {
+  const assignment = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(line);
+  if (assignment === null) return [`ne env eilutė: ${line}`];
+  // `FOO=` praeidavo ankstesnį `…\s*=` šabloną. Tuščia reikšmė yra tas pats tylus gedimas kaip
+  // tuščias failas: `smoke` spausdina OK, krautuvas nuskaito nieką ir krenta į default'ą.
+  const value = (assignment[2] ?? "").trim().replace(/^(["'])(.*)\1$/, "$2");
+  return value === "" ? [`\`${assignment[1] ?? line}\` be reikšmės`] : [];
+}
+
 /** Šablonų failas, atitinkantis smoke reikalaujamą kelią target projekte. */
 function templateFor(relativePosixPath: string, underVq: boolean): string {
   const segments = relativePosixPath.split("/");
@@ -38,6 +58,15 @@ function readTemplate(absolutePath: string): string | undefined {
     return undefined;
   }
 }
+
+test("smoke runtime sąrašas sutampa su ŠIO testo literalu", () => {
+  assert.deepEqual(
+    [...SMOKE_REQUIRED_RUNTIME_FILES],
+    [...EXPECTED_RUNTIME_FILES],
+    "smoke runtime reikalavimų sąrašas pasikeitė — jei tai sprendimas, pakeisk ir čia esantį literalą " +
+      "kartu su priežastimi; jei ne, sąrašas buvo tyliai apkarpytas",
+  );
+});
 
 test("kiekvieną `smoke` reikalaujamą failą veža `templates/`", () => {
   const missing: string[] = [];
@@ -75,7 +104,7 @@ test("vežami env šablonai turi turinį — tuščias failas praeina `exists`, 
   // Tuščias `commands.env` yra tyliausias gedimas visoje grandinėje: `smoke` spausdina OK (jis
   // tikrina tik egzistavimą), o krautuvai nuskaito nieką ir krenta į default'us — 2026-09-04
   // šiame repo `MAX_RETRIES_PER_ERROR=4` taip virto tyliu 2.
-  for (const relative of SMOKE_REQUIRED_RUNTIME_FILES) {
+  for (const relative of EXPECTED_RUNTIME_FILES) {
     const source = templateFor(relative, true);
     const text = readTemplate(source) ?? "";
     const assignments = text
@@ -87,8 +116,18 @@ test("vežami env šablonai turi turinį — tuščias failas praeina `exists`, 
       assignments.length > 0,
       `\`templates/vq/${relative}\` neturi nė vienos reikšmės — diegimas atvežtų tuščią konfigą`,
     );
-    for (const line of assignments) {
-      assert.match(line, /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=/, `\`templates/vq/${relative}\`: ne env eilutė`);
-    }
+    const violations = assignments.flatMap((line) => envAssignmentViolations(line));
+    assert.deepEqual(violations, [], `\`templates/vq/${relative}\`: ${violations.join("; ")}`);
   }
+});
+
+test("apėjimai, kuriuos šis vartas privalo pagauti, yra raudoni", () => {
+  // Fixture'ai, ne korpusas: taisyklė tikrinama prieš tekstą, kurio `templates/` neturi.
+  assert.notDeepEqual(envAssignmentViolations("FOO="), []);
+  assert.notDeepEqual(envAssignmentViolations("FOO=   "), []);
+  assert.notDeepEqual(envAssignmentViolations('FOO=""'), []);
+  assert.notDeepEqual(envAssignmentViolations("export FOO="), []);
+  assert.notDeepEqual(envAssignmentViolations("tiesiog tekstas"), []);
+  assert.deepEqual(envAssignmentViolations("FOO=1"), []);
+  assert.deepEqual(envAssignmentViolations("export CLAUDE_OPUS_MODEL=opus"), []);
 });

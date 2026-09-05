@@ -69,6 +69,11 @@ function sourceFiles(directory: string): string[] {
  * Selektorių tekstas: deklaracijų blokų turinys išmetamas, kad `content: "."` ar `url(./x)`
  * netaptų „apibrėžta klase". `@media`/`@supports` prelude'ai lieka, o jų vidus skenuojamas
  * toliau — ten irgi gyvena tikri selektoriai.
+ *
+ * TUŠČIAS blokas selektoriaus NEGRĄŽINA. Iki 2026-09-05 grąžindavo, ir tai buvo tiksliai tas
+ * apėjimas, kurį vartas turi gaudyti: `.notice-error {}` padarydavo klasę „padengtą", nors
+ * išvaizdos ji neduoda nė kiek — o būtent „markup'as teisingas, stiliaus nėra" ir yra gedimas,
+ * dėl kurio šis vartas atsirado.
  */
 function selectorText(css: string): string {
   let out = "";
@@ -77,17 +82,23 @@ function selectorText(css: string): string {
   while (index < css.length) {
     const char = css[index];
     if (char === "{") {
-      out += `${selector} `;
-      const nested = selector.trimStart().startsWith("@");
+      const prelude = selector;
+      const nested = prelude.trimStart().startsWith("@");
       selector = "";
       index += 1;
-      if (nested) continue;
+      if (nested) {
+        out += `${prelude} `;
+        continue;
+      }
       let depth = 1;
+      const bodyStart = index;
       while (index < css.length && depth > 0) {
         if (css[index] === "{") depth += 1;
         else if (css[index] === "}") depth -= 1;
         index += 1;
       }
+      const body = css.slice(bodyStart, depth === 0 ? index - 1 : index);
+      if (body.trim() !== "") out += `${prelude} `;
       continue;
     }
     if (char === "}") {
@@ -101,18 +112,23 @@ function selectorText(css: string): string {
   return `${out} ${selector}`;
 }
 
-function definedClasses(): Set<string> {
+/**
+ * `:not(.x)` klasės NEAPIBRĖŽIA — jis aprašo elementus, kurie jos NETURI. Palikta neigimo
+ * konstrukcija tyliai „padengdavo" bet kokį joje paminėtą vardą, tad taisyklė
+ * `.card:not(.card-flat)` legalizuodavo `card-flat` be jokio jo stiliaus.
+ */
+function definedClasses(css: string): Set<string> {
   // `@import` išmetamas PRIEŠ selektorių skaitymą: `"./01-tokens-base.css"` klasių regex'ui
   // atrodo kaip `.css`, ir indeksas tyliai „apibrėžtų" klasę, kurios niekas neaprašė.
-  const css = styleSheets()
-    .map((file) => readFileSync(file, "utf8"))
-    .join("\n")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/@import[^;]*;/g, " ");
-  const selectors = selectorText(css);
+  const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/@import[^;]*;/g, " ");
+  const selectors = selectorText(cleaned).replace(/:not\([^)]*\)/g, " ");
   return new Set(
     [...selectors.matchAll(/\.(-?[A-Za-z_][\w-]*)/g)].flatMap((match) => match[1] ?? []),
   );
+}
+
+function definedClassesFromDisk(): Set<string> {
+  return definedClasses(styleSheets().map((file) => readFileSync(file, "utf8")).join("\n"));
 }
 
 function classTokens(literal: string): string[] {
@@ -195,7 +211,7 @@ function usedClasses(): Map<string, string> {
 describe("dashboard.css dengiamumas", () => {
   it("kiekviena TSX'e užrašyta klasė turi taisyklę dashboard.css", () => {
     const used = usedClasses();
-    const defined = definedClasses();
+    const defined = definedClassesFromDisk();
 
     // Be šių dviejų vartas praeitų TUŠČIAS: sugedęs parseris paverstų jį tyliu pritarimu —
     // lygiai tokiu pat, kokį jis ir gaudo.
@@ -211,5 +227,17 @@ describe("dashboard.css dengiamumas", () => {
       missing,
       `klasės be taisyklės — markup'as jas turi, išvaizdos jos neduoda:\n${missing.join("\n")}`,
     ).toEqual([]);
+  });
+
+  it("apėjimai, kuriuos šis vartas privalo pagauti, yra raudoni", () => {
+    // Fixture'ai, ne `view/styles/`: taisyklė tikrinama prieš CSS, kurio repo neturi ir neturės.
+    expect([...definedClasses(".notice-error {}")]).toEqual([]);
+    expect([...definedClasses(".notice-error { /* dar neparašyta */ }")]).toEqual([]);
+    expect([...definedClasses(".card:not(.card-flat) { color: red; }")]).toEqual(["card"]);
+
+    // Tai, kas ir toliau privalo skaitytis kaip apibrėžimas.
+    expect([...definedClasses(".notice-error { color: red; }")]).toEqual(["notice-error"]);
+    expect([...definedClasses("@media (max-width: 760px) { .panel { gap: 0; } }")]).toEqual(["panel"]);
+    expect([...definedClasses(".btn:hover:not(:disabled) { opacity: 1; }")]).toEqual(["btn"]);
   });
 });

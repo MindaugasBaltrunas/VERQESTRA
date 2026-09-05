@@ -47,6 +47,28 @@ const ledger: Ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
 
 const sourceExtensions = [".ts", ".tsx"];
 
+/**
+ * Įrodymo požymis: kelias, failo vardas, testas, fixture'as ar commit'as.
+ *
+ * Iki 2026-09-05 „įrodymas" buvo `length >= 40` — tai matuoja teksto ILGĮ, ne jo turinį, tad
+ * keturiasdešimt simbolių tvirtinimo („modulis perkeltas ir veikia kaip anksčiau") praeidavo lygiai
+ * taip pat, kaip commit'o hash'as su testų skaičiais. Įrodymas privalo rodyti į kažką, ką galima
+ * atsiversti.
+ */
+const NAMES_ARTIFACT = /[\w.-]+\/[\w.-]+|[\w-]+\.(?:ts|tsx|json|md|mjs|css|yaml|yml)\b|\btest|\bfixture|\bcommit\b/i;
+
+function evidenceNamesArtifact(value: string): boolean {
+  return value.trim().length >= 40 && NAMES_ARTIFACT.test(value);
+}
+
+/**
+ * CLAUDE.md: „Kryptis visada griežtinanti." Žodžio ribos yra visa esmė: be jų `negriežtinantis` —
+ * tikslus taisyklės PRIEŠINGYBĖS pavadinimas — praeidavo kaip substring'as.
+ */
+function directionIsStrengthening(value: string): boolean {
+  return /\b(?:griežtinantis|grieztinantis)\b/i.test(value);
+}
+
 async function countSources(root: string): Promise<number> {
   const entries = await readdir(root, { withFileTypes: true }).catch(() => undefined);
   if (entries === undefined) return 0;
@@ -145,9 +167,9 @@ test("kiekvienas migruotas etalono paketas remiasi ĮRODYMU, ne tvirtinimu", () 
     for (const entry of named) {
       const evidence = entry.evidence ?? "";
       assert.ok(
-        evidence.trim().length >= 40,
-        `${entry.module}: statusas migrated be evidence lauko — testų skaičiai ir apimtis ` +
-          "yra tai, kas skiria įrodymą nuo teiginio",
+        evidenceNamesArtifact(evidence),
+        `${entry.module}: statusas migrated be įvardyto įrodymo — evidence privalo minėti kelią, ` +
+          "failą, testą ar commit'ą, o ne tik būti pakankamai ilgas",
       );
     }
   }
@@ -161,10 +183,25 @@ test("kiekvienas nukrypimas užrašytas TRIJOSE vietose ir yra griežtinantis", 
       assert.ok(deviation[field].trim().length >= 10, `${deviation.area}: tuščias ${field}`);
     }
     // CLAUDE.md: „Kryptis visada griežtinanti: naujų praleidimų neatsiranda."
-    assert.match(
-      deviation.direction,
-      /griežtinantis|grieztinantis/i,
+    assert.ok(
+      directionIsStrengthening(deviation.direction),
       `${deviation.area}: nukrypimo kryptis nėra griežtinanti`,
     );
   }
+});
+
+test("apėjimai, kuriuos šis vartas privalo pagauti, yra raudoni", () => {
+  // Fixture'ai, ne ledger'io eilutės: taisyklė tikrinama prieš tekstą, kurio registre nėra.
+  assert.equal(directionIsStrengthening("negriežtinantis — praleidimas priimtas sąmoningai"), false);
+  assert.equal(directionIsStrengthening("negrieztinantis — tas pats be diakritikos"), false);
+  assert.equal(directionIsStrengthening("atlaidesnis: vartas išjungtas"), false);
+  assert.equal(directionIsStrengthening("griežtinantis — naujų praleidimų neatsiranda"), true);
+
+  assert.equal(
+    evidenceNamesArtifact("Modulis perkeltas ir elgiasi lygiai taip pat, kaip elgėsi anksčiau."),
+    false,
+    "keturiasdešimt simbolių tvirtinimo be nuorodos NĖRA įrodymas",
+  );
+  assert.equal(evidenceNamesArtifact("src/shared/result.ts — parity per shared-primitives suite (45/45)"), true);
+  assert.equal(evidenceNamesArtifact("commit 43fb8217"), false, "įrodymas privalo būti ir konkretus, ir turiningas");
 });

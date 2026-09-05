@@ -20,6 +20,24 @@ const SRC_ROOT = path.resolve(process.cwd(), "src");
 /** Žyma eilutėje, kuri senąjį vardą mini SĄMONINGAI (pervadinimo istorija), o ne per užmaršumą. */
 const ALLOW_MARKER = "retired-name-ok";
 
+/**
+ * Žyma galioja TIK komentaro eilutėje.
+ *
+ * Iki 2026-09-05 pakako, kad eilutėje būtų `retired-name-ok` — nesvarbu kur. Tai reiškė, kad
+ * `const x = reportSnapshot(); // retired-name-ok` atkurdavo būtent tą kodo kelią, kurio vardas
+ * buvo pašalintas, ir vartas jam pritardavo. Žyma yra leidimas DOKUMENTUOTI seną vardą, ne jį
+ * vartoti; kodo eilutė su ja yra tiksliai tas apėjimas, kurio šis testas ir ieško.
+ *
+ * Riba, sąmoninga: pripažįstamos tik `//`, `/*` ir JSDoc `*` eilutės. Blokinio komentaro tęsinys
+ * BE `*` priešakyje žymos negaus ir bus apšauktas — tai melagingas kritimas, bet garsus ir
+ * taisomas vienu simboliu, o priešinga klaida (kodo eilutė, praėjusi kaip komentaras) yra tyli.
+ * Repo konvencija yra `*` tęsiniai, tad šiandien ši šaka nesuveikia nė karto.
+ */
+function commentLineCarriesMarker(line: string): boolean {
+  if (!line.includes(ALLOW_MARKER)) return false;
+  return /^(?:\/\/|\/\*|\*)/.test(line.trim());
+}
+
 /** Vardas → kuo pakeistas (arba kodėl pašalintas). Rodoma kritus, kad taisymas būtų akivaizdus. */
 const RETIRED: Record<string, string> = {
   blockWaveWithoutGraph: "planWaveWithoutGraph (2026-08-23: transformacija tapo konstruktoriumi)",
@@ -50,7 +68,7 @@ test("gate: pašalinti vardai neminimi nei kode, nei komentaruose", async () => 
     for (const [position, line] of (await readFile(file, "utf8")).split("\n").entries()) {
       // Sąmoninga istorinė nuoroda („anksčiau vadinosi X") yra teisėta ir vertinga: ji paaiškina,
       // kodėl vardas pasikeitė. Ji pažymima aiškiai, kad vartas skirtų ją nuo užmirštos nuorodos.
-      if (line.includes(ALLOW_MARKER)) continue;
+      if (commentLineCarriesMarker(line)) continue;
 
       for (const [retired, replacement] of Object.entries(RETIRED)) {
         // Žodžio ribos, ne substring: `detectCycles` yra `detectCyclesOverEdges` PRIEŠDĖLIS, ir be
@@ -62,4 +80,13 @@ test("gate: pašalinti vardai neminimi nei kode, nei komentaruose", async () => 
   }
 
   assert.deepEqual(offenders, [], `pasenusios nuorodos:\n  ${offenders.join("\n  ")}`);
+});
+
+test("apėjimas, kurį šis vartas privalo pagauti, yra raudonas", () => {
+  // Fixture'ai, ne `src` eilutės: žymos galia tikrinama prieš tekstą, kurio repo neturi.
+  assert.equal(commentLineCarriesMarker("  const x = reportSnapshot(); // retired-name-ok"), false);
+  assert.equal(commentLineCarriesMarker("export { detectCycles }; /* retired-name-ok */"), false);
+  assert.equal(commentLineCarriesMarker("  // Pervadinta iš `reportSnapshot`. (retired-name-ok)"), true);
+  assert.equal(commentLineCarriesMarker("   * Pervadinta iš `reportSnapshot`. (retired-name-ok)"), true);
+  assert.equal(commentLineCarriesMarker("  // paprastas komentaras be žymos"), false);
 });

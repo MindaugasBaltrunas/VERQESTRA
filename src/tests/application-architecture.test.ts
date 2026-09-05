@@ -21,9 +21,13 @@ import {
   appendEvidence,
   appendUnknown,
   readEvidenceLedger,
+  readEvidenceLedgerWithSkipped,
   readUnknowns,
   type EvidenceEntry,
 } from "../application/architecture/evidence-ledger.js";
+// Sintezuoto teksto etalono atitiktis tikrinama TUO PAČIU validatoriumi, kurį vykdo pre-write
+// hook'as ir preflight — kitaip „praeina etaloną" būtų testo nuomonė, ne vartų faktas.
+import { validateTaskAgainstEtalonas } from "../domain/tasks/etalonas-rules.js";
 import { synthesizeTask, writeSynthesisOutput } from "../application/architecture/task-synthesizer.js";
 import { verifyNode, type VerifyNodePorts } from "../application/architecture/node-verifier.js";
 import type { ArchitectureStateFsPort } from "../application/architecture/ports.js";
@@ -127,6 +131,28 @@ test("evidence ledger: append rašo JSONL, read filtruoja tuščias eilutes, nes
   assert.equal((await readUnknowns(fs, unknowns))[0]?.reason, "neaišku");
 });
 
+// AR-2 (auditas 2026-09-05): viena nutrūkusi append-only žurnalo eilutė nuversdavo VISĄ wave/
+// queue-synth bangą per `JSON.parse`. Sugadinta eilutė TARP dviejų gerų — abi geros perskaitomos,
+// sugadinta suskaičiuojama.
+test("evidence ledger: sugadinta eilutė praleidžiama ir suskaičiuojama, ne meta", async () => {
+  const files = new Map<string, string>();
+  const fs = makeFs(files);
+  const ledger = path.join(ROOT, "vq", "state", "architecture", "evidence.jsonl");
+  const good = (timestamp: string): string =>
+    JSON.stringify({ node_id: "n1", source: "README.md", excerpt: "faktas", timestamp });
+  files.set(norm(ledger), `${good("t1")}\n{"node_id": "n1", "excerpt": nutru\n${good("t2")}\n`);
+
+  const read = await readEvidenceLedgerWithSkipped(fs, ledger);
+  assert.equal(read.skipped, 1);
+  assert.deepEqual(read.entries.map((entry) => entry.timestamp), ["t1", "t2"]);
+  // Senoji forma lieka kontraktu kvietėjams, kurie skaitiklio neprašo.
+  assert.equal((await readEvidenceLedger(fs, ledger)).length, 2);
+
+  const unknowns = path.join(ROOT, "vq", "state", "architecture", "unknowns.jsonl");
+  files.set(norm(unknowns), `{ne json\n${JSON.stringify({ node_id: "n1", reason: "r", timestamp: "t", repair_attempts: 0 })}\n`);
+  assert.equal((await readUnknowns(fs, unknowns))[0]?.reason, "r");
+});
+
 // ---------------------------------------------------------------------------
 // task-synthesizer
 // ---------------------------------------------------------------------------
@@ -152,6 +178,7 @@ test("synthesizeTask: default'ai — slug failai, backtick checks, evidence mark
   assert.ok(result.markdown.includes("_Nėra upstream/downstream sąsajų._"));
   assert.ok(result.markdown.includes("_No evidence entries found. Evidence repair required._"));
   assert.ok(!result.markdown.includes("\n\n\n"));
+  assert.deepEqual(validateTaskAgainstEtalonas(result.markdown), []);
 });
 
 test("synthesizeTask: specSource pirmas, implemented_files perima, stack ir kontrakto sekcijos", () => {
@@ -168,7 +195,7 @@ test("synthesizeTask: specSource pirmas, implemented_files perima, stack ir kont
       upstream: ["n0"],
       inputs: ["raw text"],
       public_exports: ["parse"],
-      checks: ["pnpm test"],
+      checks: ["npm run test"],
     }),
     runId: "r2",
     specSource: "openspec/changes/auto-0001-x",
@@ -185,13 +212,20 @@ test("synthesizeTask: specSource pirmas, implemented_files perima, stack ir kont
   });
   const md = result.markdown;
   assert.ok(md.indexOf("openspec/changes/auto-0001-x") < md.indexOf("architecture-node/n1 (run: r2)"));
-  assert.deepEqual(result.allowed_files, ["src/parser/core.ts"]);
+  // Etalono ## Failai (2): produkcinis failas ateina su testo keliu — implemented_files jo neturi,
+  // tad sintezė prideda numatytąjį vardą (be jo task'as krinta į `production-file-without-test`).
+  assert.deepEqual(result.allowed_files, ["src/parser/core.ts", "src/tests/n1.test.ts"]);
   assert.ok(md.includes("- language: typescript"));
   assert.ok(md.includes("- framework: (not specified)"));
   assert.ok(md.includes("**Upstream:**\n- upstream node: `n0`\n  - input: raw text"));
   assert.ok(md.includes("**Expected exports:** parse"));
-  assert.ok(md.includes("## Patikra\n\n- `pnpm test`"));
+  // AR-1: kontrakto `npm run test` NEBEPATENKA į `## Patikra` (ten tik etalono sandbox komandos),
+  // o lieka matomas `## Veiksmas` tekstu — be backtick'ų, tad `parseBacktickChecks` jo neima.
+  assert.ok(md.includes("## Patikra\n\n- `pnpm build`\n- `pnpm test`"));
+  assert.ok(md.includes("- Kontrakto patikros: npm run test"));
+  assert.ok(!md.includes("`npm run test`"));
   assert.ok(md.includes("- [README.md] faktas _(node: n1, t1)_"));
+  assert.deepEqual(validateTaskAgainstEtalonas(md), []);
 });
 
 test("writeSynthesisOutput: įrašo <statePath>/<run_id>.json", async () => {

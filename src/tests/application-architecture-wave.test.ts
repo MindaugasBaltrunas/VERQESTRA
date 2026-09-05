@@ -29,6 +29,8 @@ import {
   markAlreadyImplementedNodes,
   synthesizeReadyArchitectureWave,
 } from "../application/architecture/wave.js";
+// Sintezuoto task'o forma tikrinama tuo pačiu validatoriumi, kurį vykdo pre-write hook'as.
+import { validateTaskAgainstEtalonas } from "../domain/tasks/etalonas-rules.js";
 
 const ROOT = path.resolve("/repo");
 const norm = (p: string): string => p.replace(/\\/g, "/");
@@ -135,8 +137,10 @@ function seedWaveWorld(): Map<string, string> {
   });
   files.set(
     abs("vq/state/architecture/evidence.jsonl"),
-    `${JSON.stringify({ node_id: "B", source: "README.md", excerpt: "parserio faktas", timestamp: "t1" })}\n`,
+    `${JSON.stringify({ node_id: "B", source: "README.md#Parseris", excerpt: "parserio faktas", timestamp: "t1" })}\n`,
   );
+  // Įrodymo šaltinis realiai egzistuoja — būtent iš jo kyla task'o `## Spec source` eilutė.
+  files.set(abs("README.md"), "# Produktas\n");
   return files;
 }
 
@@ -156,8 +160,14 @@ test("synthesizeReadyArchitectureWave: sintezuoja ready mazgą, external satisfi
   const taskText = files.get(abs("AG/tasks/queue/run-tree-B-1111.md"));
   assert.ok(taskText);
   assert.ok(taskText.includes("architecture-node/B (run: run-tree-B-1111)"));
-  assert.ok(taskText.includes("- [README.md] parserio faktas _(node: B, t1)_"));
+  assert.ok(taskText.includes("- [README.md#Parseris] parserio faktas _(node: B, t1)_"));
   assert.ok(files.has(abs("vq/state/architecture/task-synthesis/run-tree-B-1111.json")));
+  // AR-1 (auditas 2026-09-05): iki tol wave task'as turėjo TIK `architecture-node/…` eilutę, kurios
+  // manual preflight `specSourceExists` neatpažįsta → verdiktas `invalid`. Dabar pirma eilutė yra
+  // realiai egzistuojantis mazgą pagrindęs dokumentas (be `#fragmento` — jį preflight skaito kaip
+  // kelio dalį), o `architecture-node/…` lieka antra eilute kaip anotacija.
+  assert.ok(taskText.includes("## Spec source\n\nREADME.md\narchitecture-node/B (run: run-tree-B-1111)"));
+  assert.deepEqual(validateTaskAgainstEtalonas(taskText), []);
 
   const progress = storedProgress(files);
   assert.equal(progress.nodes["B"]?.status, "queued");
@@ -175,6 +185,59 @@ test("synthesizeReadyArchitectureWave: idempotentiška — antra banga nekuria d
   assert.equal(second.synthesized, 0);
   assert.equal(second.status, "blocked");
   assert.deepEqual(storedProgress(files).nodes["B"]?.queued_tasks, ["AG/tasks/queue/run-tree-B-1111.md"]);
+});
+
+const queuedBTask = (files: Map<string, string>): string => files.get(abs("AG/tasks/queue/run-tree-B-1111.md")) ?? "";
+
+const seedBEvidence = (files: Map<string, string>, sources: readonly string[]): void => {
+  const lines = sources.map((source, index) =>
+    JSON.stringify({ node_id: "B", source, excerpt: "faktas", timestamp: `t${index}` }),
+  );
+  files.set(abs("vq/state/architecture/evidence.jsonl"), `${lines.join("\n")}\n`);
+};
+
+// AR-1: spec source pirmenybė — kvietėjas > gyvas OpenSpec change > README. ARCHYVUOTA nuoroda
+// praleidžiama: dispatch preflight deklaruotą `changes/archive/…` blokuoja („is archived"), tad ji
+// parkuotų task'ą ten, kur anksčiau užtekdavo `architecture-node/…`. Change po `AG/` randamas — tas
+// pats kandidatų poaibis, kurį tikrina manual preflight `specSourceCandidates`.
+test("synthesizeReadyArchitectureWave: spec source pirmenybė, archyvuota nuoroda praleidžiama", async () => {
+  const files = seedWaveWorld();
+  seedBEvidence(files, [
+    "openspec/changes/archive/auto-037-senas/proposal.md",
+    "README.md",
+    "openspec/changes/auto-app/proposal.md",
+  ]);
+  files.set(abs("AG/openspec/changes/archive/auto-037-senas/proposal.md"), "## Why\n");
+  files.set(abs("AG/openspec/changes/auto-app/proposal.md"), "## Why\n");
+  await synthesizeReadyArchitectureWave(makeWavePorts(files), ROOT);
+  assert.ok(queuedBTask(files).includes("## Spec source\n\nopenspec/changes/auto-app/proposal.md\narchitecture-node/B"));
+  // `## Evidence` archyvinį šaltinį mini teisėtai — griežtoji validacija liečia tik deklaruotą sekciją.
+  assert.ok(queuedBTask(files).includes("- [openspec/changes/archive/auto-037-senas/proposal.md] faktas"));
+
+  const overridden = seedWaveWorld();
+  await synthesizeReadyArchitectureWave(makeWavePorts(overridden), ROOT, {
+    specSource: "openspec/changes/rankinis/spec.md",
+  });
+  assert.ok(queuedBTask(overridden).includes("## Spec source\n\nopenspec/changes/rankinis/spec.md\narchitecture-node/B"));
+
+  // Melagingas kelias blogesnis už jokį: preflight jį atmestų kaip „spec source not found".
+  const missing = seedWaveWorld();
+  missing.delete(abs("README.md"));
+  await synthesizeReadyArchitectureWave(makeWavePorts(missing), ROOT);
+  assert.ok(queuedBTask(missing).includes("## Spec source\n\narchitecture-node/B (run: run-tree-B-1111)"));
+});
+
+// AR-2: sugadinta `evidence.jsonl` eilutė nebeverčia visos bangos — likę įrodymai sintezuojami.
+test("synthesizeReadyArchitectureWave: sugadinta evidence eilutė bangos nenuverčia", async () => {
+  const files = seedWaveWorld();
+  files.set(
+    abs("vq/state/architecture/evidence.jsonl"),
+    `{"node_id": "B", "excerpt": nutruko\n${JSON.stringify({ node_id: "B", source: "README.md", excerpt: "faktas", timestamp: "t1" })}\n`,
+  );
+  const result = await synthesizeReadyArchitectureWave(makeWavePorts(files), ROOT);
+  assert.equal(result.synthesized, 1);
+  const ne = result.nodeResults.find((entry) => entry.nodeId === "NE");
+  assert.match(ne?.reason ?? "", /1 unreadable evidence\.jsonl line\(s\) skipped/);
 });
 
 test("synthesizeReadyArchitectureWave: be grafo — no-graph", async () => {

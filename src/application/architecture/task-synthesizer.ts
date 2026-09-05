@@ -48,14 +48,23 @@ export type SynthesizedTask = {
   markdown: string;
 };
 
+/** Testo failo forma etalono ## Failai (2) prasme (`*.test.ts`, `*.spec.tsx`, `src/tests/…`). */
+const TEST_LIKE_PATH = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)tests?(\/|$)/i;
+
 function resolveAllowedFiles(nodeId: string, graph: ArchitectureGraph, progress: ArchitectureProgress): string[] {
-  const nodeProgress = progress.nodes[nodeId];
-  if (nodeProgress?.implemented_files && nodeProgress.implemented_files.length > 0) {
-    return nodeProgress.implemented_files;
+  const slug = nodeId.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const implemented = progress.nodes[nodeId]?.implemented_files ?? [];
+  if (implemented.length > 0) {
+    // Etalono ## Failai (2): KIEKVIENAS produkcinis failas ateina su testo keliu sąraše.
+    // `implemented_files` yra vien produkcijos rinkinys, tad be šio papildymo kiekvienas jau
+    // aptikto mazgo task'as krinta į `production-file-without-test`. Etalonas tokiam atvejui
+    // nurodo įrašyti NUMATOMĄ vardą (klaidingas konkretus kelias pastebimas, jo nebuvimas — ne).
+    return implemented.some((file) => TEST_LIKE_PATH.test(file))
+      ? implemented
+      : [...implemented, `src/tests/${slug}.test.ts`];
   }
   const node = graph.nodes.find((n) => n.id === nodeId);
   if (!node) return [];
-  const slug = node.id.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return [`src/${slug}.ts`, `src/tests/${slug}.test.ts`];
 }
 
@@ -114,22 +123,25 @@ export function synthesizeTask(input: SynthesisInput): SynthesizedTask {
   if (contract.public_exports.length > 0) {
     interfaceParts.push(`**Expected exports:** ${contract.public_exports.join(", ")}`);
   }
+  // Kontrakto patikros yra SPEC'O tekstas, ne vykdomos komandos: `## Patikra` priima tik etalono
+  // sandbox formas (`pnpm build`, `pnpm test`), tad spec'e rasta `npm run test` ten duotų
+  // `patikra-unknown-command` ir parkuotų kiekvieną sintezuotą task'ą. Čia jos lieka matomos
+  // vykdytojui kaip PAPRASTAS tekstas — be backtick'ų, kad `parseBacktickChecks` jų nepaimtų.
   if (contract.checks.length > 0) {
-    interfaceParts.push(`**Checks from spec/readme:**\n${contract.checks.map((c) => `- ${c}`).join("\n")}`);
+    interfaceParts.push(`- Kontrakto patikros: ${contract.checks.join("; ")}`);
   }
   const interfaceSection =
     interfaceParts.length > 0 ? interfaceParts.join("\n\n") : "_Nėra upstream/downstream sąsajų._";
 
   const allowedFilesBlock = allowedFiles.map((f) => `- \`${f}\``).join("\n");
 
-  // Komandos PRIVALO būti backtick'uose: context-pack parseTaskMarkdown ir preflight
-  // parseBacktickChecks atpažįsta tik `- \`cmd\`` formą — checkbox eilutės be backtick'ų
-  // (2026-07-07 code_scaner incidentas: visos 4 pirmos bangos run-tree užduotys krito į
-  // human-review su "missing ## Patikra", nors sekcija buvo — tik neparsinama).
-  const checksBlock =
-    contract.checks.length > 0
-      ? contract.checks.map((c) => `- \`${c}\``).join("\n")
-      : "- `pnpm build`\n- `pnpm test`";
+  // `## Patikra` — VISADA etalono dvi komandos, nepriklausomai nuo kontrakto. Dvi taisyklės
+  // susitinka: (1) komandos PRIVALO būti backtick'uose, nes context-pack parseTaskMarkdown ir
+  // preflight parseBacktickChecks atpažįsta tik `- \`cmd\`` formą (2026-07-07 code_scaner
+  // incidentas: 4 run-tree užduotys krito su "missing ## Patikra", nors sekcija buvo);
+  // (2) komanda privalo būti etalono ALLOWED_PATIKRA_COMMANDS sąraše — spec'o `npm run test`
+  // čia reikštų `patikra-unknown-command`. Kontrakto patikros keliauja į `## Veiksmas`.
+  const checksBlock = "- `pnpm build`\n- `pnpm test`";
 
   // Kanoninė OpenSpec nuoroda (jei yra) eina PIRMA — ją atpažįsta preflight
   // analyzeOpenSpecReferences; architecture-node eilutė lieka traceability.

@@ -69,6 +69,14 @@ test("canonicalJsonStringify throws on non-round-trippable values and drops unde
   assert.equal(canonicalJsonStringify([undefined, 1]), "[null,1]");
 });
 
+test("canonicalJsonStringify calls toJSON like JSON.stringify (Date); Map/Set render as {} like JSON.stringify", () => {
+  const date = new Date("2026-09-05T00:00:00.000Z");
+  assert.equal(canonicalJsonStringify(date), JSON.stringify(date));
+  assert.equal(canonicalJsonStringify({ at: date }), `{"at":${JSON.stringify(date)}}`);
+  assert.equal(canonicalJsonStringify(new Map([["a", 1]])), JSON.stringify(new Map([["a", 1]])));
+  assert.equal(canonicalJsonStringify(new Set([1, 2])), JSON.stringify(new Set([1, 2])));
+});
+
 test("raw sha256Hex is the well-known digest and differs from the normalized one", () => {
   assert.equal(sha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   assert.equal(sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

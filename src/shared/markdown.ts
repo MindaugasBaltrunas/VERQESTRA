@@ -124,7 +124,7 @@ export function findSectionBounds(
     return undefined;
   }
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (fenced[index] !== true && /^#{1,6}\s/.test(lines[index] ?? "")) {
+    if (fenced[index] !== true && /^#{1,6}\s/.test((lines[index] ?? "").trim())) {
       return { start, end: index };
     }
   }

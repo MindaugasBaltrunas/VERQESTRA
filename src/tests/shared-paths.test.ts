@@ -37,6 +37,14 @@ test("normalizeProjectPath maps root and inside-root paths to repo-relative POSI
   assert.equal(normalizeProjectPath("/repo", "/kitur/a.ts"), "/kitur/a.ts", "outside stays as-is");
 });
 
+test("normalizeProjectPath: leading './' on the root does not desync the slice offset from the comparable root", () => {
+  assert.equal(
+    normalizeProjectPath("./proj", "./proj/a.ts"),
+    "a.ts",
+    "root's own leading ./ must not be counted twice against an already-stripped file path",
+  );
+});
+
 test("isProjectRelativePath / isPathInsideProject refuse absolute and escaping paths", () => {
   assert.ok(isProjectRelativePath("src/a.ts"));
   assert.ok(!isProjectRelativePath("/abs/a.ts"));
@@ -56,4 +64,14 @@ test("resolveProjectPath enforces presence, containment, extension and prefixes 
   );
   const resolved = resolveProjectPath(root, "tasks/queue/x.md", { allowedPrefixes: ["tasks/queue"], extension: ".md" });
   assert.ok(resolved.endsWith("x.md"));
+});
+
+test("resolveProjectPath: a name merely STARTING with '..' is not an escape, only '..' and '../x' are", () => {
+  const root = process.cwd();
+  assert.doesNotThrow(
+    () => resolveProjectPath(root, "..foo.md", { extension: ".md" }),
+    "a file literally named '..foo.md' inside the root does not leave it",
+  );
+  assert.throws(() => resolveProjectPath(root, ".."), /task file escapes project root/);
+  assert.throws(() => resolveProjectPath(root, "../out.md"), /task file escapes project root/);
 });

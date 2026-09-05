@@ -118,12 +118,28 @@ export function createSseHub(ports: SsePorts): SseHub {
   let keepaliveTimer: { clear(): void } | undefined;
   let checkInFlight = false;
 
+  /**
+   * Deklaruojama PRIEŠ `writeToClient`, nes numestas klientas gali būti paskutinis: taimeriai be
+   * klientų nieko neaptarnauja, tik kas 1,5 s stat'ina 4–8 failus.
+   */
+  const stopTimers = (): void => {
+    pollTimer?.clear();
+    keepaliveTimer?.clear();
+    pollTimer = undefined;
+    keepaliveTimer = undefined;
+  };
+
   const writeToClient = (client: SseClient, payload: string): void => {
     try {
       client.write(payload);
     } catch {
       // Rašymas į sunaikintą socket'ą — klientas paprasčiausiai išeina iš rinkinio.
       clients.delete(client);
+      // Tas pats vartas kaip `drop` kelyje (2026-09-05 auditas, P3): iki šios eilutės rinkinį
+      // ištuštinęs rašymo gedimas taimerių nestabdė — `close`/`error` įvykis ateina tik tada, kai
+      // socket'as apie save praneša, o sinchroniškai metęs `write` tokio įvykio negarantuoja. Po
+      // paskutinio taip numesto kliento praėjimai suktųsi su 0 klientų iki kito prisijungimo.
+      if (clients.size === 0) stopTimers();
     }
   };
 
@@ -163,13 +179,6 @@ export function createSseHub(ports: SsePorts): SseHub {
       // ryšį, tad miręs socket'as pasirodo iš karto, o ne po neribotos tylos.
       for (const client of clients) writeToClient(client, ": keepalive\n\n");
     }, SSE_KEEPALIVE_INTERVAL_MS);
-  };
-
-  const stopTimers = (): void => {
-    pollTimer?.clear();
-    keepaliveTimer?.clear();
-    pollTimer = undefined;
-    keepaliveTimer = undefined;
   };
 
   /**

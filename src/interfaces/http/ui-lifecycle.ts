@@ -4,7 +4,6 @@
 // „portas klauso" nebėra įrodymas, kad klauso MŪSŲ projekto serveris (žr. `ui-port-rules`).
 
 import path from "node:path";
-import { removeStaleRuntimeRecord } from "../hooks/loop-runtime-store.js";
 import { consoleHookIo, type HookIo } from "../hooks/protocol.js";
 import {
   projectFingerprint,
@@ -50,14 +49,16 @@ export type UiLifecycleDeps = {
   runtimeRoot: string;
 };
 
-export function uiPidFile(stateDir: string): string {
-  return path.join(stateDir, "ui.pid");
-}
-
 // `writeCurrentUiPid` ištrinta 2026-08-23 audite: etalone serveris po `listen` rašydavo plikas
 // `ui.pid`, o VERQESTRA serveris save registruoja per `writeUiServerRecord` (ui-server.json su
 // pid + REALIU portu + fingerprint'u) — turtingesnį įrašą, kurį skaito porto rezoliucija.
 // Funkcija liko be kvietėjo, o jos doc'as („kviečia pats serveris pakilęs") nebeatitiko tiesos.
+//
+// `uiPidFile` ištrinta 2026-09-05 audite (F10): likęs `ui.pid` buvo rašomas kaip PLIKAS pid, o
+// skaitomas per `removeStaleRuntimeRecord` kaip JSON runtime įrašas — tad kiekvienas startas jį
+// pripažindavo „neperskaitomu", ištrindavo ir įrašydavo iš naujo, o jokio KITO skaitytojo failas
+// neturėjo. Alternatyva (rašyti tikrą JSON runtime įrašą) atmesta: du įrašai apie tą patį procesą
+// yra dvi tiesos, ir gyvumo klausimą jau atsako `ui-server.json` (pid + portas + fingerprint'as).
 
 /**
  * Serializuoja paleidimo kvietimus (tas pats šablonas kaip loop pusėje). Nuo porto zondavimo iki
@@ -137,8 +138,6 @@ async function startUi(deps: UiLifecycleDeps, requestedPort?: number): Promise<U
     source = "caller";
   }
 
-  await removeStaleRuntimeRecord(ports.runtime, uiPidFile(stateDir));
-
   let child: SpawnedProcess;
   try {
     child = await ports.spawnUi(port);
@@ -148,7 +147,6 @@ async function startUi(deps: UiLifecycleDeps, requestedPort?: number): Promise<U
   if (!child.pid) return uiStartFailed(io, "UI process started without a PID");
 
   await ports.fs.makeDirectory(stateDir);
-  await ports.fs.writeTextFile(uiPidFile(stateDir), `${child.pid}\n`);
   // Pasenęs įrašas perrašomas ČIA, nelaukiant vaiko: jei vaikas nepakiltų, diske negali likti
   // įrašo, rodančio į portą, kurio niekas neklauso. Pakilęs vaikas tą patį įrašą perrašo su REALIU
   // portu.

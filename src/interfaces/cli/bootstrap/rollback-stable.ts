@@ -99,9 +99,40 @@ export type RollbackStableDeps = {
   io?: CliIo;
 };
 
-function argValue(args: string[], name: string): string | undefined {
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
+const ROLLBACK_USAGE =
+  "Usage: verqestra rollback-stable [--allow-task-changes --task-id <id> [--run-id <id>]] [--ref <sha>]";
+type ParsedRollbackArgs =
+  | { ok: true; allowTaskChanges: boolean; taskId: string | undefined; runId: string | undefined; ref: string | undefined }
+  | { ok: false; message: string };
+
+// Fail-closed argv parsinimas PRIEŠ bet kokį git veiksmą (208): nežinomas token'as niekada nepasiekia `runGit`.
+function parseRollbackArgs(args: string[]): ParsedRollbackArgs {
+  let allowTaskChanges = false;
+  let taskId: string | undefined, runId: string | undefined, ref: string | undefined;
+
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i];
+    if (token === "--allow-task-changes") {
+      allowTaskChanges = true;
+    } else if (token === "--task-id" || token === "--run-id" || token === "--ref") {
+      const value = args[i + 1];
+      if (value === undefined) return { ok: false, message: ROLLBACK_USAGE };
+      if (token === "--task-id") taskId = value;
+      else if (token === "--run-id") runId = value;
+      else ref = value;
+      i += 1;
+    } else {
+      return { ok: false, message: ROLLBACK_USAGE };
+    }
+  }
+
+  if (ref !== undefined && allowTaskChanges) {
+    return {
+      ok: false,
+      message: `${ROLLBACK_USAGE} — --ref cannot be combined with --allow-task-changes: the task-scoped path targets the task's base_head.`,
+    };
+  }
+  return { ok: true, allowTaskChanges, taskId, runId, ref };
 }
 
 function parseJsonOrEmpty<T>(raw: string | undefined): Partial<T> {
@@ -237,17 +268,26 @@ async function resolveTaskTarget(
   return { blocked: await block(context, `ROLLBACK BLOCKED: ${decision.reason}.${snapshotSuffix}`) };
 }
 
-async function resolveStableTarget(context: RollbackContext): Promise<{ targetRef: string } | { blocked: number }> {
-  const stableRefPath = path.join(context.runtimeRoot, "state", "stable-ref");
-  const stableRef = (await context.ports.readTextFileIfExists(stableRefPath))?.trim();
-  if (!stableRef) {
-    context.io.error(`No stable ref available: ${stableRefPath}`);
-    await context.ports.agLog("ROLLBACK SKIPPED: no stable-ref");
-    return { blocked: 1 };
+// `explicitRef` (208, `--ref <sha>`) pakeičia stable-ref failo skaitymą; nuo šio taško abu
+// keliai identiški — TA PATI dirty-snapshot ir `detectPushedRollback` apsauga.
+async function resolveStableTarget(
+  context: RollbackContext,
+  explicitRef: string | undefined,
+): Promise<{ targetRef: string } | { blocked: number }> {
+  let candidate = explicitRef;
+  if (candidate === undefined) {
+    const stableRefPath = path.join(context.runtimeRoot, "state", "stable-ref");
+    candidate = (await context.ports.readTextFileIfExists(stableRefPath))?.trim();
+    if (!candidate) {
+      context.io.error(`No stable ref available: ${stableRefPath}`);
+      await context.ports.agLog("ROLLBACK SKIPPED: no stable-ref");
+      return { blocked: 1 };
+    }
   }
-  if (!(await context.ports.gitCommitExists(stableRef, context.root))) {
-    context.io.error(`Invalid stable ref: ${stableRef}`);
-    await context.ports.agLog(`ROLLBACK SKIPPED: invalid stable-ref=${stableRef}`);
+  const targetRef = candidate;
+  if (!(await context.ports.gitCommitExists(targetRef, context.root))) {
+    context.io.error(`Invalid ref: ${targetRef}`);
+    await context.ports.agLog(`ROLLBACK SKIPPED: invalid ref=${targetRef}`);
     return { blocked: 1 };
   }
 
@@ -265,7 +305,7 @@ async function resolveStableTarget(context: RollbackContext): Promise<{ targetRe
 
   // Task 890: jau push'inta istorija neperrašoma — būtent tai leido repo-wide reset'ui
   // atskirti lokalią šaką nuo remote. Vietoj to eskaluojama į žmogaus peržiūrą.
-  const pushed = await context.ports.detectPushedRollback(context.root, stableRef);
+  const pushed = await context.ports.detectPushedRollback(context.root, targetRef);
   if (pushed.blocked) {
     return {
       blocked: await block(
@@ -275,7 +315,7 @@ async function resolveStableTarget(context: RollbackContext): Promise<{ targetRe
     };
   }
 
-  return { targetRef: stableRef };
+  return { targetRef };
 }
 
 /**
@@ -399,6 +439,14 @@ async function runHardReset(context: RollbackContext, targetRef: string): Promis
 
 export async function rollbackStableCommand(deps: RollbackStableDeps, args: string[] = []): Promise<number> {
   const io = deps.io ?? consoleCliIo;
+
+  const parsed = parseRollbackArgs(args);
+  if (!parsed.ok) {
+    io.error(parsed.message);
+    return 2;
+  }
+  const { allowTaskChanges, taskId, runId, ref } = parsed;
+
   const root = path.resolve(deps.projectRoot);
   const context: RollbackContext = {
     ports: deps.ports,
@@ -409,9 +457,6 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
   };
 
   await deps.ports.ensureDirs();
-  const allowTaskChanges = args.includes("--allow-task-changes");
-  const taskId = argValue(args, "--task-id");
-  const runId = argValue(args, "--run-id");
 
   if (!(await deps.ports.isGitRepository(root))) {
     io.error(`Rollback requires a git repository: ${root}`);
@@ -421,7 +466,7 @@ export async function rollbackStableCommand(deps: RollbackStableDeps, args: stri
 
   const target = allowTaskChanges
     ? await resolveTaskTarget(context, taskId)
-    : await resolveStableTarget(context);
+    : await resolveStableTarget(context, ref);
   if ("blocked" in target) return target.blocked;
   const targetRef = target.targetRef;
 

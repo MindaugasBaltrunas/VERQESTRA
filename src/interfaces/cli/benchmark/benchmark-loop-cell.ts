@@ -41,10 +41,30 @@ const REQUIRED_FLAGS = ["workdir", "model", "step-limit", "timeout-ms"] as const
  */
 const LIST_SEPARATOR = "|";
 
+/**
+ * Sąrašo vėliavų vienaskaitos aliasai — tas pats sąrašas, tik po vieną reikšmę.
+ *
+ * Registras ir README skelbė `--allowed-path <p> [--check <cmd>]`, o parseris priėmė tik
+ * daugiskaitą: rankinis paleidimas PAGAL DOKUMENTACIJĄ krisdavo su
+ * „--allowed-paths must name at least one path" ir exit 2 (full-audit-2026-09-05, P1-C6).
+ * Benchmark paketas to nematė, nes jo invocation šablonas rašo daugiskaitą.
+ *
+ * Kanoninė forma lieka daugiskaita — fiksuotame argumentų vektoriuje (žr. `LIST_SEPARATOR`)
+ * kartojama vėliava neišreiškiama. Vienaskaita yra rankinio paleidimo forma, ir ji kartojama.
+ */
+const LIST_FLAG_ALIASES: ReadonlyMap<string, string> = new Map([
+  ["allowed-paths", "allowed-paths"],
+  ["allowed-path", "allowed-paths"],
+  ["checks", "checks"],
+  ["check", "checks"],
+]);
+
 const USAGE =
   "Usage: verqestra benchmark-loop-cell --workdir <d> --model <m> --step-limit <n> --timeout-ms <n>\n" +
   "  --allowed-paths <a|b>  scenarijaus leidžiami keliai, atskirti | (bent vienas)\n" +
+  "  --allowed-path <p>     tas pats sąrašas po vieną kelią; kartojama, reikšmės sudedamos\n" +
   "  --checks <a|b>         scenarijaus patikrų komandos, atskirtos |\n" +
+  "  --check <cmd>          ta pati aibė po vieną komandą; kartojama, reikšmės sudedamos\n" +
   "  --task-id <id>         užduoties id; be jo — darbinio katalogo vardas\n" +
   "  Promptas skaitomas iš stdin iki EOF.";
 
@@ -79,6 +99,7 @@ export function taskIdFromWorkdir(workdir: string): string {
 
 export function parseLoopCellArgs(args: readonly string[]): LoopCellArgsResult {
   const single = new Map<string, string>();
+  const lists = new Map<string, string[]>();
 
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i] ?? "";
@@ -90,13 +111,26 @@ export function parseLoopCellArgs(args: readonly string[]): LoopCellArgsResult {
     if (value === undefined || value.startsWith("--")) {
       return { kind: "error", message: `${USAGE}\nMissing value for --${name}` };
     }
-    single.set(name, value);
+    const listName = LIST_FLAG_ALIASES.get(name);
+    if (listName === undefined) {
+      // Kiti raktai lieka „paskutinis laimi": kaupimas pakeičiamas TIK dviem sąrašo vėliavoms.
+      single.set(name, value);
+    } else {
+      // Sąrašai kaupiami, ne perrašomi — tik taip kartojama vėliava ir mišri forma
+      // (`--allowed-paths "a|b" --allowed-path c`) susideda į vieną seką argumentų tvarka.
+      const bucket = lists.get(listName);
+      if (bucket === undefined) lists.set(listName, [value]);
+      else bucket.push(value);
+    }
     i += 1;
   }
 
+  // Skirtukas taikomas ir vienaskaitos reikšmei: patikra visada skaidoma į `execve` vektorių
+  // (`command.split(/\s+/)`), tad `|` viduje neturi kaip reikšti shell pipe'o, o kelio varde
+  // jis nelegalus. Viena taisyklė abiem formoms yra pigesnė nei dvi beveik vienodos.
   const list = (name: string): string[] =>
-    (single.get(name) ?? "")
-      .split(LIST_SEPARATOR)
+    (lists.get(name) ?? [])
+      .flatMap((raw) => raw.split(LIST_SEPARATOR))
       .map((value) => value.trim())
       .filter(Boolean);
 
@@ -123,7 +157,10 @@ export function parseLoopCellArgs(args: readonly string[]): LoopCellArgsResult {
   if (allowedPaths.length === 0) {
     // Tuščias sąrašas NĖRA „viskas leidžiama": loop'as be ribos matuotų kitą dalyką nei
     // scenarijus deklaravo, o ribos pažeidimas yra viena iš dviejų priimtinumo ašių.
-    return { kind: "error", message: `${USAGE}\n--allowed-paths must name at least one path` };
+    return {
+      kind: "error",
+      message: `${USAGE}\n--allowed-paths (or repeated --allowed-path) must name at least one path`,
+    };
   }
 
   const taskId = (single.get("task-id") ?? "").trim() || taskIdFromWorkdir(workdir);

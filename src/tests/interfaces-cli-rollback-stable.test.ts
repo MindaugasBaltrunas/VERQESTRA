@@ -23,6 +23,7 @@ import {
 const ROOT = path.resolve("/repo");
 const RUNTIME_ROOT = path.join(ROOT, "vq");
 const REF = "a".repeat(40);
+const EXPLICIT_REF = "e".repeat(40);
 const BASE_HEAD = "b".repeat(40);
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 const norm = (value: string): string => value.replace(/\\/g, "/");
@@ -215,27 +216,30 @@ function gitVerbs(calls: string[][]): string[] {
   return calls.map((args) => args[0] ?? "");
 }
 
+// Bendras iškvietimo helperis: sutraukia captureIo() + rollbackStableCommand() į vieną eilutę.
+async function run(ports: RollbackStablePorts, args: string[] = [], root = ROOT, runtimeRoot = RUNTIME_ROOT) {
+  const { io, out, err } = captureIo();
+  const exit = await rollbackStableCommand({ ports, projectRoot: root, runtimeRoot, io }, args);
+  return { exit, out, err };
+}
+
 test("rollbackStableCommand: ne git repo ir trūkstamas stable-ref — 1 be jokių git veiksmų", async () => {
   const notRepo = world({ isRepo: false });
-  const first = captureIo();
-  assert.equal(await rollbackStableCommand({ ports: notRepo.ports, projectRoot: ROOT, io: first.io }, []), 1);
+  const first = await run(notRepo.ports);
+  assert.equal(first.exit, 1);
   assert.deepEqual(notRepo.gitCalls, []);
   assert.ok(notRepo.logs.includes("ROLLBACK SKIPPED: not a git repository"));
 
   const noRef = world({});
-  const second = captureIo();
-  assert.equal(
-    await rollbackStableCommand({ ports: noRef.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io: second.io }, []),
-    1,
-  );
+  const second = await run(noRef.ports);
+  assert.equal(second.exit, 1);
   assert.match(second.err[0] ?? "", /^No stable ref available: /);
   assert.ok(!gitVerbs(noRef.gitCalls).includes("reset"));
 });
 
 test("rollbackStableCommand: nešvarus medis blokuoja, nufotografuoja ir NEdaro reset'o", async () => {
   const dirty = world({ files: STABLE_FILES, statusOutput: " M src/a.ts\n?? src/new.ts\n" });
-  const { io, err } = captureIo();
-  const exit = await rollbackStableCommand({ ports: dirty.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, []);
+  const { exit, err } = await run(dirty.ports);
 
   assert.equal(exit, 1);
   assert.ok(!gitVerbs(dirty.gitCalls).includes("reset"), "užblokuotas kelias niekada nereset'ina");
@@ -249,22 +253,16 @@ test("rollbackStableCommand: nešvarus medis blokuoja, nufotografuoja ir NEdaro 
 
 test("rollbackStableCommand: push'inta istorija blokuoja reset kelią", async () => {
   const pushed = world({ files: STABLE_FILES, pushedBlocked: "2/3 commit(s) since stable-ref already pushed" });
-  const { io, err } = captureIo();
-  assert.equal(
-    await rollbackStableCommand({ ports: pushed.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, []),
-    1,
-  );
+  const { exit, err } = await run(pushed.ports);
+  assert.equal(exit, 1);
   assert.match(err[0] ?? "", /already pushed.*Move the task to human-review/);
   assert.ok(!gitVerbs(pushed.gitCalls).includes("reset"));
 });
 
 test("rollbackStableCommand: švarus medis reset'ina, o clean be leidimo nevykdomas", async () => {
   const clean = world({ files: STABLE_FILES });
-  const { io } = captureIo();
-  assert.equal(
-    await rollbackStableCommand({ ports: clean.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, []),
-    0,
-  );
+  const { exit } = await run(clean.ports);
+  assert.equal(exit, 0);
   assert.deepEqual(clean.gitCalls.find((args) => args[0] === "reset"), ["reset", "--hard", REF]);
   assert.ok(!gitVerbs(clean.gitCalls).includes("clean"), "untracked failai nešalinami be aiškaus leidimo");
   assert.ok(clean.logs.some((line) => line.startsWith("ROLLBACK CLEAN SKIPPED")));
@@ -272,26 +270,68 @@ test("rollbackStableCommand: švarus medis reset'ina, o clean be leidimo nevykdo
   assert.equal(clean.appends.length, 2, "prieš ir po būsena įrašoma į error.log");
 
   const withClean = world({ files: STABLE_FILES, cleanUntracked: true });
-  const cleanIo = captureIo();
-  assert.equal(
-    await rollbackStableCommand(
-      { ports: withClean.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io: cleanIo.io },
-      [],
-    ),
-    0,
-  );
+  const withCleanResult = await run(withClean.ports);
+  assert.equal(withCleanResult.exit, 0);
   assert.deepEqual(withClean.gitCalls.find((args) => args[0] === "clean"), ["clean", "-fd"]);
 });
 
 test("rollbackStableCommand: nepavykęs reset grąžina git kodą", async () => {
   const failing = world({ files: STABLE_FILES, resetCode: 128 });
-  const { io, err } = captureIo();
-  assert.equal(
-    await rollbackStableCommand({ ports: failing.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, []),
-    128,
-  );
+  const { exit, err } = await run(failing.ports);
+  assert.equal(exit, 128);
   assert.equal(err[0], "reset failed");
   assert.ok(failing.logs.includes(`ROLLBACK FAILED: ${REF}`));
+});
+
+// ---------------------------------------------------------------------------
+// 208: nežinomi argumentai atmetami, `--ref <sha>` įgyvendintas
+// ---------------------------------------------------------------------------
+
+test("rollbackStableCommand: argv validacija — nežinomas token'as, --task-scope, trūkstama vertė ir --ref+--allow-task-changes visada 2 be git veiksmo", async () => {
+  const cases: Array<[string[], RegExp]> = [
+    [["--foo"], /^Usage: verqestra rollback-stable /],
+    [["--task-scope"], /^Usage: verqestra rollback-stable /],
+    [["--ref"], /^Usage: verqestra rollback-stable /],
+    [
+      ["--ref", EXPLICIT_REF, "--allow-task-changes", "--task-id", "0042"],
+      /--ref cannot be combined with --allow-task-changes/,
+    ],
+  ];
+
+  for (const [args, expected] of cases) {
+    const w = world({ files: STABLE_FILES });
+    const { exit, err } = await run(w.ports, args);
+    assert.equal(exit, 2);
+    assert.deepEqual(w.gitCalls, []);
+    assert.match(err[0] ?? "", expected);
+  }
+});
+
+test("rollbackStableCommand: --ref <sha> švariame medyje reset'ina Į NURODYTĄ ref'ą; neegzistuojantis commit'as, nešvarus medis ir push'inta istorija blokuoja be reset'o", async () => {
+  const explicit = world({});
+  const clean = await run(explicit.ports, ["--ref", EXPLICIT_REF]);
+  assert.equal(clean.exit, 0);
+  assert.deepEqual(explicit.gitCalls.find((args) => args[0] === "reset"), ["reset", "--hard", EXPLICIT_REF]);
+  assert.ok(explicit.logs.includes(`ROLLBACK DONE: ${EXPLICIT_REF}`));
+
+  const invalidRef = world({ commitExists: false });
+  const invalid = await run(invalidRef.ports, ["--ref", EXPLICIT_REF]);
+  assert.equal(invalid.exit, 1);
+  assert.ok(!gitVerbs(invalidRef.gitCalls).includes("reset"));
+  assert.match(invalid.err[0] ?? "", new RegExp(`Invalid ref: ${EXPLICIT_REF}`));
+  assert.ok(invalidRef.logs.includes(`ROLLBACK SKIPPED: invalid ref=${EXPLICIT_REF}`));
+
+  const dirtyRef = world({ statusOutput: " M src/a.ts\n" });
+  const dirty = await run(dirtyRef.ports, ["--ref", EXPLICIT_REF]);
+  assert.equal(dirty.exit, 1);
+  assert.ok(!gitVerbs(dirtyRef.gitCalls).includes("reset"));
+  assert.match(dirty.err[0] ?? "", /^ROLLBACK BLOCKED: non-runtime changes exist\. Snapshot: /);
+
+  const pushedRef = world({ pushedBlocked: "1/1 commit(s) since ref already pushed" });
+  const pushed = await run(pushedRef.ports, ["--ref", EXPLICIT_REF]);
+  assert.equal(pushed.exit, 1);
+  assert.ok(!gitVerbs(pushedRef.gitCalls).includes("reset"));
+  assert.match(pushed.err[0] ?? "", /already pushed.*Move the task to human-review/);
 });
 
 test("rollbackStableCommand: task-scoped kelias atstato kelius ir NIEKADA nereset'ina", async () => {
@@ -300,12 +340,7 @@ test("rollbackStableCommand: task-scoped kelias atstato kelius ir NIEKADA nerese
     scopePaths: ["src/a.ts", "src/b.ts"],
     restore: { ok: true, restored: ["src/a.ts", "src/b.ts"] },
   });
-  const { io } = captureIo();
-  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
-    "--allow-task-changes",
-    "--task-id",
-    "0042",
-  ]);
+  const { exit } = await run(scoped.ports, ["--allow-task-changes", "--task-id", "0042"]);
 
   assert.equal(exit, 0);
   assert.ok(!gitVerbs(scoped.gitCalls).includes("reset"), "šakos rodyklė nejuda task-scoped kelyje");
@@ -325,12 +360,7 @@ test("rollbackStableCommand: išsaugotas necommit'intas darbas matomas išvestyj
     scopePaths: ["src/a.ts", "src/b.ts"],
     restore: { ok: true, restored: ["src/a.ts", "src/b.ts"], preserved },
   });
-  const { io, out } = captureIo();
-  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
-    "--allow-task-changes",
-    "--task-id",
-    "0042",
-  ]);
+  const { exit, out } = await run(scoped.ports, ["--allow-task-changes", "--task-id", "0042"]);
 
   assert.equal(exit, 0);
   const preservedLine = out.find((line) => line.startsWith("ROLLBACK PRESERVED: "));
@@ -373,9 +403,8 @@ test("rollbackStableCommand: preserved įrašas eina į PIRMINIO medžio vq/ ir 
     restore: { ok: true, restored: ["src/a.ts"], preserved },
     gitCommonDir: path.join(ROOT, ".git"),
   });
-  const { io, out } = captureIo();
   const args = ["--allow-task-changes", "--task-id", "0042", "--run-id", "run-777"];
-  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: worktreeRoot, runtimeRoot: worktreeRuntimeRoot, io }, args);
+  const { exit, out } = await run(scoped.ports, args, worktreeRoot, worktreeRuntimeRoot);
 
   assert.equal(exit, 0);
   const preservedLine = norm(out.find((line) => line.startsWith("ROLLBACK PRESERVED: ")) ?? "");
@@ -392,12 +421,7 @@ test("rollbackStableCommand: kai išsaugojimo nėra, elgesys nesikeičia — jok
     scopePaths: ["src/a.ts", "src/b.ts"],
     restore: { ok: true, restored: ["src/a.ts", "src/b.ts"] },
   });
-  const { io, out } = captureIo();
-  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
-    "--allow-task-changes",
-    "--task-id",
-    "0042",
-  ]);
+  const { exit, out } = await run(scoped.ports, ["--allow-task-changes", "--task-id", "0042"]);
 
   assert.equal(exit, 0);
   assert.ok(!out.some((line) => line.startsWith("ROLLBACK PRESERVED:")));
@@ -416,12 +440,7 @@ test("rollbackStableCommand: svetimas ir nenustatomos savininkystės keliai išv
     scopePaths: candidates,
     restore: { ok: true, restored: ["src/a.ts"] },
   });
-  const { io, err } = captureIo();
-  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
-    "--allow-task-changes",
-    "--task-id",
-    "0042",
-  ]);
+  const { exit, err } = await run(scoped.ports, ["--allow-task-changes", "--task-id", "0042"]);
 
   assert.equal(exit, 0, "geri keliai vis tiek atstatomi — praleidimas neblokuoja");
   assert.ok(!gitVerbs(scoped.gitCalls).includes("reset"));
@@ -442,12 +461,7 @@ test("rollbackStableCommand: be praleistų kelių — jokios ROLLBACK SKIPPED PA
     scopePaths: ["src/a.ts", "src/b.ts"],
     restore: { ok: true, restored: ["src/a.ts", "src/b.ts"] },
   });
-  const { io, err } = captureIo();
-  const exit = await rollbackStableCommand({ ports: scoped.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
-    "--allow-task-changes",
-    "--task-id",
-    "0042",
-  ]);
+  const { exit, err } = await run(scoped.ports, ["--allow-task-changes", "--task-id", "0042"]);
 
   assert.equal(exit, 0);
   assert.ok(!err.some((line) => line.startsWith("ROLLBACK SKIPPED PATHS:")));
@@ -459,42 +473,23 @@ test("rollbackStableCommand: jau užcommitintas task'o kelias ir nepavykęs atst
     files: { "vq/state/task-start-status.json": JSON.stringify(VALID_BASELINE) },
     committedPaths: ["src/a.ts"],
   });
-  const first = captureIo();
-  assert.equal(
-    await rollbackStableCommand(
-      { ports: committed.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io: first.io },
-      ["--allow-task-changes", "--task-id", "0042"],
-    ),
-    1,
-  );
+  const first = await run(committed.ports, ["--allow-task-changes", "--task-id", "0042"]);
+  assert.equal(first.exit, 1);
   assert.match(first.err[0] ?? "", /already committed since base_head \(src\/a\.ts\)/);
 
   const failedRestore = world({
     files: { "vq/state/task-start-status.json": JSON.stringify(VALID_BASELINE) },
     restore: { ok: false, failures: ["checkout src/a.ts"] },
   });
-  const second = captureIo();
-  assert.equal(
-    await rollbackStableCommand(
-      { ports: failedRestore.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io: second.io },
-      ["--allow-task-changes", "--task-id", "0042"],
-    ),
-    1,
-  );
+  const second = await run(failedRestore.ports, ["--allow-task-changes", "--task-id", "0042"]);
+  assert.equal(second.exit, 1);
   assert.match(second.err[0] ?? "", /task-scoped restore failed \(checkout src\/a\.ts\)/);
 });
 
 test("rollbackStableCommand: sugadintas task-start-status blokuoja, o ne krenta", async () => {
   const broken = world({ files: { "vq/state/task-start-status.json": "{ not json" } });
-  const { io, err } = captureIo();
-  assert.equal(
-    await rollbackStableCommand({ ports: broken.ports, projectRoot: ROOT, runtimeRoot: RUNTIME_ROOT, io }, [
-      "--allow-task-changes",
-      "--task-id",
-      "0042",
-    ]),
-    1,
-  );
+  const { exit, err } = await run(broken.ports, ["--allow-task-changes", "--task-id", "0042"]);
+  assert.equal(exit, 1);
   assert.match(err[0] ?? "", /ROLLBACK BLOCKED: invalid task baseline for task=0042/);
   assert.ok(!gitVerbs(broken.gitCalls).includes("reset"));
 });

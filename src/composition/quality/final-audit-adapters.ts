@@ -25,7 +25,7 @@ import {
 } from "../../application/release-readiness/benchmark-evidence-check.js";
 import { checkCompressionQuality } from "../../application/release-readiness/compression-quality-check.js";
 import { describeCompressionQuality } from "../../application/release-readiness/compression-quality-model.js";
-import { releaseCheckResultPath, type ReleaseCheckFsPort } from "../../application/release-readiness/release-check.js";
+import { releaseCheckResultPath } from "../../application/release-readiness/release-check.js";
 import { generateReleaseProof } from "../../application/release-readiness/release-proof.js";
 import { generateReleaseNotes } from "../../application/release-readiness/release-notes.js";
 import { countPendingProposals } from "../../application/policy-governance/policy-proposals-log.js";
@@ -34,6 +34,10 @@ import { nodeFsAdapter } from "../../infrastructure/fs/node-fs-adapter.js";
 import { readStateHistory, resolveHumanReviewStatus, stateHistoryPath } from "../../infrastructure/state/state-history.js";
 import { toPrettyJson, tryParseJson } from "../../shared/json.js";
 import { codeIntelligenceFs, policyConfigFs } from "../runtime/node-adapters.js";
+// Source-state FS portas ateina iš `release-check-adapters` — TAS PATS objektas, kurį naudoja
+// `release-check`. Antra kopija čia leistų `final-audit` hash'uoti kitą failų aibę nei vartas,
+// kurio verdiktą jis perpasakoja.
+import { releaseCheckFs } from "./release-check-adapters.js";
 import {
   backlogAuditPorts,
   contextPackFs,
@@ -55,27 +59,6 @@ const policyProposalsFsView = {
   appendTextFile: (absolutePath: string, text: string): Promise<void> =>
     nodeFsAdapter.appendTextFile(absolutePath, text),
   makeDirectory: (absoluteDir: string): Promise<void> => nodeFsAdapter.makeDirectory(absoluteDir),
-};
-
-/** Rekursyvus failų sąrašas absoliučiais keliais; katalogo nebuvimas — tuščias sąrašas. */
-async function listFilesRecursive(absoluteDir: string): Promise<string[]> {
-  const found: string[] = [];
-  const queue = [absoluteDir];
-  while (queue.length > 0) {
-    const dir = queue.shift();
-    if (dir === undefined) continue;
-    for (const name of await nodeFsAdapter.listFiles(dir)) found.push(path.join(dir, name));
-    for (const name of await nodeFsAdapter.listSubdirectories(dir)) queue.push(path.join(dir, name));
-  }
-  return found;
-}
-
-/** Release-check source-state FS portas: rekursyvus sąrašas plius trys skaitymai. */
-export const releaseCheckFs: ReleaseCheckFsPort = {
-  listFilesRecursive: (absoluteDir) => listFilesRecursive(absoluteDir),
-  exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
-  readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),
-  readTextFileIfExists: (absolutePath) => nodeFsAdapter.readTextFileIfExists(absolutePath),
 };
 
 /** Benchmark ir kompresijos vartų FS portas (statPath + skaitymai + katalogo vardai). */

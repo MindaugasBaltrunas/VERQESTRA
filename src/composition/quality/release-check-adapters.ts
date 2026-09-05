@@ -62,7 +62,14 @@ export const RELEASE_SOURCE_STATE_INPUTS: SourceStateInputs = {
   files: ["package.json", "pnpm-lock.yaml", "tsconfig.json", "eslint.config.js", "README.md", "CLAUDE.md"],
 };
 
-const releaseCheckFs: ReleaseCheckFsPort = {
+/**
+ * Release-check source-state FS portas: rekursyvus sąrašas plius trys skaitymai.
+ *
+ * VIENAS eksportas visiems vartotojams (`release-check`, `final-audit`, README nuorodų patikra).
+ * Antra kopija čia reikštų du skirtingus įėjimus tam pačiam source-state hash'ui, o hash'as be
+ * bendro sąrašo nebematuotų to paties medžio.
+ */
+export const releaseCheckFs: ReleaseCheckFsPort = {
   listFilesRecursive: (absoluteDir) => nodeFsAdapter.listFilesRecursive(absoluteDir),
   exists: (absolutePath) => nodeFsAdapter.exists(absolutePath),
   readTextFile: (absolutePath) => nodeFsAdapter.readTextFile(absolutePath),

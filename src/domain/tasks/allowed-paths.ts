@@ -193,11 +193,22 @@ export function matchesAllowedPath(file: string, allowed: string): boolean {
  * Bendrinis wildcard glob'as kelio VIDURYJE ar SUFIKSE: `*` = vienas segmentas (be `/`),
  * `**` = bet koks gylis. Etalono 2026-08-07 regresija (task 1134): neinterpretuoti tokie
  * šablonai paversdavo VISUS pakeitimus „outside allowed paths".
+ * `**` po kurio iškart seka `/` reiškia „nulis ar daugiau katalogų", ne „bent vienas": glob'as
+ * su viduriniu dvigubos žvaigždutės segmentu (pvz. tsx failai po `ui-app/src`) privalo atitikti
+ * ir tiesiogiai `src` kataloge esantį failą, ne tik giliau įdėtus (task 178).
  */
-function wildcardPatternMatches(file: string, pattern: string): boolean {
+export function wildcardPatternMatches(file: string, pattern: string): boolean {
   const source = pattern
-    .split(/(\*\*|\*)/)
-    .map((part) => (part === "**" ? ".*" : part === "*" ? "[^/]*" : part.replace(/[$()+.?[\\\]^{|}]/g, "\\$&")))
+    .split(/(\*\*\/|\*\*|\*)/)
+    .map((part) =>
+      part === "**/"
+        ? "(?:.*/)?"
+        : part === "**"
+          ? ".*"
+          : part === "*"
+            ? "[^/]*"
+            : part.replace(/[$()+.?[\\\]^{|}]/g, "\\$&"),
+    )
     .join("");
   return new RegExp(`^${source}$`).test(file);
 }

@@ -77,6 +77,17 @@ test("scopesConflict: non-glob kinds keep their previous verdicts", () => {
   assert.equal(scopesConflict(d("src"), g("src/tests/a-*.test.ts")), true, "simetrija");
 });
 
+test("scopeCovers: `**/` viduryje reiškia nulį ar daugiau katalogų — ta pati semantika kaip matchesAllowedPath (task 178)", () => {
+  assert.ok(scopeCovers(g("ui-app/src/**/*.tsx"), "ui-app/src/App.tsx"), "nulis katalogų tarp src ir failo");
+  assert.ok(scopeCovers(g("ui-app/src/**/*.tsx"), "ui-app/src/view/panels/X.tsx"), "keli katalogai tarp src ir failo");
+  assert.ok(
+    scopeCovers(g("ui-app/src/**/*.tsx"), "UI-APP/SRC/App.tsx"),
+    "case-insensitive palyginimas nepakito perkeliant funkciją į bendrą modulį",
+  );
+  assert.ok(!scopeCovers(g("a/**/b.ts"), "a/xb.ts"), "`**/` neleidžia sulieti su gretimo segmento literalu");
+  assert.ok(scopeCovers(g("a/**/b.ts"), "a/b.ts"), "nulis katalogų tarp a ir b.ts lieka atitikimu");
+});
+
 /** Fiksuotas šablonų korpusas — jokio atsitiktinumo, kad kritęs vartas būtų atkuriamas. */
 const PATTERNS: readonly string[] = [
   "src/tests/a-*.test.ts",

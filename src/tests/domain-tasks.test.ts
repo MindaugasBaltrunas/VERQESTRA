@@ -25,7 +25,13 @@ import {
   parseTaskDependencies,
   withBlockedNotice,
 } from "../domain/tasks/dependencies.js";
-import { allowedPaths, forbiddenPaths, isScopeMarkerLine, parseAllowedPaths } from "../domain/tasks/allowed-paths.js";
+import {
+  allowedPaths,
+  forbiddenPaths,
+  isScopeMarkerLine,
+  matchesAllowedPath,
+  parseAllowedPaths,
+} from "../domain/tasks/allowed-paths.js";
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   evaluateRepeatedErrorEscalation,
@@ -162,6 +168,26 @@ test("allowed-paths: laužytas bullet'as (tęstinė įtraukta eilutė) yra VIENA
   const inline = parseAllowedPaths("# Task\n\n## Failai\nLeidžiama: src/a.ts, src/b/**\n");
   assert.ok(inline.ok);
   assert.deepEqual(inline.ok ? inline.value : [], ["src/a.ts", "src/b/**"]);
+});
+
+test("matchesAllowedPath: `**/` kelio viduryje reiškia nulį ar daugiau katalogų (task 178)", () => {
+  assert.ok(matchesAllowedPath("ui-app/src/App.tsx", "ui-app/src/**/*.tsx"), "nulis katalogų tarp src ir failo");
+  assert.ok(
+    matchesAllowedPath("ui-app/src/view/panels/X.tsx", "ui-app/src/**/*.tsx"),
+    "keli katalogai tarp src ir failo",
+  );
+  assert.ok(matchesAllowedPath("src/index.ts", "src/**/*.ts"), "nulis katalogų prieš plėtinį turintį failą");
+  assert.ok(!matchesAllowedPath("a/xb.ts", "a/**/b.ts"), "`**/` neleidžia sulieti su gretimo segmento literalu");
+  assert.ok(matchesAllowedPath("a/b.ts", "a/**/b.ts"), "nulis katalogų tarp a ir b.ts lieka atitikimu");
+  assert.ok(matchesAllowedPath("a/x/b.ts", "a/**/b.ts"), "vienas katalogas tarp a ir b.ts");
+
+  // Senos formos — nepakitusios.
+  assert.ok(matchesAllowedPath("src/a.ts", "src/**"), "`/**` katalogo forma");
+  assert.ok(!matchesAllowedPath("docs/a.ts", "src/**"));
+  assert.ok(matchesAllowedPath("a/b/index.ts", "**/index.ts"), "`**/` prefikse — keli katalogai");
+  assert.ok(matchesAllowedPath("index.ts", "**/index.ts"), "`**/` prefikse — nulis katalogų (task 178 semantika)");
+  assert.ok(matchesAllowedPath("src/a.ts", "src/*.ts"), "vienas segmentas `*`");
+  assert.ok(!matchesAllowedPath("src/nested/a.ts", "src/*.ts"), "`*` neapima papildomo katalogo");
 });
 
 test("isValidRetryCount: tik NENEIGIAMAS SAUGUS SVEIKASIS yra skaitiklio būsena", () => {

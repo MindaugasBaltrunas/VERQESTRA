@@ -4,6 +4,8 @@
 // Behaviour etalon: AG_loop application/scheduling/scope-lock.ts grynoji pusė, pinned by
 // scheduling-verdicts.json (47 kontraktai, VQ-003d).
 
+import { wildcardPatternMatches } from "../tasks/allowed-paths.js";
+
 export const SCOPE_LOCK_SCHEMA_VERSION = 1;
 
 export type ScopeLockKind = "file" | "directory" | "glob" | "contract" | "migration-chain" | "generated";
@@ -124,15 +126,6 @@ function globMatches(pattern: string, value: string): boolean {
   }
   if (glob.includes("*")) return wildcardPatternMatches(target, glob);
   return target === glob || target.startsWith(`${glob}/`);
-}
-
-/** Bendrinis wildcard glob'as (`*` = vienas segmentas, `**` = bet koks gylis). */
-function wildcardPatternMatches(file: string, pattern: string): boolean {
-  const source = pattern
-    .split(/(\*\*|\*)/)
-    .map((part) => (part === "**" ? ".*" : part === "*" ? "[^/]*" : part.replace(/[$()+.?[\\\]^{|}]/g, "\\$&")))
-    .join("");
-  return new RegExp(`^${source}$`).test(file);
 }
 
 /**

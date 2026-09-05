@@ -12,6 +12,7 @@ import { computeContextCacheKey } from "../application/context-pack/context-cach
 import { parseTaskUsageEntries } from "../domain/tokens/usage-ledger.js";
 import type { AttemptRef } from "../application/scheduling/worker-limits.js";
 import { nodeFsAdapter } from "../infrastructure/fs/node-fs-adapter.js";
+import { isGitRepository } from "../infrastructure/git/git-client.js";
 import { createAttempt, openAttempt } from "../infrastructure/persistence/runtime-artifact-store.js";
 import {
   collectContextCacheSources,
@@ -31,6 +32,7 @@ import {
   STOP_BRIDGE_STALE_STATUS,
   stopBridgeForProject,
   stopBridgePath,
+  stopStateSchema,
 } from "../infrastructure/state/stop-bridge.js";
 import { logTokenUsage, tokenUsageLogPath } from "../infrastructure/state/token-usage-log.js";
 
@@ -274,6 +276,11 @@ test("logTokenUsage: globalus žurnalas + dual-write attempt kopija su ta pačia
 });
 
 test("stop-bridge: dispatch stop rašo attempt įrodymą PIRMA ir globalų veidrodį; interaktyvus jo neperrašo", async () => {
+  // Šie testai remiasi tuo, kad projectRoot NĖRA git repo (git status nepavyksta ir
+  // git_status_error visada užsipildo apačioje) — jei koks nors protėvių katalogas kada
+  // nors taps repo, `git status` vaikščiotų aukštyn ir rastų jį; ši patikra tada paaiškina
+  // kodėl testas raudonas, o ne verčia derinti tylią prielaidą.
+  assert.equal(await isGitRepository(projectRoot), false, "stop-bridge testai laiko projectRoot ne-repo katalogu");
   const env = { AG_DISPATCH_NONCE: "nonce-1" } as NodeJS.ProcessEnv;
   await stopBridgeForProject({
     projectRoot,
@@ -290,6 +297,11 @@ test("stop-bridge: dispatch stop rašo attempt įrodymą PIRMA ir globalų veidr
   assert.equal(bridge["status"], "done");
   assert.equal(bridge["dispatch_nonce"], "nonce-1");
   assert.equal(bridge["task_id"], "t1");
+  // projectRoot čia NĖRA git repo: `git status` nepavyksta, tad git_status yra sentinel,
+  // ne tuščias medis, ir git_status_error paaiškina kodėl (201: fail-closed forma).
+  assert.match(String(bridge["git_status"]), /^<git status failed: .+>$/);
+  assert.equal(typeof bridge["git_status_error"], "string");
+  assert.ok((bridge["git_status_error"] as string).length > 0);
 
   const attemptStop = JSON.parse(
     await nodeFsAdapter.readTextFile(
@@ -298,6 +310,8 @@ test("stop-bridge: dispatch stop rašo attempt įrodymą PIRMA ir globalų veidr
   ) as Record<string, unknown>;
   assert.equal(attemptStop["dispatch_nonce"], "nonce-1");
   assert.equal(attemptStop["status"], "done");
+  assert.match(String(attemptStop["git_status"]), /^<git status failed: .+>$/);
+  assert.equal(attemptStop["git_status_error"], bridge["git_status_error"]);
 
   // Interaktyvus stop (tuščias nonce) dispatch įrašo NEperrašo — PRESERVED kelias.
   assert.equal(interactiveStopMayOverwrite(await nodeFsAdapter.readTextFile(stopBridgePath(runtimeRoot))), false);
@@ -365,8 +379,26 @@ test("stop-bridge: aktyvus nonce rašo done, pasenęs (nebeaktyvus) nonce žymim
   const stopLog = await nodeFsAdapter.readTextFile(path.join(runtimeRoot, "logs", "claude-stop.log"));
   assert.match(stopLog, new RegExp(`status=${STOP_BRIDGE_STALE_STATUS}`));
 
-  // Senas (7 laukų) įrašas be jokio stale žymėjimo lieka skaitomas: schema neprivalo naujų laukų.
-  assert.equal(Object.keys(staleBridge).length, 7);
+  // 7 bazinio kontrakto laukai + git_status_error (projectRoot čia ne-repo, tad git status
+  // visada nepavyksta): schema neprivalo naujų laukų senam (7 laukų, be git_status_error)
+  // įrašui likti skaitomam — žr. testą žemiau su rankomis parašytu senu JSON.
+  assert.equal(Object.keys(staleBridge).length, 8);
+  assert.equal(typeof staleBridge["git_status_error"], "string");
+});
+
+test("stop-bridge: schema priima senos (7 laukų, be git_status_error) formos įrašą", () => {
+  const legacy = {
+    date: "2026-08-01T00:00:00.000Z",
+    status: "done",
+    reason: "user_stop",
+    task_id: "t1",
+    dispatch_nonce: "nonce-legacy",
+    head: "deadbeef",
+    git_status: "",
+  };
+  const parsed = stopStateSchema.parse(legacy);
+  assert.equal(parsed.git_status_error, undefined);
+  assert.equal(parsed.git_status, "");
 });
 
 test("session-activity: pirmas kind'as laimi, deleted perrašo, sugadinta eilutė kainuoja tik save", async () => {

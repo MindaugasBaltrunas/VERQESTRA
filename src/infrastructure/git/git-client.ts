@@ -67,10 +67,30 @@ export async function filterGitIgnored(files: string[], root = process.cwd()): P
   return new Set(result.stdout.split(/\r?\n/).filter(Boolean));
 }
 
-export async function gitStatus(root = process.cwd()): Promise<string> {
+export type GitStatusResult = { ok: true; status: string } | { ok: false; detail: string };
+
+/**
+ * `git status` su nesėkmės ir tuščio statuso atskyrimu. Sprendimą darantys kvietėjai
+ * (`nonRuntimeDirtyPaths`, stop-bridge) privalo eiti per ŠITĄ formą — `ok:false` reiškia,
+ * kad medžio švarumas nežinomas, o ne kad jis švarus.
+ */
+export async function gitStatusResult(root = process.cwd()): Promise<GitStatusResult> {
   // --untracked-files=all: išvardinti atskirus failus naujuose untracked kataloguose.
   const result = await run("git", ["-C", root, "status", "--short", "--untracked-files=all"], { cwd: root });
-  return result.code === 0 ? result.stdout.trimEnd() : "";
+  if (result.code !== 0) {
+    return { ok: false, detail: (result.stderr || result.stdout).trim() || `code ${result.code}` };
+  }
+  return { ok: true, status: result.stdout.trimEnd() };
+}
+
+/**
+ * ATASKAITINĖ forma: `""` reiškia IR „švarus medis", IR „git status nepavyko" — tinka tik
+ * vartotojams, kurie tiesiog RODO statusą (status.ts, rollback-stable.ts, composition
+ * adapteriai). Sprendimą darantiems kvietėjams naudok `gitStatusResult`.
+ */
+export async function gitStatus(root = process.cwd()): Promise<string> {
+  const result = await gitStatusResult(root);
+  return result.ok ? result.status : "";
 }
 
 /** ReliabilityPorts.gitStatusPorcelain tiekėjas: `undefined` — git neprieinamas. */

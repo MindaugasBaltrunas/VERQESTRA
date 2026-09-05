@@ -450,24 +450,37 @@ test("describeTemplateVersionStatus: be VERSION — null; atsilikusi versija min
   );
 });
 
+function installDeps(ports: InstallPorts, io: CliIo) {
+  return { ports, templatesRoot: TEMPLATES_ROOT, projectRoot: ROOT, io };
+}
+
 test("installCommand: eilutės su prefiksu, blogi argumentai ir sugadinta versija — 2", async () => {
   const live = installPorts({ existing: ["CLAUDE.md"], templateVersion: "1.4.0" });
   const ok = captureIo();
-  assert.equal(await installCommand({ ports: live.ports, templatesRoot: TEMPLATES_ROOT, io: ok.io }, [ROOT]), 0);
+  assert.equal(await installCommand(installDeps(live.ports, ok.io), [ROOT]), 0);
   assert.ok(ok.out.includes("Wrote directory: .claude"));
   assert.ok(ok.out.includes("Wrote file: .claude/settings.json"));
   assert.ok(ok.out.includes("Skipped existing file: CLAUDE.md"));
   assert.equal(ok.out.at(-1), "Template version: 1.4.0");
 
   const usage = captureIo();
-  assert.equal(await installCommand({ ports: live.ports, templatesRoot: TEMPLATES_ROOT, io: usage.io }, []), 2);
+  assert.equal(await installCommand(installDeps(live.ports, usage.io), [ROOT, "extra"]), 2);
   assert.match(usage.err[0] ?? "", /^Usage: verqestra install /);
 
   const broken = installPorts({ existing: [], templateVersion: "v1" });
   const invalid = captureIo();
-  assert.equal(
-    await installCommand({ ports: broken.ports, templatesRoot: TEMPLATES_ROOT, io: invalid.io }, [ROOT, "--dry-run"]),
-    2,
-  );
+  assert.equal(await installCommand(installDeps(broken.ports, invalid.io), [ROOT, "--dry-run"]), 2);
   assert.match(invalid.err[0] ?? "", /Invalid template version "v1"/);
+});
+
+test("installCommand: be pozicinio argumento diegia į deps.projectRoot", async () => {
+  const live = installPorts({ existing: ["CLAUDE.md"], templateVersion: "1.4.0" });
+  const ok = captureIo();
+  assert.equal(await installCommand(installDeps(live.ports, ok.io), []), 0);
+  assert.ok(ok.out.includes("Wrote directory: .claude"));
+  assert.ok(ok.out.includes("Skipped existing file: CLAUDE.md"));
+
+  const dryRunOnly = captureIo();
+  assert.equal(await installCommand(installDeps(live.ports, dryRunOnly.io), ["--dry-run"]), 0);
+  assert.ok(dryRunOnly.out.some((line) => line.startsWith("Would write")));
 });

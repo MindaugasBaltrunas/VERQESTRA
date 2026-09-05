@@ -13,7 +13,7 @@ import { toError } from "../../shared/errors.js";
 import { toPrettyJson } from "../../shared/json.js";
 import { validateWithSchema } from "../../shared/schema.js";
 import { nodeFsAdapter } from "../fs/node-fs-adapter.js";
-import { gitHead, gitStatus } from "../git/git-client.js";
+import { gitHead, gitStatusResult } from "../git/git-client.js";
 import type { RuntimeWriteFailure } from "../persistence/runtime-artifact-io.js";
 import { writeAttemptJsonWithRetry } from "../persistence/runtime-artifact-store.js";
 import type { AttemptResolutionFailure, AttemptResolutionPort } from "./attempt-resolution.js";
@@ -32,8 +32,10 @@ export const stopStateSchema = z.looseObject({
   dispatch_nonce: z.string().min(1),
   /** Tuščias ne-git projekte. */
   head: z.string().default(""),
-  /** Tuščias, kai worktree švarus. */
+  /** Tuščias, kai worktree švarus; sentinel `<git status failed: …>`, kai statusas nežinomas. */
   git_status: z.string().default(""),
+  /** Nustatytas TIK kai `git status` nepavyko — skaitytojui signalas, kad `git_status` yra sentinel, ne tuščias medis. */
+  git_status_error: z.string().optional(),
 });
 export type StopState = z.infer<typeof stopStateSchema>;
 
@@ -55,6 +57,8 @@ export type AttemptStopStateInput = {
   date: string;
   head: string;
   gitStatus: string;
+  /** Nustatytas TIK kai `git status` nepavyko (žr. `gitStatusResult`). */
+  gitStatusError?: string;
   env?: NodeJS.ProcessEnv;
 };
 
@@ -106,6 +110,7 @@ async function attemptStopStateOutcome(input: AttemptStopStateInput): Promise<At
       dispatch_nonce: nonce,
       head: input.head,
       git_status: input.gitStatus,
+      ...(input.gitStatusError === undefined ? {} : { git_status_error: input.gitStatusError }),
     });
     if (!payload.ok) return { ok: false, reason: "invalid-payload", errors: payload.errors };
 
@@ -185,7 +190,11 @@ export async function stopBridgeForProject(input: {
   const { projectRoot, runtimeRoot, status, reason, taskId } = input;
   const logsDir = path.join(runtimeRoot, "logs");
   const head = (await gitHead(projectRoot)) ?? "";
-  const git_status = await gitStatus(projectRoot);
+  const statusResult = await gitStatusResult(projectRoot);
+  // Nesėkmė (index.lock, EPERM, ne repo) NĖRA švarus medis: sentinel įrašas neleidžia
+  // skaitytojui, kuris tikrina „git_status === '' => švaru", tyliai praeiti (fail closed).
+  const git_status = statusResult.ok ? statusResult.status : `<git status failed: ${statusResult.detail}>`;
+  const git_status_error = statusResult.ok ? undefined : statusResult.detail;
   const date = (input.now ?? (() => new Date().toISOString()))();
   // Tas pats env IR ta pati skaitymo taisyklė abiem rašytojams: nonce triminamas lygiai
   // kaip attempt vartuose — vien iš tarpų sudarytas AG_DISPATCH_NONCE abiejose vietose
@@ -230,6 +239,7 @@ export async function stopBridgeForProject(input: {
     date,
     head,
     gitStatus: git_status,
+    ...(git_status_error === undefined ? {} : { gitStatusError: git_status_error }),
     ...(input.env === undefined ? {} : { env: input.env }),
   });
 
@@ -250,6 +260,7 @@ export async function stopBridgeForProject(input: {
       dispatch_nonce,
       head,
       git_status,
+      ...(git_status_error === undefined ? {} : { git_status_error }),
     }),
   );
   await nodeFsAdapter.appendTextFile(

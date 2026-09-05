@@ -27,7 +27,7 @@ import {
   gitCurrentBranch,
   gitRefExists,
   gitResolveCommit,
-  gitStatus,
+  gitStatusResult,
   isGitRepository,
 } from "./git-client.js";
 
@@ -141,10 +141,18 @@ export async function createIntegrationBranch(
   return { status: "created", head: plan.base_head };
 }
 
-/** Ne-runtime dirty keliai: tik jie reiškia „yra neužcommitinto produkto darbo". */
+/**
+ * Ne-runtime dirty keliai: tik jie reiškia „yra neužcommitinto produkto darbo". `git status`
+ * nesėkmė (index.lock, EPERM, ne repo) grąžina VIENĄ sentinel įrašą, kuris neatitinka jokio
+ * runtime prefikso — kvietėjas mato ne-tuščią sąrašą ir atsisako, o ne tyliai praleidžia
+ * (fail closed, `committedTaskWorkSince` etalonas rollback-scope.ts).
+ */
 export async function nonRuntimeDirtyPaths(root: string): Promise<string[]> {
-  const status = await gitStatus(root);
-  return parseDirtyEntries(status)
+  const status = await gitStatusResult(root);
+  if (!status.ok) {
+    return [`<git status failed: ${status.detail}>`];
+  }
+  return parseDirtyEntries(status.status)
     .map((entry) => entry.path)
     .filter((entry) => !isRuntimePath(entry));
 }

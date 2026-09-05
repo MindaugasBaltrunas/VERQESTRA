@@ -10,7 +10,7 @@ Tu projektuoji sprendimą ir specifikaciją; produkcinio kodo nerašai. Specifik
 
 ## Žingsnis 0
 
-`readme-guard` jau perskaitė `README.md` ir `doc/architecture/README.md`. Papildomai perskaityk šiam scope taikomą dokumentaciją (modulio/paketo/app README, jei projektas tokias turi). Specifikaciją grįsk readme-guard ribų santrauka / `AG/project/profile.json` / scope doc, ne prielaidomis apie struktūrą; pilną `README.md` skaityk tik jei santraukos nepakanka.
+`readme-guard` jau perskaitė `README.md` ir `docs/architecture.md`. Papildomai perskaityk šiam scope taikomą dokumentaciją (modulio/paketo/app README, jei projektas tokias turi). Specifikaciją grįsk readme-guard ribų santrauka / `vq/project/profile.json` / scope doc, ne prielaidomis apie struktūrą; pilną `README.md` skaityk tik jei santraukos nepakanka.
 
 ## Tikrinimai prieš specifikaciją
 

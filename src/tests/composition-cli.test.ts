@@ -275,11 +275,12 @@ test("095-b-03: taskRunPorts.rules.hasAuditCompleteMarker atpažįsta AUDIT_COMP
   }
 });
 
-test("021-d-05: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ quality-gates (own-done greitai, timeout nekeičia elgesio)", async () => {
+test("021-d-05 / 163: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ quality-gates (nonce iš SessionStart baseline, own-done greitai, timeout nekeičia elgesio)", async () => {
   const projectRoot = await mkdtemp(path.join(tmpdir(), "vq-coord-stopwait-"));
   const runtimeRoot = path.join(projectRoot, "vq");
   const agRoot = path.join(projectRoot, "AG");
   const orchestratorLog = path.join(runtimeRoot, "logs", "orchestrator.log");
+  const sessionStartStatusFile = path.join(runtimeRoot, "state", "session-start-status.json");
   const readLog = async () => (await nodeFsAdapter.readTextFileIfExists(orchestratorLog)) ?? "";
 
   let qualityGatesRuns = 0;
@@ -287,6 +288,8 @@ test("021-d-05: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ qua
     projectRoot,
     runtimeRoot,
     agRoot,
+    // Koordinatoriaus procesas: attempt namespace niekada neišsprendžiamas, tad amžiaus
+    // vartai (baseline vs manifest.created_at) NEVEIKIA — sprendžia vien `task_id` sutapimas.
     resolution: noRuntimeAttemptResolution,
     runCli: async (args) => {
       if (args[0] === "quality-gates") qualityGatesRuns += 1;
@@ -297,17 +300,23 @@ test("021-d-05: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ qua
 
   const previousNonce = process.env["AG_DISPATCH_NONCE"];
   const previousWaitMs = process.env["AG_DISPATCH_STOP_WAIT_MS"];
+  // Koordinatoriaus procese `AG_DISPATCH_NONCE` niekada neužrašomas — testas tai atspindi
+  // niekada NEsetindamas šio env, tik įsitikina, kad jis švarus prieš (a).
+  delete process.env["AG_DISPATCH_NONCE"];
   try {
-    // a) be nonce (interaktyvi/be-dispatch sesija) — pass-through, jokio laukimo žurnalo.
-    delete process.env["AG_DISPATCH_NONCE"];
+    // a) be env IR be SessionStart baseline (interaktyvi/be-dispatch sesija) — pass-through,
+    // jokio laukimo žurnalo.
     assert.equal(await ports.cli.run(["quality-gates"]), 0);
     assert.equal(qualityGatesRuns, 1);
     assert.equal((await readLog()).includes("COORDINATOR STOP WAIT"), false);
 
-    // b) own-done: globalus stop failas su MŪSŲ nonce parašytas PRIEŠ kvietimą — sulaukiama
-    // iškart (pirmas probe), be jokio realaus miego.
-    process.env["AG_DISPATCH_NONCE"] = "nonce-1";
+    // b) baseline su SUTAMPANČIU task_id — nonce rezoliucija imama iš jo (env tuščias), o
+    // globalus stop failas su TUO PAČIU nonce duoda own-done iškart (pirmas probe).
     await nodeFsAdapter.writeTextFile(path.join(runtimeRoot, "state", "current-task-id"), "0042\n");
+    await nodeFsAdapter.writeTextFile(
+      sessionStartStatusFile,
+      JSON.stringify({ dispatch_nonce: "nonce-1", task_id: "0042", updated_at: "2026-09-05T00:00:00.000Z" }),
+    );
     await nodeFsAdapter.writeTextFile(
       path.join(runtimeRoot, "state", "claude-stop-status.json"),
       JSON.stringify({ status: "done", dispatch_nonce: "nonce-1", task_id: "0042" }),
@@ -319,19 +328,39 @@ test("021-d-05: taskRunPorts.cli.run laukia SAVO stop-bridge įrodymo PRIEŠ qua
       /COORDINATOR STOP WAIT RESULT: task=0042 result=own-done classification=own-done source=global/,
     );
 
-    // c) timeout: langas išjungtas (AG_DISPATCH_STOP_WAIT_MS=0 — explicit opt-out, vienas
-    // probe), stop failo įrodymo nebėra — verdiktas lieka `none`, o cli.run vis tiek įvyksta
-    // (timeout NIEKADA nepakeičia baigties).
+    // c) baseline su SVETIMU task_id — rezoliucija grąžina tuščią nonce (F7 vartai), tad
+    // laukimas apskritai neįvyksta (pass-through), nors globalus stop failas tebėra "done".
+    await nodeFsAdapter.writeTextFile(
+      sessionStartStatusFile,
+      JSON.stringify({ dispatch_nonce: "nonce-1", task_id: "9999", updated_at: "2026-09-05T00:00:00.000Z" }),
+    );
+    const linesBeforeForeign = (await readLog()).split("\n").length;
+    assert.equal(await ports.cli.run(["quality-gates"]), 0);
+    assert.equal(qualityGatesRuns, 3);
+    assert.equal(
+      (await readLog()).split("\n").length,
+      linesBeforeForeign,
+      "svetimo task_id baseline neduoda nonce — jokio laukimo žurnalo",
+    );
+
+    // d) timeout: baseline grąžintas prie sutampančio task_id, bet langas išjungtas
+    // (AG_DISPATCH_STOP_WAIT_MS=0 — explicit opt-out, vienas probe), stop failo įrodymo
+    // nebėra — verdiktas lieka `none`, o cli.run vis tiek įvyksta (timeout NIEKADA nekeičia
+    // baigties).
+    await nodeFsAdapter.writeTextFile(
+      sessionStartStatusFile,
+      JSON.stringify({ dispatch_nonce: "nonce-1", task_id: "0042", updated_at: "2026-09-05T00:00:00.000Z" }),
+    );
     process.env["AG_DISPATCH_STOP_WAIT_MS"] = "0";
     await nodeFsAdapter.writeTextFile(path.join(runtimeRoot, "state", "claude-stop-status.json"), "");
     assert.equal(await ports.cli.run(["quality-gates"]), 0);
-    assert.equal(qualityGatesRuns, 3);
+    assert.equal(qualityGatesRuns, 4);
     assert.match(
       await readLog(),
       /COORDINATOR STOP WAIT RESULT: task=0042 result=timeout classification=none source=none/,
     );
 
-    // d) kiti cli.run argumentai (pvz. preflight) — laukimas neliečiamas net su gyvu nonce.
+    // e) kiti cli.run argumentai (pvz. preflight) — laukimas neliečiamas net su galiojančiu baseline.
     const linesBefore = (await readLog()).split("\n").length;
     assert.equal(await ports.cli.run(["claude-preflight", "AG/tasks/active/0042.md"]), 0);
     assert.equal((await readLog()).split("\n").length, linesBefore, "kiti args nekviečia stop-bridge laukimo");

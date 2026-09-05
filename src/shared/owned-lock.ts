@@ -324,8 +324,13 @@ export async function stealStaleOwnedLock(io: OwnedLockIo, lockDir: string, stal
     createStealPath: () => `${lockDir}.stale-${io.newLockId()}`,
     readIdentity: (target) => readOwner(io, target),
     isStale: (owner, mtimeMs) => isStaleOwner(owner, mtimeMs, io.nowMs(), staleMs),
+    // Nepatvirtinta nuosavybė = svetima (auditas 2026-09-05, D6). Reikalavimas
+    // `observed !== undefined` naikino gyvą lock'ą: `observed` lieka `undefined`, kai savininkas
+    // dar nespėjo įsirašyti, o stale riba tada matuojama katalogo mtime — būtent tas atvejis,
+    // kuriam mtime atsarga ir skirta. Tarp `readIdentity` ir `rename` lock'ą perima kitas, dar
+    // kitas sukuria savo katalogą su savo `lock_id`, ir mūsų `rename` paima JAU jo katalogą.
     isForeign: (observed, stolen) =>
-      observed !== undefined && stolen !== undefined && stolen.lock_id !== observed.lock_id,
+      stolen !== undefined && (observed === undefined || stolen.lock_id !== observed.lock_id),
     rename: (from, to) => io.renamePath(from, to),
     exists: (target) => io.exists(target),
     remove: async (target) => await io.removeDirectory(target).catch(() => undefined),

@@ -291,6 +291,52 @@ test("darbo klaida atlaisvina lock'ą ir keliauja pas kvietėją nepaliesta", as
   assert.equal(await io.createLockDirectory(LOCK), "created", "lock'as atlaisvintas ir po klaidos");
 });
 
+// SCENARIJUS 6 (auditas 2026-09-05, D6): perėmimas be PATVIRTINTOS nuosavybės.
+//
+// `isForeign` reikalavo `observed !== undefined`, tad kai savininko įrašo perskaityti nepavyko
+// (jo dar nėra arba jis neįskaitomas — kaip tik tas atvejis, kuriam skirta mtime atsarga),
+// perimta SVETIMA tapatybė buvo laikoma sava ir sunaikinama.
+test("perimta svetima tapatybė GRĄŽINAMA, net kai savo stebėta nuosavybė nepatvirtinta", async () => {
+  const { io, advance } = lockIo(1_000);
+
+  // A mato katalogą BE `owner.json`: `readIdentity` → undefined, stale sprendžia katalogo mtime.
+  await io.createLockDirectory(LOCK);
+  advance(5_000);
+
+  // Tarp `readIdentity` ir `rename`: B perima kaip stale, C sukuria savo katalogą ir įsirašo.
+  // A `rename` paima JAU C katalogą.
+  const hijacked: OwnedLockIo = {
+    ...io,
+    renamePath: async (from, to) => {
+      if (from === LOCK) {
+        await io.writeTextFileAtomic(`${LOCK}/owner.json`, JSON.stringify({ lock_id: "C", created_at: 6_000 }));
+      }
+      await io.renamePath(from, to);
+    },
+  };
+
+  await stealStaleOwnedLock(hijacked, LOCK, TIMING.staleMs);
+
+  assert.equal(await ownerIdOf(io), "C", "C lock'as privalo grįžti į savo vietą");
+  assert.equal(await io.createLockDirectory(LOCK), "exists", "D NEGAUNA įėjimo kartu su C");
+});
+
+// Kita „nepatvirtintos nuosavybės" pusė: jei savininko įrašo nėra NĖ PO perėmimo, lock'as tikrai
+// pakibęs, ir jį privalu išvalyti. Be šio testo pataisa galėtų virsti „niekada netrinti".
+test("katalogas be savininko įrašo abu kartus IŠVALOMAS — tai pakibęs lock'as", async () => {
+  const { io, advance, ids } = lockIo(1_000);
+
+  await io.createLockDirectory(LOCK);
+  advance(5_000);
+  await stealStaleOwnedLock(io, LOCK, TIMING.staleMs);
+
+  assert.equal(await io.createLockDirectory(LOCK), "created", "pakibęs lock'as atlaisvintas");
+  // Ir privatus perėmimo kelias išvalytas: „niekada netrinti" paliktų jį gulėti amžinai, o
+  // vien laisvo `LOCK` patikra to nepamatytų.
+  assert.deepEqual(ids, ["lock-1"], "perėmimas pasiėmė lygiai vieną privatų kelią");
+  assert.equal(await io.exists(`${LOCK}.stale-lock-1`), false, "perimtas katalogas nepaliktas");
+});
+
 test("stale riba skaičiuojama nuo PAĖMIMO, ne nuo katalogo mtime", async () => {
   const { io, advance } = lockIo(1_000);
   await io.createLockDirectory(LOCK);

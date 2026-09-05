@@ -20,6 +20,7 @@ import {
   releaseScopeLocks,
   scopesConflict,
   ScopeLockError,
+  SCOPE_LOCK_KINDS,
   SCOPE_LOCK_SCHEMA_VERSION,
   type ScopeLock,
   type ScopeLockAuthority,
@@ -34,15 +35,6 @@ import type { SchedulingClockPort, SchedulingFileSystemPort } from "./ports.js";
 import { schedulingOwnedLockIo, systemSchedulingClock } from "./ports.js";
 
 export const DEFAULT_SCOPE_LOCK_TTL_MS = 15 * 60 * 1000;
-
-const SCOPE_LOCK_KINDS: readonly ScopeLockKind[] = [
-  "file",
-  "directory",
-  "glob",
-  "contract",
-  "migration-chain",
-  "generated",
-];
 
 function comparable(value: string): string {
   return value.toLowerCase();

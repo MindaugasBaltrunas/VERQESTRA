@@ -330,8 +330,10 @@ export async function releaseWorkerLease(input: {
     await releaseScopeLocksInStore({ fs: input.deps.fs, ...(input.deps.clock ? { clock: input.deps.clock } : {}) },
       input.projectRoot, leaseId).catch(async (error: unknown) => {
       // BEST-EFFORT NĖRA TAS PATS, KAS TYLU (2026-09-01 auditas). Verdiktas lieka `ok` — čia
-      // niekas nesikeičia — bet nenuimti lock'ai kabo iki TTL (15 min), ir be šios eilutės
-      // operatorius prarastą lygiagretumą mato tik kaip nepaaiškinamai lėtą loop'ą.
+      // niekas nesikeičia — bet nenuimti lock'ai kabo iki savo TTL, o slot'ų lock'ams ji
+      // yra `WAVE_SLOT_LEASE_TTL_MS`: `wave-provisioning` paduoda TĄ PAČIĄ lease TTL į
+      // `acquireScopeLocksInStore`, ne store numatytąją. Be šios eilutės operatorius
+      // prarastą lygiagretumą mato tik kaip nepaaiškinamai lėtą loop'ą.
       await logLeaseStoreLine(
         input.deps,
         `SCOPE LOCK RELEASE FAILED: lease_id=${leaseId} worker_id=${input.workerId} reason=${
